@@ -1,0 +1,83 @@
+version: "1.0"
+last_updated: "2026-06-16"
+
+authorization:
+  require_sow_for_levels: [4, 5, 6]
+  require_scope_verification_before: "ACTIVE_APPROVED"
+  blast_radius_gate_before: ["ANCHOR", "HUNTER", "SCOUT_HUNTER"]
+  human_approval_required_when:
+    - blast_radius_exceeds_threshold: true
+    - state_transition_to: "OFFENSIVE_APPROVED"
+
+scope:
+  always_excluded_networks:
+    - "169.254.0.0/16"
+    - "224.0.0.0/4"
+    - "0.0.0.0/8"
+  max_ips_per_engagement: 256
+  require_explicit_exclusion_list: true
+  out_of_scope_action: "block_and_log"
+
+excluded_techniques:
+  always_forbidden:
+    - id: "T1498"
+      name: "Network Denial of Service"
+      reason: "Destructive — never allowed"
+    - id: "T1499"
+      name: "Endpoint Denial of Service"
+      reason: "Destructive — never allowed"
+    - id: "T1485"
+      name: "Data Destruction"
+      reason: "Irreversible — never allowed"
+    - id: "T1561"
+      name: "Disk Wipe"
+      reason: "Irreversible — never allowed"
+  require_explicit_opt_in:
+    - id: "T1003"
+      name: "OS Credential Dumping"
+      reason: "High blast radius — operator must opt in per engagement"
+    - id: "T1055"
+      name: "Process Injection"
+      reason: "EDR trigger — operator must opt in per engagement"
+
+safe_in_production:
+  default_mode: "non_destructive"
+  rate_limiting_enabled: true
+  max_requests_per_second: 10
+  dangerous_commands_require_opt_in: true
+  data_destruction_allowed: false
+  snapshot_before_risky_action: false
+
+opsec_profiles:
+  quiet:
+    rate_limit_rps: 2
+    lolbin_first: true
+    avoid_noisy_tools: ["nuclei", "nikto", "sqlmap_aggressive"]
+    jitter_ms: [500, 2000]
+  normal:
+    rate_limit_rps: 10
+    lolbin_first: false
+    avoid_noisy_tools: []
+    jitter_ms: [100, 500]
+  loud:
+    rate_limit_rps: 50
+    lolbin_first: false
+    avoid_noisy_tools: []
+    jitter_ms: [0, 0]
+
+time_windows:
+  enforce: false
+  default_allowed_hours_utc: [0, 23]
+  default_allowed_days: ["mon","tue","wed","thu","fri","sat","sun"]
+
+llm_routing:
+  payload_generation_forbidden_providers:
+    - "claude"
+    - "sonnet"
+    - "opus"
+    - "gpt"
+  payload_generation_allowed_providers:
+    - "deepseek-v4-pro"
+    - "mimo-v2.5-pro"
+  reasoning_preferred_provider: "deepseek-v4-pro"
+  consensus_provider: "mimo-v2.5-pro"
