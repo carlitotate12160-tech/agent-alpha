@@ -88,9 +88,7 @@ class PolicyEnforcer:
         return None
 
     def get_opsec_profile(self, profile_name: str) -> dict[str, object]:
-        profiles: dict[str, object] = typing.cast(
-            dict[str, object], self._policy["opsec_profiles"]
-        )
+        profiles: dict[str, object] = typing.cast(dict[str, object], self._policy["opsec_profiles"])
         if profile_name not in profiles:
             raise PolicyError(f"OPSEC profile '{profile_name}' not found")
         return typing.cast(dict[str, object], profiles[profile_name])
