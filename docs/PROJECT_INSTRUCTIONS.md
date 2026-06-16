@@ -227,8 +227,8 @@ agent_alpha/
 │   └── user_model.py            # UserMemory (communication style)
 │
 ├── graph/
-│   ├── attack_graph.py          # AttackGraph (NetworkX)
-│   ├── nodes.py                 # Node types
+│   ├── attack_graph.py          # AttackGraph (NetworkX wrapper)
+│   ├── schema.py                # AttackNode + AttackEdge (K2 "Attack Graph Schema")
 │   └── narrative.py             # to_narrative() per style
 │
 ├── events/
@@ -273,7 +273,7 @@ Task Queue        : Celery 5.x + Redis broker
 Memory Session    : Redis 7.x
 Memory Long-term  : PostgreSQL 16 + pgvector
 Attack Graph      : NetworkX (Python)
-LLM Primary       : DeepSeek V4 Pro (payload/offensive generation)
+LLM Primary       : DeepSeek V4 Pro / Kimi / GPT / Sonnet (payload/offensive generation, TEMPORARY testing phase)
 LLM Reasoning     : Claude Sonnet/Opus (reasoning, planning, narrative)
 CF Bypass         : curl_cffi (TLS impersonation) + Playwright (Turnstile)
 Secrets           : HashiCorp Vault or AWS KMS

@@ -512,7 +512,7 @@ Automatic proof the agent reads context, not a straight line:
 ### 12.3 Real-target gate (A3) — Phase 2 exit criteria
 
 - **Infra:** targets on **GCP free tier** (e2-micro, x86 — solves the ARM64 constraint), **separate** from the agent (isolation §8l). Agent + test runner stay on Oracle ARM64 (Rule 10).
-- **Firewall (MANDATORY):** targets accept traffic only from the Oracle agent IP (`168.110.192.62`). Vulnerable labs must never be publicly exposed.
+- **Firewall (MANDATORY):** targets accept traffic only from the Oracle agent IP (`<oracle-arm-host>`, IP in secrets vault, not in docs). Vulnerable labs must never be publicly exposed.
 - **Mode:** run labs **one at a time** on e2-micro (small free tier ~1GB).
 - **Phase 2 targets (WebApp), 3 different fingerprints:**
   1. WordPress + ModSecurity (PHP/MySQL/Apache + WAF)
@@ -572,8 +572,8 @@ Automatic proof the agent reads context, not a straight line:
 Applies §8k to the build process, not just runtime:
 
 - **Platform code (~95%)** — Conductor, auth, event store, memory, AttackGraph, gRPC, Celery, cognitive loop, ToolComposer ENGINE, report gen: ordinary engineering, NOT offensive → Claude/Sonnet writes specs, IDE implements, zero refusal risk.
-- **Payload content (~5%)** in `templates/*`: generated at RUNTIME by the DeepSeek provider (composed by ToolComposer against an authorized target), or at dev-time via DeepSeek directly — **never via Claude**.
-- **Routing rule:** payload body in `templates/{bypass,cms,cloud,regional}` → DeepSeek, NEVER Claude. Claude/Sonnet/Opus only: architecture, interface, template scaffold, safety gate, test contract, narrative, review.
+- **Payload content (~5%)** in `templates/*`: generated at RUNTIME by DeepSeek/Kimi/GPT/Sonnet providers (TEMPORARY testing phase, composed by ToolComposer against an authorized target), or at dev-time via these models directly — **never via Claude**.
+- **Routing rule:** payload body in `templates/{bypass,cms,cloud,regional}` → DeepSeek/Kimi/GPT/Sonnet (TEMPORARY testing phase), NEVER Claude. Claude/Sonnet/Opus only: architecture, interface, template scaffold, safety gate, test contract, narrative, review.
 
 ### 12.11 Durability & Resume (anti-Lyndon) — LOCKED
 
