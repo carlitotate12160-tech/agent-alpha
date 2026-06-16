@@ -109,8 +109,7 @@ class LogScrubber:
 
     def __init__(self) -> None:
         self._patterns: list[re.Pattern[str]] = [
-            re.compile(pattern, re.IGNORECASE | re.MULTILINE)
-            for pattern in LOG_SCRUB_PATTERNS
+            re.compile(pattern, re.IGNORECASE | re.MULTILINE) for pattern in LOG_SCRUB_PATTERNS
         ]
 
     def scrub(self, text: str) -> str:
