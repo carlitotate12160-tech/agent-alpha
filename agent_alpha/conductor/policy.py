@@ -105,14 +105,18 @@ class PolicyEnforcer:
     def is_provider_allowed_for_payload(self, provider: str) -> bool:
         forbidden = typing.cast(
             list[str],
-            typing.cast(dict[str, object], self._policy["llm_routing"])["payload_generation_forbidden_providers"],
+            typing.cast(dict[str, object], self._policy["llm_routing"])[
+                "payload_generation_forbidden_providers"
+            ],
         )
         return provider.lower() not in [f.lower() for f in forbidden]
 
     def requires_human_approval(self, transition_to: str) -> bool:
         conditions = typing.cast(
             list[dict[str, object]],
-            typing.cast(dict[str, object], self._policy["authorization"])["human_approval_required_when"],
+            typing.cast(dict[str, object], self._policy["authorization"])[
+                "human_approval_required_when"
+            ],
         )
         for condition in conditions:
             if condition.get("state_transition_to") == transition_to:
