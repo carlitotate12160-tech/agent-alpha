@@ -7,6 +7,7 @@
 import dataclasses
 import ipaddress
 import pathlib
+import typing
 
 import yaml
 
@@ -43,7 +44,7 @@ class PolicyEnforcer:
             policy_path = pathlib.Path(__file__).resolve().parent.parent / "config" / "policy.yaml"
         try:
             with open(policy_path) as f:
-                self._policy: dict = yaml.safe_load(f)
+                self._policy: dict[str, object] = yaml.safe_load(f)
         except FileNotFoundError as exc:
             raise PolicyLoadError(f"Policy file not found: {policy_path}") from exc
         except yaml.YAMLError as exc:
@@ -74,9 +75,9 @@ class PolicyEnforcer:
             except ValueError:
                 return None
             else:
-                target_obj = target_net
+                target_obj: ipaddress.IPv4Network | ipaddress.IPv6Network = target_net
         else:
-            target_obj = target_ip
+            target_obj = ipaddress.ip_network(target_ip, strict=False)
 
         for excluded in self._excluded_networks:
             if target_obj in ipaddress.ip_network(excluded, strict=False):
@@ -86,11 +87,13 @@ class PolicyEnforcer:
                 )
         return None
 
-    def get_opsec_profile(self, profile_name: str) -> dict:
-        profiles = self._policy["opsec_profiles"]
+    def get_opsec_profile(self, profile_name: str) -> dict[str, object]:
+        profiles: dict[str, object] = typing.cast(
+            dict[str, object], self._policy["opsec_profiles"]
+        )
         if profile_name not in profiles:
             raise PolicyError(f"OPSEC profile '{profile_name}' not found")
-        return profiles[profile_name]
+        return typing.cast(dict[str, object], profiles[profile_name])
 
     def is_provider_allowed_for_payload(self, provider: str) -> bool:
         forbidden = self._policy["llm_routing"]["payload_generation_forbidden_providers"]
