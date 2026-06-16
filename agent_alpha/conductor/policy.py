@@ -83,7 +83,12 @@ class PolicyEnforcer:
             except ValueError:
                 return None
             else:
-                target_obj = target_net
+                target_obj: (
+                    ipaddress.IPv4Address
+                    | ipaddress.IPv6Address
+                    | ipaddress.IPv4Network
+                    | ipaddress.IPv6Network
+                ) = target_net
         else:
             target_obj = target_ip
 
