@@ -1,0 +1,118 @@
+// proto/a2a.proto
+// SINGLE SOURCE OF TRUTH for all Agent-Alpha inter-agent communication.
+// Python (authorization.py, events/store.py) and Go agents both generate
+// from this file — they import generated code only, never redefine types.
+//
+// Phase 0 scope ONLY:
+//   - Core enums (EngagementState, AgentRole, MessageType)
+//   - A2AMessage envelope
+//   - Auth transition + emergency stop contracts
+//   - ConductorService
+// Per-agent handoff payloads (Alpha/Beta/Gamma/Delta/Epsilon) are Phase 1+.
+
+syntax = "proto3";
+
+package agent_alpha.a2a;
+
+option go_package = "github.com/agent-alpha/proto";
+
+// ─────────────────────────────────────────────
+// CORE ENUMS  (every enum has a zero-value default)
+// ─────────────────────────────────────────────
+
+// Authorization state machine for an engagement.
+enum EngagementState {
+  CREATED             = 0;  // default — engagement registered, no authority granted
+  RECON_ONLY          = 1;  // passive/active recon allowed
+  ACTIVE_APPROVED     = 2;  // active probing approved
+  OFFENSIVE_APPROVED  = 3;  // exploitation approved
+  EMERGENCY_STOP      = 4;  // all activity halted
+}
+
+// Identity of an agent in the swarm.
+enum AgentRole {
+  CONDUCTOR = 0;  // default — orchestrator
+  ALPHA     = 1;
+  BETA      = 2;
+  GAMMA     = 3;
+  DELTA     = 4;
+  EPSILON   = 5;
+  OMEGA     = 6;
+}
+
+// Kind of A2A message being sent.
+enum MessageType {
+  HANDOFF_READY      = 0;  // default — phase handoff payload attached
+  STATUS_UPDATE      = 1;  // progress / heartbeat
+  ERROR              = 2;  // error report
+  REQUEST_APPROVAL   = 3;  // human-in-the-loop approval requested
+  EMERGENCY_STOP_CMD = 4;  // command to halt the engagement
+}
+
+// ─────────────────────────────────────────────
+// ENVELOPE — every A2A message uses this
+// ─────────────────────────────────────────────
+
+message A2AMessage {
+  string      engagement_id  = 1;
+  AgentRole   from_agent     = 2;
+  AgentRole   to_agent       = 3;
+  MessageType message_type   = 4;
+  string      timestamp_utc  = 5;  // ISO 8601
+  bytes       payload        = 6;  // opaque, serialized phase-specific payload
+  float       confidence     = 7;  // 0.0–1.0
+  bool        requires_human = 8;
+}
+
+// ─────────────────────────────────────────────
+// AUTHORIZATION CONTRACTS
+// ─────────────────────────────────────────────
+
+message AuthTransitionRequest {
+  string          engagement_id = 1;
+  EngagementState target_state  = 2;  // requested new state
+  AgentRole       requested_by  = 3;
+  string          reason        = 4;
+  optional string sow_hash      = 5;  // optional — statement-of-work hash binding
+}
+
+message AuthTransitionResponse {
+  string          engagement_id = 1;
+  bool            approved      = 2;
+  EngagementState new_state     = 3;  // resulting state after the request
+  string          message       = 4;  // human-readable result / denial reason
+}
+
+// ─────────────────────────────────────────────
+// EMERGENCY STOP
+// ─────────────────────────────────────────────
+
+message EmergencyStopRequest {
+  string    engagement_id = 1;
+  AgentRole requested_by  = 2;
+  string    reason        = 3;
+}
+
+// ─────────────────────────────────────────────
+// ENGAGEMENT STATE QUERY
+// ─────────────────────────────────────────────
+
+message GetEngagementStateRequest {
+  string engagement_id = 1;
+}
+
+message EngagementStateResponse {
+  string          engagement_id = 1;
+  EngagementState current_state = 2;
+  string          updated_utc   = 3;  // ISO 8601 of last transition
+}
+
+// ─────────────────────────────────────────────
+// SERVICE — Conductor only (per-agent services are Phase 1+)
+// ─────────────────────────────────────────────
+
+service ConductorService {
+  rpc RequestAuthTransition(AuthTransitionRequest) returns (AuthTransitionResponse);
+  rpc EmergencyStop(EmergencyStopRequest) returns (EngagementStateResponse);
+  rpc GetEngagementState(GetEngagementStateRequest) returns (EngagementStateResponse);
+}
