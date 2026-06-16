@@ -107,7 +107,7 @@ Return executable code with clear comments explaining each step.
 Include error handling and graceful failure modes.
 ```
 
-**IMPORTANT:** Never use real websites (e.g., client-target.com, example.com) in prompts. Only use authorized testing labs with explicit SOW.
+**IMPORTANT:** Never use real websites (e.g.,example.com) in prompts. Only use authorized testing labs with explicit SOW.
 
 ---
 
