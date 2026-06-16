@@ -145,6 +145,8 @@ def node_to_dict(node: AttackNode) -> dict[str, Any]:
 
 def _reconstruct_node(raw: dict[str, Any]) -> AttackNode:
     raw_type = raw.get("type")
+    if not isinstance(raw_type, str):
+        raise KeyError(f"Unknown node type: {raw_type}")
     try:
         node_type = NodeType(raw_type)
     except ValueError as exc:
