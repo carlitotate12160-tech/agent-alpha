@@ -66,12 +66,11 @@ class PolicyEnforcer:
             typing.cast(dict[str, object], self._policy["excluded_techniques"])["always_forbidden"],
         )
         for technique in always_forbidden:
-            tech_dict = typing.cast(dict[str, object], technique)
-            if typing.cast(str, tech_dict["id"]).upper() == mitre_id.upper():
+            if typing.cast(str, technique["id"]).upper() == mitre_id.upper():
                 return PolicyViolation(
                     rule="excluded_technique",
-                    detail=typing.cast(str, tech_dict["reason"]),
-                    mitre_id=typing.cast(str, tech_dict["id"]),
+                    detail=typing.cast(str, technique["reason"]),
+                    mitre_id=typing.cast(str, technique["id"]),
                 )
         return None
 
