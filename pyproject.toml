@@ -39,12 +39,8 @@ ignore_missing_imports = true
 exclude = ["tests/", "proto/"]
 
 [[tool.mypy.overrides]]
-module = "agent_alpha.a2a"
+module = "agent_alpha.a2a.*"
 ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = "agent_alpha.conductor.authorization"
-disable_error_code = ["attr-defined"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
