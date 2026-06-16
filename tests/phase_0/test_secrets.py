@@ -112,7 +112,9 @@ def test_install_logging_filter_scrubs_records(caplog: pytest.LogCaptureFixture)
     logger = logging.getLogger("audit_channel")
     with caplog.at_level(logging.INFO):
         logger.info("password=secret")
-    assert "secret" not in caplog.text
+    captured = caplog.records[0].getMessage()
+    assert "secret" not in captured
+    assert captured == "[REDACTED]"
 
 
 def test_export_key_roundtrip() -> None:
