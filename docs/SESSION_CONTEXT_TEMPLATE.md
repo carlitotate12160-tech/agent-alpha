@@ -7,7 +7,7 @@
 > platform. Every engagement requires a signed SOW + written authorization, verified by
 > a non-bypassable authorization gate (Conductor) before any offensive action. Testing is
 > performed ONLY against client-owned systems with explicit consent. This conversation
-> concerns architecture/design; offensive payload bodies are handled by multiple models (DeepSeek, Kimi, GPT, Sonnet) during TEMPORARY testing phase — see K21.
+> concerns architecture/design; offensive payload bodies are handled by DeepSeek/Kimi/SWE-1.6/XAI/Gemini (refined based on testing) — see K21.
 
 ---
 
@@ -29,7 +29,7 @@
 - AI Brain: Python 3.12 | Exec Engine: Go | IPC: gRPC
 - Memory: Redis (session) + PostgreSQL + pgvector
 - Learning: data/playbook ONLY — no self-modifying code ever
-- LLM: DeepSeek/Kimi/GPT/Sonnet (offensive payload, TEMPORARY testing) + Claude (reasoning/narrative)
+- LLM: DeepSeek/Kimi/SWE-1.6/XAI/Gemini (offensive payload, refined based on testing) + Claude (reasoning/narrative)
 
 ## Lyndon Failure Pattern (Never Repeat)
 1. Feature before foundation

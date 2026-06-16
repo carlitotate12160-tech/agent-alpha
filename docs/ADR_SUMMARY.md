@@ -92,7 +92,7 @@ reporting standards/RoE (8n).
 
 Legal/abuse → auth + immutable audit · blast radius → calculator + human gate ·
 hallucination → structured prompt from graph · prompt injection → trusted/untrusted
-separation · LLM refusal → role split (payload→DeepSeek/Kimi/GPT/Sonnet, TEMPORARY testing) · data leak → redaction +
+separation · LLM refusal → role split (payload→DeepSeek/Kimi/SWE-1.6/XAI/Gemini, refined based on testing) · data leak → redaction +
 self-host · runaway cost → stop conditions + budget cap · over-engineering learning
 → no self-modifying code.
 
@@ -110,6 +110,6 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
 - **12.7** "Similar target" = weighted composite (tech_stack + protection primary).
 - **12.8** Tool reliability: score data-driven, threshold hardcoded; agent never edits thresholds.
 - **12.9** Playbook promotion: ≥N successes across ≥M different targets + Wilson lower-bound.
-- **12.10** Dev workflow: platform code → Claude; payload bodies in `templates/*` → DeepSeek/Kimi/GPT/Sonnet (TEMPORARY testing phase), NEVER Claude.
+- **12.10** Dev workflow: platform code → Claude; payload bodies in `templates/*` → DeepSeek/Kimi/SWE-1.6/XAI/Gemini (refined based on testing), NEVER Claude.
 - **12.11** Durability/resume: durable append-only event log = source of truth; graph/Redis volatile (rebuilt via replay). Staged resume (engagement-level P1, step-level P3). Interrupted offensive action = RE-VERIFY, never re-execute.
 - **12.12** GraphStore abstraction: swappable graph engine (NetworkX P0-3, Memgraph/Neo4j P4+), always a projection of the event log.

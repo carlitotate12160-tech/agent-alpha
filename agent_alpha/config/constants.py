@@ -5,8 +5,8 @@
 # ── LLM Providers ──────────────────────────────────────────
 LLM_REASONING_PRIMARY = "deepseek-v4-pro"
 LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"
-LLM_PAYLOAD_GEN = ["deepseek-v4-pro", "kimi", "gpt", "sonnet"]  # TEMPORARY: testing phase — will refine based on refusal behavior
-LLM_PAYLOAD_NEVER = []  # TEMPORARY: all models allowed for testing
+LLM_PAYLOAD_GEN = ["deepseek-v4-pro", "kimi", "swe-1.6", "xai", "gemini"]  # Refined based on testing: Kimi works; Sonnet/GPT removed (refusal)
+LLM_PAYLOAD_NEVER = ["sonnet", "gpt"]  # Models that consistently refuse payload generation
 
 # ── LLM Tier Labels ─────────────────────────────────────────
 LLM_TIER_RULE = "rule"
