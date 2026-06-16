@@ -34,7 +34,7 @@ class DecryptionError(SecretsError):
 
 
 def _utcnow() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return datetime.datetime.now(datetime.UTC).isoformat()
 
 
 def _new_secret_id() -> str:
