@@ -17,8 +17,8 @@ all: check test
 
 # Generate Python + Go stubs from the canonical A2A contract.
 proto:
-	python -m grpc_tools.protoc -I proto --python_out=. --grpc_python_out=. proto/a2a.proto
-	protoc -I proto --go_out=. --go-grpc_out=. proto/a2a.proto
+	$(PYTHON) -m grpc_tools.protoc -I proto --python_out=. --grpc_python_out=. proto/a2a.proto
+	-protoc -I proto --go_out=. --go-grpc_out=. proto/a2a.proto || echo "Go codegen skipped (protoc not available)"
 
 # ── Quality gates ──────────────────────────────
 
