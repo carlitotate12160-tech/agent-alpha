@@ -47,6 +47,7 @@ app = FastAPI(title="Agent-Alpha Conductor", version="0.1.0")
 def run_engagement_task(engagement_id: str) -> dict[str, Any]:
     return {"engagement_id": engagement_id, "status": "placeholder"}
 
+
 # ── Endpoints ────────────────────────────────────────────────────────
 
 
@@ -64,7 +65,10 @@ def create_engagement(body: dict[str, str]) -> dict[str, str]:
         raise HTTPException(status_code=400, detail="client_id and target required") from exc
 
     record = auth.create_engagement(client_id, target)
-    return {"engagement_id": record.engagement_id, "state": a2a_pb2.EngagementState.Name(record.state)}
+    return {
+        "engagement_id": record.engagement_id,
+        "state": a2a_pb2.EngagementState.Name(record.state),
+    }
 
 
 @app.post("/engagements/{engagement_id}/recon")
@@ -74,7 +78,9 @@ def enable_recon(engagement_id: str, body: dict[str, list[str]]) -> dict[str, st
         domains = body["domains"]
         exclusions = body["exclusions"]
     except KeyError as exc:
-        raise HTTPException(status_code=400, detail="ip_ranges, domains, and exclusions required") from exc
+        raise HTTPException(
+            status_code=400, detail="ip_ranges, domains, and exclusions required"
+        ) from exc
 
     scope = Scope(ip_ranges=ip_ranges, domains=domains, exclusions=exclusions)
     try:
