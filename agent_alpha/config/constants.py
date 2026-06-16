@@ -5,8 +5,8 @@
 # ── LLM Providers ──────────────────────────────────────────
 LLM_REASONING_PRIMARY = "deepseek-v4-pro"
 LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"
-LLM_PAYLOAD_GEN = "deepseek-v4-pro"
-LLM_PAYLOAD_NEVER = ["claude", "sonnet", "opus", "gpt"]
+LLM_PAYLOAD_GEN = ["deepseek-v4-pro", "kimi", "gpt", "sonnet"]  # TEMPORARY: testing phase — will refine based on refusal behavior
+LLM_PAYLOAD_NEVER = []  # TEMPORARY: all models allowed for testing
 
 # ── LLM Tier Labels ─────────────────────────────────────────
 LLM_TIER_RULE = "rule"

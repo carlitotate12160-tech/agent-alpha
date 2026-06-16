@@ -71,13 +71,12 @@ time_windows:
   default_allowed_days: ["mon","tue","wed","thu","fri","sat","sun"]
 
 llm_routing:
-  payload_generation_forbidden_providers:
-    - "claude"
-    - "sonnet"
-    - "opus"
-    - "gpt"
+  payload_generation_forbidden_providers: []  # TEMPORARY: all models allowed for testing
   payload_generation_allowed_providers:
     - "deepseek-v4-pro"
     - "mimo-v2.5-pro"
+    - "kimi"
+    - "gpt"
+    - "sonnet"
   reasoning_preferred_provider: "deepseek-v4-pro"
   consensus_provider: "mimo-v2.5-pro"
