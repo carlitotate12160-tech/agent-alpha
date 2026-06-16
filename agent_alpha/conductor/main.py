@@ -55,7 +55,7 @@ app = FastAPI(title="Agent-Alpha Conductor", version="0.1.0")
 # ── Celery task (placeholder) ────────────────────────────────────────
 
 
-@celery_app.task  # type: ignore[misc]
+@celery_app.task  # type: ignore[untyped-decorator]
 def run_engagement_task(engagement_id: str) -> dict[str, Any]:
     return {"engagement_id": engagement_id, "status": "placeholder"}
 
