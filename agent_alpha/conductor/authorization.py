@@ -51,7 +51,13 @@ def _utc_now_iso() -> str:
 @dataclass
 class _ParsedAddress:
     kind: str
-    value: ipaddress.IPv4Address | ipaddress.IPv6Address | ipaddress.IPv4Network | ipaddress.IPv6Network | str
+    value: (
+        ipaddress.IPv4Address
+        | ipaddress.IPv6Address
+        | ipaddress.IPv4Network
+        | ipaddress.IPv6Network
+        | str
+    )
 
 
 def _coerce_address(value: str) -> _ParsedAddress:
@@ -76,9 +82,9 @@ def _coerce_address(value: str) -> _ParsedAddress:
 
 @dataclass
 class Scope:
-    ip_ranges: list[str]            # CIDR notation
+    ip_ranges: list[str]  # CIDR notation
     domains: list[str]
-    exclusions: list[str]           # IPs/domains explicitly out of scope
+    exclusions: list[str]  # IPs/domains explicitly out of scope
     verified: bool = False
 
     def validate(self) -> None:
@@ -95,9 +101,7 @@ class Scope:
             total_ips += network.num_addresses
 
         if total_ips > MAX_SCOPE_IPS:
-            raise ValueError(
-                f"scope spans {total_ips} IPs, exceeds MAX_SCOPE_IPS={MAX_SCOPE_IPS}"
-            )
+            raise ValueError(f"scope spans {total_ips} IPs, exceeds MAX_SCOPE_IPS={MAX_SCOPE_IPS}")
 
         for exclusion in self.exclusions:
             parsed = _coerce_address(exclusion)
@@ -110,12 +114,12 @@ class EngagementRecord:
     engagement_id: str
     client_id: str
     target: str
-    state: int                      # a2a_pb2.EngagementState value
+    state: int  # a2a_pb2.EngagementState value
     scope: Scope | None
     sow_hash: bytes | None
-    created_at: str                 # ISO 8601 UTC
-    updated_at: str                 # ISO 8601 UTC
-    stopped_reason: str | None      # set on EMERGENCY_STOP
+    created_at: str  # ISO 8601 UTC
+    updated_at: str  # ISO 8601 UTC
+    stopped_reason: str | None  # set on EMERGENCY_STOP
 
 
 # ── State machine ─────────────────────────────────────────────
@@ -137,9 +141,7 @@ class AuthorizationStateMachine:
 
     # ── Private helpers ───────────────────────────────────────
 
-    def _emit_event(
-        self, event_type: str, engagement_id: str, payload: dict[str, object]
-    ) -> None:
+    def _emit_event(self, event_type: str, engagement_id: str, payload: dict[str, object]) -> None:
         """Emit an event to the configured callback. Never raises."""
         if self._event_callback is None:
             return
@@ -185,9 +187,7 @@ class AuthorizationStateMachine:
     def enable_recon(self, engagement_id: str, scope: Scope) -> bool:
         record = self._get(engagement_id)
         if record.state != a2a_pb2.CREATED:
-            raise ValueError(
-                f"enable_recon requires CREATED state, found {record.state}"
-            )
+            raise ValueError(f"enable_recon requires CREATED state, found {record.state}")
         try:
             scope.validate()
         except ValueError as exc:
@@ -208,9 +208,7 @@ class AuthorizationStateMachine:
     def enable_active(self, engagement_id: str) -> bool:
         record = self._get(engagement_id)
         if record.state != a2a_pb2.RECON_ONLY:
-            raise ValueError(
-                f"enable_active requires RECON_ONLY state, found {record.state}"
-            )
+            raise ValueError(f"enable_active requires RECON_ONLY state, found {record.state}")
         if record.scope is None or not record.scope.verified:
             raise ValueError("enable_active requires a verified scope")
 
@@ -332,22 +330,30 @@ class AuthorizationStateMachine:
 
         if parsed.kind == "domain":
             assert isinstance(parsed.value, str)
-            return any(
-                parsed.value == domain.strip().lower() for domain in scope.domains
-            )
+            return any(parsed.value == domain.strip().lower() for domain in scope.domains)
 
         for cidr in scope.ip_ranges:
             try:
                 network = ipaddress.ip_network(cidr, strict=False)
             except ValueError:
                 continue
-            if parsed.kind == "address" and isinstance(parsed.value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) and parsed.value in network:
+            if (
+                parsed.kind == "address"
+                and isinstance(parsed.value, (ipaddress.IPv4Address, ipaddress.IPv6Address))
+                and parsed.value in network
+            ):
                 return True
-            if parsed.kind == "network" and isinstance(parsed.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+            if parsed.kind == "network" and isinstance(
+                parsed.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)
+            ):
                 if type(parsed.value) is type(network):
-                    if isinstance(parsed.value, ipaddress.IPv4Network) and isinstance(network, ipaddress.IPv4Network):
+                    if isinstance(parsed.value, ipaddress.IPv4Network) and isinstance(
+                        network, ipaddress.IPv4Network
+                    ):
                         return parsed.value.subnet_of(network)
-                    if isinstance(parsed.value, ipaddress.IPv6Network) and isinstance(network, ipaddress.IPv6Network):
+                    if isinstance(parsed.value, ipaddress.IPv6Network) and isinstance(
+                        network, ipaddress.IPv6Network
+                    ):
                         return parsed.value.subnet_of(network)
         return False
 
@@ -360,12 +366,24 @@ class AuthorizationStateMachine:
         if cand.kind == "address":
             return parsed.kind == "address" and parsed.value == cand.value
         if cand.kind == "network":
-            if parsed.kind == "address" and isinstance(parsed.value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) and isinstance(cand.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+            if (
+                parsed.kind == "address"
+                and isinstance(parsed.value, (ipaddress.IPv4Address, ipaddress.IPv6Address))
+                and isinstance(cand.value, (ipaddress.IPv4Network, ipaddress.IPv6Network))
+            ):
                 return parsed.value in cand.value
-            if parsed.kind == "network" and isinstance(parsed.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)) and isinstance(cand.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+            if (
+                parsed.kind == "network"
+                and isinstance(parsed.value, (ipaddress.IPv4Network, ipaddress.IPv6Network))
+                and isinstance(cand.value, (ipaddress.IPv4Network, ipaddress.IPv6Network))
+            ):
                 if type(parsed.value) is type(cand.value):
-                    if isinstance(parsed.value, ipaddress.IPv4Network) and isinstance(cand.value, ipaddress.IPv4Network):
+                    if isinstance(parsed.value, ipaddress.IPv4Network) and isinstance(
+                        cand.value, ipaddress.IPv4Network
+                    ):
                         return parsed.value.subnet_of(cand.value)
-                    if isinstance(parsed.value, ipaddress.IPv6Network) and isinstance(cand.value, ipaddress.IPv6Network):
+                    if isinstance(parsed.value, ipaddress.IPv6Network) and isinstance(
+                        cand.value, ipaddress.IPv6Network
+                    ):
                         return parsed.value.subnet_of(cand.value)
         return False
