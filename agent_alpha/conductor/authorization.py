@@ -13,7 +13,6 @@ import logging
 import secrets
 import typing
 from dataclasses import dataclass
-from typing import cast
 
 from agent_alpha.a2a import a2a_pb2  # type: ignore[attr-defined]
 from agent_alpha.config.constants import (

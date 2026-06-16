@@ -45,7 +45,7 @@ class AgentEvent:
 
 
 def _utcnow() -> str:
-    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat() + "Z"
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
 
 class EventStore:
