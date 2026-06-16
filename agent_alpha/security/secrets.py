@@ -127,4 +127,10 @@ class LogScrubber:
                 record.args = None
                 return True
 
-        logging.getLogger().addFilter(_ScrubFilter())
+        scrub_filter = _ScrubFilter()
+        root = logging.getLogger()
+        root.addFilter(scrub_filter)
+        # Records from child loggers are filtered at the handler level when they
+        # propagate to the root logger, so attach the filter to root handlers too.
+        for handler in root.handlers:
+            handler.addFilter(scrub_filter)
