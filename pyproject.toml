@@ -5,6 +5,10 @@ requires-python = ">=3.12"
 dependencies = [
     "pyyaml",
     "cryptography",
+    "fastapi",
+    "httpx",
+    "celery",
+    "redis",
 ]
 
 [tool.setuptools.packages.find]
