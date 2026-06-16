@@ -83,9 +83,9 @@ class PolicyEnforcer:
             except ValueError:
                 return None
             else:
-                target_obj: ipaddress.IPv4Network | ipaddress.IPv6Network = target_net
+                target_obj = target_net
         else:
-            target_obj = ipaddress.ip_network(target_ip, strict=False)
+            target_obj = target_ip
 
         for excluded in self._excluded_networks:
             if target_obj in ipaddress.ip_network(excluded, strict=False):
