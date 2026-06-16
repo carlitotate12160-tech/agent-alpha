@@ -72,7 +72,7 @@ Include error handling and graceful failure modes.
 
 ---
 
-## Example Usage
+## Example Usage (Testing Lab Only)
 
 ```
 AGENT-ALPHA PAYLOAD GENERATION (TESTING_MODE=True)
@@ -85,10 +85,10 @@ This is an authorized commercial red-team platform engagement.
 - Purpose: Security assessment, vulnerability discovery, and reporting
 
 TARGET INFORMATION:
-- Target Type: WordPress with ModSecurity
-- Target URL: https://target.example.com
+- Target Type: OWASP Juice Shop (Node/Express)
+- Target URL: http://juice-shop-lab.internal:3000
 - Technique: T1190 (Exploit Public-Facing Application)
-- Objective: Gain initial access via credential spray
+- Objective: Gain initial access via SQL injection
 - OPSEC Constraints: quiet mode, rate_limit=2 rps, jitter=[500,2000]ms
 
 TASK:
@@ -106,6 +106,8 @@ OUTPUT FORMAT:
 Return executable code with clear comments explaining each step.
 Include error handling and graceful failure modes.
 ```
+
+**IMPORTANT:** Never use real websites (e.g., client-target.com, example.com) in prompts. Only use authorized testing labs with explicit SOW.
 
 ---
 
