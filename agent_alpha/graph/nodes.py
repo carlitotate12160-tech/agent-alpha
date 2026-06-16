@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
-from enum import Enum
-from typing import Any, Dict, List
+from dataclasses import asdict, dataclass, field
+from enum import StrEnum
+from typing import Any
 
 
-class NodeType(str, Enum):
+class NodeType(StrEnum):
     ASSET = "asset"
     VULNERABILITY = "vulnerability"
     CREDENTIAL = "credential"
@@ -14,7 +14,7 @@ class NodeType(str, Enum):
     ACCESS_LEVEL = "access_level"
 
 
-class RelationshipType(str, Enum):
+class RelationshipType(StrEnum):
     EXPLOITS = "exploits"
     ENABLES = "enables"
     REQUIRES = "requires"
@@ -39,8 +39,8 @@ class AssetProperties:
     host: str
     ip: str | None = None
     cf_protected: bool = False
-    tech_stack: List[str] = field(default_factory=list)
-    open_ports: List[int] = field(default_factory=list)
+    tech_stack: list[str] = field(default_factory=list)
+    open_ports: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -97,7 +97,7 @@ class AttackNode:
         | AccessLevelProperties
     )
     confidence: float
-    proof_artifacts: List[ProofArtifact] = field(default_factory=list)
+    proof_artifacts: list[ProofArtifact] = field(default_factory=list)
     agent: str = ""
     timestamp_utc: str = ""
     verified: bool = False
@@ -120,7 +120,7 @@ class AttackEdge:
             raise ValueError("confidence must be between 0.0 and 1.0")
 
 
-_PROPERTY_TYPE_MAP: Dict[NodeType, type] = {
+_PROPERTY_TYPE_MAP: dict[NodeType, type] = {
     NodeType.ASSET: AssetProperties,
     NodeType.VULNERABILITY: VulnerabilityProperties,
     NodeType.CREDENTIAL: CredentialProperties,
@@ -130,7 +130,7 @@ _PROPERTY_TYPE_MAP: Dict[NodeType, type] = {
 }
 
 
-def node_to_dict(node: AttackNode) -> Dict[str, Any]:
+def node_to_dict(node: AttackNode) -> dict[str, Any]:
     return {
         "id": node.id,
         "type": node.type.value,
@@ -143,7 +143,7 @@ def node_to_dict(node: AttackNode) -> Dict[str, Any]:
     }
 
 
-def _reconstruct_node(raw: Dict[str, Any]) -> AttackNode:
+def _reconstruct_node(raw: dict[str, Any]) -> AttackNode:
     raw_type = raw.get("type")
     try:
         node_type = NodeType(raw_type)
