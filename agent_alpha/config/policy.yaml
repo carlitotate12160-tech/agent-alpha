@@ -71,15 +71,7 @@ time_windows:
   default_allowed_days: ["mon","tue","wed","thu","fri","sat","sun"]
 
 llm_routing:
-  payload_generation_forbidden_providers: []  # No explicit forbidden list; all models allowed
-  payload_generation_allowed_providers:
-    - "deepseek-v4-pro"
-    - "mimo-v2.5-pro"
-    - "kimi"
-    - "swe-1.6"
-    - "xai"
-    - "gemini"
-    - "sonnet"
-    - "gpt"
+  payload_generation_forbidden_providers: []  # No forbidden list
+  payload_generation_allowed_providers: []  # No whitelist; all models allowed
   reasoning_preferred_provider: "deepseek-v4-pro"
   consensus_provider: "mimo-v2.5-pro"

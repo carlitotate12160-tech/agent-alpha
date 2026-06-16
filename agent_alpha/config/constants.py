@@ -5,7 +5,7 @@
 # ── LLM Providers ──────────────────────────────────────────
 LLM_REASONING_PRIMARY = "deepseek-v4-pro"
 LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"
-LLM_PAYLOAD_GEN = ["deepseek-v4-pro", "kimi", "swe-1.6", "xai", "gemini", "sonnet", "gpt"]  # All models allowed; no explicit forbidden list
+LLM_PAYLOAD_GEN = []  # No whitelist; all models allowed to attempt payload generation
 
 # ── LLM Tier Labels ─────────────────────────────────────────
 LLM_TIER_RULE = "rule"

@@ -273,7 +273,7 @@ Task Queue        : Celery 5.x + Redis broker
 Memory Session    : Redis 7.x
 Memory Long-term  : PostgreSQL 16 + pgvector
 Attack Graph      : NetworkX (Python)
-LLM Primary       : DeepSeek V4 Pro / Kimi / SWE-1.6 / XAI / Gemini / Sonnet / GPT (payload/offensive generation)
+LLM Primary       : any model (payload/offensive generation)
 LLM Reasoning     : Claude Sonnet/Opus (reasoning, planning, narrative)
 CF Bypass         : curl_cffi (TLS impersonation) + Playwright (Turnstile)
 Secrets           : HashiCorp Vault or AWS KMS
