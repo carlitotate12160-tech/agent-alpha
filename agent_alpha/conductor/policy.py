@@ -40,11 +40,7 @@ class PolicyEnforcer:
 
     def __init__(self, policy_path: pathlib.Path | None = None) -> None:
         if policy_path is None:
-            policy_path = (
-                pathlib.Path(__file__).resolve().parent.parent
-                / "config"
-                / "policy.yaml"
-            )
+            policy_path = pathlib.Path(__file__).resolve().parent.parent / "config" / "policy.yaml"
         try:
             with open(policy_path) as f:
                 self._policy: dict = yaml.safe_load(f)
