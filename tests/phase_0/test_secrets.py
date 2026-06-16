@@ -109,7 +109,7 @@ def test_scrub_is_idempotent() -> None:
 def test_install_logging_filter_scrubs_records(caplog: pytest.LogCaptureFixture) -> None:
     scrubber = LogScrubber()
     scrubber.install_logging_filter()
-    logger = logging.getLogger("test_secrets_filter")
+    logger = logging.getLogger("audit_channel")
     with caplog.at_level(logging.INFO):
         logger.info("password=secret")
     assert "secret" not in caplog.text
