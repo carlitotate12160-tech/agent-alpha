@@ -367,7 +367,7 @@ Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Window
 ### Command Verifikasi
 ```bash
 # Di Oracle ARM64:
-ssh -i "D:\ssh-key-2026-03-26.key" ubuntu@168.110.192.62
+ssh -i "<path-to-ssh-key>" ubuntu@<oracle-arm-host>
 cd ~/agent-alpha
 git pull origin main
 make quality

@@ -89,7 +89,7 @@ Proceed? (requires explicit override)
 ### Rule 10: Oracle ARM64 Is The Only Valid Environment
 Never run tests locally (Windows or Mac) and report them as valid.
 All test execution must be on Oracle Cloud ARM64 (Ubuntu 24).
-SSH: `ubuntu@168.110.192.62`
+SSH: `ubuntu@<oracle-arm-host>` (IP + key in secrets vault, not in docs)
 If you cannot access Oracle, report the test as PENDING, not passing.
 
 ---
