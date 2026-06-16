@@ -14,7 +14,7 @@ import secrets
 import typing
 from dataclasses import dataclass
 
-from agent_alpha.a2a import a2a_pb2  # type: ignore[attr-defined]
+from agent_alpha.a2a import a2a_pb2
 from agent_alpha.config.constants import (
     EMERGENCY_STOP_TIMEOUT_SEC,
     MAX_SCOPE_IPS,
