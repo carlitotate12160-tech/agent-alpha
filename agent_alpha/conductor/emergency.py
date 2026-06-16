@@ -103,8 +103,7 @@ class EmergencyStopHandler:
         # Step 6: warn (do not fail) if the stop exceeded the budget.
         if elapsed_ms > EMERGENCY_STOP_TIMEOUT_SEC * 1000:
             _log.warning(
-                "Emergency stop for engagement_id=%s took %.1fms, exceeding budget "
-                "of %dms",
+                "Emergency stop for engagement_id=%s took %.1fms, exceeding budget of %dms",
                 engagement_id,
                 elapsed_ms,
                 EMERGENCY_STOP_TIMEOUT_SEC * 1000,
