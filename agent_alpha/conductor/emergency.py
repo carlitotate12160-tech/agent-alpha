@@ -121,6 +121,6 @@ class EmergencyStopHandler:
     def is_stopped(self, engagement_id: str) -> bool:
         """Return True if the engagement is in EMERGENCY_STOP. Never raises."""
         try:
-            return self._auth.get_state(engagement_id) == a2a_pb2.EMERGENCY_STOP
+            return bool(self._auth.get_state(engagement_id) == a2a_pb2.EMERGENCY_STOP)
         except Exception:  # noqa: BLE001 — unknown engagement is simply "not stopped"
             return False

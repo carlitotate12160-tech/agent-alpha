@@ -47,6 +47,10 @@ ignore_errors = true
 module = "agent_alpha.conductor.authorization"
 disable_error_code = ["attr-defined"]
 
+[[tool.mypy.overrides]]
+module = "agent_alpha.conductor.emergency"
+disable_error_code = ["attr-defined"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
