@@ -16,8 +16,10 @@ all: check test
 # ── Codegen ────────────────────────────────────
 
 # Generate Python + Go stubs from the canonical A2A contract.
+# Python stubs are emitted into the agent_alpha/a2a package so they import as
+# `from agent_alpha.a2a import a2a_pb2`.
 proto:
-	$(PYTHON) -m grpc_tools.protoc -I proto --python_out=. --grpc_python_out=. proto/a2a.proto
+	$(PYTHON) -m grpc_tools.protoc -I proto --python_out=agent_alpha/a2a --grpc_python_out=agent_alpha/a2a proto/a2a.proto
 	-protoc -I proto --go_out=. --go-grpc_out=. proto/a2a.proto || echo "Go codegen skipped (protoc not available)"
 
 # ── Quality gates ──────────────────────────────

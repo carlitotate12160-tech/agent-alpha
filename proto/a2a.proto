@@ -1,41 +1,30 @@
 // proto/a2a.proto
 // SINGLE SOURCE OF TRUTH for all Agent-Alpha inter-agent communication.
-// Python (authorization.py, events/store.py) and Go agents both generate
-// from this file — they import generated code only, never redefine types.
+// Python and Go both generate from this file — they import generated code
+// only, never redefine these types.
 //
-// Phase 0 scope ONLY:
-//   - Core enums (EngagementState, AgentRole, MessageType)
-//   - A2AMessage envelope
-//   - Auth transition + emergency stop contracts
-//   - ConductorService
-//
-// NOTE: Per-agent handoff payloads (Alpha/Beta/Gamma/Delta/Epsilon/Omega) and
-// PhaseStatus are retained below because the FROZEN contract tests in
-// tests/PROTECTED/test_proto_contract.py depend on them. They are not part of
-// the Phase 0 envelope surface but must remain for backward compatibility.
+// Phase 0 scope ONLY: core enums, A2AMessage envelope, single canonical
+// HandoffPayload, authorization + emergency-stop contracts, ConductorService.
+// No per-agent handoff variants. No per-agent service RPCs (Phase 1+).
 
 syntax = "proto3";
 
 package agent_alpha.a2a;
 
-option go_package = "github.com/agent-alpha/proto";
+option go_package = "github.com/carlitotate12160-tech/agent-alpha/proto/a2a";
 
-// ─────────────────────────────────────────────
-// CORE ENUMS  (every enum has a zero-value default)
-// ─────────────────────────────────────────────
+// ── Enums (every enum has a zero-value default) ───────────────
 
-// Authorization state machine for an engagement.
 enum EngagementState {
-  CREATED             = 0;  // default — engagement registered, no authority granted
-  RECON_ONLY          = 1;  // passive/active recon allowed
-  ACTIVE_APPROVED     = 2;  // active probing approved
-  OFFENSIVE_APPROVED  = 3;  // exploitation approved
-  EMERGENCY_STOP      = 4;  // all activity halted
+  CREATED            = 0;
+  RECON_ONLY         = 1;
+  ACTIVE_APPROVED    = 2;
+  OFFENSIVE_APPROVED = 3;
+  EMERGENCY_STOP     = 4;
 }
 
-// Identity of an agent in the swarm.
 enum AgentRole {
-  CONDUCTOR = 0;  // default — orchestrator
+  CONDUCTOR = 0;
   ALPHA     = 1;
   BETA      = 2;
   GAMMA     = 3;
@@ -44,258 +33,82 @@ enum AgentRole {
   OMEGA     = 6;
 }
 
-// Kind of A2A message being sent.
 enum MessageType {
-  HANDOFF_READY      = 0;  // default — phase handoff payload attached
-  STATUS_UPDATE      = 1;  // progress / heartbeat
-  ERROR              = 2;  // error report
-  REQUEST_APPROVAL   = 3;  // human-in-the-loop approval requested
-  EMERGENCY_STOP_CMD = 4;  // command to halt the engagement
+  HANDOFF_READY      = 0;
+  STATUS_UPDATE      = 1;
+  ERROR              = 2;
+  REQUEST_APPROVAL   = 3;
+  EMERGENCY_STOP_CMD = 4;
 }
 
-// Per-phase completion status (used by handoff payloads, retained for PROTECTED tests).
 enum PhaseStatus {
-  COMPLETE     = 0;
-  PARTIAL      = 1;
-  FAILED       = 2;
-  BLOCKED      = 3;
-  IN_PROGRESS  = 4;
+  PENDING  = 0;
+  RUNNING  = 1;
+  COMPLETE = 2;
+  FAILED   = 3;
+  BLOCKED  = 4;
 }
 
-// ─────────────────────────────────────────────
-// ENVELOPE — every A2A message uses this
-// ─────────────────────────────────────────────
+// ── Core envelope ─────────────────────────────────────────────
 
 message A2AMessage {
   string      engagement_id  = 1;
   AgentRole   from_agent     = 2;
   AgentRole   to_agent       = 3;
   MessageType message_type   = 4;
-  string      timestamp_utc  = 5;  // ISO 8601
-  bytes       payload        = 6;  // opaque, serialized phase-specific payload
-  float       confidence     = 7;  // 0.0–1.0
+  string      timestamp_utc  = 5;
+  bytes       payload        = 6;
+  float       confidence     = 7;
   bool        requires_human = 8;
 }
 
-// ─────────────────────────────────────────────
-// AUTHORIZATION CONTRACTS
-// ─────────────────────────────────────────────
+// ── Handoff — single canonical type, no per-agent variants ────
+
+message HandoffPayload {
+  string          from_phase       = 1;
+  string          to_phase         = 2;
+  PhaseStatus     status           = 3;
+  int32           findings_count   = 4;
+  bytes           handoff_data     = 5;
+  repeated string proof_artifacts  = 6;
+  AgentRole       next_recommended = 7;
+  float           confidence       = 8;
+}
+
+// ── Authorization ─────────────────────────────────────────────
 
 message AuthTransitionRequest {
   string          engagement_id = 1;
-  EngagementState target_state  = 2;  // requested new state
-  AgentRole       requested_by  = 3;
-  string          reason        = 4;
-  optional string sow_hash      = 5;  // optional — statement-of-work hash binding
+  EngagementState target_state  = 2;
+  string          requested_by  = 3;
+  bytes           sow_hash      = 4;
 }
 
 message AuthTransitionResponse {
-  string          engagement_id = 1;
-  bool            approved      = 2;
-  EngagementState new_state     = 3;  // resulting state after the request
-  string          message       = 4;  // human-readable result / denial reason
+  bool            approved  = 1;
+  EngagementState new_state = 2;
+  string          reason    = 3;
+  string          event_id  = 4;
 }
-
-// ─────────────────────────────────────────────
-// EMERGENCY STOP
-// ─────────────────────────────────────────────
 
 message EmergencyStopRequest {
-  string    engagement_id = 1;
-  AgentRole requested_by  = 2;
-  string    reason        = 3;
-}
-
-// ─────────────────────────────────────────────
-// ENGAGEMENT STATE QUERY
-// ─────────────────────────────────────────────
-
-message GetEngagementStateRequest {
   string engagement_id = 1;
+  string reason        = 2;
+  string issued_by     = 3;
 }
+
+message EngagementStateRequest { string engagement_id = 1; }
 
 message EngagementStateResponse {
   string          engagement_id = 1;
-  EngagementState current_state = 2;
-  string          updated_utc   = 3;  // ISO 8601 of last transition
+  EngagementState state         = 2;
+  string          updated_at    = 3;
 }
 
-// ─────────────────────────────────────────────
-// SERVICE — Conductor only (per-agent services are Phase 1+)
-// ─────────────────────────────────────────────
+// ── Service — Conductor only ──────────────────────────────────
 
 service ConductorService {
-  rpc RequestAuthTransition(AuthTransitionRequest) returns (AuthTransitionResponse);
-  rpc EmergencyStop(EmergencyStopRequest) returns (EngagementStateResponse);
-  rpc GetEngagementState(GetEngagementStateRequest) returns (EngagementStateResponse);
-}
-
-// ═════════════════════════════════════════════
-// RETAINED — handoff contracts & shared types
-// Required by FROZEN tests/PROTECTED/test_proto_contract.py. Not Phase 0
-// envelope surface; per-agent handoff detail is finalized in Phase 1+.
-// ═════════════════════════════════════════════
-
-message AlphaHandoff {
-  // SCOUT output — what Alpha found
-  repeated string hosts           = 1;
-  repeated PortService ports      = 2;
-  repeated string tech_stack      = 3;
-  repeated string js_secrets      = 4;   // redacted before LLM
-  repeated string api_endpoints   = 5;
-  repeated string open_dirs       = 6;
-  PhaseStatus     status          = 7;
-  int32           findings_count  = 8;
-  string          next_recommended = 9;  // "beta" | "omega" (if nothing found)
-  repeated Service services        = 10; // per-host service detail + CVEs
-  repeated string cf_protected_hosts = 11; // hosts behind Cloudflare
-}
-
-message BetaHandoff {
-  // STRIKE output — valid credentials found
-  repeated Credential valid_credentials = 1;
-  repeated string     session_tokens    = 2;
-  string              access_level      = 3;  // "admin" | "user" | "read_only"
-  string              entry_point       = 4;  // URL or service
-  PhaseStatus         status            = 5;
-  int32               attempts_made     = 6;
-  int32               findings_count    = 7;
-  string              auth_method       = 8;  // "form" | "basic" | "ssh" | "api_key"
-}
-
-message GammaHandoff {
-  // ANCHOR output — exploitation results
-  ShellAccess     shell_access    = 1;  // typed (was bool — zero consumers, safe to change)
-  reserved 2;  // was webshell_path, now inside ShellAccess.shell_url
-  string          server_context  = 3;  // "www-data" | "root" | etc
-  repeated string writable_paths  = 4;
-  string          exploit_used    = 5;  // reference to template name
-  PhaseStatus     status          = 6;
-  int32           findings_count  = 7;
-  ProofArtifact   proof_artifact  = 8;  // proof of exploitation
-}
-
-message DeltaHandoff {
-  // HUNTER output — post-exploitation
-  repeated Credential    harvested_creds      = 1;
-  repeated DatabaseAccess db_access           = 2;  // typed list (was bool — zero consumers, safe)
-  repeated string        internal_hosts       = 3;
-  repeated string        config_files_found   = 4;
-  PhaseStatus            status               = 5;
-  int32                  findings_count       = 6;
-  string                 privilege_level      = 7;  // "root" | "admin" | "user"
-  NetworkMap             internal_network_map = 8;  // discovered internal ranges
-  repeated FileRef       sensitive_files      = 9;  // config/env files found
-}
-
-message EpsilonHandoff {
-  // SCOUT-HUNTER output — lateral movement
-  repeated string        compromised_hosts    = 1;
-  repeated string        pivoted_networks     = 2;
-  repeated string        additional_findings  = 3;
-  PhaseStatus            status               = 4;
-  int32                  findings_count       = 5;
-  repeated AttackPath    attack_paths         = 6;  // lateral movement chains
-  repeated ProofArtifact proof_artifacts      = 7;  // proof of pivot/access
-}
-
-message OmegaHandoff {
-  // ROASTER output — report ready
-  string  report_id         = 1;
-  string  executive_pdf_url = 2;
-  string  technical_pdf_url = 3;
-  string  sarif_url         = 4;
-  string  json_url          = 5;
-  int32   total_findings    = 6;
-  int32   critical_count    = 7;
-  int32   high_count        = 8;
-  PhaseStatus status        = 9;
-}
-
-message StatusUpdate {
-  string phase         = 1;
-  int32  progress_pct  = 2;   // 0–100
-  string current_task  = 3;   // human-readable, for Telegram streaming
-  int32  iteration     = 4;
-  string inner_mono    = 5;   // cognitive loop inner monologue snippet
-}
-
-message ErrorPayload {
-  string error_code    = 1;   // "SCOPE_VIOLATION" | "AUTH_DENIED" | "TOOL_TIMEOUT"
-  string error_message = 2;
-  bool   is_fatal      = 3;   // fatal = halt engagement
-  string recovery_hint = 4;
-}
-
-// ── Shared types ───────────────────────────────
-
-message PortService {
-  int32  port     = 1;
-  string protocol = 2;  // "tcp" | "udp"
-  string service  = 3;  // "http" | "ssh" | "mysql" etc
-  string banner   = 4;
-  bool   open     = 5;
-}
-
-message Credential {
-  string username     = 1;
-  string secret_ref   = 2;  // vault reference — NEVER plaintext password
-  string service      = 3;
-  string access_level = 4;
-}
-
-message Service {
-  string          name         = 1;  // "apache" | "nginx" | "iis"
-  string          version      = 2;
-  repeated string cves         = 3;  // matched CVEs from alpha scan
-  bool            cf_protected = 4;
-}
-
-message ProofArtifact {
-  string artifact_id   = 1;  // UUID
-  string type          = 2;  // "request_response" | "screenshot" | "data_sample"
-  string storage_ref   = 3;  // path in object storage, NEVER inline content
-  string description   = 4;
-  string captured_at   = 5;  // ISO 8601
-  string agent         = 6;  // which agent captured this
-}
-
-message ShellAccess {
-  bool   obtained      = 1;
-  string shell_type    = 2;  // "webshell" | "reverse_shell" | "pty" | "none"
-  string shell_url     = 3;  // webshell URL if applicable
-  string user_context  = 4;  // "www-data" | "root" | "SYSTEM"
-  bool   interactive   = 5;  // PTY available?
-  string transport     = 6;  // "gsocket" | "http" | "tcp"
-}
-
-message DatabaseAccess {
-  string db_type       = 1;  // "mysql" | "postgresql" | "mssql" | "mongodb"
-  string host          = 2;
-  int32  port          = 3;
-  string db_name       = 4;
-  string user_context  = 5;  // "root" | "app_user" etc
-  bool   dump_possible = 6;
-}
-
-message NetworkMap {
-  repeated string internal_subnets    = 1;  // "192.168.1.0/24" etc
-  repeated string live_hosts          = 2;
-  repeated string domain_controllers  = 3;
-  repeated string high_value_targets  = 4;
-}
-
-message FileRef {
-  string path        = 1;
-  string type        = 2;  // ".env" | "config.php" | "wp-config.php" etc
-  string contains    = 3;  // "db_creds" | "api_keys" | "smtp_creds"
-  string storage_ref = 4;  // vault/storage ref, never raw content
-}
-
-message AttackPath {
-  string          path_id      = 1;
-  repeated string host_chain   = 2;  // ordered: A → B → C
-  string          technique    = 3;  // MITRE ATT&CK ID
-  string          pivot_method = 4;  // "ssh" | "smb" | "gsocket_tunnel"
-  float           confidence   = 5;
+  rpc RequestAuthTransition (AuthTransitionRequest)  returns (AuthTransitionResponse);
+  rpc EmergencyStop         (EmergencyStopRequest)   returns (AuthTransitionResponse);
+  rpc GetEngagementState    (EngagementStateRequest) returns (EngagementStateResponse);
 }
