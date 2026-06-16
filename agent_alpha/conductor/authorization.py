@@ -6,7 +6,6 @@
 # they NEVER hold an instance of AuthorizationStateMachine and NEVER write
 # state directly. Only the Conductor owns an instance.
 
-import dataclasses
 import datetime
 import hashlib
 import ipaddress
@@ -14,14 +13,15 @@ import logging
 import secrets
 import typing
 from dataclasses import dataclass
+from typing import cast
 
+from agent_alpha.a2a import a2a_pb2  # type: ignore[attr-defined]
 from agent_alpha.config.constants import (
     EMERGENCY_STOP_TIMEOUT_SEC,
     MAX_SCOPE_IPS,
-    SOW_MAX_FILE_SIZE_MB,
     SOW_HASH_ALGORITHM,
+    SOW_MAX_FILE_SIZE_MB,
 )
-from agent_alpha.a2a import a2a_pb2
 
 _log = logging.getLogger(__name__)
 
@@ -46,24 +46,30 @@ class EngagementNotFoundError(KeyError):
 
 def _utc_now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string with a 'Z' suffix."""
-    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat() + "Z"
+    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
 
-def _coerce_address(value: str):
+@dataclass
+class _ParsedAddress:
+    kind: str
+    value: ipaddress.IPv4Address | ipaddress.IPv6Address | ipaddress.IPv4Network | ipaddress.IPv6Network | str
+
+
+def _coerce_address(value: str) -> _ParsedAddress:
     """Parse a string as an ip_address, ip_network, or fall back to a domain.
 
-    Returns a tuple (kind, parsed) where kind is one of 'address', 'network',
+    Returns a _ParsedAddress where kind is one of 'address', 'network',
     or 'domain'. Domains are normalised to lower-case.
     """
     try:
-        return ("address", ipaddress.ip_address(value))
+        return _ParsedAddress("address", ipaddress.ip_address(value))
     except ValueError:
         pass
     try:
-        return ("network", ipaddress.ip_network(value, strict=False))
+        return _ParsedAddress("network", ipaddress.ip_network(value, strict=False))
     except ValueError:
         pass
-    return ("domain", value.strip().lower())
+    return _ParsedAddress("domain", value.strip().lower())
 
 
 # ── Dataclasses ───────────────────────────────────────────────
@@ -95,8 +101,8 @@ class Scope:
             )
 
         for exclusion in self.exclusions:
-            kind, _ = _coerce_address(exclusion)
-            if kind == "domain" and not exclusion.strip():
+            parsed = _coerce_address(exclusion)
+            if parsed.kind == "domain" and not exclusion.strip():
                 raise ValueError(f"unparseable exclusion: {exclusion!r}")
 
 
@@ -125,9 +131,7 @@ class AuthorizationStateMachine:
 
     def __init__(
         self,
-        event_callback: typing.Optional[
-            typing.Callable[[str, dict], None]
-        ] = None,
+        event_callback: typing.Callable[[str, dict[str, object]], None] | None = None,
     ) -> None:
         self._event_callback = event_callback
         self._engagements: dict[str, EngagementRecord] = {}
@@ -135,7 +139,7 @@ class AuthorizationStateMachine:
     # ── Private helpers ───────────────────────────────────────
 
     def _emit_event(
-        self, event_type: str, engagement_id: str, payload: dict
+        self, event_type: str, engagement_id: str, payload: dict[str, object]
     ) -> None:
         """Emit an event to the configured callback. Never raises."""
         if self._event_callback is None:
@@ -287,20 +291,26 @@ class AuthorizationStateMachine:
             return True
 
         if agent_role in (a2a_pb2.ALPHA, a2a_pb2.OMEGA):
-            return record.state in (
-                a2a_pb2.RECON_ONLY,
-                a2a_pb2.ACTIVE_APPROVED,
-                a2a_pb2.OFFENSIVE_APPROVED,
+            return bool(
+                record.state
+                in (
+                    a2a_pb2.RECON_ONLY,
+                    a2a_pb2.ACTIVE_APPROVED,
+                    a2a_pb2.OFFENSIVE_APPROVED,
+                )
             )
 
         if agent_role == a2a_pb2.BETA:
-            return record.state in (
-                a2a_pb2.ACTIVE_APPROVED,
-                a2a_pb2.OFFENSIVE_APPROVED,
+            return bool(
+                record.state
+                in (
+                    a2a_pb2.ACTIVE_APPROVED,
+                    a2a_pb2.OFFENSIVE_APPROVED,
+                )
             )
 
         if agent_role in (a2a_pb2.GAMMA, a2a_pb2.DELTA, a2a_pb2.EPSILON):
-            return record.state == a2a_pb2.OFFENSIVE_APPROVED
+            return bool(record.state == a2a_pb2.OFFENSIVE_APPROVED)
 
         return False
 
@@ -314,16 +324,17 @@ class AuthorizationStateMachine:
             return False
 
         scope = record.scope
-        kind, parsed = _coerce_address(target)
+        parsed = _coerce_address(target)
 
         # Exclusions take precedence.
         for exclusion in scope.exclusions:
-            if self._matches(kind, parsed, exclusion):
+            if self._matches(parsed, exclusion):
                 return False
 
-        if kind == "domain":
+        if parsed.kind == "domain":
+            assert isinstance(parsed.value, str)
             return any(
-                parsed == domain.strip().lower() for domain in scope.domains
+                parsed.value == domain.strip().lower() for domain in scope.domains
             )
 
         for cidr in scope.ip_ranges:
@@ -331,23 +342,31 @@ class AuthorizationStateMachine:
                 network = ipaddress.ip_network(cidr, strict=False)
             except ValueError:
                 continue
-            if kind == "address" and parsed in network:
+            if parsed.kind == "address" and isinstance(parsed.value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) and parsed.value in network:
                 return True
-            if kind == "network" and parsed.subnet_of(network):
-                return True
+            if parsed.kind == "network" and isinstance(parsed.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+                if type(parsed.value) is type(network):
+                    if isinstance(parsed.value, ipaddress.IPv4Network) and isinstance(network, ipaddress.IPv4Network):
+                        return parsed.value.subnet_of(network)
+                    if isinstance(parsed.value, ipaddress.IPv6Network) and isinstance(network, ipaddress.IPv6Network):
+                        return parsed.value.subnet_of(network)
         return False
 
     @staticmethod
-    def _matches(kind: str, parsed, candidate: str) -> bool:
+    def _matches(parsed: _ParsedAddress, candidate: str) -> bool:
         """Return whether a parsed target matches a candidate exclusion entry."""
-        cand_kind, cand_parsed = _coerce_address(candidate)
-        if kind == "domain":
-            return cand_kind == "domain" and parsed == cand_parsed
-        if cand_kind == "address":
-            return kind == "address" and parsed == cand_parsed
-        if cand_kind == "network":
-            if kind == "address":
-                return parsed in cand_parsed
-            if kind == "network":
-                return parsed.subnet_of(cand_parsed)
+        cand = _coerce_address(candidate)
+        if parsed.kind == "domain":
+            return cand.kind == "domain" and parsed.value == cand.value
+        if cand.kind == "address":
+            return parsed.kind == "address" and parsed.value == cand.value
+        if cand.kind == "network":
+            if parsed.kind == "address" and isinstance(parsed.value, (ipaddress.IPv4Address, ipaddress.IPv6Address)) and isinstance(cand.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+                return parsed.value in cand.value
+            if parsed.kind == "network" and isinstance(parsed.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)) and isinstance(cand.value, (ipaddress.IPv4Network, ipaddress.IPv6Network)):
+                if type(parsed.value) is type(cand.value):
+                    if isinstance(parsed.value, ipaddress.IPv4Network) and isinstance(cand.value, ipaddress.IPv4Network):
+                        return parsed.value.subnet_of(cand.value)
+                    if isinstance(parsed.value, ipaddress.IPv6Network) and isinstance(cand.value, ipaddress.IPv6Network):
+                        return parsed.value.subnet_of(cand.value)
         return False

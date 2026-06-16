@@ -9,7 +9,7 @@ RUFF := $(VENV)/ruff
 MYPY := $(VENV)/mypy
 PYTEST := $(VENV)/pytest
 
-.PHONY: all check lint typecheck test test-protected test-phase0 proto
+.PHONY: all check lint lint-fix typecheck quality test test-protected test-phase0 proto
 
 all: check test
 
@@ -27,11 +27,20 @@ proto:
 check: lint typecheck
 
 lint:
-	$(RUFF) check . --config pyproject.toml
-	$(RUFF) format --check . --config pyproject.toml
+	$(RUFF) check agent_alpha/
+	$(RUFF) format --check agent_alpha/
+
+lint-fix:
+	$(RUFF) check --fix agent_alpha/
+	$(RUFF) format agent_alpha/
 
 typecheck:
-	$(MYPY) conductor/ --config-file pyproject.toml || true
+	$(MYPY) agent_alpha/ --ignore-missing-imports
+
+quality:
+	make lint
+	make typecheck
+	$(PYTEST) tests/PROTECTED/ tests/phase_0/ -v
 
 # ── Tests ──────────────────────────────────────
 
