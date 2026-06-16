@@ -7,6 +7,7 @@
 
 import hashlib
 import logging
+import typing
 from typing import Any
 
 from celery import Celery
@@ -25,7 +26,18 @@ _log = logging.getLogger(__name__)
 # ── Singletons (module-level, initialized once) ─────────────────────
 
 event_store = EventStore()
-auth = AuthorizationStateMachine(event_callback=event_store.append)
+
+
+def _event_callback(event_type: str, payload: dict[str, Any]) -> None:
+    event_store.append(
+        event_type=event_type,
+        engagement_id=typing.cast(str, payload["engagement_id"]),
+        agent="CONDUCTOR",
+        payload=payload,
+    )
+
+
+auth = AuthorizationStateMachine(event_callback=_event_callback)
 policy = PolicyEnforcer()
 secrets_mgr = SecretsManager()
 log_scrubber = LogScrubber()
@@ -43,7 +55,7 @@ app = FastAPI(title="Agent-Alpha Conductor", version="0.1.0")
 # ── Celery task (placeholder) ────────────────────────────────────────
 
 
-@celery_app.task
+@celery_app.task  # type: ignore[misc]
 def run_engagement_task(engagement_id: str) -> dict[str, Any]:
     return {"engagement_id": engagement_id, "status": "placeholder"}
 
