@@ -51,18 +51,27 @@ class PolicyEnforcer:
             raise PolicyLoadError(f"Invalid YAML in policy file: {policy_path}") from exc
 
         # Merge scope exclusions from constants and policy.yaml (union, no duplicates).
-        yaml_excluded = set(self._policy["scope"]["always_excluded_networks"])
+        yaml_excluded = set(
+            typing.cast(
+                list[str],
+                typing.cast(dict[str, object], self._policy["scope"])["always_excluded_networks"],
+            )
+        )
         const_excluded = set(SCOPE_ALWAYS_EXCLUDED)
         self._excluded_networks = list(yaml_excluded | const_excluded)
 
     def check_technique(self, mitre_id: str) -> PolicyViolation | None:
-        always_forbidden = self._policy["excluded_techniques"]["always_forbidden"]
+        always_forbidden = typing.cast(
+            list[dict[str, object]],
+            typing.cast(dict[str, object], self._policy["excluded_techniques"])["always_forbidden"],
+        )
         for technique in always_forbidden:
-            if technique["id"].upper() == mitre_id.upper():
+            tech_dict = typing.cast(dict[str, object], technique)
+            if typing.cast(str, tech_dict["id"]).upper() == mitre_id.upper():
                 return PolicyViolation(
                     rule="excluded_technique",
-                    detail=technique["reason"],
-                    mitre_id=technique["id"],
+                    detail=typing.cast(str, tech_dict["reason"]),
+                    mitre_id=typing.cast(str, tech_dict["id"]),
                 )
         return None
 
@@ -94,11 +103,17 @@ class PolicyEnforcer:
         return typing.cast(dict[str, object], profiles[profile_name])
 
     def is_provider_allowed_for_payload(self, provider: str) -> bool:
-        forbidden = self._policy["llm_routing"]["payload_generation_forbidden_providers"]
+        forbidden = typing.cast(
+            list[str],
+            typing.cast(dict[str, object], self._policy["llm_routing"])["payload_generation_forbidden_providers"],
+        )
         return provider.lower() not in [f.lower() for f in forbidden]
 
     def requires_human_approval(self, transition_to: str) -> bool:
-        conditions = self._policy["authorization"]["human_approval_required_when"]
+        conditions = typing.cast(
+            list[dict[str, object]],
+            typing.cast(dict[str, object], self._policy["authorization"])["human_approval_required_when"],
+        )
         for condition in conditions:
             if condition.get("state_transition_to") == transition_to:
                 return True
