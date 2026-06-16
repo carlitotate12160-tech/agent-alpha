@@ -6,8 +6,8 @@ import pytest
 from agent_alpha.config.constants import MAX_EVENTS_PER_ENGAGEMENT
 from agent_alpha.events.store import (
     AgentEvent,
-    EventStore,
     EventLimitExceededError,
+    EventStore,
     SequenceGapError,
 )
 

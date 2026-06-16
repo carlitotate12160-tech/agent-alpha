@@ -9,12 +9,11 @@
 import dataclasses
 import datetime
 import uuid
-import typing
 
 from agent_alpha.config.constants import (
     EVENT_SEQUENCE_GAP_ALLOWED,
-    MAX_EVENTS_PER_ENGAGEMENT,
     EVENT_STORE_TABLE,
+    MAX_EVENTS_PER_ENGAGEMENT,
 )
 
 
@@ -41,7 +40,7 @@ class AgentEvent:
     engagement_id: str
     agent: str
     timestamp_utc: str
-    payload: dict
+    payload: dict[str, object]
     sequence_number: int
 
 
@@ -50,16 +49,19 @@ def _utcnow() -> str:
 
 
 class EventStore:
+    # Target table for the deferred PostgreSQL backend (Phase 1).
+    _table = EVENT_STORE_TABLE
+
     def __init__(self) -> None:
-        self._events: typing.Dict[str, typing.List[AgentEvent]] = {}
-        self._sequence_counters: typing.Dict[str, int] = {}
+        self._events: dict[str, list[AgentEvent]] = {}
+        self._sequence_counters: dict[str, int] = {}
 
     def append(
         self,
         event_type: str,
         engagement_id: str,
         agent: str,
-        payload: dict,
+        payload: dict[str, object],
     ) -> AgentEvent:
         current_count = len(self._events.get(engagement_id, []))
         if current_count >= MAX_EVENTS_PER_ENGAGEMENT:
@@ -88,7 +90,7 @@ class EventStore:
         self,
         engagement_id: str,
         after_sequence: int = 0,
-    ) -> typing.List[AgentEvent]:
+    ) -> list[AgentEvent]:
         events = self._events.get(engagement_id, [])
         selected = [e for e in events if e.sequence_number > after_sequence]
         return sorted(selected, key=lambda e: e.sequence_number)
@@ -97,13 +99,13 @@ class EventStore:
         self,
         engagement_id: str,
         sequence_number: int,
-    ) -> typing.Optional[AgentEvent]:
+    ) -> AgentEvent | None:
         for event in self._events.get(engagement_id, []):
             if event.sequence_number == sequence_number:
                 return event
         return None
 
-    def replay(self, engagement_id: str) -> typing.List[AgentEvent]:
+    def replay(self, engagement_id: str) -> list[AgentEvent]:
         events = sorted(
             self._events.get(engagement_id, []),
             key=lambda e: e.sequence_number,
