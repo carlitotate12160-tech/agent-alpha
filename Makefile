@@ -4,7 +4,7 @@
 # Run: make all    (check + test)
 
 VENV := .venv/bin
-PYTHON := $(VENV)/python
+PYTHON := $(VENV)/python3
 RUFF := $(VENV)/ruff
 MYPY := $(VENV)/mypy
 PYTEST := $(VENV)/pytest
