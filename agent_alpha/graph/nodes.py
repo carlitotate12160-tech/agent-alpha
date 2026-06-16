@@ -147,7 +147,7 @@ def _reconstruct_node(raw: Dict[str, Any]) -> AttackNode:
     raw_type = raw.get("type")
     try:
         node_type = NodeType(raw_type)
-    except ValueError as exc:  # type: ignore[used-before-assignment]
+    except ValueError as exc:
         raise KeyError(f"Unknown node type: {raw_type}") from exc
 
     try:

@@ -574,3 +574,36 @@ Applies §8k to the build process, not just runtime:
 - **Platform code (~95%)** — Conductor, auth, event store, memory, AttackGraph, gRPC, Celery, cognitive loop, ToolComposer ENGINE, report gen: ordinary engineering, NOT offensive → Claude/Sonnet writes specs, IDE implements, zero refusal risk.
 - **Payload content (~5%)** in `templates/*`: generated at RUNTIME by the DeepSeek provider (composed by ToolComposer against an authorized target), or at dev-time via DeepSeek directly — **never via Claude**.
 - **Routing rule:** payload body in `templates/{bypass,cms,cloud,regional}` → DeepSeek, NEVER Claude. Claude/Sonnet/Opus only: architecture, interface, template scaffold, safety gate, test contract, narrative, review.
+
+### 12.11 Durability & Resume (anti-Lyndon) — LOCKED
+
+Direct answer to the Lyndon failure (restart → lose state → start over). State is
+never stored only in volatile memory.
+
+- **Runtime source of truth = durable append-only event log** (PostgreSQL, Phase 1).
+  AttackGraph (NetworkX) and SessionMemory (Redis) are volatile projections, rebuilt
+  via `replay()` (§8o-1).
+- **Rule:** anything reconstructable from the event log MAY be volatile; only the
+  event log MUST be durable. Losing the in-memory graph or Redis ≠ losing state.
+- **Resume, staged:**
+  - **Engagement-level (Phase 1):** PostgreSQL event backend + `Projector.rebuild()` +
+    boot recovery → graph & findings restored, agent continues without re-scan (§8b).
+  - **Step-level (Phase 3, §8m):** checkpoint cognitive-loop position
+    (phase / iteration / active plan / scratchpad) → resume at the exact step.
+- **Snapshot optimization (Phase 2):** load latest projection snapshot + replay only
+  the events after it (avoids full replay). Phase 1 event log MUST be snapshot-ready.
+- **Interrupted offensive action on crash = RE-VERIFY, NEVER RE-EXECUTE:** on resume,
+  destructive actions are not repeated; the agent runs VERIFY (inspect target state)
+  to infer the outcome of the interrupted action before proceeding. Unverifiable
+  outcomes are tagged `unknown` (never assumed successful; promotion rule §8j-2).
+- Phase 0 caveat: `EventStore` is in-memory by design (lost on restart); durability
+  begins in Phase 1.
+
+### 12.12 GraphStore abstraction — LOCKED
+
+- Define a `GraphStore` interface (read-model) so the graph engine can be swapped
+  without touching the Cognitive Loop. The graph is always a projection of the event
+  log (§8o-1), so swapping engines is safe.
+- Phase 0–3: NetworkX (in-memory, simple, sufficient). Phase 4+: evaluate Memgraph
+  (Cypher, in-memory) or Neo4j if cross-engagement/large-graph queries prove necessary
+  — still rebuilt from events, never the source of truth.
