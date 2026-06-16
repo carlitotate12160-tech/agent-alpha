@@ -46,7 +46,7 @@ class EngagementNotFoundError(KeyError):
 
 def _utc_now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string with a 'Z' suffix."""
-    return datetime.datetime.utcnow().isoformat() + "Z"
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None).isoformat() + "Z"
 
 
 def _coerce_address(value: str):
