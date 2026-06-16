@@ -11,7 +11,6 @@ import pathlib
 import yaml
 
 from agent_alpha.config.constants import (
-    MAX_SCOPE_IPS,
     SCOPE_ALWAYS_EXCLUDED,
 )
 
@@ -47,7 +46,7 @@ class PolicyEnforcer:
                 / "policy.yaml"
             )
         try:
-            with open(policy_path, "r") as f:
+            with open(policy_path) as f:
                 self._policy: dict = yaml.safe_load(f)
         except FileNotFoundError as exc:
             raise PolicyLoadError(f"Policy file not found: {policy_path}") from exc
