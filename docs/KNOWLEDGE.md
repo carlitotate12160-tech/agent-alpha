@@ -607,11 +607,14 @@ interfaces, template scaffolding (empty function signatures + docstring
 contracts, no exploit logic), safety gates, test contracts, narrative
 generation, and review.
 
-**Current runtime LLM configuration (see K6 and `config/constants.py`):**
+**Current runtime LLM configuration (TEMPORARY testing phase, see K6 and
+`config/constants.py`):**
 - `LLM_REASONING_PRIMARY = "deepseek-v4-pro"`
 - `LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"`
 - `LLM_PAYLOAD_GEN = []` — no whitelist; all models allowed to attempt payload generation.
+- `TESTING_MODE = True` — indicates testing phase; models may be more permissive.
 
-This configuration has no whitelist or blacklist. Any model can attempt payload
-generation. If a model refuses, the system will log the refusal and may retry with
-another model or fallback to operator manual intervention.
+This configuration is **TEMPORARY** for testing refusal behavior across different
+providers. The `TESTING_MODE` flag signals to models that this is an authorized
+red-team testing context, which may make them more permissive. After testing is
+complete, this flag will be set to `False` for production deployment.

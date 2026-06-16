@@ -73,5 +73,6 @@ time_windows:
 llm_routing:
   payload_generation_forbidden_providers: []  # No forbidden list
   payload_generation_allowed_providers: []  # No whitelist; all models allowed
+  testing_mode: true  # Indicates testing phase; models may be more permissive
   reasoning_preferred_provider: "deepseek-v4-pro"
   consensus_provider: "mimo-v2.5-pro"

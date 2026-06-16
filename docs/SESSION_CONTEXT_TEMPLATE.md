@@ -7,7 +7,7 @@
 > platform. Every engagement requires a signed SOW + written authorization, verified by
 > a non-bypassable authorization gate (Conductor) before any offensive action. Testing is
 > performed ONLY against client-owned systems with explicit consent. This conversation
-> concerns architecture/design; offensive payload bodies are handled by any model — see K21.
+> concerns architecture/design; offensive payload bodies are handled by any model (TEMPORARY testing phase) — see K21.
 
 ---
 
@@ -29,7 +29,7 @@
 - AI Brain: Python 3.12 | Exec Engine: Go | IPC: gRPC
 - Memory: Redis (session) + PostgreSQL + pgvector
 - Learning: data/playbook ONLY — no self-modifying code ever
-- LLM: any model (offensive payload) + Claude (reasoning/narrative)
+- LLM: any model (offensive payload, TEMPORARY testing phase) + Claude (reasoning/narrative)
 
 ## Lyndon Failure Pattern (Never Repeat)
 1. Feature before foundation

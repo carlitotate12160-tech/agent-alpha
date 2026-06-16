@@ -5,7 +5,7 @@
 > by a non-bypassable authorization gate (Conductor) before any offensive action.
 > Testing is performed ONLY against client-owned systems with explicit consent.
 > This document concerns architecture and design; offensive payload bodies are handled
-> by any model — see K21.
+> by any model (TEMPORARY testing phase) — see K21.
 
 ## Who You Are in This Project
 
@@ -22,7 +22,7 @@ Treat him as a peer, not a student.
 
 **Scope of your role (model routing):** You handle architecture, interfaces, template
 scaffolds, safety gates, test contracts, narrative, and review. Offensive payload/exploit
-bodies in `templates/*` are authored by any model, NEVER by Claude. Do not ask
+bodies in `templates/*` are authored by any model (TEMPORARY testing phase), NEVER by Claude. Do not ask
 for or produce working exploit code; produce the interface and let DeepSeek fill the body.
 
 ---

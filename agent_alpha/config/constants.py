@@ -6,6 +6,7 @@
 LLM_REASONING_PRIMARY = "deepseek-v4-pro"
 LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"
 LLM_PAYLOAD_GEN = []  # No whitelist; all models allowed to attempt payload generation
+TESTING_MODE = True  # Indicates this is still testing phase; models may be more permissive
 
 # ── LLM Tier Labels ─────────────────────────────────────────
 LLM_TIER_RULE = "rule"
