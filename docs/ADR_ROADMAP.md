@@ -572,8 +572,8 @@ Automatic proof the agent reads context, not a straight line:
 Applies §8k to the build process, not just runtime:
 
 - **Platform code (~95%)** — Conductor, auth, event store, memory, AttackGraph, gRPC, Celery, cognitive loop, ToolComposer ENGINE, report gen: ordinary engineering, NOT offensive → Claude/Sonnet writes specs, IDE implements, zero refusal risk.
-- **Payload content (~5%)** in `templates/*`: generated at RUNTIME by DeepSeek/Kimi/SWE-1.6/XAI/Gemini providers (refined based on testing, composed by ToolComposer against an authorized target), or at dev-time via these models directly — **never via Claude**.
-- **Routing rule:** payload body in `templates/{bypass,cms,cloud,regional}` → DeepSeek/Kimi/SWE-1.6/XAI/Gemini, NEVER Claude/Sonnet/GPT. Claude/Sonnet/Opus only: architecture, interface, template scaffold, safety gate, test contract, narrative, review.
+- **Payload content (~5%)** in `templates/*`: generated at RUNTIME by DeepSeek/Kimi/SWE-1.6/XAI/Gemini/Sonnet/GPT providers (composed by ToolComposer against an authorized target), or at dev-time via these models directly — **never via Claude**.
+- **Routing rule:** payload body in `templates/{bypass,cms,cloud,regional}` → DeepSeek/Kimi/SWE-1.6/XAI/Gemini/Sonnet/GPT, NEVER Claude. Claude/Sonnet/Opus only: architecture, interface, template scaffold, safety gate, test contract, narrative, review.
 
 ### 12.11 Durability & Resume (anti-Lyndon) — LOCKED
 
