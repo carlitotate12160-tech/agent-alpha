@@ -9,6 +9,7 @@ dependencies = [
     "httpx",
     "celery",
     "redis",
+    "python-multipart",
 ]
 
 [tool.setuptools.packages.find]
