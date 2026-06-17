@@ -16,3 +16,7 @@ __pycache__/
 # Env / secrets
 .env
 *.key
+
+# Archive / audit (local only, do not push)
+archive/
+audit_*.jsonl

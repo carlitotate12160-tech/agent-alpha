@@ -113,7 +113,17 @@ class PolicyEnforcer:
                 "payload_generation_forbidden_providers"
             ],
         )
-        return provider.lower() not in [f.lower() for f in forbidden]
+        allowed = typing.cast(
+            list[str],
+            typing.cast(dict[str, object], self._policy["llm_routing"])[
+                "payload_generation_allowed_providers"
+            ],
+        )
+        # Hard guard: if in forbidden list, never allow (case-insensitive)
+        if provider.lower() in [f.lower() for f in forbidden]:
+            return False
+        # Exact match only in allowed list (case-insensitive)
+        return provider.lower() in [a.lower() for a in allowed]
 
     def requires_human_approval(self, transition_to: str) -> bool:
         conditions = typing.cast(
