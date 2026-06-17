@@ -18,8 +18,15 @@ all: check test
 # Generate Python + Go stubs from the canonical A2A contract.
 # Python stubs are emitted into the agent_alpha/a2a package so they import as
 # `from agent_alpha.a2a import a2a_pb2`.
+# --pyi_out is REQUIRED, not cosmetic: without the .pyi stub, mypy cannot see
+# static attributes on generated enums (EngagementState.CREATED, etc.) because
+# protoc's runtime .py builds them via _descriptor_pool.AddSerializedFile()
+# (opaque binary descriptor, not a plain class). Omitting --pyi_out is what
+# previously forced disable_error_code=["attr-defined"] overrides in
+# pyproject.toml for authorization.py/emergency.py/main.py — those overrides
+# are now removed; this flag is the actual fix, not the override.
 proto:
-	$(PYTHON) -m grpc_tools.protoc -I proto --python_out=agent_alpha/a2a --grpc_python_out=agent_alpha/a2a proto/a2a.proto
+	$(PYTHON) -m grpc_tools.protoc -I proto --python_out=agent_alpha/a2a --grpc_python_out=agent_alpha/a2a --pyi_out=agent_alpha/a2a proto/a2a.proto
 	-protoc -I proto --go_out=. --go-grpc_out=. proto/a2a.proto || echo "Go codegen skipped (protoc not available)"
 
 # ── Quality gates ──────────────────────────────
