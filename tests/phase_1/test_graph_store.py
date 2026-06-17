@@ -87,9 +87,7 @@ def test_rebuild_from_events_applies_each_event_in_order() -> None:
 
     rebuild_from_events(store, events)
 
-    applied_event_types = [
-        op[1] for op in store.operations if op[0] == "apply_event"
-    ]
+    applied_event_types = [op[1] for op in store.operations if op[0] == "apply_event"]
 
     assert applied_event_types == [e.event_type for e in events]
 

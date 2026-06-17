@@ -1,23 +1,19 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import types
 from dataclasses import dataclass
 
+from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
-    AccessLevelProperties,
-    AttackEdge,
-    AttackNode,
     AssetProperties,
+    AttackNode,
     CredentialProperties,
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
     node_to_dict,
 )
-from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.store import GraphStore, rebuild_from_events
+from agent_alpha.graph.store import rebuild_from_events
 
 
 @dataclass
@@ -391,6 +387,4 @@ def test_networkx_import_only_in_networkx_store() -> None:
                         files_with_networkx.append(filepath)
 
     assert len(files_with_networkx) == 1
-    assert files_with_networkx[0] == os.path.join(
-        agent_alpha_dir, "graph", "networkx_store.py"
-    )
+    assert files_with_networkx[0] == os.path.join(agent_alpha_dir, "graph", "networkx_store.py")

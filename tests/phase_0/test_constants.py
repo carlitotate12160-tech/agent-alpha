@@ -12,6 +12,11 @@ TEST CONTRACT (7 tests):
 
 Run on Oracle ARM64 only (Rule 10).
 """
+
+# ruff: noqa: F405
+# Star import is intentional — Test 1 verifies that all exported names
+# from constants.py are valid (no undefined names). Converting to explicit
+# imports would defeat the test's purpose.
 from agent_alpha.config.constants import *  # noqa: F401, F403
 
 

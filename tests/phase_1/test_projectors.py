@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from agent_alpha.events.projectors import AttackGraphProjector, ProjectionResult
+from agent_alpha.events.projectors import AttackGraphProjector
 from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
@@ -15,7 +15,6 @@ from agent_alpha.graph.nodes import (
     VulnerabilityProperties,
     node_to_dict,
 )
-
 
 # ── helpers ──────────────────────────────────────────────────────────
 
@@ -52,6 +51,7 @@ def _make_edge_payload(source_id: str, target_id: str) -> dict[str, object]:
 
 # ── Test 1: zero-event engagement ───────────────────────────────────
 
+
 def test_project_zero_events() -> None:
     """project() on engagement with 0 events -> events_processed=0,
     graph_node_count=0."""
@@ -69,6 +69,7 @@ def test_project_zero_events() -> None:
 
 
 # ── Test 2: single NodeDiscovered ───────────────────────────────────
+
 
 def test_project_single_node_discovered() -> None:
     """Append a NodeDiscovered event, project(), verify node present."""
@@ -91,6 +92,7 @@ def test_project_single_node_discovered() -> None:
 
 # ── Test 3: two nodes + one edge ────────────────────────────────────
 
+
 def test_project_nodes_and_edge() -> None:
     """Append NodeDiscovered x2 + EdgeDiscovered -> edge_count == 1."""
     es = EventStore()
@@ -112,6 +114,7 @@ def test_project_nodes_and_edge() -> None:
 
 # ── Test 4: last_sequence_number tracks highest seq ─────────────────
 
+
 def test_project_last_sequence_number() -> None:
     """ProjectionResult.last_sequence_number matches the highest
     sequence_number appended."""
@@ -121,7 +124,7 @@ def test_project_last_sequence_number() -> None:
 
     n1 = _make_asset_node("n1")
     n2 = _make_vuln_node("n2")
-    ev1 = es.append("NodeDiscovered", ENG_ID, "recon-agent", node_to_dict(n1))
+    _ = es.append("NodeDiscovered", ENG_ID, "recon-agent", node_to_dict(n1))
     ev2 = es.append("NodeDiscovered", ENG_ID, "recon-agent", node_to_dict(n2))
 
     result = projector.project(ENG_ID)
@@ -130,6 +133,7 @@ def test_project_last_sequence_number() -> None:
 
 
 # ── Test 5: Phase 0 events mixed in (no-op passthrough) ────────────
+
 
 def test_project_phase0_events_no_op() -> None:
     """Phase 0 events (EngagementCreated) mixed alongside
@@ -145,7 +149,9 @@ def test_project_phase0_events_no_op() -> None:
     es.append("NodeDiscovered", ENG_ID, "recon-agent", node_to_dict(node))
     # Another Phase 0 event
     es.append(
-        "StateTransitioned", ENG_ID, "system",
+        "StateTransitioned",
+        ENG_ID,
+        "system",
         {"from": "recon", "to": "exploit"},
     )
 
@@ -160,6 +166,7 @@ def test_project_phase0_events_no_op() -> None:
 
 
 # ── Test 6: incremental projection ─────────────────────────────────
+
 
 def test_project_incremental_preserves_existing_graph() -> None:
     """project_incremental() after project(): new node added, previous
@@ -179,7 +186,8 @@ def test_project_incremental_preserves_existing_graph() -> None:
     es.append("NodeDiscovered", ENG_ID, "recon-agent", node_to_dict(n2))
 
     inc_result = projector.project_incremental(
-        ENG_ID, after_sequence=first_result.last_sequence_number,
+        ENG_ID,
+        after_sequence=first_result.last_sequence_number,
     )
 
     # Only the 1 new event was processed incrementally
@@ -191,6 +199,7 @@ def test_project_incremental_preserves_existing_graph() -> None:
 
 
 # ── Test 7: project() idempotency ──────────────────────────────────
+
 
 def test_project_idempotent() -> None:
     """project() called twice on same engagement_id -> identical
@@ -216,6 +225,7 @@ def test_project_idempotent() -> None:
 
 # ── Test 8: verify_projection returns True when consistent ──────────
 
+
 def test_verify_projection_consistent() -> None:
     """verify_projection() returns True when graph matches a fresh
     rebuild. Factory is a lambda constructing NetworkXGraphStore —
@@ -232,12 +242,17 @@ def test_verify_projection_consistent() -> None:
 
     projector.project(ENG_ID)
 
-    assert projector.verify_projection(
-        ENG_ID, fresh_store_factory=lambda: NetworkXGraphStore(),
-    ) is True
+    assert (
+        projector.verify_projection(
+            ENG_ID,
+            fresh_store_factory=lambda: NetworkXGraphStore(),
+        )
+        is True
+    )
 
 
 # ── Test 9: verify_projection detects drift ─────────────────────────
+
 
 def test_verify_projection_detects_drift() -> None:
     """verify_projection() returns False when self._graph_store was
@@ -257,6 +272,10 @@ def test_verify_projection_detects_drift() -> None:
     gs.apply_event("NodeDiscovered", node_to_dict(extra_node))
     assert gs.node_count() == 2  # drift introduced
 
-    assert projector.verify_projection(
-        ENG_ID, fresh_store_factory=lambda: NetworkXGraphStore(),
-    ) is False
+    assert (
+        projector.verify_projection(
+            ENG_ID,
+            fresh_store_factory=lambda: NetworkXGraphStore(),
+        )
+        is False
+    )

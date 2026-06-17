@@ -19,10 +19,11 @@ TEST CONTRACT (9 tests):
 
 Run on Oracle ARM64 only (Rule 10).
 """
-import yaml
+
 from pathlib import Path
 
 import pytest
+import yaml
 
 from agent_alpha.config.constants import SCOPE_ALWAYS_EXCLUDED
 
@@ -32,7 +33,7 @@ POLICY_FILE = Path(__file__).resolve().parents[2] / "agent_alpha" / "config" / "
 @pytest.fixture(scope="module")
 def policy():
     """Load policy.yaml once per module."""
-    with open(POLICY_FILE, "r") as f:
+    with open(POLICY_FILE) as f:
         return yaml.safe_load(f)
 
 

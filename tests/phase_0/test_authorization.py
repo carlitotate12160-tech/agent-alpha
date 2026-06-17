@@ -7,6 +7,7 @@ emission, and SOW hash storage.
 Run on Oracle ARM64:
     .venv/bin/pytest tests/phase_0/test_authorization.py -v
 """
+
 import hashlib
 from unittest import mock
 
@@ -17,8 +18,8 @@ from agent_alpha.conductor.authorization import (
     AuthorizationStateMachine,
     EngagementRecord,
     InvalidScopeError,
-    SOWError,
     Scope,
+    SOWError,
 )
 
 
