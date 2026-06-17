@@ -5,7 +5,10 @@
 # ── LLM Providers ──────────────────────────────────────────
 LLM_REASONING_PRIMARY = "deepseek-v4-pro"
 LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"
-LLM_PAYLOAD_GEN = []  # No whitelist; all models allowed to attempt payload generation
+LLM_PAYLOAD_NEVER = ["claude", "sonnet", "opus", "gpt"]  # HARD GUARD: never allow these for payload generation
+LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6"]  # Allowed payload providers
+LLM_PAYLOAD_GEN = "deepseek-v4-pro"  # Primary payload provider
+LLM_PAYLOAD_FALLBACK = "kimi-2.6"  # Fallback when primary refuses
 TESTING_MODE = True  # Indicates this is still testing phase; models may be more permissive
 
 # ── LLM Tier Labels ─────────────────────────────────────────

@@ -76,6 +76,16 @@ def test_provider_check_case_insensitive() -> None:
     assert enforcer.is_provider_allowed_for_payload("CLAUDE") is False
 
 
+def test_kimi_26_allowed_for_payload() -> None:
+    enforcer = PolicyEnforcer()
+    assert enforcer.is_provider_allowed_for_payload("kimi-2.6") is True
+
+
+def test_kimi_partial_match_not_allowed() -> None:
+    enforcer = PolicyEnforcer()
+    assert enforcer.is_provider_allowed_for_payload("kimi") is False
+
+
 def test_requires_human_approval() -> None:
     enforcer = PolicyEnforcer()
     assert enforcer.requires_human_approval("OFFENSIVE_APPROVED") is True
