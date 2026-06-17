@@ -8,8 +8,8 @@
 
 | Phase | Status | Progress | Target |
 |-------|--------|----------|--------|
-| Phase 0 | 🟡 IN PROGRESS | 6/7 komponen selesai | 7 komponen |
-| Phase 1 | ⬜ NOT STARTED | 0% | - |
+| Phase 0 | � COMPLETED | 7/7 komponen selesai | 7 komponen |
+| Phase 1 | 🟡 IN PROGRESS | 2/2 komponen selesai | 2 komponen |
 | Phase 2 | ⬜ NOT STARTED | 0% | - |
 | Phase 3 | ⬜ NOT STARTED | 0% | - |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
@@ -30,7 +30,7 @@
 - ✅ **Secrets Vault** — Penyimpanan kredensial terenkripsi
 - ✅ **Policy Enforcer** — Enforcement Rules of Engagement
 - ✅ **Emergency Stop** — Kill switch tunggal
-- ⬜ **Conductor Skeleton** — FastAPI + Celery app (BELUM)
+- ✅ **Conductor Skeleton** — FastAPI + Celery app
 
 ---
 
@@ -326,6 +326,88 @@ Tombol "kill switch" tunggal untuk menghentikan SEMUA agent secara paksa. Ketika
 
 ---
 
+## Phase 1 — Attack Graph & Knowledge Representation
+
+**Tujuan Phase 1:** Membangun sistem representasi knowledge graph untuk attack surface dan path reasoning. Graph ini menjadi dasar untuk cognitive loop agent.
+
+### Komponen Phase 1 Checklist
+
+- ✅ **GraphStore Protocol** — Interface abstrak read-model untuk graph engine
+- ✅ **NetworkXGraphStore** — Implementasi konkret NetworkX untuk Phase 0-3
+
+---
+
+## Komponen yang Sudah Dibuat (Phase 1)
+
+### 7. GraphStore Protocol (`agent_alpha/graph/store.py`)
+
+**Tanggal:** 2026-06-17  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Interface abstrak (Protocol) untuk read-model graph. Memungkinkan swapping graph engine (NetworkX → Memgraph/Neo4j) tanpa mengubah consumer code.
+
+#### Efek terhadap Agent
+- Cognitive Loop hanya bergantung pada GraphStore, bukan implementasi spesifik
+- Event-sourced: graph adalah projection dari event log (event log adalah single source of truth)
+- Tidak ada method save/persist/commit — hanya apply_event untuk mutasi
+
+#### Behavior Sistem
+- `apply_event(event_type, payload)` — satu-satunya write path
+- `get_node`, `get_edge`, `all_nodes`, `all_edges` — query methods
+- `nodes_by_type`, `edges_by_relationship` — filtering
+- `neighbors`, `find_paths` — graph traversal
+- `clear` — reset untuk rebuild
+- `rebuild_from_events(store, events)` — helper function generic
+
+#### Contoh Flow
+```
+1. Event log berisi: NodeDiscovered, EdgeDiscovered, NodeVerified
+2. rebuild_from_events(store, events):
+   a. store.clear()
+   b. apply_event(NodeDiscovered) → tambah node
+   c. apply_event(EdgeDiscovered) → tambah edge
+   d. apply_event(NodeVerified) → update verified=True
+3. Graph siap untuk query cognitive loop
+```
+
+---
+
+### 8. NetworkXGraphStore (`agent_alpha/graph/networkx_store.py`)
+
+**Tanggal:** 2026-06-17  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Implementasi konkret GraphStore menggunakan NetworkX DiGraph. Ini satu-satunya file yang boleh import networkx.
+
+#### Efek terhadap Agent
+- Agent bisa reasoning tentang attack surface dan attack paths
+- Graph query: neighbors, find_paths, filtering by type/relationship
+- Event-driven: graph dibangun dari event log
+
+#### Behavior Sistem
+- Directed graph (nx.DiGraph) untuk relationship yang berarah
+- Node/Edge disimpan di attribute "data" (tidak unpack fields)
+- Event handlers:
+  - NodeDiscovered → add_node dengan AttackNode
+  - EdgeDiscovered → add_edge dengan AttackEdge
+  - NodeVerified → dataclasses.replace(verified=True)
+- Unknown event types → no-op (forward-compatible)
+
+#### Contoh Flow
+```
+1. Alpha (SCOUT) menemukan asset 10.0.0.1
+2. Event: NodeDiscovered (id="asset1", type=ASSET, properties={...})
+3. NetworkXGraphStore.apply_event() → add_node("asset1", data=AttackNode)
+4. Alpha menemukan vulnerability CVE-2024-1234 di asset
+5. Event: EdgeDiscovered (source="asset1", target="vuln1", relationship=EXPLOITS)
+6. NetworkXGraphStore.apply_event() → add_edge("asset1", "vuln1", data=AttackEdge)
+7. Cognitive loop query: find_paths("asset1", "credential1") → [asset1 → vuln1 → credential1]
+```
+
+---
+
 ## Komponen yang Belum Dibuat (Phase 0)
 
 ### Conductor Skeleton (FastAPI + Celery app)
@@ -359,7 +441,8 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 ### Test Coverage
 - **PROTECTED tests** (6 test) — kontrak protobuf, tidak boleh dimodifikasi
 - **Phase 0 tests** (79 test) — uji semua komponen Phase 0
-- Total: 85 test, semua passing di Oracle ARM64
+- **Phase 1 tests** (22 test) — uji GraphStore dan NetworkXGraphStore
+- Total: 107 test, semua passing
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -543,6 +626,6 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-06-16  
-**Phase saat ini:** Phase 0  
-**Progress:** 6/7 komponen selesai
+**Dokumen ini diperbarui terakhir:** 2026-06-17  
+**Phase saat ini:** Phase 1  
+**Progress:** Phase 0 completed (7/7), Phase 1 in progress (2/2)
