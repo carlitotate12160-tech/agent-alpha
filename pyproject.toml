@@ -20,6 +20,12 @@ exclude = ["proto*"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# Generated protobuf/gRPC code (agent_alpha/a2a/*_pb2.py, *_pb2_grpc.py) is
+# excluded from lint/format everywhere, not just specific Makefile targets.
+# protoc emits PascalCase gRPC method/service names by convention — that
+# will never satisfy pep8-naming (N) and isn't meant to. Mirrors the
+# [[tool.mypy.overrides]] ignore_errors entry for agent_alpha.a2a.* below.
+extend-exclude = ["agent_alpha/a2a"]
 
 [tool.ruff.lint]
 select = [
