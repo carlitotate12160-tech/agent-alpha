@@ -173,6 +173,25 @@ def test_snapshot_scratchpad_event() -> None:
     assert len(payload) == 2
 
 
+def test_snapshot_scratchpad_event_is_deep_copy() -> None:
+    """snapshot_scratchpad_event() returns a DEEP COPY, not a live reference.
+    Mutating the original scratchpad after snapshot must not affect the
+    returned snapshot payload."""
+    store = InMemorySessionStore()
+    scratchpad_data = {"phase": "EXPLOIT", "notes": "SQLi successful"}
+    record = make_session_record(scratchpad=scratchpad_data)
+    store.set(record)
+
+    event_type, snapshot_payload = store.snapshot_scratchpad_event(ENG_ID)
+
+    # Mutate the live scratchpad via update_scratchpad
+    store.update_scratchpad(ENG_ID, {"phase": "POST_EXPLOIT", "notes": "changed"})
+
+    # Snapshot must remain unchanged (deep copy isolation)
+    assert snapshot_payload == {"phase": "EXPLOIT", "notes": "SQLi successful"}
+    assert snapshot_payload != {"phase": "POST_EXPLOIT", "notes": "changed"}
+
+
 def test_snapshot_scratchpad_event_nonexistent_raises() -> None:
     """snapshot_scratchpad_event() on a nonexistent engagement_id raises
     SessionNotFoundError."""
