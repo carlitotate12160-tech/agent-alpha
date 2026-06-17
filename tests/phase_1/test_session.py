@@ -173,25 +173,6 @@ def test_snapshot_scratchpad_event() -> None:
     assert len(payload) == 2
 
 
-def test_snapshot_scratchpad_event_is_deep_copy() -> None:
-    """snapshot_scratchpad_event() returns a DEEP COPY, not a live reference.
-    Mutating the original scratchpad after snapshot must not affect the
-    returned snapshot payload."""
-    store = InMemorySessionStore()
-    scratchpad_data = {"phase": "EXPLOIT", "notes": "SQLi successful"}
-    record = make_session_record(scratchpad=scratchpad_data)
-    store.set(record)
-
-    event_type, snapshot_payload = store.snapshot_scratchpad_event(ENG_ID)
-
-    # Mutate the live scratchpad via update_scratchpad
-    store.update_scratchpad(ENG_ID, {"phase": "POST_EXPLOIT", "notes": "changed"})
-
-    # Snapshot must remain unchanged (deep copy isolation)
-    assert snapshot_payload == {"phase": "EXPLOIT", "notes": "SQLi successful"}
-    assert snapshot_payload != {"phase": "POST_EXPLOIT", "notes": "changed"}
-
-
 def test_snapshot_scratchpad_event_nonexistent_raises() -> None:
     """snapshot_scratchpad_event() on a nonexistent engagement_id raises
     SessionNotFoundError."""
@@ -202,3 +183,41 @@ def test_snapshot_scratchpad_event_nonexistent_raises() -> None:
         match=r"Session not found for engagement_id='nonexistent'",
     ):
         store.snapshot_scratchpad_event("nonexistent")
+
+
+# ── Test 9: snapshot isolation (regression — proven aliasing bug) ──
+#
+# Found during review: the first implementation returned a live
+# reference to record.scratchpad, not a copy. Mutating the scratchpad
+# in-place AFTER taking a snapshot silently rewrote the already-returned
+# payload — a real bug, reproduced and confirmed before the fix, not a
+# hypothetical. This test exists so the regression cannot reappear
+# silently; see snapshot_scratchpad_event()'s Protocol docstring for the
+# isolation contract this enforces.
+
+
+def test_snapshot_scratchpad_event_is_isolated_from_later_mutation() -> None:
+    """A snapshot taken via snapshot_scratchpad_event() must be frozen at
+    the moment it's returned — a later in-place mutation of the live
+    scratchpad (via a record reference obtained from get()) must NOT
+    retroactively change the already-returned snapshot payload."""
+    store = InMemorySessionStore()
+    record = make_session_record(scratchpad={"note": "original"})
+    store.set(record)
+
+    _event_type, payload = store.snapshot_scratchpad_event(ENG_ID)
+    assert payload == {"note": "original"}
+
+    # Simulate a caller elsewhere mutating the live scratchpad in-place,
+    # bypassing update_scratchpad() — e.g. a Cognitive Loop step holding
+    # a record reference from get() and writing directly into the dict.
+    live_record = store.get(ENG_ID)
+    assert live_record is not None
+    live_record.scratchpad["note"] = "mutated after snapshot was taken"
+
+    # The previously-returned snapshot must be unaffected.
+    assert payload == {"note": "original"}, (
+        "snapshot_scratchpad_event() returned a live reference instead of "
+        "an isolated copy — a later mutation of the live scratchpad leaked "
+        "into an already-taken snapshot"
+    )
