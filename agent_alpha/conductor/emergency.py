@@ -12,6 +12,7 @@
 
 import datetime
 import logging
+import time
 import typing
 from dataclasses import dataclass
 
@@ -64,7 +65,7 @@ class EmergencyStopHandler:
         issued_by: str,
     ) -> EmergencyStopResult:
         """Stop ALL agents for an engagement. Best-effort; NEVER raises."""
-        start = datetime.datetime.now(datetime.UTC)
+        start_ns = time.perf_counter_ns()
         tasks_revoked = 0
         success = True
 
@@ -98,7 +99,7 @@ class EmergencyStopHandler:
             success = False
 
         # Step 5: compute elapsed wall-clock time in milliseconds.
-        elapsed_ms = (datetime.datetime.now(datetime.UTC) - start).total_seconds() * 1000.0
+        elapsed_ms = (time.perf_counter_ns() - start_ns) / 1_000_000.0
 
         # Step 6: warn (do not fail) if the stop exceeded the budget.
         if elapsed_ms > EMERGENCY_STOP_TIMEOUT_SEC * 1000:
