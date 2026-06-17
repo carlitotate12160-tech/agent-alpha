@@ -252,8 +252,7 @@ def _to_technical_narrative(store: GraphStore) -> str:
         lines.append(f"{relationship.value}:")
         for edge in sorted(edges, key=lambda e: (e.source_id, e.target_id)):
             lines.append(
-                f"  - {edge.source_id} -> {edge.target_id} "
-                f"(confidence={edge.confidence:.2f})"
+                f"  - {edge.source_id} -> {edge.target_id} (confidence={edge.confidence:.2f})"
             )
 
     chain = highest_impact_chain(store)
