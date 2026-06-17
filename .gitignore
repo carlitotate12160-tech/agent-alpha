@@ -9,6 +9,7 @@ __pycache__/
 
 # Generated protobuf stubs (regenerate with `make proto`)
 *_pb2.py
+*_pb2.pyi
 *_pb2_grpc.py
 *.pb.go
 *_grpc.pb.go
