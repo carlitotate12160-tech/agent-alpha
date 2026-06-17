@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import typing
 
@@ -108,9 +109,17 @@ class SessionStore(typing.Protocol):
         """Return a tuple the CALLER appends to the EventStore.
 
         Returns:
-            A tuple ``(EventType.SCRATCHPAD_SNAPSHOTTED, current_scratchpad_dict)``.
-            The caller (Conductor) is responsible for actually appending this
-            to the EventStore.
+            A tuple ``(EventType.SCRATCHPAD_SNAPSHOTTED, scratchpad_copy)``
+            where ``scratchpad_copy`` is an ISOLATED deep copy, frozen at
+            the moment this method is called. Implementations MUST NOT
+            return a live reference to the record's scratchpad dict — a
+            later mutation of the live scratchpad (via update_scratchpad()
+            or direct access) must never retroactively change a snapshot
+            already returned by this method. This matters because the
+            caller (Conductor) may not call EventStore.append() with this
+            payload immediately; the gap between "snapshot taken" and
+            "event durably appended" must not be a window where the
+            payload can silently drift.
 
         Raises:
             SessionNotFoundError: if *engagement_id* doesn't exist yet.
@@ -160,4 +169,9 @@ class InMemorySessionStore:
         record = self._sessions.get(engagement_id)
         if record is None:
             raise SessionNotFoundError(engagement_id)
-        return (EventType.SCRATCHPAD_SNAPSHOTTED, record.scratchpad)
+        # deepcopy is deliberate, not defensive paranoia: returning a live
+        # reference here means a later in-place mutation of record.scratchpad
+        # (e.g. via get(...).scratchpad["k"] = v, bypassing update_scratchpad)
+        # silently rewrites a snapshot the caller may have already queued for
+        # EventStore.append() — proven via reproduction, not theoretical.
+        return (EventType.SCRATCHPAD_SNAPSHOTTED, copy.deepcopy(record.scratchpad))
