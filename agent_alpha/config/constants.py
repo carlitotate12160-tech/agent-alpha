@@ -14,7 +14,13 @@ LLM_PAYLOAD_NEVER = [
 LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6"]  # Allowed payload providers
 LLM_PAYLOAD_GEN = "deepseek-v4-pro"  # Primary payload provider
 LLM_PAYLOAD_FALLBACK = "kimi-2.6"  # Fallback when primary refuses
-TESTING_MODE = True  # Indicates this is still testing phase; models may be more permissive
+# NOTE: there is intentionally no "TESTING_MODE" flag here. Payload-prompt
+# permissiveness must never vary by a boolean switch — see
+# config/payload_prompt_template.md ("Enforcement note"). The only thing
+# that gates payload generation is a live AuthorizationStateMachine query
+# (engagement_id -> EngagementRecord.state == OFFENSIVE_APPROVED, sow_hash
+# present). If you find yourself wanting to add a mode flag here, that is
+# the signal to stop and re-read this note.
 
 # ── LLM Tier Labels ─────────────────────────────────────────
 LLM_TIER_RULE = "rule"
