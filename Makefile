@@ -3,13 +3,13 @@
 # Run: make test   (all tests)
 # Run: make all    (check + test)
 
-VENV := .venv/bin
-PYTHON := $(VENV)/python3
+VENV := .venv312/Scripts
+PYTHON := $(VENV)/python
 RUFF := $(VENV)/ruff
 MYPY := $(VENV)/mypy
 PYTEST := $(VENV)/pytest
 
-.PHONY: all check lint lint-fix typecheck quality test test-protected test-phase0 proto
+.PHONY: all check lint lint-fix typecheck quality test test-protected test-phase0 test-phase1 proto
 
 all: check test
 
@@ -44,7 +44,7 @@ quality:
 
 # ── Tests ──────────────────────────────────────
 
-test: test-protected test-phase0
+test: test-protected test-phase0 test-phase1
 
 test-protected:
 	@echo "━━━ PROTECTED CONTRACT TESTS (DO NOT MODIFY) ━━━"
@@ -53,3 +53,7 @@ test-protected:
 test-phase0:
 	@echo "━━━ PHASE 0 TESTS ━━━"
 	$(PYTEST) tests/phase_0/ -v --tb=short
+
+test-phase1:
+	@echo "━━━ PHASE 1 TESTS ━━━"
+	$(PYTEST) tests/phase_1/ -v --tb=short
