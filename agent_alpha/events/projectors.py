@@ -88,7 +88,8 @@ class AttackGraphProjector:
         full graph rebuild every time.
         """
         new_events: list[AgentEvent] = self._event_store.get_events(
-            engagement_id, after_sequence=after_sequence,
+            engagement_id,
+            after_sequence=after_sequence,
         )
 
         for event in new_events:
