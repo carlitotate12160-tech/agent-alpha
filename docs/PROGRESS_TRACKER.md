@@ -8,8 +8,8 @@
 
 | Phase | Status | Progress | Target |
 |-------|--------|----------|--------|
-| Phase 0 | � COMPLETED | 7/7 komponen selesai | 7 komponen |
-| Phase 1 | 🟡 IN PROGRESS | 2/2 komponen selesai | 2 komponen |
+| Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
+| Phase 1 | ✅ COMPLETED | 4/4 komponen selesai | 4 komponen |
 | Phase 2 | ⬜ NOT STARTED | 0% | - |
 | Phase 3 | ⬜ NOT STARTED | 0% | - |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
@@ -334,6 +334,8 @@ Tombol "kill switch" tunggal untuk menghentikan SEMUA agent secara paksa. Ketika
 
 - ✅ **GraphStore Protocol** — Interface abstrak read-model untuk graph engine
 - ✅ **NetworkXGraphStore** — Implementasi konkret NetworkX untuk Phase 0-3
+- ✅ **EngagementMemory** — Event-sourced projection untuk post-engagement learning/audit
+- ✅ **SessionMemory** — Volatile live state store untuk active engagement (Redis-backed)
 
 ---
 
@@ -375,7 +377,7 @@ Interface abstrak (Protocol) untuk read-model graph. Memungkinkan swapping graph
 
 ### 8. NetworkXGraphStore (`agent_alpha/graph/networkx_store.py`)
 
-**Tanggal:** 2026-06-17  
+**Tanggal:** 2026-06-17
 **Status:** ✅ Selesai
 
 #### Apa ini?
@@ -404,6 +406,87 @@ Implementasi konkret GraphStore menggunakan NetworkX DiGraph. Ini satu-satunya f
 5. Event: EdgeDiscovered (source="asset1", target="vuln1", relationship=EXPLOITS)
 6. NetworkXGraphStore.apply_event() → add_edge("asset1", "vuln1", data=AttackEdge)
 7. Cognitive loop query: find_paths("asset1", "credential1") → [asset1 → vuln1 → credential1]
+```
+
+---
+
+### 9. EngagementMemory (`agent_alpha/memory/engagement.py`)
+
+**Tanggal:** 2026-06-17
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Event-sourced projection untuk post-engagement learning dan audit. EngagementMemory adalah read-model yang dibangun murni dari event log — tidak pernah ditulis langsung.
+
+#### Efek terhadap Agent
+- Agent tidak perlu khawatir tentang learning/audit — Conductor yang memproses
+- EngagementMemoryRecord frozen (immutable) — hanya dibaca, tidak dimutasi
+- Source of truth adalah event log, bukan EngagementMemory
+
+#### Behavior Sistem
+- `EngagementMemoryProjector.project(engagement_id)` — replay event log dan derive record
+- Fields: confirmed_exploits, failed_attempts, time_to_exploit_per_phase, tool_success_rates, proof_artifacts, scratchpad_snapshot
+- Event handlers:
+  - EXPLOIT_CONFIRMED → append ke confirmed_exploits
+  - EXPLOIT_FAILED → append ke failed_attempts
+  - PROOF_ARTIFACT_RECORDED → append ke proof_artifacts
+  - SCRATCHPAD_SNAPSHOTTED → update scratchpad_snapshot (latest wins)
+- `verify_projection()` — consistency check untuk drift detection
+
+#### Contoh Flow
+```
+1. Engagement selesai dengan 10 events
+2. EngagementMemoryProjector.project("eng_123"):
+   a. get_events("eng_123") → [event_1, ..., event_10]
+   b. Process setiap event → derive fields
+   c. upsert EngagementMemoryRecord
+3. Record berisi:
+   - confirmed_exploits: [CVE-2024-0001, CVE-2024-0002]
+   - failed_attempts: [CVE-2024-0003]
+   - scratchpad_snapshot: {"notes": "engagement complete"}
+4. Auditor query EngagementMemory untuk learning
+```
+
+---
+
+### 10. SessionMemory (`agent_alpha/memory/session.py`)
+
+**Tanggal:** 2026-06-17
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Volatile live state store untuk active engagement. SessionMemory adalah genuinely volatile (Redis-backed), bukan event-sourced — source of truth adalah dirinya sendiri selama engagement berjalan.
+
+#### Efek terhadap Agent
+- Agent read/write SessionMemory langsung selama Cognitive Loop
+- SessionRecord mutable — di-update in-place (ORIENT/PLAN steps)
+- Scratchpad untuk temporary notes antar cognitive loop iteration
+- Jika Redis hilang mid-engagement, live progress hilang — tapi durable facts (AttackGraph, confirmed exploits) TIDAK hilang (sudah dipromote ke event log)
+
+#### Behavior Sistem
+- `SessionStore` Protocol + `InMemorySessionStore` test double
+- Fields: engagement_id, target_scope, active_agent, current_phase, current_phase_iteration, authorization, scratchpad, ttl_seconds
+- Methods:
+  - `get()` / `set()` — basic CRUD
+  - `update_scratchpad()` — convenience untuk high-frequency write path
+  - `delete()` — idempotent removal
+  - `exists()` — boolean check
+  - `snapshot_scratchpad_event()` — return tuple untuk Conductor append ke EventStore (deep copy untuk mencegah payload drift)
+- Tidak ada EventStore dependency — checkpointing adalah Conductor's job
+
+#### Contoh Flow
+```
+1. Engagement dimulai → SessionRecord dibuat
+2. Alpha (SCOUT) ORIENT step:
+   a. get("eng_123") → SessionRecord
+   b. update_scratchpad("eng_123", {"phase": "RECON", "notes": "port scan complete"})
+3. Conductor checkpoint:
+   a. snapshot_scratchpad_event("eng_123") → (SCRATCHPAD_SNAPSHOTTED, scratchpad_copy)
+   b. EventStore.append(...) → durably append ke event log
+4. Beta (STRIKE) PLAN step:
+   a. get("eng_123") → SessionRecord
+   b. update_scratchpad("eng_123", {"phase": "EXPLOIT", "target": "10.0.0.1"})
+5. Engagement selesai → delete("eng_123")
 ```
 
 ---
@@ -440,9 +523,9 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 
 ### Test Coverage
 - **PROTECTED tests** (6 test) — kontrak protobuf, tidak boleh dimodifikasi
-- **Phase 0 tests** (79 test) — uji semua komponen Phase 0
-- **Phase 1 tests** (22 test) — uji GraphStore dan NetworkXGraphStore
-- Total: 107 test, semua passing
+- **Phase 0 tests** (101 test) — uji semua komponen Phase 0
+- **Phase 1 tests** (73 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory
+- Total: 180 test, semua passing
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -626,6 +709,7 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-06-17  
-**Phase saat ini:** Phase 1  
-**Progress:** Phase 0 completed (7/7), Phase 1 in progress (2/2)
+**Dokumen ini diperbarui terakhir:** 2026-06-17
+**Phase saat ini:** Phase 1 (COMPLETED)
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (4/4)
+**Total tests:** 180 passing
