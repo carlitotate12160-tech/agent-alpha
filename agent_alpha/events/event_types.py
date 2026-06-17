@@ -23,6 +23,19 @@ class EventType(enum.StrEnum):
     ENGAGEMENT_CREATED = "EngagementCreated"
     STATE_TRANSITIONED = "StateTransitioned"
     EMERGENCY_STOP = "EmergencyStop"
+    # ^ AuthorizationStateMachine.emergency_stop(): state machine flips to
+    # EMERGENCY_STOP. Fires the instant the state changes — before any
+    # Celery task revocation has actually run.
+
+    # ── Phase 0 (emergency stop handler) ────────────────────────
+    EMERGENCY_STOP_EXECUTED = "EmergencyStopExecuted"
+    # ^ EmergencyStopHandler.execute(): kill-switch operational work
+    # (task revocation) has completed. A real downstream consequence of
+    # EMERGENCY_STOP, not a duplicate — the two are temporally distinct
+    # and the gap between them is itself auditable (was revocation slow?
+    # did it fail?). conductor/authorization.py emits EMERGENCY_STOP;
+    # conductor/emergency.py emits EMERGENCY_STOP_EXECUTED. Never conflate
+    # the two into one event type.
 
     # ── Phase 1 (graph projection) ─────────────────────────────
     NODE_DISCOVERED = "NodeDiscovered"

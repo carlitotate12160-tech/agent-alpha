@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.config.constants import EMERGENCY_STOP_TIMEOUT_SEC
+from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import EventStore
 
 _log = logging.getLogger(__name__)
@@ -85,7 +86,7 @@ class EmergencyStopHandler:
 
             # Step 4: emit the audit event.
             self._event_store.append(
-                event_type="EmergencyStopExecuted",
+                event_type=EventType.EMERGENCY_STOP_EXECUTED,
                 engagement_id=engagement_id,
                 agent="CONDUCTOR",
                 payload={

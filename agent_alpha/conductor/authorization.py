@@ -21,6 +21,7 @@ from agent_alpha.config.constants import (
     SOW_HASH_ALGORITHM,
     SOW_MAX_FILE_SIZE_MB,
 )
+from agent_alpha.events.event_types import EventType
 
 _log = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ class AuthorizationStateMachine:
         )
         self._engagements[engagement_id] = record
         self._emit_event(
-            "EngagementCreated",
+            EventType.ENGAGEMENT_CREATED,
             engagement_id,
             {"client_id": client_id, "target": target, "state": a2a_pb2.CREATED},
         )
@@ -199,7 +200,7 @@ class AuthorizationStateMachine:
         record.state = a2a_pb2.RECON_ONLY
         record.updated_at = _utc_now_iso()
         self._emit_event(
-            "StateTransitioned",
+            EventType.STATE_TRANSITIONED,
             engagement_id,
             {"from_state": previous, "to_state": a2a_pb2.RECON_ONLY},
         )
@@ -216,7 +217,7 @@ class AuthorizationStateMachine:
         record.state = a2a_pb2.ACTIVE_APPROVED
         record.updated_at = _utc_now_iso()
         self._emit_event(
-            "StateTransitioned",
+            EventType.STATE_TRANSITIONED,
             engagement_id,
             {"from_state": previous, "to_state": a2a_pb2.ACTIVE_APPROVED},
         )
@@ -243,7 +244,7 @@ class AuthorizationStateMachine:
         record.state = a2a_pb2.OFFENSIVE_APPROVED
         record.updated_at = _utc_now_iso()
         self._emit_event(
-            "StateTransitioned",
+            EventType.STATE_TRANSITIONED,
             engagement_id,
             {
                 "from_state": previous,
@@ -261,7 +262,7 @@ class AuthorizationStateMachine:
         record.stopped_reason = reason
         record.updated_at = _utc_now_iso()
         self._emit_event(
-            "EmergencyStop",
+            EventType.EMERGENCY_STOP,
             engagement_id,
             {
                 "from_state": previous,
