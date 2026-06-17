@@ -2,20 +2,17 @@ from __future__ import annotations
 
 import pytest
 
-from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.narrative import (
     AttackChain,
-    BlastRadius,
     calculate_blast_radius,
     find_attack_chains,
     find_critical_paths,
     highest_impact_chain,
     to_narrative,
 )
+from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
-    AccessLevelProperties,
     AssetProperties,
-    AttackEdge,
     AttackNode,
     CredentialProperties,
     DataProperties,
@@ -200,7 +197,9 @@ def test_calculate_blast_radius_reaches_downstream(fixture_store: NetworkXGraphS
     assert set(radius.reachable_node_ids) == {"vuln-1", "cred-1", "data-1"}
 
 
-def test_calculate_blast_radius_critical_when_data_reachable(fixture_store: NetworkXGraphStore) -> None:
+def test_calculate_blast_radius_critical_when_data_reachable(
+    fixture_store: NetworkXGraphStore,
+) -> None:
     """Test 4: calculate_blast_radius() severity == "critical" when DATA node is reachable."""
     radius = calculate_blast_radius(fixture_store, "asset-1")
     assert radius.severity == "critical"

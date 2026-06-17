@@ -35,7 +35,7 @@ def test_retrieve_returns_original_plaintext() -> None:
 def test_encrypted_value_differs_from_plaintext_bytes() -> None:
     manager = SecretsManager()
     record = manager.store("token", "hunter2", "eng_1")
-    assert record.encrypted_value != "hunter2".encode("utf-8")
+    assert record.encrypted_value != b"hunter2"
 
 
 def test_retrieve_unknown_id_raises_not_found() -> None:

@@ -13,7 +13,6 @@ from agent_alpha.memory.engagement import (
     InMemoryEngagementMemoryStore,
 )
 
-
 # ── helpers ──────────────────────────────────────────────────────────
 
 ENG_ID = "eng-mem-001"
