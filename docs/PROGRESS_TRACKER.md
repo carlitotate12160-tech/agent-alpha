@@ -9,7 +9,7 @@
 | Phase | Status | Progress | Target |
 |-------|--------|----------|--------|
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
-| Phase 1 | ✅ COMPLETED | 4/4 komponen selesai | 4 komponen |
+| Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
 | Phase 2 | ⬜ NOT STARTED | 0% | - |
 | Phase 3 | ⬜ NOT STARTED | 0% | - |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
@@ -336,6 +336,7 @@ Tombol "kill switch" tunggal untuk menghentikan SEMUA agent secara paksa. Ketika
 - ✅ **NetworkXGraphStore** — Implementasi konkret NetworkX untuk Phase 0-3
 - ✅ **EngagementMemory** — Event-sourced projection untuk post-engagement learning/audit
 - ✅ **SessionMemory** — Volatile live state store untuk active engagement (Redis-backed)
+- ✅ **IntelligenceBase** — Cross-engagement learning queries (K3, K15-K20)
 
 ---
 
@@ -491,6 +492,61 @@ Volatile live state store untuk active engagement. SessionMemory adalah genuinel
 
 ---
 
+### 11. IntelligenceBase (`agent_alpha/memory/intelligence.py`)
+
+**Tanggal:** 2026-06-18
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Cross-engagement learning query interface (K3, K15-K20). Layer query untuk belajar dari engagement sebelumnya — tool reliability, false positive rates, scan strategies, credential patterns.
+
+#### Efek terhadap Agent
+- Agent bisa query "apa yang berhasil untuk target mirip?" sebelum memilih tool
+- Agent bisa melihat reliability score tool sebelum menggunakannya
+- Cognitive loop menggunakan IntelligenceBase untuk ORIENT/PLAN decisions
+- Phase 1: semua methods return `InsufficientData` (belum ada data cross-engagement)
+- Phase 2+: mulai return real scores setelah `tool_success_rates` populated
+
+#### Behavior Sistem
+- `IntelligenceBase` Protocol + `RecordBackedIntelligenceBase` implementation
+- Methods:
+  - `what_worked_for_similar_targets(tech_stack, target_type)` → strategy recommendation
+  - `credential_patterns(industry, region)` → credential pattern lookup
+  - `false_positive_rate(tool, target_type)` → FP rate untuk tool
+  - `tool_reliability(tool, conditions)` → reliability score (Wilson lower-bound)
+- Backend: Option A — no dedicated storage, query over `list[EngagementMemoryRecord]`
+- Anti-Lyndon #3: explicit `InsufficientData` type, bukan silent 0.0
+- Wilson lower-bound formula (K20) untuk statistical correction pada small samples
+
+#### Contoh Flow (Phase 2+)
+```
+1. Conductor load semua EngagementMemoryRecord dari database
+2. RecordBackedIntelligenceBase dibuat dengan records tersebut
+3. Beta (STOUT) ORIENT step:
+   a. what_worked_for_similar_targets(["laravel", "mysql"], "webapp")
+   b. Return: ScanStrategy(recommended_tool_order=["nuclei", "httpx"], ...)
+4. Beta PLAN step:
+   a. tool_reliability("nuclei", {})
+   b. Return: ToolReliabilityScore(success_rate=0.85, samples=12)
+5. Beta memilih nuclei karena reliability tinggi
+6. Beta execute exploit
+```
+
+#### Contoh Flow (Phase 1 Reality)
+```
+1. Conductor load EngagementMemoryRecord (semua tool_success_rates = {})
+2. RecordBackedIntelligenceBase dibuat
+3. Beta (STRIKE) ORIENT step:
+   a. what_worked_for_similar_targets(["laravel", "mysql"], "webapp")
+   b. Return: InsufficientData(reason="no tech_stack field on record")
+4. Beta PLAN step:
+   a. tool_reliability("nuclei", {})
+   b. Return: InsufficientData(reason="no tool_success_rates recorded")
+5. Beta fallback ke default tool selection (hardcoded logic)
+```
+
+---
+
 ## Komponen yang Belum Dibuat (Phase 0)
 
 ### Conductor Skeleton (FastAPI + Celery app)
@@ -524,8 +580,8 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 ### Test Coverage
 - **PROTECTED tests** (6 test) — kontrak protobuf, tidak boleh dimodifikasi
 - **Phase 0 tests** (101 test) — uji semua komponen Phase 0
-- **Phase 1 tests** (73 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory
-- Total: 180 test, semua passing
+- **Phase 1 tests** (85 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory, IntelligenceBase
+- Total: 192 test, semua passing
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -564,6 +620,103 @@ make quality
 2. HashiCorp Vault untuk SecretsVault
 3. Real Celery task revocation
 4. Agent implementation (Alpha, Beta, Gamma, dll.)
+
+---
+
+## Apa Jenis Agent Ini?
+
+### Agent-Alpha: Autonomous Red-Team Platform
+
+Agent-Alpha adalah **platform red-team otomatis** dengan multi-agent architecture untuk full kill chain penetration testing. Bukan single agent, tapi sistem koordinasi 6 specialized agents yang bekerja bersama.
+
+### Agent Hierarchy
+
+```
+Conductor (Orchestrator)
+├── Alpha   (SCOUT / Reconnaissance)
+├── Beta    (STRIKE / Initial Access)
+├── Gamma   (ANCHOR / Exploitation)
+├── Delta   (HUNTER / Post-Exploitation)
+├── Epsilon (SCOUT-HUNTER / Lateral Movement)
+└── Omega   (ROASTER / Reporting)
+```
+
+### Agent Types & Responsibilities
+
+| Agent | Level | Fungsi Utama | Output |
+|-------|-------|--------------|--------|
+| **Alpha (SCOUT)** | Level 1 | Reconnaissance, port scan, subdomain enumeration | Attack surface map, asset inventory |
+| **Beta (STRIKE)** | Level 2 | Initial access, credential spray, phishing | Valid credentials, foothold |
+| **Gamma (ANCHOR)** | Level 3 | Exploitation, persistence, privilege escalation | Shell access, elevated privileges |
+| **Delta (HUNTER)** | Level 4 | Post-exploitation, lateral movement, data exfiltration | Crown jewel access, sensitive data |
+| **Epsilon (SCOUT-HUNTER)** | Level 5 | Hybrid recon + lateral movement | Pivot chains, internal network map |
+| **Omega (ROASTER)** | Level 6 | Report generation, narrative, proof artifacts | Executive report, technical report |
+
+### Cognitive Loop (Setiap Agent)
+
+Setiap agent menjalankan cognitive loop yang sama:
+
+```
+OBSERVE  → Baca AttackGraph + outcome history
+ORIENT   → Klasifikasi situasi, hypothesis (LLM)
+PLAN     → Pilih aksi + alternative (consensus untuk critical)
+ACT      → Eksekusi via gRPC tool call (Go execution engine)
+VERIFY   → Konfirmasi result + tag outcome + save proof artifact
+PERSIST  → Tulis node/edge ke AttackGraph (durable state)
+```
+
+### Stop Conditions (Bounded Autonomy)
+
+Agent tidak berjalan tanpa batas — ada stop conditions:
+
+- `max_iterations_per_agent` — maksimal loop per phase
+- `time_budget_per_engagement` — batas waktu total
+- `cost_budget` — batas LLM token cap
+- `no_progress_detection` — N consecutive loops tanpa graph node baru
+
+### Authorization Gates
+
+Agent tidak bisa berjalan sembarangan — ada authorization state machine:
+
+```
+CREATED → RECON_ONLY → ACTIVE_APPROVED → OFFENSIVE_APPROVED → EMERGENCY_STOP
+```
+
+- **RECON_ONLY**: Hanya Alpha boleh reconnaissance
+- **ACTIVE_APPROVED**: Beta, Gamma, Delta, Epsilon boleh (non-offensive)
+- **OFFENSIVE_APPROVED**: Semua agent boleh (termasuk offensive)
+- **EMERGENCY_STOP**: SEMUA agent diblokir (kill switch)
+
+### Learning & Memory
+
+Agent belajar dari engagement sebelumnya:
+
+- **EngagementMemory** — Post-engagement learning (event-sourced)
+- **SessionMemory** — Live state selama engagement (volatile)
+- **IntelligenceBase** — Cross-engagement queries (tool reliability, strategies)
+- **AttackGraph** — Knowledge graph untuk attack path reasoning
+
+### Hybrid Architecture
+
+- **Python (asyncio)** — Reasoning, memory, orchestration, cognitive loop
+- **Go (goroutines)** — Execution (network-heavy: port scan, exploit)
+- **gRPC** — IPC antara Python dan Go
+- **Celery + Redis** — Task queue, multi-tenant orchestration
+
+### Business Goal
+
+Target: Authorized red team SaaS untuk Indonesia/SE Asia market
+- Level 6 = full exfiltration dengan proof artifacts
+- Multi-tenant (dedicated queue per engagement)
+- Priority queue (paid tier gets higher priority)
+
+### Key Principles
+
+1. **Prove exploitability, not just vulnerability existence** — Fokus pada proof-of-concept
+2. **Authorized engagement only** — SOW upload, blast radius calculation
+3. **Audit trail append-only** — Semua aksi dicatat di EventStore
+4. **Emergency stop** — Kill switch tunggal untuk semua agent
+5. **No silent success** — Explicit result types, bukan truthiness checks
 
 ---
 
@@ -709,7 +862,7 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-06-17
+**Dokumen ini diperbarui terakhir:** 2026-06-18
 **Phase saat ini:** Phase 1 (COMPLETED)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (4/4)
-**Total tests:** 180 passing
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5)
+**Total tests:** 192 passing
