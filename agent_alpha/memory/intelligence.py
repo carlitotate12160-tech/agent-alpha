@@ -100,10 +100,10 @@ class CredentialPattern:
     region: str
 
 
-ScoreOrInsufficient = typing.Union[ToolReliabilityScore, InsufficientData]
-FpRateOrInsufficient = typing.Union[FalsePositiveRateResult, InsufficientData]
-StrategyOrInsufficient = typing.Union[ScanStrategy, InsufficientData]
-PatternsOrInsufficient = typing.Union[list[CredentialPattern], InsufficientData]
+ScoreOrInsufficient = ToolReliabilityScore | InsufficientData
+FpRateOrInsufficient = FalsePositiveRateResult | InsufficientData
+StrategyOrInsufficient = ScanStrategy | InsufficientData
+PatternsOrInsufficient = list[CredentialPattern] | InsufficientData
 
 
 # ── Protocol ─────────────────────────────────────────────────────────
