@@ -138,9 +138,7 @@ class IntelligenceBase(typing.Protocol):
         """
         ...
 
-    def credential_patterns(
-        self, industry: str, region: str
-    ) -> PatternsOrInsufficient:
+    def credential_patterns(self, industry: str, region: str) -> PatternsOrInsufficient:
         """K3/K18: credential pattern lookup by industry/region.
 
         Phase 1: always returns ``InsufficientData`` — neither industry nor
@@ -149,9 +147,7 @@ class IntelligenceBase(typing.Protocol):
         """
         ...
 
-    def false_positive_rate(
-        self, tool: str, target_type: str
-    ) -> FpRateOrInsufficient:
+    def false_positive_rate(self, tool: str, target_type: str) -> FpRateOrInsufficient:
         """K3/K19: false-positive rate for *tool* against *target_type*.
 
         Phase 1: ``target_type`` cannot be used to filter (no such field on
@@ -162,9 +158,7 @@ class IntelligenceBase(typing.Protocol):
         """
         ...
 
-    def tool_reliability(
-        self, tool: str, conditions: dict[str, object]
-    ) -> ScoreOrInsufficient:
+    def tool_reliability(self, tool: str, conditions: dict[str, object]) -> ScoreOrInsufficient:
         """K3/K19: reliability score for *tool* under *conditions*.
 
         Phase 1: ``EngagementMemoryRecord.tool_success_rates`` is always
@@ -270,9 +264,7 @@ class RecordBackedIntelligenceBase:
             samples_found=0,
         )
 
-    def credential_patterns(
-        self, industry: str, region: str
-    ) -> PatternsOrInsufficient:
+    def credential_patterns(self, industry: str, region: str) -> PatternsOrInsufficient:
         return InsufficientData(
             reason=(
                 "Neither industry nor region exist anywhere in "
@@ -283,9 +275,7 @@ class RecordBackedIntelligenceBase:
             samples_found=0,
         )
 
-    def false_positive_rate(
-        self, tool: str, target_type: str
-    ) -> FpRateOrInsufficient:
+    def false_positive_rate(self, tool: str, target_type: str) -> FpRateOrInsufficient:
         samples = self._collect_tool_rates(tool)
         scored = _compute_tool_score(tool, samples, self._min_samples)
         if isinstance(scored, InsufficientData):
@@ -298,9 +288,7 @@ class RecordBackedIntelligenceBase:
             samples=scored.samples,
         )
 
-    def tool_reliability(
-        self, tool: str, conditions: dict[str, object]
-    ) -> ScoreOrInsufficient:
+    def tool_reliability(self, tool: str, conditions: dict[str, object]) -> ScoreOrInsufficient:
         samples = self._collect_tool_rates(tool)
         return _compute_tool_score(tool, samples, self._min_samples)
 
