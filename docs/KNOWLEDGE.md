@@ -595,26 +595,37 @@ weaponized content is being produced.
 
 **Payload content (~5% of the codebase)**, specifically the bodies under
 `templates/{bypass,cms,cloud,regional}`: this is generated either at
-**runtime** by any model (composed by ToolComposer against
-an already-authorized target) or at **dev-time** via any model directly.
+**runtime** by the DeepSeek provider (composed by ToolComposer against
+an already-authorized target) or at **dev-time** via DeepSeek directly.
 **Never via Claude, under any framing** — not as "just the interface,"
 not as "fictional," not as "for testing only."
 
 **Routing rule, stated plainly:** payload body in
-`templates/{bypass,cms,cloud,regional}` → any model, never Claude.
+`templates/{bypass,cms,cloud,regional}` → DeepSeek, never Claude.
 Claude/Sonnet/Opus's role is strictly limited to: architecture,
 interfaces, template scaffolding (empty function signatures + docstring
 contracts, no exploit logic), safety gates, test contracts, narrative
 generation, and review.
 
-**Current runtime LLM configuration (TEMPORARY testing phase, see K6 and
+**Current runtime LLM configuration (testing phase, see K6 and
 `config/constants.py`):**
-- `LLM_REASONING_PRIMARY = "deepseek-v4-pro"`
-- `LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"`
-- `LLM_PAYLOAD_GEN = []` — no whitelist; all models allowed to attempt payload generation.
-- `TESTING_MODE = True` — indicates testing phase; models may be more permissive.
+- `LLM_REASONING_PRIMARY = "deepseek-v4-pro"` 
+- `LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"` 
+- `LLM_PAYLOAD_GEN = "deepseek-v4-pro"` 
+- `LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6"]` — Kimi 2.6 is a
+  K21 payload fallback only (used when the primary refuses or errors),
+  never a K6 reasoning-consensus partner. `LLM_REASONING_CONSENSUS` 
+  stays `mimo-v2.5-pro`; the two concerns (payload routing vs. reasoning
+  consensus) are independent and must not be conflated.
+- `LLM_PAYLOAD_FALLBACK = "kimi-2.6"` 
+- `LLM_PAYLOAD_NEVER = ["claude", "sonnet", "opus", "gpt"]` — enforced in
+  both `constants.py` and `policy.yaml` (`llm_routing` block), checked at
+  two independent layers per the "controls enforced at multiple layers,
+  not just one" principle.
 
-This configuration is **TEMPORARY** for testing refusal behavior across different
-providers. The `TESTING_MODE` flag signals to models that this is an authorized
-red-team testing context, which may make them more permissive. After testing is
-complete, this flag will be set to `False` for production deployment.
+**Future state:** once the system is proven end-to-end (Phase 2 real-
+target gate, K14, passed), Claude Sonnet/Opus/GPT may be introduced as
+additional *reasoning* models (never payload models) per the original
+role split in K6. This is an explicit "not yet" gate, not a permanent
+exclusion — the team-level memory of this project tracks it as an open
+item on the horizon, not a blocker on current Phase 0/1/2 work.
