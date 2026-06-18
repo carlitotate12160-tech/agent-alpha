@@ -29,7 +29,9 @@ from agent_alpha.memory.intelligence import (
 MIN_SAMPLES = 3  # mirrors a constants.MIN_SAMPLES_BEFORE_SKIP value for tests
 
 
-def _blank_record(engagement_id: str, tool_success_rates: dict[str, float]) -> EngagementMemoryRecord:
+def _blank_record(
+    engagement_id: str, tool_success_rates: dict[str, float]
+) -> EngagementMemoryRecord:
     return EngagementMemoryRecord(
         engagement_id=engagement_id,
         confirmed_exploits=[],
@@ -109,7 +111,9 @@ class TestRecordBackedIntelligenceBasePhase1Reality:
 
     def test_tool_reliability_insufficient_with_empty_success_rates(self) -> None:
         records = [_blank_record("eng_1", tool_success_rates={})]
-        base = RecordBackedIntelligenceBase(records, min_samples_before_skip=MIN_SAMPLES)
+        base = RecordBackedIntelligenceBase(
+            records, min_samples_before_skip=MIN_SAMPLES
+        )
         result = base.tool_reliability("nuclei", conditions={})
         assert isinstance(result, InsufficientData)
 
@@ -122,19 +126,25 @@ class TestRecordBackedIntelligenceBasePhase1Reality:
             _blank_record("eng_2", {"nuclei": 0.85}),
             _blank_record("eng_3", {"nuclei": 0.95}),
         ]
-        base = RecordBackedIntelligenceBase(records, min_samples_before_skip=MIN_SAMPLES)
+        base = RecordBackedIntelligenceBase(
+            records, min_samples_before_skip=MIN_SAMPLES
+        )
         result = base.tool_reliability("nuclei", conditions={})
         assert isinstance(result, ToolReliabilityScore)
 
     def test_false_positive_rate_insufficient_with_empty_success_rates(self) -> None:
         records = [_blank_record("eng_1", tool_success_rates={})]
-        base = RecordBackedIntelligenceBase(records, min_samples_before_skip=MIN_SAMPLES)
+        base = RecordBackedIntelligenceBase(
+            records, min_samples_before_skip=MIN_SAMPLES
+        )
         result = base.false_positive_rate("nuclei", target_type="webapp")
         assert isinstance(result, InsufficientData)
 
     def test_what_worked_for_similar_targets_always_insufficient_phase1(self) -> None:
         records = [_blank_record("eng_1", {"nuclei": 0.9})]
-        base = RecordBackedIntelligenceBase(records, min_samples_before_skip=MIN_SAMPLES)
+        base = RecordBackedIntelligenceBase(
+            records, min_samples_before_skip=MIN_SAMPLES
+        )
         result = base.what_worked_for_similar_targets(
             tech_stack=["laravel", "mysql"], target_type="webapp"
         )
@@ -142,12 +152,16 @@ class TestRecordBackedIntelligenceBasePhase1Reality:
 
     def test_credential_patterns_always_insufficient_phase1(self) -> None:
         records = [_blank_record("eng_1", {"nuclei": 0.9})]
-        base = RecordBackedIntelligenceBase(records, min_samples_before_skip=MIN_SAMPLES)
+        base = RecordBackedIntelligenceBase(
+            records, min_samples_before_skip=MIN_SAMPLES
+        )
         result = base.credential_patterns(industry="banking", region="id")
         assert isinstance(result, InsufficientData)
 
     def test_no_silent_zero_for_unknown_tool(self) -> None:
         records = [_blank_record("eng_1", {"other-tool": 0.9})]
-        base = RecordBackedIntelligenceBase(records, min_samples_before_skip=MIN_SAMPLES)
+        base = RecordBackedIntelligenceBase(
+            records, min_samples_before_skip=MIN_SAMPLES
+        )
         result = base.tool_reliability("nuclei", conditions={})
         assert isinstance(result, InsufficientData)
