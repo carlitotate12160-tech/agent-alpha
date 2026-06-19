@@ -96,3 +96,8 @@ DEEPSEEK_PRICING_USD_PER_1K = {
     "deepseek-v4-pro": {"input": 0.001, "output": 0.002},
     "deepseek-v4-flash": {"input": 0.0001, "output": 0.0002},
 }
+
+# ── Live-Fire Scoring (Phase 2) ───────────────────────────────
+# Phase 2 exit criterion: "<20% FP rate in findings"
+# FP rate in findings = FP / (TP + FP) — fraction of REPORTED findings that are false
+MAX_FP_RATE = 0.20
