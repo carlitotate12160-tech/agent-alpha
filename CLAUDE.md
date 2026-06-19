@@ -137,21 +137,37 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Architecture / Planning
+Project Phase  : Phase 2 — CODE SEALED (2026-06-19)
 ADR Version    : 1.0 (co-authored Opus 4.8 + Natanael)
-Code Written   : ZERO — architecture phase only
-Last Decision  : Rewrite from Lyndon (not evolve), multi-agent, Level 1-6
+Code Written   : Phase 0 + Phase 1 + Phase 2 all implemented & green on Oracle ARM64
+Test env       : Oracle ARM64, Python 3.12.13, .venv — ALWAYS `.venv/bin/python3 -m pytest`
+                 or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum)
 
-Open Decisions (must resolve before Phase 0 code):
-1. Go+Python hybrid from start, or Python MVP first?
-2. Approval channel: Telegram only, or web dashboard?
-3. Multi-tenancy: queue-only vs separate DB schema?
-4. Engagement profiles priority after WebApp?
-5. VERIFY/re-test mode: Phase 2 or Phase 6?
+Phase status (verified on Oracle, not claimed):
+  Phase 0 : DONE (7 components) — 186 + Phase1 tests pass
+  Phase 1 : DONE (5 components)
+  Phase 2 : CODE SEALED — 24 tests green + make check clean (ruff+format+mypy)
+            Components: DeepSeekProvider, PlaybookEngine, LLMOrchestrator,
+            BoundedAutonomy+cognitive loop, Alpha(SCOUT), Omega(ROASTER),
+            HttpClient(httpx), live_fire scoring+runner. Scope gate enforced.
 
-Next Action:
-Resolve 5 open decisions above → write Phase 0 exit criteria test suite
-→ start Conductor skeleton implementation
+LLM roles (testing phase): DeepSeek-v4-pro = reasoning PRIMARY + payload/exec;
+  Kimi-2.6 = payload fallback; MiMo-v2.5-pro = reasoning CONSENSUS only (Phase 3,
+  NOT built — wiring now = dead code). Revisit Claude/GPT for reasoning when stable.
+
+Phase 2 exit criteria STILL OPEN (non-unit):
+  - inner-monologue streaming (DeepSeek reasoning_content) — not built
+  - live-fire 3 REAL targets <20% FP — not run
+
+Deferred (not debt): PARTIAL status, ToolDecision rename, ToolRegistry, consensus tier.
+
+Next Action (next session, Opus 4.8 high effort):
+1. NETWORK RESILIENCE (test-first): HttpClient/Alpha must handle unreachable/timeout
+   → FAILED, not crash (httpx raises ConnectError; Alpha doesn't catch it — untested).
+2. Natanael stands up 3 SELF-OWNED Laravel targets (resolvable, known ground truth),
+   fills engagement YAML (scope from signed SOW), runs live_fire/runner main().
+   Scope is ALWAYS explicit from SOW — never auto-filled. Never scan example.com.
+3. Then Phase 3 (Beta/STRIKE, consensus tier + MiMo).
 ```
 
 ---
