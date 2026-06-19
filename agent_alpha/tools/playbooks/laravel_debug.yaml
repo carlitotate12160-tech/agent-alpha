@@ -8,7 +8,7 @@ phase: recon
 match:
   any_indicator:
     - body_contains: "Whoops"
-    - body_contains: "Illuminate\\"
+    - body_contains: "Illuminate"
     - body_regex: "Laravel v[0-9]+"
 action:
   tool: laravel_debug_probe
