@@ -56,7 +56,7 @@ def test_deepseek_inference_roundtrip(deepseek_api_key: str) -> None:
     provider = DeepSeekProvider(api_key=deepseek_api_key)
     result = provider.complete(
         messages=[{"role": "user", "content": "Reply with the single word: ping"}],
-        max_tokens=16,
+        max_tokens=256,
     )
     assert result.text.strip(), "completion text must be non-empty"
     assert result.usage_cost_usd >= 0.0
