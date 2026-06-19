@@ -83,3 +83,9 @@ MITRE_ATTACK_VERSION = "v14"
 # intelligence.py::_wilson_lower_bound already guards overconfidence
 # at small N. This threshold only gates "informative at all".
 MIN_SAMPLES_BEFORE_SKIP = 3
+
+# ── Pricing ──────────────────────────────────────────────────
+DEEPSEEK_PRICING_USD_PER_1K = {
+    "deepseek-v4-pro": {"input": 0.001, "output": 0.002},
+    "deepseek-v4-flash": {"input": 0.0001, "output": 0.0002},
+}
