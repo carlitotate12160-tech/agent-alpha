@@ -58,7 +58,7 @@ def alpha_factory(graph_store, event_store):
     return _make
 
 
-def _handoff(msg: "a2a_pb2.A2AMessage") -> "a2a_pb2.HandoffPayload":
+def _handoff(msg: a2a_pb2.A2AMessage) -> a2a_pb2.HandoffPayload:
     payload = a2a_pb2.HandoffPayload()
     payload.ParseFromString(msg.payload)
     return payload

@@ -64,17 +64,13 @@ class Alpha:
 
     # ── Public entry point ──────────────────────────────────────
 
-    def run_recon(
-        self, engagement_id: str, target_url: str
-    ) -> a2a_pb2.A2AMessage:
+    def run_recon(self, engagement_id: str, target_url: str) -> a2a_pb2.A2AMessage:
         """Run reconnaissance on *target_url* under *engagement_id*.
 
         Returns an ``A2AMessage`` with a serialised ``HandoffPayload``.
         """
         # ── Auth gate ───────────────────────────────────────────
-        if not self.authorization.can_agent_proceed(
-            a2a_pb2.ALPHA, engagement_id
-        ):
+        if not self.authorization.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
             return self._build_handoff_message(
                 engagement_id=engagement_id,
                 status=a2a_pb2.BLOCKED,
@@ -93,7 +89,7 @@ class Alpha:
         policy = BoundedAutonomy(
             no_progress_threshold=constants.ALPHA_RECON_NO_PROGRESS_ITERS,
         )
-        outcome = run_cognitive_loop(self, policy)
+        run_cognitive_loop(self, policy)
 
         # ── Determine status ────────────────────────────────────
         if self._findings > 0:
@@ -145,9 +141,7 @@ class Alpha:
         nodes_added = 0
 
         if decision.tool == "laravel_debug_probe":
-            nodes_added = self._handle_laravel_debug(
-                resp, decision, url
-            )
+            nodes_added = self._handle_laravel_debug(resp, decision, url)
         else:
             # Generic probe: optionally record an ASSET node from headers,
             # but NEVER with "laravel" in tech_stack, and NEVER increment
@@ -158,9 +152,7 @@ class Alpha:
 
     # ── Private: tool handlers ──────────────────────────────────
 
-    def _handle_laravel_debug(
-        self, resp: Any, decision: Any, url: str
-    ) -> int:
+    def _handle_laravel_debug(self, resp: Any, decision: Any, url: str) -> int:
         """Confirm Laravel debug exposure and persist findings."""
         body = resp.text
 
@@ -174,12 +166,7 @@ class Alpha:
             return 0
 
         host = urlparse(url).hostname or urlparse(url).netloc
-        now_utc = (
-            datetime.datetime.now(datetime.UTC)
-            .replace(tzinfo=None)
-            .isoformat()
-            + "Z"
-        )
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
         nodes_added = 0
 
         # ── ASSET node ──────────────────────────────────────────
@@ -209,14 +196,8 @@ class Alpha:
             proof_artifacts=[
                 ProofArtifact(
                     type="http_response",
-                    storage_ref=(
-                        f"engagements/{self._engagement_id}/proofs/"
-                        f"laravel_debug_{host}"
-                    ),
-                    description=(
-                        "Laravel APP_DEBUG=true page leaking stack trace "
-                        "+ environment"
-                    ),
+                    storage_ref=(f"engagements/{self._engagement_id}/proofs/laravel_debug_{host}"),
+                    description=("Laravel APP_DEBUG=true page leaking stack trace + environment"),
                     captured_at=now_utc,
                     agent="alpha",
                     artifact_id=str(uuid.uuid4()),
@@ -244,12 +225,7 @@ class Alpha:
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""
         host = urlparse(url).hostname or urlparse(url).netloc
-        now_utc = (
-            datetime.datetime.now(datetime.UTC)
-            .replace(tzinfo=None)
-            .isoformat()
-            + "Z"
-        )
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
         # Derive tech_stack from headers, excluding "laravel".
         tech_stack: list[str] = []
@@ -319,7 +295,7 @@ class Alpha:
     @staticmethod
     def _build_handoff_message(
         engagement_id: str,
-        status: int,
+        status: a2a_pb2.PhaseStatus,
         findings_count: int,
         confidence: float,
     ) -> a2a_pb2.A2AMessage:

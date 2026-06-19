@@ -16,10 +16,9 @@ from __future__ import annotations
 import enum
 import time
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any
 
 from agent_alpha.config import constants
-
 
 # ── Stop reasons ────────────────────────────────────────────────
 

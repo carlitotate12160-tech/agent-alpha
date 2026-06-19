@@ -11,7 +11,7 @@ Reuses the existing narrative builder ``agent_alpha.graph.narrative.to_narrative
 from __future__ import annotations
 
 import pathlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from agent_alpha.config import constants
 from agent_alpha.graph.narrative import to_narrative

@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 
 from agent_alpha.config import constants
 from agent_alpha.config.constants import DEEPSEEK_PRICING_USD_PER_1K
-
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,7 @@ class DeepSeekProvider:
         self.model = model
         self.base_url = base_url.rstrip("/")
 
-    def list_models(self) -> List[str]:
+    def list_models(self) -> list[str]:
         """Fetch available models from the provider."""
         url = f"{self.base_url}/v1/models"
         headers = {
@@ -58,7 +57,7 @@ class DeepSeekProvider:
             data = response.json()
             return [model_obj["id"] for model_obj in data.get("data", [])]
 
-    def complete(self, messages: List[Dict[str, Any]], max_tokens: int) -> CompletionResult:
+    def complete(self, messages: list[dict[str, Any]], max_tokens: int) -> CompletionResult:
         """Run a single inference round-trip."""
         url = f"{self.base_url}/v1/chat/completions"
         headers = {
@@ -86,8 +85,7 @@ class DeepSeekProvider:
 
         if not text and finish_reason == "length":
             raise CompletionTruncatedError(
-                "completion truncated; raise max_tokens "
-                "(reasoning model consumed the token budget)"
+                "completion truncated; raise max_tokens (reasoning model consumed the token budget)"
             )
         if not text:
             raise RuntimeError("Provider returned empty completion text.")
@@ -98,9 +96,7 @@ class DeepSeekProvider:
 
         # Cost calculation
         if self.model not in DEEPSEEK_PRICING_USD_PER_1K:
-            logger.warning(
-                "no pricing for model %s; cost under-reported", self.model
-            )
+            logger.warning("no pricing for model %s; cost under-reported", self.model)
             cost = 0.0
         else:
             pricing = DEEPSEEK_PRICING_USD_PER_1K[self.model]
