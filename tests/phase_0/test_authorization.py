@@ -51,7 +51,7 @@ def _engagement_in_offensive(sm: AuthorizationStateMachine) -> str:
 
 
 # ── Test 1 ────────────────────────────────────────────────────
-def test_create_engagement_state_created():
+def test_create_engagement_state_created() -> None:
     sm = AuthorizationStateMachine()
     rec = sm.create_engagement("client_a", "10.0.0.0/24")
     assert isinstance(rec, EngagementRecord)
@@ -59,7 +59,7 @@ def test_create_engagement_state_created():
 
 
 # ── Test 2 ────────────────────────────────────────────────────
-def test_enable_recon_valid_scope():
+def test_enable_recon_valid_scope() -> None:
     sm = AuthorizationStateMachine()
     rec = sm.create_engagement("client_a", "10.0.0.0/24")
     assert sm.enable_recon(rec.engagement_id, _valid_scope()) is True
@@ -67,7 +67,7 @@ def test_enable_recon_valid_scope():
 
 
 # ── Test 3 ────────────────────────────────────────────────────
-def test_enable_recon_invalid_cidr():
+def test_enable_recon_invalid_cidr() -> None:
     sm = AuthorizationStateMachine()
     rec = sm.create_engagement("client_a", "x")
     bad = Scope(ip_ranges=["not-a-cidr"], domains=[], exclusions=[])
@@ -76,7 +76,7 @@ def test_enable_recon_invalid_cidr():
 
 
 # ── Test 4 ────────────────────────────────────────────────────
-def test_enable_recon_too_many_ips():
+def test_enable_recon_too_many_ips() -> None:
     sm = AuthorizationStateMachine()
     rec = sm.create_engagement("client_a", "x")
     # /23 == 512 addresses > MAX_SCOPE_IPS (256)
@@ -86,7 +86,7 @@ def test_enable_recon_too_many_ips():
 
 
 # ── Test 5 ────────────────────────────────────────────────────
-def test_enable_active_without_recon_raises():
+def test_enable_active_without_recon_raises() -> None:
     sm = AuthorizationStateMachine()
     rec = sm.create_engagement("client_a", "x")
     with pytest.raises(ValueError):
@@ -94,7 +94,7 @@ def test_enable_active_without_recon_raises():
 
 
 # ── Test 6 ────────────────────────────────────────────────────
-def test_enable_active_after_recon():
+def test_enable_active_after_recon() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_recon(sm)
     assert sm.enable_active(eid) is True
@@ -102,7 +102,7 @@ def test_enable_active_after_recon():
 
 
 # ── Test 7 ────────────────────────────────────────────────────
-def test_enable_offensive_valid_sow():
+def test_enable_offensive_valid_sow() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_active(sm)
     assert sm.enable_offensive(eid, b"sow bytes") is True
@@ -110,7 +110,7 @@ def test_enable_offensive_valid_sow():
 
 
 # ── Test 8 ────────────────────────────────────────────────────
-def test_enable_offensive_empty_sow_raises():
+def test_enable_offensive_empty_sow_raises() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_active(sm)
     with pytest.raises(SOWError):
@@ -118,7 +118,7 @@ def test_enable_offensive_empty_sow_raises():
 
 
 # ── Test 9 ────────────────────────────────────────────────────
-def test_emergency_stop_from_any_state():
+def test_emergency_stop_from_any_state() -> None:
     sm = AuthorizationStateMachine()
     rec = sm.create_engagement("client_a", "x")
     assert sm.emergency_stop(rec.engagement_id, "manual abort") is True
@@ -126,7 +126,7 @@ def test_emergency_stop_from_any_state():
 
 
 # ── Test 10 ───────────────────────────────────────────────────
-def test_emergency_stop_idempotent():
+def test_emergency_stop_idempotent() -> None:
     sm = AuthorizationStateMachine()
     rec = sm.create_engagement("client_a", "x")
     assert sm.emergency_stop(rec.engagement_id, "first") is True
@@ -135,28 +135,28 @@ def test_emergency_stop_idempotent():
 
 
 # ── Test 11 ───────────────────────────────────────────────────
-def test_alpha_can_proceed_recon():
+def test_alpha_can_proceed_recon() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_recon(sm)
     assert sm.can_agent_proceed(a2a_pb2.ALPHA, eid) is True
 
 
 # ── Test 12 ───────────────────────────────────────────────────
-def test_gamma_cannot_proceed_active():
+def test_gamma_cannot_proceed_active() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_active(sm)
     assert sm.can_agent_proceed(a2a_pb2.GAMMA, eid) is False
 
 
 # ── Test 13 ───────────────────────────────────────────────────
-def test_gamma_can_proceed_offensive():
+def test_gamma_can_proceed_offensive() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_offensive(sm)
     assert sm.can_agent_proceed(a2a_pb2.GAMMA, eid) is True
 
 
 # ── Test 14 ───────────────────────────────────────────────────
-def test_no_agent_proceeds_emergency_stop():
+def test_no_agent_proceeds_emergency_stop() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_offensive(sm)
     sm.emergency_stop(eid, "halt")
@@ -173,21 +173,21 @@ def test_no_agent_proceeds_emergency_stop():
 
 
 # ── Test 15 ───────────────────────────────────────────────────
-def test_is_in_scope_ip_inside_range():
+def test_is_in_scope_ip_inside_range() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_recon(sm)
     assert sm.is_in_scope(eid, "10.0.0.42") is True
 
 
 # ── Test 16 ───────────────────────────────────────────────────
-def test_is_in_scope_ip_excluded():
+def test_is_in_scope_ip_excluded() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_recon(sm)
     assert sm.is_in_scope(eid, "10.0.0.5") is False
 
 
 # ── Test 17 ───────────────────────────────────────────────────
-def test_event_callback_on_transition():
+def test_event_callback_on_transition() -> None:
     cb = mock.Mock()
     sm = AuthorizationStateMachine(event_callback=cb)
     rec = sm.create_engagement("client_a", "10.0.0.0/24")
@@ -199,7 +199,7 @@ def test_event_callback_on_transition():
 
 
 # ── Test 18 ───────────────────────────────────────────────────
-def test_sow_hash_stored_as_digest_not_raw():
+def test_sow_hash_stored_as_digest_not_raw() -> None:
     sm = AuthorizationStateMachine()
     eid = _engagement_in_active(sm)
     sow_bytes = b"the full statement of work content"

@@ -19,7 +19,7 @@ from agent_alpha.graph.nodes import (
 )
 
 
-def test_asset_properties_roundtrip():
+def test_asset_properties_roundtrip() -> None:
     node = AttackNode(
         id="asset:example.com",
         type=NodeType.ASSET,
@@ -29,7 +29,7 @@ def test_asset_properties_roundtrip():
     assert _reconstruct_node(node_to_dict(node)) == node
 
 
-def test_credential_properties_no_secret_key_in_output():
+def test_credential_properties_no_secret_key_in_output() -> None:
     node = AttackNode(
         id="cred:admin",
         type=NodeType.CREDENTIAL,
@@ -47,21 +47,21 @@ def test_credential_properties_no_secret_key_in_output():
     assert "password" not in str(d)
 
 
-def test_confidence_above_one_raises():
+def test_confidence_above_one_raises() -> None:
     with pytest.raises(ValueError):
         AttackNode(
             id="x", type=NodeType.ASSET, properties=AssetProperties(host="h"), confidence=1.5
         )
 
 
-def test_confidence_below_zero_raises():
+def test_confidence_below_zero_raises() -> None:
     with pytest.raises(ValueError):
         AttackNode(
             id="x", type=NodeType.ASSET, properties=AssetProperties(host="h"), confidence=-0.1
         )
 
 
-def test_attack_edge_asdict():
+def test_attack_edge_asdict() -> None:
     edge = AttackEdge(
         source_id="a",
         target_id="b",
@@ -73,12 +73,12 @@ def test_attack_edge_asdict():
     assert d["technique_id"] == "T1190"
 
 
-def test_reconstruct_unknown_type_raises_keyerror():
+def test_reconstruct_unknown_type_raises_keyerror() -> None:
     with pytest.raises(KeyError, match="Unknown node type"):
         _reconstruct_node({"type": "unknown_type", "id": "x", "confidence": 0.5, "properties": {}})
 
 
-def test_proof_artifact_no_content_field():
+def test_proof_artifact_no_content_field() -> None:
     artifact = ProofArtifact(
         artifact_id="uuid-1",
         type="screenshot",
@@ -115,7 +115,7 @@ def test_proof_artifact_no_content_field():
         (NodeType.ACCESS_LEVEL, AccessLevelProperties(level="root")),
     ],
 )
-def test_all_node_types_roundtrip(node_type, props):
+def test_all_node_types_roundtrip(node_type, props) -> None:
     node = AttackNode(
         id=f"{node_type.value}:test", type=node_type, properties=props, confidence=0.5
     )
