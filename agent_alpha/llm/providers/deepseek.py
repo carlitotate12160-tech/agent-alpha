@@ -71,15 +71,21 @@ class DeepSeekProvider:
             response.raise_for_status()
             data = response.json()
 
+        logger.info(f"Full API response: {data}")
+
         choices = data.get("choices", [])
         if not choices:
             raise RuntimeError("Provider returned no choices in response.")
+
+        logger.info(f"Choices: {choices}")
 
         text = choices[0].get("message", {}).get("content", "")
         if text is not None:
             text = text.strip()
         else:
             text = ""
+
+        logger.info(f"Extracted text: '{text}'")
 
         # Anti-Lyndon #3: empty/whitespace response must raise an error
         if not text:
