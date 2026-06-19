@@ -37,6 +37,9 @@ CONSENSUS_ESCALATE_THRESHOLD = 0.50
 # ── Authorization ────────────────────────────────────────────
 EMERGENCY_STOP_TIMEOUT_SEC = 5
 MAX_SCOPE_IPS = 256
+
+# ── HTTP Client ──────────────────────────────────────────────
+HTTP_REQUEST_TIMEOUT_SEC = 30.0
 SOW_MAX_FILE_SIZE_MB = 50
 SOW_HASH_ALGORITHM = "sha256"
 
