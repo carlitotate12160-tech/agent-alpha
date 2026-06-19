@@ -33,7 +33,7 @@ def test_append_returns_frozen_event() -> None:
     store = EventStore()
     event = store.append("A", "eng_A", "conductor", {})
     with pytest.raises(dataclasses.FrozenInstanceError):
-        event.event_type = "tampered"
+        event.event_type = "tampered"  # type: ignore[misc]
 
 
 def test_get_events_returns_sequence_order() -> None:
