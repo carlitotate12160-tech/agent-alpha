@@ -11,6 +11,7 @@ dependencies = [
     "redis",
     "python-multipart",
     "uvicorn",
+    "reportlab",
 ]
 
 [tool.setuptools.packages.find]
