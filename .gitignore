@@ -22,3 +22,6 @@ __pycache__/
 # Archive / audit (local only, do not push)
 archive/
 audit_*.jsonl
+
+# Engagement configs (local only, contain target/scope info)
+engagements/
