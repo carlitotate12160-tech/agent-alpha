@@ -33,6 +33,7 @@ def fixture_store() -> NetworkXGraphStore:
         properties=AssetProperties(host="host1", ip="10.0.0.1"),
         confidence=0.9,
     )
+    assert isinstance(asset.properties, AssetProperties)
     store.apply_event(
         "NodeDiscovered",
         {
@@ -56,6 +57,7 @@ def fixture_store() -> NetworkXGraphStore:
         properties=VulnerabilityProperties(cve_id="CVE-2024-1234", cvss_score=7.5),
         confidence=0.8,
     )
+    assert isinstance(vuln.properties, VulnerabilityProperties)
     store.apply_event(
         "NodeDiscovered",
         {
@@ -86,6 +88,7 @@ def fixture_store() -> NetworkXGraphStore:
         ),
         confidence=0.85,
     )
+    assert isinstance(cred.properties, CredentialProperties)
     store.apply_event(
         "NodeDiscovered",
         {
@@ -111,6 +114,7 @@ def fixture_store() -> NetworkXGraphStore:
         properties=DataProperties(data_type="database", sensitivity="high"),
         confidence=0.95,
     )
+    assert isinstance(data.properties, DataProperties)
     store.apply_event(
         "NodeDiscovered",
         {
@@ -273,9 +277,9 @@ def test_highest_impact_chain_selects_highest_score() -> None:
     )
 
     for node in [asset1, vuln1, data1]:
-        if node.type == NodeType.ASSET:
+        if isinstance(node.properties, AssetProperties):
             props = {"host": node.properties.host}
-        elif node.type == NodeType.DATA:
+        elif isinstance(node.properties, DataProperties):
             props = {
                 "data_type": node.properties.data_type,
                 "sensitivity": node.properties.sensitivity,
@@ -338,9 +342,9 @@ def test_highest_impact_chain_selects_highest_score() -> None:
     )
 
     for node in [asset2, vuln2, data2]:
-        if node.type == NodeType.ASSET:
+        if isinstance(node.properties, AssetProperties):
             props = {"host": node.properties.host}
-        elif node.type == NodeType.DATA:
+        elif isinstance(node.properties, DataProperties):
             props = {
                 "data_type": node.properties.data_type,
                 "sensitivity": node.properties.sensitivity,

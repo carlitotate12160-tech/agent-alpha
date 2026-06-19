@@ -1,4 +1,5 @@
 import tempfile
+from pathlib import Path
 
 import pytest
 
@@ -95,4 +96,4 @@ def test_invalid_policy_path_raises() -> None:
     with tempfile.NamedTemporaryFile(delete=True) as tmp:
         pass
     with pytest.raises(PolicyLoadError):
-        PolicyEnforcer(policy_path=tmp.name)
+        PolicyEnforcer(policy_path=Path(tmp.name))

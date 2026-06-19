@@ -80,7 +80,7 @@ def test_update_scratchpad_existing_session() -> None:
     record = make_session_record(scratchpad={"initial": "data"})
     store.set(record)
 
-    new_scratchpad = {"updated": "notes", "phase": "exploit"}
+    new_scratchpad: dict[str, object] = {"updated": "notes", "phase": "exploit"}
     store.update_scratchpad(ENG_ID, new_scratchpad)
 
     retrieved = store.get(ENG_ID)
@@ -158,7 +158,7 @@ def test_snapshot_scratchpad_event() -> None:
     extra/missing keys), and whose first element equals
     EventType.SCRATCHPAD_SNAPSHOTTED."""
     store = InMemorySessionStore()
-    scratchpad_data = {"phase": "EXPLOIT", "notes": "SQLi successful"}
+    scratchpad_data: dict[str, object] = {"phase": "EXPLOIT", "notes": "SQLi successful"}
     record = make_session_record(scratchpad=scratchpad_data)
     store.set(record)
 

@@ -18,6 +18,15 @@ from agent_alpha.graph.nodes import (
     node_to_dict,
 )
 
+NodeProperties = (
+    AssetProperties
+    | VulnerabilityProperties
+    | CredentialProperties
+    | ServiceProperties
+    | DataProperties
+    | AccessLevelProperties
+)
+
 
 def test_asset_properties_roundtrip() -> None:
     node = AttackNode(
@@ -115,7 +124,7 @@ def test_proof_artifact_no_content_field() -> None:
         (NodeType.ACCESS_LEVEL, AccessLevelProperties(level="root")),
     ],
 )
-def test_all_node_types_roundtrip(node_type, props) -> None:
+def test_all_node_types_roundtrip(node_type: NodeType, props: NodeProperties) -> None:
     node = AttackNode(
         id=f"{node_type.value}:test", type=node_type, properties=props, confidence=0.5
     )
