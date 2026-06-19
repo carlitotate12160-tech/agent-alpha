@@ -92,13 +92,11 @@ class Alpha:
         run_cognitive_loop(self, policy)
 
         # ── Determine status ────────────────────────────────────
-        if self._findings > 0:
-            status = a2a_pb2.COMPLETE
-        elif self._analyzable_probes == 0:
+        if self._analyzable_probes == 0:
             # Nothing could be analysed — no silent success (anti-Lyndon #3).
             status = a2a_pb2.FAILED
         else:
-            status = a2a_pb2.RUNNING
+            status = a2a_pb2.COMPLETE
 
         confidence = 0.85 if self._findings > 0 else 0.0
 
