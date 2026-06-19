@@ -7,9 +7,14 @@ from typing import Any, Dict, List
 import httpx
 
 from agent_alpha.config import constants
+from agent_alpha.config.constants import DEEPSEEK_PRICING_USD_PER_1K
 
 
 logger = logging.getLogger(__name__)
+
+
+class CompletionTruncatedError(RuntimeError):
+    """Raised when max_tokens is too small for the reasoning model to output a final answer."""
 
 
 @dataclass(frozen=True)
@@ -47,7 +52,7 @@ class DeepSeekProvider:
             "Accept": "application/json",
         }
         # Note: Do not log headers or api_key
-        with httpx.Client() as client:
+        with httpx.Client(timeout=30.0) as client:
             response = client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -66,28 +71,24 @@ class DeepSeekProvider:
             "max_tokens": max_tokens,
         }
 
-        with httpx.Client() as client:
+        with httpx.Client(timeout=30.0) as client:
             response = client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
-
-        logger.info(f"Full API response: {data}")
 
         choices = data.get("choices", [])
         if not choices:
             raise RuntimeError("Provider returned no choices in response.")
 
-        logger.info(f"Choices: {choices}")
+        finish_reason = choices[0].get("finish_reason")
+        content = choices[0].get("message", {}).get("content", "")
+        text = (content or "").strip()
 
-        text = choices[0].get("message", {}).get("content", "")
-        if text is not None:
-            text = text.strip()
-        else:
-            text = ""
-
-        logger.info(f"Extracted text: '{text}'")
-
-        # Anti-Lyndon #3: empty/whitespace response must raise an error
+        if not text and finish_reason == "length":
+            raise CompletionTruncatedError(
+                "completion truncated; raise max_tokens "
+                "(reasoning model consumed the token budget)"
+            )
         if not text:
             raise RuntimeError("Provider returned empty completion text.")
 
@@ -96,12 +97,15 @@ class DeepSeekProvider:
         completion_tokens = usage.get("completion_tokens", 0)
 
         # Cost calculation
-        pricing = getattr(constants, "DEEPSEEK_PRICING_USD_PER_1K", {}).get(self.model)
-        if pricing and usage:
+        if self.model not in DEEPSEEK_PRICING_USD_PER_1K:
+            logger.warning(
+                "no pricing for model %s; cost under-reported", self.model
+            )
+            cost = 0.0
+        else:
+            pricing = DEEPSEEK_PRICING_USD_PER_1K[self.model]
             cost = (prompt_tokens / 1000.0) * pricing.get("input", 0.0) + (
                 completion_tokens / 1000.0
             ) * pricing.get("output", 0.0)
-        else:
-            cost = 0.0
 
         return CompletionResult(text=text, usage_cost_usd=cost, model=self.model)
