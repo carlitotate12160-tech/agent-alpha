@@ -15,10 +15,10 @@ class DummyEvent:
 
 class FakeGraphStore:
     def __init__(self) -> None:
-        self.operations: list[tuple[str, Any]] = []
+        self.operations: list[tuple[Any, ...]] = []
         self._nodes: dict[str, AttackNode] = {}
 
-    def apply_event(self, event_type: str, payload: dict) -> None:
+    def apply_event(self, event_type: str, payload: dict[str, Any]) -> None:
         self.operations.append(("apply_event", event_type, payload))
 
     def get_node(self, node_id: str) -> AttackNode | None:

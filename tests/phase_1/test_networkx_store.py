@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
@@ -19,7 +20,7 @@ from agent_alpha.graph.store import rebuild_from_events
 @dataclass
 class DummyEvent:
     event_type: str
-    payload: dict
+    payload: dict[str, Any]
 
 
 def test_node_discovered_and_get_node() -> None:

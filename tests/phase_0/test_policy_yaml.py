@@ -21,6 +21,7 @@ Run on Oracle ARM64 only (Rule 10).
 """
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -31,29 +32,31 @@ POLICY_FILE = Path(__file__).resolve().parents[2] / "agent_alpha" / "config" / "
 
 
 @pytest.fixture(scope="module")
-def policy() -> dict:
+def policy() -> dict[str, Any]:
     """Load policy.yaml once per module."""
     with open(POLICY_FILE) as f:
-        return yaml.safe_load(f)
+        result = yaml.safe_load(f)
+        assert isinstance(result, dict)
+        return result
 
 
-def test_yaml_loads_cleanly(policy: dict) -> None:
+def test_yaml_loads_cleanly(policy: dict[str, Any]) -> None:
     """policy.yaml must be valid YAML (no syntax errors)."""
     assert policy is not None
 
 
-def test_version(policy: dict) -> None:
+def test_version(policy: dict[str, Any]) -> None:
     """Policy version is exactly '1.0'."""
     assert policy["version"] == "1.0"
 
 
-def test_always_forbidden_count(policy: dict) -> None:
+def test_always_forbidden_count(policy: dict[str, Any]) -> None:
     """Exactly 4 techniques are always forbidden."""
     always_forbidden = policy["excluded_techniques"]["always_forbidden"]
     assert len(always_forbidden) == 4
 
 
-def test_always_forbidden_includes_destructive_techniques(policy: dict) -> None:
+def test_always_forbidden_includes_destructive_techniques(policy: dict[str, Any]) -> None:
     """Always-forbidden list includes T1498 (DoS) and T1485 (data destruction)."""
     always_forbidden = policy["excluded_techniques"]["always_forbidden"]
     ids = [t["id"] for t in always_forbidden]
@@ -61,23 +64,23 @@ def test_always_forbidden_includes_destructive_techniques(policy: dict) -> None:
     assert "T1485" in ids
 
 
-def test_data_destruction_not_allowed(policy: dict) -> None:
+def test_data_destruction_not_allowed(policy: dict[str, Any]) -> None:
     """safe_in_production.data_destruction_allowed is False."""
     assert policy["safe_in_production"]["data_destruction_allowed"] is False
 
 
-def test_max_ips_matches_constants(policy: dict) -> None:
+def test_max_ips_matches_constants(policy: dict[str, Any]) -> None:
     """max_ips_per_engagement matches constants.MAX_SCOPE_IPS (256)."""
     assert policy["scope"]["max_ips_per_engagement"] == 256
 
 
-def test_claude_in_forbidden_providers(policy: dict) -> None:
+def test_claude_in_forbidden_providers(policy: dict[str, Any]) -> None:
     """'claude' is in payload_generation_forbidden_providers."""
     forbidden = policy["llm_routing"]["payload_generation_forbidden_providers"]
     assert "claude" in forbidden
 
 
-def test_opsec_profile_rate_limit_ordering(policy: dict) -> None:
+def test_opsec_profile_rate_limit_ordering(policy: dict[str, Any]) -> None:
     """quiet < normal < loud rate limits (ordering must hold)."""
     quiet_rps = policy["opsec_profiles"]["quiet"]["rate_limit_rps"]
     normal_rps = policy["opsec_profiles"]["normal"]["rate_limit_rps"]
@@ -85,7 +88,7 @@ def test_opsec_profile_rate_limit_ordering(policy: dict) -> None:
     assert quiet_rps < normal_rps < loud_rps
 
 
-def test_always_excluded_networks_match_constants(policy: dict) -> None:
+def test_always_excluded_networks_match_constants(policy: dict[str, Any]) -> None:
     """always_excluded_networks matches constants.SCOPE_ALWAYS_EXCLUDED."""
     yaml_networks = set(policy["scope"]["always_excluded_networks"])
     const_networks = set(SCOPE_ALWAYS_EXCLUDED)
