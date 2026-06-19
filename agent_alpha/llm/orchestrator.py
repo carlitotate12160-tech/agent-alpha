@@ -86,14 +86,10 @@ class LLMOrchestrator:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"LLM response is not valid JSON: {text!r}"
-            ) from exc
+            raise ValueError(f"LLM response is not valid JSON: {text!r}") from exc
 
         if "tool" not in data:
-            raise ValueError(
-                f"LLM JSON response missing 'tool' key: {data!r}"
-            )
+            raise ValueError(f"LLM JSON response missing 'tool' key: {data!r}")
 
         return PlaybookDecision(
             tool=data["tool"],
