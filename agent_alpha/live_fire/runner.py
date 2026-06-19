@@ -108,8 +108,12 @@ def load_engagement_config(path: str | pathlib.Path) -> EngagementConfig:
 
 
 def ground_truth_from_config(config: EngagementConfig) -> dict[str, bool]:
-    """Extract ground-truth mapping {host: vulnerable?} from config."""
-    return {t.host: t.ground_truth_vulnerable for t in config.targets}
+    """Extract ground-truth mapping {url: vulnerable?} from config.
+
+    Keyed by URL, not host: two targets may share a host (different
+    ports/paths) and must remain distinct (anti-Lyndon #3 collision).
+    """
+    return {t.url: t.ground_truth_vulnerable for t in config.targets}
 
 
 # ── Hermetic runner (tested with fakes) ───────────────────────────────
@@ -162,7 +166,7 @@ def run_live_fire(
         payload.ParseFromString(msg.payload)
         results.append(
             TargetResult(
-                host=t.host,
+                url=t.url,
                 predicted_vulnerable=payload.findings_count > 0,
             )
         )
