@@ -10,7 +10,7 @@
 |-------|--------|----------|--------|
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
-| Phase 2 | ⬜ NOT STARTED | 0% | - |
+| Phase 2 | ✅ COMPLETED | 8/8 komponen selesai | 8 komponen |
 | Phase 3 | ⬜ NOT STARTED | 0% | - |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
@@ -543,6 +543,285 @@ Cross-engagement learning query interface (K3, K15-K20). Layer query untuk belaj
    a. tool_reliability("nuclei", {})
    b. Return: InsufficientData(reason="no tool_success_rates recorded")
 5. Beta fallback ke default tool selection (hardcoded logic)
+```
+
+---
+
+## Phase 2 — Cognitive Loop & Agent Implementation
+
+**Tujuan Phase 2:** Membangun cognitive loop dan implementasi agent pertama (Alpha SCOUT) dengan LLM reasoning dan decision ladder.
+
+### Komponen Phase 2 Checklist
+
+- ✅ **DeepSeekProvider** — LLM provider untuk reasoning/payload
+- ✅ **PlaybookEngine** — RULE tier decision making (deterministic)
+- ✅ **LLMOrchestrator** — Routing ke RULE/SINGLE_LLM/CONSENSUS
+- ✅ **ToolRegistry** — Registry untuk tool yang tersedia
+- ✅ **BoundedAutonomy + run_cognitive_loop** — Cognitive loop dengan stop conditions
+- ✅ **Alpha SCOUT** — Reconnaissance agent pertama
+- ✅ **Omega ROASTER** — Report generation agent
+- ✅ **HttpClient** — Production httpx-backed HTTP client
+
+---
+
+## Komponen yang Sudah Dibuat (Phase 2)
+
+### 12. DeepSeekProvider (`agent_alpha/llm/providers/deepseek.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+LLM provider untuk DeepSeek API (reasoning model deepseek-v4-pro). Menyediakan interface untuk inference dengan cost tracking dan error handling.
+
+#### Efek terhadap Agent
+- Agent bisa melakukan LLM reasoning untuk decision making
+- Cost tracking untuk budget enforcement
+- Error handling untuk truncation (max_tokens too small)
+- Timeout enforcement untuk network reliability
+
+#### Behavior Sistem
+- `list_models()` — fetch available models from DeepSeek API
+- `complete(messages, max_tokens)` — single inference round-trip
+- Returns `CompletionResult(text, usage_cost_usd, model)`
+- Raises `CompletionTruncatedError` jika max_tokens terlalu kecil
+- Warning untuk unpriced models
+- Timeout 30.0 detik untuk semua HTTP requests
+
+#### Contoh Flow
+```
+1. LLMOrchestrator memanggil DeepSeekProvider.complete()
+2. HTTP request ke api.deepseek.com/v1/chat/completions
+3. Response berisi choices[0].message.content
+4. Cost dihitung dari prompt_tokens + completion_tokens
+5. Return CompletionResult dengan text dan cost
+```
+
+---
+
+### 13. PlaybookEngine (`agent_alpha/tools/playbook.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Deterministic RULE tier decision engine. Membaca YAML playbooks dan mengembalikan tool decision tanpa LLM. Ini adalah tier pertama dari decision ladder.
+
+#### Efek terhadap Agent
+- Agent bisa mengetahui tool yang harus digunakan untuk observation tertentu
+- Tidak ada LLM call untuk known patterns (lebih cepat dan lebih murah)
+- Escalation ke LLM hanya jika playbook tidak match
+
+#### Behavior Sistem
+- `from_directory(path)` — load semua *.yaml playbooks dari directory
+- `match(observation)` — cari playbook yang match observation
+- Indicators: body_contains, body_regex
+- Logical OR untuk any_indicator
+- Stable sorted order (deterministic)
+- Returns `PlaybookDecision(tool, tier, technique_id, cost_usd)` atau None
+
+#### Contoh Flow
+```
+1. Alpha SCOUT mengamati Laravel debug page
+2. Observation: {"body": "Whoops...Illuminate\\...", "headers": {...}}
+3. PlaybookEngine.match() mengecek laravel_debug.yaml
+4. body_contains "Whoops" → match
+5. Return PlaybookDecision(tool="laravel_debug_probe", tier="rule", technique_id="T1592.002")
+6. Alpha execute laravel_debug_probe
+```
+
+---
+
+### 14. LLMOrchestrator (`agent_alpha/llm/orchestrator.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Orchestrator untuk LLM decision routing. Mengimplementasikan decision ladder: RULE → SINGLE_LLM → CONSENSUS.
+
+#### Efek terhadap Agent
+- Agent mendapatkan tool decision yang optimal
+- Cost optimization (RULE tier gratis, SINGLE_LLM murah, CONSENSUS mahal)
+- Fallback jika tier gagal
+
+#### Behavior Sistem
+- `decide(observation)` — main decision method
+- Priority: PlaybookEngine (RULE) → LLM (SINGLE_LLM) → Consensus (CONSENSUS)
+- Returns `Decision(tool, tier, technique_id, cost_usd)`
+- Cost tracking per decision
+
+#### Contoh Flow
+```
+1. Alpha SCOUT panggil orchestrator.decide(observation)
+2. Cek PlaybookEngine.match() → match
+3. Return RULE tier decision (cost_usd=0.0)
+4. Jika tidak match → panggil LLM provider
+5. Parse JSON response untuk tool selection
+6. Return SINGLE_LLM tier decision (cost_usd>0.0)
+```
+
+---
+
+### 15. ToolRegistry (`agent_alpha/tools/registry.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Registry untuk tool yang tersedia di sistem. Menyediakan lookup tool metadata dan validation.
+
+#### Efek terhadap Agent
+- Agent bisa mengetahui tool yang tersedia
+- Validation untuk tool calls
+- Metadata untuk tool (description, tier, technique_id)
+
+#### Behavior Sistem
+- `get_tool(tool_name)` — ambil tool metadata
+- `list_tools()` — list semua tool yang tersedia
+- `is_tool_available(tool_name)` — cek availability
+
+#### Contoh Flow
+```
+1. LLMOrchestrator memilih tool "laravel_debug_probe"
+2. ToolRegistry.get_tool("laravel_debug_probe")
+3. Return tool metadata
+4. Agent execute tool
+```
+
+---
+
+### 16. BoundedAutonomy + run_cognitive_loop (`agent_alpha/agents/base.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Cognitive loop implementation dengan bounded autonomy. Agent menjalankan loop OBSERVE → ORIENT → PLAN → ACT → VERIFY → PERSIST dengan stop conditions.
+
+#### Efek terhadap Agent
+- Agent memiliki autonomy terbatas (tidak berjalan tanpa batas)
+- Stop conditions: no_progress_threshold, max_iterations
+- Deterministic behavior (tidak infinite loop)
+
+#### Behavior Sistem
+- `BoundedAutonomy` — policy untuk stop conditions
+- `run_cognitive_loop(agent, policy)` — main loop driver
+- Loop: agent.step() → check stop conditions → continue or stop
+- Stop jika: no_progress_threshold tercapai atau max_iterations tercapai
+
+#### Contoh Flow
+```
+1. Alpha SCOUT panggil run_cognitive_loop(self, policy)
+2. Loop:
+   a. agent.step() → OBSERVE → ORIENT → PLAN → ACT → VERIFY → PERSIST
+   b. check stop conditions
+   c. jika tidak tercapai → continue
+   d. jika tercapai → stop
+3. Return outcome
+```
+
+---
+
+### 17. Alpha SCOUT (`agent_alpha/agents/alpha/scout.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Reconnaissance agent pertama. Alpha bertugas melakukan reconnaissance pada target dan menemukan vulnerabilities.
+
+#### Efek terhadap Agent
+- Alpha melakukan reconnaissance (port scan, subdomain enumeration, tech detection)
+- Alpha menulis findings ke AttackGraph dan EventStore
+- Alpha handoff ke Beta setelah reconnaissance selesai
+
+#### Behavior Sistem
+- `run_recon(engagement_id, target_url)` — main entry point
+- Authorization gate: cek can_agent_proceed(ALPHA)
+- Scope gate: cek is_in_scope(target_host)
+- Cognitive loop: OBSERVE → ORIENT → PLAN → ACT → VERIFY → PERSIST
+- Tool handlers: laravel_debug_probe, generic_http_probe
+- Handoff ke Conductor setelah selesai
+
+#### Contoh Flow
+```
+1. Conductor panggil Alpha.run_recon(engagement_id, target_url)
+2. Authorization gate: can_agent_proceed(ALPHA) → True
+3. Scope gate: is_in_scope(target_host) → True
+4. Cognitive loop:
+   a. OBSERVE: HTTP GET ke target_url
+   b. ORIENT: orchestrator.decide(observation)
+   c. PLAN: tool selection
+   d. ACT: execute tool
+   e. VERIFY: check result
+   f. PERSIST: write ke AttackGraph dan EventStore
+5. Stop conditions tercapai
+6. Handoff ke Conductor
+```
+
+---
+
+### 18. Omega ROASTER (`agent_alpha/agents/omega/roaster.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Report generation agent. Omega bertugas membuat report dari findings yang dikumpulkan oleh agent lain.
+
+#### Efek terhadap Agent
+- Omega menghasilkan executive report dan technical report
+- Omega mengorganisir proof artifacts
+- Omega menulis narrative dari attack path
+
+#### Behavior Sistem
+- `generate_report(engagement_id)` — main entry point
+- Query AttackGraph untuk findings
+- Generate narrative dari attack path
+- Generate executive summary
+- Attach proof artifacts
+
+#### Contoh Flow
+```
+1. Conductor panggil Omega.generate_report(engagement_id)
+2. Omega query AttackGraph untuk findings
+3. Omega generate narrative dari attack path
+4. Omega generate executive summary
+5. Omega attach proof artifacts
+6. Omega return report
+```
+
+---
+
+### 19. HttpClient (`agent_alpha/agents/http_client.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Production httpx-backed HTTP client untuk Alpha reconnaissance. Menggantikan FakeHttpClient di production.
+
+#### Efek terhadap Agent
+- Alpha bisa melakukan HTTP request ke real target
+- User-Agent identification untuk blue team
+- Timeout enforcement untuk reliability
+- Transport injection untuk testing
+
+#### Behavior Sistem
+- `HttpClient(engagement_id, timeout, transport)` — constructor
+- `get(url)` — HTTP GET request
+- Returns `HttpResponse(status_code, text, headers, url)`
+- User-Agent: "Agent-Alpha-Recon/{engagement_id}"
+- Timeout: 30.0 detik (default)
+
+#### Contoh Flow
+```
+1. Alpha SCOUT panggil HttpClient.get(target_url)
+2. httpx.Client dengan timeout dan headers
+3. HTTP GET ke target_url
+4. Return HttpResponse
+5. Alpha process response
 ```
 
 ---
