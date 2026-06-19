@@ -20,6 +20,7 @@ class PlaybookDecision:
     tier: str
     technique_id: str
     cost_usd: float = 0.0
+    reasoning: str = ""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -31,6 +32,7 @@ class PlaybookRule:
     tier: str
     technique_id: str
     indicators: list[dict[str, str]]
+    rationale: str = ""
 
     def matches(self, observation: dict[str, Any]) -> bool:
         """Check if this rule matches the observation."""
@@ -96,6 +98,7 @@ class PlaybookEngine:
                 tier=action["tier"],
                 technique_id=action["technique_id"],
                 indicators=match["any_indicator"],
+                rationale=action.get("rationale", ""),
             )
         ]
 
@@ -107,5 +110,6 @@ class PlaybookEngine:
                     tool=rule.tool,
                     tier=rule.tier,
                     technique_id=rule.technique_id,
+                    reasoning=rule.rationale,
                 )
         return None

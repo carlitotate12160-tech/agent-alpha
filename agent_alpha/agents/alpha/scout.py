@@ -22,6 +22,7 @@ from urllib.parse import urlparse
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
 from agent_alpha.agents.http_client import HttpClientError
+from agent_alpha.agents.monologue import MonologueSink, NullMonologueSink, ThoughtFrame
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
@@ -49,12 +50,14 @@ class Alpha:
         event_store: Any,
         orchestrator: Any,
         http_client: Any,
+        monologue: MonologueSink | None = None,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
         self.event_store = event_store
         self.orchestrator = orchestrator
         self.http_client = http_client
+        self.monologue: MonologueSink = monologue or NullMonologueSink()
 
         # Per-run state, initialised in run_recon().
         self._engagement_id: str = ""
@@ -137,13 +140,19 @@ class Alpha:
         try:
             resp = self.http_client.get(url)
         except HttpClientError:
+            self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
         # Empty/whitespace body → non-analysable probe.
         if not resp.text or not resp.text.strip():
+            self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
         self._analyzable_probes += 1
+        self._emit(
+            "OBSERVE",
+            f"Fetched {url} (HTTP {resp.status_code}); analyzing {len(resp.text)} bytes",
+        )
 
         # ── ORIENT / PLAN ───────────────────────────────────────
         observation: dict[str, Any] = {
@@ -151,8 +160,14 @@ class Alpha:
             "headers": dict(resp.headers),
         }
         decision = self.orchestrator.decide(observation)
+        self._emit(
+            "ORIENT",
+            f"Selected tool '{decision.tool}' via the {decision.tier} tier",
+            reasoning=decision.reasoning,
+        )
 
         # ── ACT / VERIFY / PERSIST ──────────────────────────────
+        self._emit("ACT", f"Running {decision.tool} against {url}")
         nodes_added = 0
 
         if decision.tool == "laravel_debug_probe":
@@ -163,6 +178,7 @@ class Alpha:
             # findings.
             nodes_added = self._handle_generic_probe(resp, url)
 
+        self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
         return {"discovered_nodes": nodes_added, "cost_usd": decision.cost_usd}
 
     # ── Private: tool handlers ──────────────────────────────────
@@ -306,6 +322,21 @@ class Alpha:
             if url not in self._probed:
                 return url
         return None
+
+    def _emit(self, phase: str, message: str, reasoning: str = "") -> None:
+        """Emit one inner-monologue frame to the injected sink (real-time)."""
+        self.monologue.emit(
+            ThoughtFrame(
+                engagement_id=self._engagement_id,
+                agent="alpha",
+                phase=phase,
+                message=message,
+                timestamp_utc=(
+                    datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+                ),
+                reasoning=reasoning,
+            )
+        )
 
     @staticmethod
     def _build_handoff_message(

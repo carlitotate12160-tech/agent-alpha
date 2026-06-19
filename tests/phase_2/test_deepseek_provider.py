@@ -50,6 +50,36 @@ def test_http_timeout_is_configurable() -> None:
     assert provider.timeout == 12.5
 
 
+def test_complete_captures_reasoning_content() -> None:
+    """Reasoning models return `reasoning_content` separately from `content`.
+    It must be captured (it feeds the inner monologue), not discarded.
+    Hermetic via an injected transport — no network."""
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "finish_reason": "stop",
+                        "message": {
+                            "content": "ping",
+                            "reasoning_content": "the user asked for the word ping",
+                        },
+                    }
+                ],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+            },
+        )
+
+    provider = DeepSeekProvider(api_key="noop", transport=httpx.MockTransport(handler))
+    result = provider.complete(messages=[{"role": "user", "content": "x"}], max_tokens=64)
+
+    assert result.text == "ping"
+    assert result.reasoning == "the user asked for the word ping"
+
+
 # ── live ──────────────────────────────────────────────────────────────
 
 
