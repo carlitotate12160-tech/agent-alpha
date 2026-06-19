@@ -27,6 +27,9 @@ LLM_TIER_RULE = "rule"
 LLM_TIER_SINGLE = "single_llm"
 LLM_TIER_CONSENSUS = "consensus"
 
+# ── LLM Orchestrator ────────────────────────────────────────
+LLM_TOOL_SELECT_MAX_TOKENS = 512  # headroom for reasoning model JSON reply
+
 # ── Consensus Thresholds ────────────────────────────────────
 CONSENSUS_AGREE_THRESHOLD = 0.80
 CONSENSUS_ESCALATE_THRESHOLD = 0.50
