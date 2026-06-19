@@ -19,6 +19,16 @@ class HttpResponse:
     url: str
 
 
+class HttpClientError(Exception):
+    """Transport-level failure (host unreachable, DNS, connect/read timeout).
+
+    The production client raises this instead of leaking an ``httpx``
+    exception, so agents handle network failure without importing httpx
+    (one domain contract per concept). It deliberately does NOT subclass
+    any ``httpx`` type.
+    """
+
+
 class HttpClient:
     """httpx-backed HTTP client for production use."""
 
@@ -35,15 +45,25 @@ class HttpClient:
         self._transport = transport
 
     def get(self, url: str) -> HttpResponse:
-        """Issue a GET request with configured timeout and headers."""
-        with httpx.Client(
-            timeout=self.timeout,
-            transport=self._transport,
-        ) as client:
-            response = client.get(url, headers=self._headers)
-            return HttpResponse(
-                status_code=response.status_code,
-                text=response.text,
-                headers=dict(response.headers),
-                url=str(response.url),
-            )
+        """Issue a GET request with configured timeout and headers.
+
+        Transport failures (connection refused, DNS error, connect/read
+        timeout) are re-raised as :class:`HttpClientError`. ``httpx``
+        never escapes this method.
+        """
+        try:
+            with httpx.Client(
+                timeout=self.timeout,
+                transport=self._transport,
+            ) as client:
+                response = client.get(url, headers=self._headers)
+                return HttpResponse(
+                    status_code=response.status_code,
+                    text=response.text,
+                    headers=dict(response.headers),
+                    url=str(response.url),
+                )
+        except httpx.TransportError as exc:
+            # httpx.TimeoutException is itself a TransportError, so this
+            # single band covers connect/read/timeout failures.
+            raise HttpClientError(f"GET {url} failed: {exc}") from exc

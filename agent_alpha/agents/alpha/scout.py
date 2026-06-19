@@ -21,6 +21,7 @@ from urllib.parse import urlparse
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
+from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
@@ -130,7 +131,13 @@ class Alpha:
         self._probed.add(url)
 
         # ── OBSERVE ─────────────────────────────────────────────
-        resp = self.http_client.get(url)
+        # A transport failure (host down, DNS, connect/read timeout) is a
+        # non-analysable probe — NOT a crash and NOT a finding. The bounded
+        # loop continues; run_recon() then reports FAILED (anti-Lyndon #3).
+        try:
+            resp = self.http_client.get(url)
+        except HttpClientError:
+            return {"discovered_nodes": 0, "cost_usd": 0.0}
 
         # Empty/whitespace body → non-analysable probe.
         if not resp.text or not resp.text.strip():
