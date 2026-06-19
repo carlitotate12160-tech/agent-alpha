@@ -73,3 +73,13 @@ SCOPE_ALWAYS_EXCLUDED = [
 # ── Reporting ────────────────────────────────────────────────
 REPORT_FORMATS = ["pdf", "json", "sarif", "md"]
 MITRE_ATTACK_VERSION = "v14"
+
+# ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
+# Single source of truth for K19 "decision threshold". Score itself
+# is computed adaptively from event-stream data; this threshold is NOT.
+# Agent must never change this value itself (ADR §8o-6).
+# K19 only — NOT K20 (playbook promotion, deferred Phase 6).
+# Value = 3: acceptable because Wilson lower-bound in
+# intelligence.py::_wilson_lower_bound already guards overconfidence
+# at small N. This threshold only gates "informative at all".
+MIN_SAMPLES_BEFORE_SKIP = 3
