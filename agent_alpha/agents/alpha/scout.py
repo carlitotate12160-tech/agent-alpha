@@ -287,9 +287,7 @@ class Alpha:
         self._persist_node(asset_node)
         return 1
 
-    def _extract_leaked_credentials(
-        self, body: str, host: str, vuln_node_id: str
-    ) -> int:
+    def _extract_leaked_credentials(self, body: str, host: str, vuln_node_id: str) -> int:
         """Scan *body* for leaked credential env keys, persist CREDENTIAL nodes.
 
         For each key in ``constants.LARAVEL_CREDENTIAL_ENV_KEYS`` found in the
@@ -302,9 +300,7 @@ class Alpha:
 
         Returns the number of CREDENTIAL nodes added.
         """
-        now_utc = (
-            datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-        )
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
         # Build a regex that captures <KEY> and <VALUE> from an HTML
         # env table rendered by Whoops / Ignition.  The table cells are
@@ -329,15 +325,10 @@ class Alpha:
                     break
 
             # Username field → populate username, else leave empty.
-            username = (
-                _raw_value if key in constants.LARAVEL_CREDENTIAL_USERNAME_KEYS else ""
-            )
+            username = _raw_value if key in constants.LARAVEL_CREDENTIAL_USERNAME_KEYS else ""
 
             # secret_ref: pointer to proof artifact + key — NEVER the value.
-            secret_ref = (
-                f"engagements/{self._engagement_id}"
-                f"/proofs/laravel_debug_{host}#{key}"
-            )
+            secret_ref = f"engagements/{self._engagement_id}/proofs/laravel_debug_{host}#{key}"
 
             cred_node = AttackNode(
                 id=f"cred:{host}:{key.lower()}",
