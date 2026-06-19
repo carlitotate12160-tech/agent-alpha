@@ -58,7 +58,7 @@ def alpha_factory(graph_store, event_store):
     return _make
 
 
-def _handoff(msg: a2a_pb2.A2AMessage) -> a2a_pb2.HandoffPayload:
+def _handoff(msg: "a2a_pb2.A2AMessage") -> "a2a_pb2.HandoffPayload":
     payload = a2a_pb2.HandoffPayload()
     payload.ParseFromString(msg.payload)
     return payload
@@ -78,6 +78,20 @@ def test_alpha_refuses_without_authorization(alpha_factory, http_client):
     msg = agent.run_recon(rec.engagement_id, "https://lab-target.invalid/trigger-error")
     assert _handoff(msg).status == a2a_pb2.BLOCKED
     assert http_client.calls == []  # never even reached out
+
+
+def test_alpha_refuses_out_of_scope_target(alpha_factory, recon_engagement, http_client):
+    """Authorized state (RECON_ONLY) is NOT enough — the target host must also
+    be inside the engagement scope. Scanning out of scope violates the SOW, so
+    Alpha must BLOCK and never send a request (anti-bypass; auth gate must not
+    be softened for convenience)."""
+    auth, engagement_id = recon_engagement  # scope: lab-target.invalid, hardened.invalid
+
+    agent, _ = alpha_factory(auth, http_client)
+
+    msg = agent.run_recon(engagement_id, "https://out-of-scope.invalid/trigger-error")
+    assert _handoff(msg).status == a2a_pb2.BLOCKED
+    assert http_client.calls == []  # scope violation -> never fetched
 
 
 # ── 2 + 3. Real read, distinct conclusion ─────────────────────────────
@@ -116,11 +130,18 @@ def test_alpha_reaches_different_conclusion_on_hardened_target(
     auth, engagement_id = recon_engagement
     agent, _ = alpha_factory(auth, http_client)
 
-    agent.run_recon(engagement_id, hardened_target_url)
+    msg = agent.run_recon(engagement_id, hardened_target_url)
 
     assets = graph_store.nodes_by_type(NodeType.ASSET)
     # The hardened target leaks nothing -> no laravel tech-stack conclusion.
     assert not any("laravel" in a.properties.tech_stack for a in assets)
+
+    # Reachable + analysed + zero findings is a COMPLETED recon, NOT "running".
+    # A terminal handoff must never report RUNNING (the Conductor would think
+    # Alpha is still working). findings_count conveys that nothing was found.
+    handoff = _handoff(msg)
+    assert handoff.status == a2a_pb2.COMPLETE
+    assert handoff.findings_count == 0
 
 
 # ── 4. No silent success ──────────────────────────────────────────────

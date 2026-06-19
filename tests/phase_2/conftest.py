@@ -123,7 +123,10 @@ def recon_engagement(event_store: EventStore):
     in which Alpha may proceed (authorization.can_agent_proceed(ALPHA, ...))."""
     auth = AuthorizationStateMachine(
         event_callback=lambda et, payload: event_store.append(
-            payload["engagement_id"], et, payload
+            event_type=et,
+            engagement_id=payload["engagement_id"],
+            agent="conductor",
+            payload=payload,
         )
     )
     record = auth.create_engagement(client_id="client_lab", target="lab-target.invalid")
@@ -131,7 +134,10 @@ def recon_engagement(event_store: EventStore):
         record.engagement_id,
         Scope(
             ip_ranges=["10.0.0.0/30"],
-            domains=["lab-target.invalid", "hardened.invalid"],
+            # nothing-here.invalid is IN scope but returns 404/empty — it exercises
+            # the "authorized but unreachable -> FAILED" path. Out-of-scope hosts
+            # (e.g. out-of-scope.invalid) are a separate concern -> BLOCKED.
+            domains=["lab-target.invalid", "hardened.invalid", "nothing-here.invalid"],
             exclusions=[],
         ),
     )

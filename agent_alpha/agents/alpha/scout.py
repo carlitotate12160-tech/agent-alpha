@@ -78,6 +78,16 @@ class Alpha:
                 confidence=0.0,
             )
 
+        # ── Scope gate ──────────────────────────────────────────
+        host = urlparse(target_url).hostname or urlparse(target_url).netloc
+        if not self.authorization.is_in_scope(engagement_id, host):
+            return self._build_handoff_message(
+                engagement_id=engagement_id,
+                status=a2a_pb2.BLOCKED,
+                findings_count=0,
+                confidence=0.0,
+            )
+
         # ── Initialise per-run state ────────────────────────────
         self._engagement_id = engagement_id
         self._work_queue = [target_url]
