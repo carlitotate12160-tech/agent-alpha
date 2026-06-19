@@ -84,6 +84,31 @@ SCOPE_ALWAYS_EXCLUDED = [
 REPORT_FORMATS = ["pdf", "json", "sarif", "md"]
 MITRE_ATTACK_VERSION = "v14"
 
+# ── Laravel Credential Env Keys (SSOT — anti-Lyndon #7) ─────
+# Bounded set of .env keys that constitute leaked credentials when
+# exposed through a Laravel Whoops/Ignition debug page. Alpha scans
+# for these keys; all consumers import from here.
+LARAVEL_CREDENTIAL_ENV_KEYS: frozenset[str] = frozenset({
+    "DB_PASSWORD",
+    "DB_USERNAME",
+    "APP_KEY",
+    "REDIS_PASSWORD",
+    "MAIL_PASSWORD",
+})
+
+# Mapping of env-key prefix → service label for CredentialProperties.service.
+LARAVEL_CREDENTIAL_SERVICE_MAP: dict[str, str] = {
+    "DB_": "database",
+    "REDIS_": "redis",
+    "MAIL_": "mail",
+    "APP_": "laravel_app",
+}
+
+# Keys that represent a username rather than a secret.
+LARAVEL_CREDENTIAL_USERNAME_KEYS: frozenset[str] = frozenset({
+    "DB_USERNAME",
+})
+
 # ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
 # Single source of truth for K19 "decision threshold". Score itself
 # is computed adaptively from event-stream data; this threshold is NOT.
