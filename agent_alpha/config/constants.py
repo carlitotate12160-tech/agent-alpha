@@ -50,6 +50,7 @@ MAX_ITERATIONS_PER_AGENT = 500
 MAX_TIME_BUDGET_SECONDS = 14_400
 MAX_COST_BUDGET_USD = 50.0
 NO_PROGRESS_THRESHOLD_ITERS = 20
+ALPHA_RECON_NO_PROGRESS_ITERS = 1  # one idle cycle after the queue drains ends recon
 
 # ── Celery ───────────────────────────────────────────────────
 CELERY_TASK_SOFT_LIMIT_SEC = 3_600
