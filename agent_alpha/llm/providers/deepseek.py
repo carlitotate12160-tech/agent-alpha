@@ -21,6 +21,7 @@ class CompletionResult:
     text: str
     usage_cost_usd: float
     model: str
+    reasoning: str = ""
 
 
 class DeepSeekProvider:
@@ -30,6 +31,7 @@ class DeepSeekProvider:
         model: str = constants.LLM_REASONING_PRIMARY,
         base_url: str = "https://api.deepseek.com",
         timeout: float = constants.DEEPSEEK_HTTP_TIMEOUT_SEC,
+        transport: httpx.BaseTransport | None = None,
     ) -> None:
         """Initialize the DeepSeek reasoning/payload LLM client."""
         # HARD GUARD: NEVER allow payload forbidden models (Claude/GPT/Opus/Sonnet)
@@ -44,6 +46,7 @@ class DeepSeekProvider:
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._transport = transport
 
     def list_models(self) -> list[str]:
         """Fetch available models from the provider."""
@@ -53,7 +56,7 @@ class DeepSeekProvider:
             "Accept": "application/json",
         }
         # Note: Do not log headers or api_key
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client(timeout=self.timeout, transport=self._transport) as client:
             response = client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -72,7 +75,7 @@ class DeepSeekProvider:
             "max_tokens": max_tokens,
         }
 
-        with httpx.Client(timeout=self.timeout) as client:
+        with httpx.Client(timeout=self.timeout, transport=self._transport) as client:
             response = client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
@@ -84,6 +87,9 @@ class DeepSeekProvider:
         finish_reason = choices[0].get("finish_reason")
         content = choices[0].get("message", {}).get("content", "")
         text = (content or "").strip()
+        # Reasoning models return `reasoning_content` separate from `content`;
+        # capture it for the inner monologue instead of discarding it.
+        reasoning = (choices[0].get("message", {}).get("reasoning_content") or "").strip()
 
         if not text and finish_reason == "length":
             raise CompletionTruncatedError(
@@ -106,4 +112,6 @@ class DeepSeekProvider:
                 completion_tokens / 1000.0
             ) * pricing.get("output", 0.0)
 
-        return CompletionResult(text=text, usage_cost_usd=cost, model=self.model)
+        return CompletionResult(
+            text=text, usage_cost_usd=cost, model=self.model, reasoning=reasoning
+        )
