@@ -35,6 +35,21 @@ def test_provider_rejects_forbidden_payload_models() -> None:
             DeepSeekProvider(api_key="unit-test-noop", model=forbidden)
 
 
+def test_http_timeout_is_single_source_of_truth() -> None:
+    """HTTP timeout must come from a constant, never hardcoded (anti-Lyndon #7).
+    deepseek.py previously inlined timeout=30.0 at two call sites."""
+    assert constants.DEEPSEEK_HTTP_TIMEOUT_SEC == 30.0
+    provider = DeepSeekProvider(api_key="unit-test-noop")
+    assert provider.timeout == constants.DEEPSEEK_HTTP_TIMEOUT_SEC
+
+
+def test_http_timeout_is_configurable() -> None:
+    """The timeout is injectable, so a slow/fast deployment can tune it in one
+    place rather than editing call sites."""
+    provider = DeepSeekProvider(api_key="unit-test-noop", timeout=12.5)
+    assert provider.timeout == 12.5
+
+
 # ── live ──────────────────────────────────────────────────────────────
 
 
@@ -53,6 +68,10 @@ def test_deepseek_inference_roundtrip(deepseek_api_key: str) -> None:
     non-empty completion. Empty/whitespace response is a FAILURE, not a
     silent success (anti-Lyndon #3). Cost must be reported for budget gates."""
     provider = DeepSeekProvider(api_key=deepseek_api_key)
+    # NOTE: deepseek-v4-pro is a reasoning model — it spends completion tokens
+    # on `reasoning_content` before emitting the final `content`. max_tokens
+    # must leave headroom for both, or `content` comes back empty with
+    # finish_reason="length". 256 is ample for a one-word reply.
     result = provider.complete(
         messages=[{"role": "user", "content": "Reply with the single word: ping"}],
         max_tokens=256,

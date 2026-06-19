@@ -29,6 +29,7 @@ class DeepSeekProvider:
         api_key: str,
         model: str = constants.LLM_REASONING_PRIMARY,
         base_url: str = "https://api.deepseek.com",
+        timeout: float = constants.DEEPSEEK_HTTP_TIMEOUT_SEC,
     ) -> None:
         """Initialize the DeepSeek reasoning/payload LLM client."""
         # HARD GUARD: NEVER allow payload forbidden models (Claude/GPT/Opus/Sonnet)
@@ -42,6 +43,7 @@ class DeepSeekProvider:
         self.api_key = api_key
         self.model = model
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
 
     def list_models(self) -> list[str]:
         """Fetch available models from the provider."""
@@ -51,7 +53,7 @@ class DeepSeekProvider:
             "Accept": "application/json",
         }
         # Note: Do not log headers or api_key
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=self.timeout) as client:
             response = client.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
@@ -70,7 +72,7 @@ class DeepSeekProvider:
             "max_tokens": max_tokens,
         }
 
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=self.timeout) as client:
             response = client.post(url, headers=headers, json=payload)
             response.raise_for_status()
             data = response.json()
