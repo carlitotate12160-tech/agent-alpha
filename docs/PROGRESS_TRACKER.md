@@ -10,7 +10,7 @@
 |-------|--------|----------|--------|
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
-| Phase 2 | ✅ COMPLETED | 8/8 komponen selesai | 8 komponen |
+| Phase 2 | ✅ COMPLETED | 9/9 komponen selesai | 9 komponen |
 | Phase 3 | ⬜ NOT STARTED | 0% | - |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
@@ -561,6 +561,7 @@ Cross-engagement learning query interface (K3, K15-K20). Layer query untuk belaj
 - ✅ **Alpha SCOUT** — Reconnaissance agent pertama
 - ✅ **Omega ROASTER** — Report generation agent
 - ✅ **HttpClient** — Production httpx-backed HTTP client
+- ✅ **Inner Monologue** — Real-time reasoning stream ke USER channel
 
 ---
 
@@ -826,6 +827,44 @@ Production httpx-backed HTTP client untuk Alpha reconnaissance. Menggantikan Fak
 
 ---
 
+### 20. Inner Monologue (`agent_alpha/agents/monologue.py`)
+
+**Tanggal:** 2026-06-19  
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Real-time reasoning stream ke USER channel. Agent mengirim ThoughtFrame per cognitive-loop phase (OBSERVE, ORIENT, ACT, PERSIST) untuk memberikan visibility ke user tentang decision-making process.
+
+#### Efek terhadap Agent
+- Agent memiliki transparency dalam decision-making
+- User bisa melihat reasoning real-time (RULE tier: playbook rationale, SINGLE_LLM tier: DeepSeek reasoning_content)
+- Backward compatible: tanpa sink menggunakan NullMonologueSink (no-op)
+- A2A messages tetap structured JSON (tidak terkontaminasi reasoning text)
+
+#### Behavior Sistem
+- `ThoughtFrame` dataclass: engagement_id, agent, phase, message, timestamp_utc, reasoning
+- `MonologueSink` Protocol: duck-typed emit(frame) method
+- `NullMonologueSink`: default no-op sink untuk backward compatibility
+- `CollectingMonologueSink`: in-memory sink untuk testing/replay
+- Alpha emits frames di setiap cognitive-loop phase:
+  - OBSERVE: HTTP fetch result
+  - ORIENT: tool selection dengan reasoning (playbook rationale atau LLM reasoning_content)
+  - ACT: tool execution
+  - PERSIST: graph persistence result
+- Reasoning chain: DeepSeek reasoning_content → LLMOrchestrator → PlaybookDecision → Alpha monologue
+
+#### Contoh Flow
+```
+1. Alpha SCOUT panggil orchestrator.decide(observation)
+2. PlaybookEngine.match() → match (RULE tier)
+3. PlaybookDecision berisi reasoning: "Laravel APP_DEBUG=true detected"
+4. Alpha._emit("ORIENT", "Selected tool 'laravel_debug_probe' via the rule tier", reasoning="Laravel APP_DEBUG=true detected")
+5. MonologueSink.emit(ThoughtFrame(...))
+6. User melihat frame real-time via WebSocket
+```
+
+---
+
 ## Komponen yang Belum Dibuat (Phase 0)
 
 ### Conductor Skeleton (FastAPI + Celery app)
@@ -860,7 +899,8 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 - **PROTECTED tests** (6 test) — kontrak protobuf, tidak boleh dimodifikasi
 - **Phase 0 tests** (101 test) — uji semua komponen Phase 0
 - **Phase 1 tests** (85 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory, IntelligenceBase
-- Total: 192 test, semua passing
+- **Phase 2 tests** (13 test) — uji DeepSeekProvider, PlaybookEngine, LLMOrchestrator, ToolRegistry, Alpha SCOUT, Omega ROASTER, HttpClient, Inner Monologue
+- Total: 205 test, semua passing
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -1141,7 +1181,7 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-06-18
-**Phase saat ini:** Phase 1 (COMPLETED)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5)
-**Total tests:** 192 passing
+**Dokumen ini diperbarui terakhir:** 2026-06-19
+**Phase saat ini:** Phase 2 (COMPLETED)
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (9/9)
+**Total tests:** 205 passing
