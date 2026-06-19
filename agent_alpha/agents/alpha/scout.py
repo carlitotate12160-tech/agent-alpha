@@ -146,7 +146,7 @@ class Alpha:
             # findings.
             nodes_added = self._handle_generic_probe(resp, url)
 
-        return {"discovered_nodes": nodes_added, "cost_usd": 0.0}
+        return {"discovered_nodes": nodes_added, "cost_usd": decision.cost_usd}
 
     # ── Private: tool handlers ──────────────────────────────────
 

@@ -52,7 +52,7 @@ class LLMOrchestrator:
             messages=messages,
             max_tokens=constants.LLM_TOOL_SELECT_MAX_TOKENS,
         )
-        return self._parse_tool_response(result.text)
+        return self._parse_tool_response(result.text, cost_usd=result.usage_cost_usd)
 
     # ── internals ───────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ class LLMOrchestrator:
         ]
 
     @staticmethod
-    def _parse_tool_response(text: str) -> PlaybookDecision:
+    def _parse_tool_response(text: str, *, cost_usd: float = 0.0) -> PlaybookDecision:
         """Parse the provider's JSON response into a PlaybookDecision.
 
         Raises ``ValueError`` on malformed JSON or missing ``"tool"`` key.
@@ -95,4 +95,5 @@ class LLMOrchestrator:
             tool=data["tool"],
             tier=constants.LLM_TIER_SINGLE,
             technique_id="",
+            cost_usd=cost_usd,
         )

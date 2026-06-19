@@ -19,6 +19,7 @@ class PlaybookDecision:
     tool: str
     tier: str
     technique_id: str
+    cost_usd: float = 0.0
 
 
 @dataclasses.dataclass(frozen=True)
