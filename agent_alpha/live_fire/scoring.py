@@ -6,9 +6,13 @@ from agent_alpha.config.constants import MAX_FP_RATE
 
 @dataclass(frozen=True)
 class TargetResult:
-    """Result of a live-fire prediction for a single target."""
+    """Result of a live-fire prediction for a single target.
 
-    host: str
+    Identity is the URL, not the host: targets may share a host
+    (different ports/paths) and must be scored independently.
+    """
+
+    url: str
     predicted_vulnerable: bool
 
 
@@ -34,7 +38,7 @@ def score_findings(
 
     Args:
         results: List of TargetResult with predictions
-        ground_truth: Dict mapping host -> actual vulnerability status
+        ground_truth: Dict mapping target URL -> actual vulnerability status
         fp_threshold: Maximum acceptable FP rate (default: constants.MAX_FP_RATE)
 
     Returns:
@@ -49,7 +53,7 @@ def score_findings(
     tn = 0
 
     for result in results:
-        actual = ground_truth[result.host]  # Raises KeyError if missing (anti-Lyndon #3)
+        actual = ground_truth[result.url]  # Raises KeyError if missing (anti-Lyndon #3)
         if result.predicted_vulnerable:
             if actual:
                 tp += 1
@@ -67,7 +71,9 @@ def score_findings(
     else:
         fp_rate_of_findings = 0.0
 
-    passed = fp_rate_of_findings < fp_threshold
+    # A PASS requires at least one real finding AND an acceptable FP rate.
+    # Zero findings is NOT success (anti-Lyndon #3 — that masked failure as "clean").
+    passed = (tp + fp > 0) and (fp_rate_of_findings < fp_threshold)
 
     return ScanScore(
         tp=tp,

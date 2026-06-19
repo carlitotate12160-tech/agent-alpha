@@ -1,20 +1,20 @@
-# tests/phase_2/test_live_fire_runner.py
-"""Live-fire runner tests (hermetic — no live network).
+"""Contract: live-fire runner (testable core).
 
-Two tests:
-1. load_engagement_config: parse a sample YAML → EngagementConfig dataclass.
-2. run_live_fire: fake HTTP client drives Alpha through two targets;
-   score_findings produces (1,0,0,1), fp_rate 0.0, passed True.
+The runner has two layers:
+  - run_live_fire(config, *injected deps) -> list[TargetResult]   (HERMETIC, tested
+    here with the FakeHttpClient — proves the full Alpha→prediction→score pipeline)
+  - main()/CLI that builds the REAL HttpClient + DeepSeekProvider from the YAML
+    config + env (operational, not unit-tested — exercised by an actual run).
+
+Target identity is the URL, not the host: two targets may share a host
+(different ports/paths) and must stay distinct end-to-end.
 """
 
 from __future__ import annotations
 
 import pathlib
-import textwrap
 
-import pytest
-
-from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.runner import (
@@ -30,125 +30,111 @@ from agent_alpha.tools.playbook import PlaybookEngine
 
 from .conftest import FakeHttpClient, FakeHttpResponse, HARDENED_BODY, LARAVEL_DEBUG_BODY
 
+PLAYBOOK_DIR = pathlib.Path(__file__).parent / "fixtures" / "playbooks"
+ENGAGEMENTS_DIR = pathlib.Path(__file__).parent / "fixtures" / "engagements"
+
 
 class _StubProvider:
-    """Stub LLM provider for the SINGLE_LLM fallback tier.
+    """RULE tier handles Laravel; this only fires for a non-Laravel observation,
+    returning a non-Laravel tool -> no false positive."""
 
-    Returns a generic_http_probe decision so observations that miss
-    every playbook rule still get a valid PlaybookDecision.
-    """
+    model = "deepseek-v4-pro"
 
-    def complete(self, *a: object, **k: object):  # noqa: ANN204
+    def complete(self, *a: object, **k: object):
         return type(
-            "R", (), {
-                "text": '{"tool": "generic_http_probe"}',
-                "usage_cost_usd": 0.0,
-                "model": "deepseek-v4-pro",
-            },
+            "R", (), {"text": '{"tool": "generic_http_probe"}',
+                      "usage_cost_usd": 0.0, "model": "deepseek-v4-pro"}
         )()
 
 
-# ── Fixtures ──────────────────────────────────────────────────────────
-
-SAMPLE_YAML = textwrap.dedent("""\
-    client_id: client_lab
-    scope:
-      ip_ranges:
-        - "10.0.0.0/30"
-      domains:
-        - lab-target.invalid
-        - hardened.invalid
-    targets:
-      - url: "https://lab-target.invalid/trigger-error"
-        host: lab-target.invalid
-        ground_truth_vulnerable: true
-      - url: "https://hardened.invalid/trigger-error"
-        host: hardened.invalid
-        ground_truth_vulnerable: false
-""")
+def _orchestrator() -> LLMOrchestrator:
+    return LLMOrchestrator(
+        playbook=PlaybookEngine.from_directory(PLAYBOOK_DIR), provider=_StubProvider()
+    )
 
 
-@pytest.fixture
-def sample_yaml_path(tmp_path: pathlib.Path) -> pathlib.Path:
-    p = tmp_path / "engagement.yaml"
-    p.write_text(SAMPLE_YAML)
-    return p
-
-
-@pytest.fixture
-def playbook_dir() -> pathlib.Path:
-    return pathlib.Path(__file__).resolve().parent / "fixtures" / "playbooks"
-
-
-# ── Tests ─────────────────────────────────────────────────────────────
-
-
-def test_load_engagement_config(sample_yaml_path: pathlib.Path) -> None:
-    """load_engagement_config parses YAML correctly."""
-    config = load_engagement_config(sample_yaml_path)
-
-    assert config.client_id == "client_lab"
-    assert config.scope_domains == ["lab-target.invalid", "hardened.invalid"]
+def test_load_engagement_config() -> None:
+    config = load_engagement_config(ENGAGEMENTS_DIR / "sample.yaml")
+    assert config.client_id == "lab_client"
+    assert "lab-target.invalid" in config.scope_domains
     assert len(config.targets) == 2
-
-    laravel_target = config.targets[0]
-    assert laravel_target.host == "lab-target.invalid"
-    assert laravel_target.ground_truth_vulnerable is True
-
-    hardened_target = config.targets[1]
-    assert hardened_target.host == "hardened.invalid"
-    assert hardened_target.ground_truth_vulnerable is False
+    laravel = next(t for t in config.targets if t.host == "lab-target.invalid")
+    assert laravel.ground_truth_vulnerable is True
 
 
-def test_run_live_fire(
-    sample_yaml_path: pathlib.Path,
-    playbook_dir: pathlib.Path,
+def test_run_live_fire_produces_clean_scorecard(
+    http_client, laravel_target_url, hardened_target_url
 ) -> None:
-    """run_live_fire with FakeHttpClient: lab-target predicted True,
-    hardened predicted False; score -> (1,0,0,1), fp_rate 0.0, passed True."""
-    config = load_engagement_config(sample_yaml_path)
-
-    # Build fakes
-    http_client = FakeHttpClient({
-        "https://lab-target.invalid/trigger-error": FakeHttpResponse(
-            status_code=500,
-            text=LARAVEL_DEBUG_BODY,
-            headers={"server": "nginx", "x-powered-by": "PHP/8.2.4"},
-            url="https://lab-target.invalid/trigger-error",
-        ),
-        "https://hardened.invalid/trigger-error": FakeHttpResponse(
-            status_code=500,
-            text=HARDENED_BODY,
-            headers={"server": "nginx"},
-            url="https://hardened.invalid/trigger-error",
-        ),
-    })
-
-    auth = AuthorizationStateMachine()
-    graph_store = NetworkXGraphStore()
-    event_store = EventStore()
-
-    # Build orchestrator from the test fixtures playbook dir (no LLM needed)
-    playbook_engine = PlaybookEngine.from_directory(playbook_dir)
-    orchestrator = LLMOrchestrator(playbook_engine, provider=_StubProvider())
+    config = EngagementConfig(
+        client_id="lab_client",
+        scope_ip_ranges=["10.0.0.0/30"],
+        scope_domains=["lab-target.invalid", "hardened.invalid"],
+        targets=[
+            TargetSpec(url=laravel_target_url, host="lab-target.invalid",
+                       ground_truth_vulnerable=True),
+            TargetSpec(url=hardened_target_url, host="hardened.invalid",
+                       ground_truth_vulnerable=False),
+        ],
+    )
 
     results = run_live_fire(
         config,
-        auth=auth,
+        auth=AuthorizationStateMachine(),
         http_client=http_client,
-        orchestrator=orchestrator,
-        graph_store=graph_store,
-        event_store=event_store,
+        orchestrator=_orchestrator(),
+        graph_store=NetworkXGraphStore(),
+        event_store=EventStore(),
     )
 
-    # Verify per-target predictions
-    results_by_host = {r.host: r for r in results}
-    assert results_by_host["lab-target.invalid"].predicted_vulnerable is True
-    assert results_by_host["hardened.invalid"].predicted_vulnerable is False
+    # Keyed by URL — the canonical target identity.
+    by_url = {r.url: r.predicted_vulnerable for r in results}
+    assert by_url[laravel_target_url] is True     # detected -> TP
+    assert by_url[hardened_target_url] is False    # not flagged -> TN
 
-    # Score
-    gt = ground_truth_from_config(config)
-    score = score_findings(results, gt)
+    score = score_findings(results, ground_truth_from_config(config))
     assert (score.tp, score.fp, score.fn, score.tn) == (1, 0, 0, 1)
     assert score.fp_rate_of_findings == 0.0
+    assert score.passed is True
+
+
+def test_three_targets_one_host_not_collapsed() -> None:
+    """The collision Natanael hit: three targets on the SAME host (127.0.0.1,
+    different ports) must each be scored. Ground truth keyed by URL keeps them
+    distinct; host-keying would collapse the dict to a single entry."""
+    vuln_url = "http://127.0.0.1:8081/trigger-error"
+    hardened_url = "http://127.0.0.1:8082/trigger-error"
+    static_url = "http://127.0.0.1:8083/"
+
+    http_client = FakeHttpClient({
+        vuln_url: FakeHttpResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, vuln_url),
+        hardened_url: FakeHttpResponse(500, HARDENED_BODY, {"server": "nginx"}, hardened_url),
+        static_url: FakeHttpResponse(200, "<html>nginx welcome</html>",
+                                     {"server": "nginx"}, static_url),
+    })
+
+    config = EngagementConfig(
+        client_id="internal_lab",
+        scope_ip_ranges=["127.0.0.1/32"],
+        scope_domains=[],
+        targets=[
+            TargetSpec(url=vuln_url, host="127.0.0.1", ground_truth_vulnerable=True),
+            TargetSpec(url=hardened_url, host="127.0.0.1", ground_truth_vulnerable=False),
+            TargetSpec(url=static_url, host="127.0.0.1", ground_truth_vulnerable=False),
+        ],
+    )
+
+    gt = ground_truth_from_config(config)
+    assert len(gt) == 3   # NOT collapsed by the shared host
+
+    results = run_live_fire(
+        config,
+        auth=AuthorizationStateMachine(),
+        http_client=http_client,
+        orchestrator=_orchestrator(),
+        graph_store=NetworkXGraphStore(),
+        event_store=EventStore(),
+    )
+
+    score = score_findings(results, gt)
+    assert (score.tp, score.fp, score.fn, score.tn) == (1, 0, 0, 2)
     assert score.passed is True
