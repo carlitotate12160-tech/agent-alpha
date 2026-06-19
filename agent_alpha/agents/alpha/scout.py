@@ -29,6 +29,7 @@ from agent_alpha.graph.nodes import (
     AssetProperties,
     AttackEdge,
     AttackNode,
+    CredentialProperties,
     NodeType,
     ProofArtifact,
     RelationshipType,
@@ -250,6 +251,9 @@ class Alpha:
         )
         self._persist_edge(edge)
 
+        # ── CREDENTIAL nodes from leaked env keys ────────────────
+        nodes_added += self._extract_leaked_credentials(body, host, vuln_node.id)
+
         self._findings += 1
         return nodes_added
 
@@ -282,6 +286,92 @@ class Alpha:
         )
         self._persist_node(asset_node)
         return 1
+
+    def _extract_leaked_credentials(
+        self, body: str, host: str, vuln_node_id: str
+    ) -> int:
+        """Scan *body* for leaked credential env keys, persist CREDENTIAL nodes.
+
+        For each key in ``constants.LARAVEL_CREDENTIAL_ENV_KEYS`` found in the
+        response body, creates one CREDENTIAL node and a VULNERABILITY →
+        CREDENTIAL ``LEADS_TO`` edge.
+
+        REDACTION: the plaintext secret value is NEVER stored in any node,
+        edge, event, or log. Only the *key name* and a ``secret_ref`` pointer
+        to the proof artifact are persisted.
+
+        Returns the number of CREDENTIAL nodes added.
+        """
+        now_utc = (
+            datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        )
+
+        # Build a regex that captures <KEY> and <VALUE> from an HTML
+        # env table rendered by Whoops / Ignition.  The table cells are
+        # <td>KEY</td><td>VALUE</td>, possibly with whitespace.
+        key_pattern = "|".join(re.escape(k) for k in constants.LARAVEL_CREDENTIAL_ENV_KEYS)
+        env_re = re.compile(
+            rf"<td>\s*({key_pattern})\s*</td>\s*<td>\s*([^<]+?)\s*</td>",
+            re.IGNORECASE,
+        )
+
+        found: list[tuple[str, str]] = env_re.findall(body)
+        nodes_added = 0
+
+        for raw_key, _raw_value in found:
+            key = raw_key.upper()
+
+            # Determine the service label from the key prefix (SSOT).
+            service = "unknown"
+            for prefix, svc in constants.LARAVEL_CREDENTIAL_SERVICE_MAP.items():
+                if key.startswith(prefix):
+                    service = svc
+                    break
+
+            # Username field → populate username, else leave empty.
+            username = (
+                _raw_value if key in constants.LARAVEL_CREDENTIAL_USERNAME_KEYS else ""
+            )
+
+            # secret_ref: pointer to proof artifact + key — NEVER the value.
+            secret_ref = (
+                f"engagements/{self._engagement_id}"
+                f"/proofs/laravel_debug_{host}#{key}"
+            )
+
+            cred_node = AttackNode(
+                id=f"cred:{host}:{key.lower()}",
+                type=NodeType.CREDENTIAL,
+                properties=CredentialProperties(
+                    username=username,
+                    secret_ref=secret_ref,
+                    service=service,
+                    access_level="unverified",
+                ),
+                confidence=0.85,
+                agent="alpha",
+                timestamp_utc=now_utc,
+            )
+            self._persist_node(cred_node)
+            nodes_added += 1
+
+            # VULNERABILITY → CREDENTIAL edge.
+            cred_edge = AttackEdge(
+                source_id=vuln_node_id,
+                target_id=cred_node.id,
+                relationship=RelationshipType.LEADS_TO,
+                confidence=0.85,
+            )
+            self._persist_edge(cred_edge)
+
+        if nodes_added > 0:
+            self._emit(
+                "VERIFY",
+                f"Credential disclosure: {nodes_added} credential(s) "
+                f"leaked via Laravel debug page on {host}",
+            )
+
+        return nodes_added
 
     # ── Private: persistence ────────────────────────────────────
 
