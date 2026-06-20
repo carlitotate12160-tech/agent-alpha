@@ -13,12 +13,13 @@
 #   directly by Conductor + agents, mutable, disposable.
 #
 # This file defines SessionStore Protocol + InMemorySessionStore test double
-# ONLY. Real Redis-backed implementation is a separate follow-up.
+# and RedisSessionStore for production use.
 
 from __future__ import annotations
 
 import copy
 import dataclasses
+import json
 import typing
 
 from agent_alpha.events.event_types import EventType
@@ -174,4 +175,64 @@ class InMemorySessionStore:
         # (e.g. via get(...).scratchpad["k"] = v, bypassing update_scratchpad)
         # silently rewrites a snapshot the caller may have already queued for
         # EventStore.append() — proven via reproduction, not theoretical.
+        return (EventType.SCRATCHPAD_SNAPSHOTTED, copy.deepcopy(record.scratchpad))
+
+
+# ── Redis-backed store (for production) ────────────────────────────────
+
+
+class RedisSessionStore:
+    """Redis-backed :class:`SessionStore` — durable, TTL-enforcing volatile state.
+
+    Mirrors :class:`InMemorySessionStore` semantics, but persists each
+    :class:`SessionRecord` as a JSON value under a tenant-namespaced key with a
+    native Redis TTL (the volatile layer's whole point). ``redis`` is imported
+    lazily so the hermetic unit suite needs no driver.
+    """
+
+    def __init__(self, redis_url: str, tenant_id: str) -> None:
+        import redis  # lazy: unit suite never imports the driver
+
+        self._redis: typing.Any = redis.Redis.from_url(redis_url, decode_responses=True)
+        self._tenant_id = tenant_id
+
+    def _key(self, engagement_id: str) -> str:
+        return f"session:{self._tenant_id}:{engagement_id}"
+
+    @staticmethod
+    def _serialise(record: SessionRecord) -> str:
+        return json.dumps(dataclasses.asdict(record))
+
+    @staticmethod
+    def _deserialise(raw: str) -> SessionRecord:
+        return SessionRecord(**json.loads(raw))
+
+    def get(self, engagement_id: str) -> SessionRecord | None:
+        raw = self._redis.get(self._key(engagement_id))
+        return self._deserialise(raw) if raw is not None else None
+
+    def set(self, record: SessionRecord) -> None:
+        ttl = record.ttl_seconds if record.ttl_seconds > 0 else None
+        self._redis.set(self._key(record.engagement_id), self._serialise(record), ex=ttl)
+
+    def update_scratchpad(self, engagement_id: str, scratchpad: dict[str, object]) -> None:
+        record = self.get(engagement_id)
+        if record is None:
+            raise SessionNotFoundError(engagement_id)
+        record.scratchpad = scratchpad
+        # KEEPTTL: a scratchpad write must not silently extend the session's life.
+        self._redis.set(self._key(engagement_id), self._serialise(record), keepttl=True)
+
+    def delete(self, engagement_id: str) -> None:
+        self._redis.delete(self._key(engagement_id))  # idempotent (DEL of absent key = 0)
+
+    def exists(self, engagement_id: str) -> bool:
+        return bool(self._redis.exists(self._key(engagement_id)))
+
+    def snapshot_scratchpad_event(self, engagement_id: str) -> tuple[str, dict[str, object]]:
+        record = self.get(engagement_id)
+        if record is None:
+            raise SessionNotFoundError(engagement_id)
+        # get() already returns a fresh deserialised dict, but deepcopy keeps the
+        # contract explicit + identical to InMemorySessionStore.
         return (EventType.SCRATCHPAD_SNAPSHOTTED, copy.deepcopy(record.scratchpad))
