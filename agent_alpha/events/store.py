@@ -199,6 +199,8 @@ class PostgresEventStore:
     def __init__(self, dsn: str, tenant_id: str) -> None:
         import psycopg  # lazy: unit suite never imports the driver
 
+        from agent_alpha.storage.rls_guard import assert_role_cannot_bypass_rls
+
         if not re.fullmatch(r"[A-Za-z0-9_.-]+", tenant_id):
             raise ValueError(f"invalid tenant_id for RLS connection option: {tenant_id!r}")
         self._psycopg = psycopg
@@ -208,6 +210,7 @@ class PostgresEventStore:
         # query/insert to this tenant (defence-in-depth atop the WHERE filters).
         self._conn_options = f"-c app.tenant_id={tenant_id}"
         self._ensure_schema()
+        assert_role_cannot_bypass_rls(self._connect)
 
     # ── schema (idempotent) ───────────────────────────────────
 
