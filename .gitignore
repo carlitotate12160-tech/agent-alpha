@@ -17,6 +17,7 @@ __pycache__/
 
 # Env / secrets
 .env
+infra/.env
 *.key
 
 # Archive / audit (local only, do not push)
