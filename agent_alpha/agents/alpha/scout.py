@@ -36,6 +36,7 @@ from agent_alpha.graph.nodes import (
     VulnerabilityProperties,
     node_to_dict,
 )
+from agent_alpha.llm.orchestrator import OrientationError
 
 
 class Alpha:
