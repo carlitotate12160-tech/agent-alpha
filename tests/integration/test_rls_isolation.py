@@ -1,21 +1,29 @@
-"""Integration contract: Row-Level Security actually isolates tenants.
+"""Integration contract: Postgres Row-Level Security is the REAL tenant backstop.
 
-WHY THIS FILE EXISTS
---------------------
-The other integration tests all run under a SINGLE tenant
-(`tenant_integration_test`). They pass identically whether RLS works or is a
-complete no-op — they never open a second tenant and check it is blocked.
-That is Lyndon failure #3 (false success): RLS code exists, but its critical
-path is never executed by a test.
+WHY THIS FILE WAS REWRITTEN
+---------------------------
+The first version of these tests only called the store's public API
+(`replay`, `count`, `get`). But EVERY query in the store already carries an
+explicit ``WHERE tenant_id = %s`` (events/store.py get_events/count/append,
+engagement.py get). So those assertions pass even if RLS is dropped entirely —
+they prove the APPLICATION filter works, not RLS. That is a false-success trap
+(Lyndon #3): the defence-in-depth layer was never exercised.
 
-These three tests exercise that path. If RLS were disabled, removed, or the
-table were not FORCE'd, AT LEAST ONE of these MUST go red. The negative-control
-test (#3) specifically fails if the suite is only "green because the DB is
-empty" — it proves two tenants' rows coexist in ONE table, separated solely by
-RLS, not by separate tables or PK collisions.
+RLS only earns its keep when a query FORGETS the tenant filter (a new code
+path, an admin query, an ORM, or SQLi that controls engagement_id). This file
+probes exactly that: it issues RAW SQL with NO tenant_id predicate, under a
+connection scoped to tenant B, and asserts the database itself refuses to
+return tenant A's rows. If RLS were off — or the connection role bypasses RLS
+(superuser / BYPASSRLS) — these go RED.
+
+Two layers are tested explicitly and kept separate:
+  * APP layer  : store API is tenant-scoped (the WHERE filter).
+  * RLS layer  : raw, unfiltered SQL still cannot cross tenants.
+Plus a guard that FAILS (not skips) if the DSN role can bypass RLS, because
+under such a role the entire isolation guarantee is void.
 
 Runs ONLY against a real Postgres on Oracle ARM64; skips without
-AGENT_ALPHA_PG_DSN. Never accept local/Windows results (Lyndon #9).
+AGENT_ALPHA_PG_DSN (Lyndon #9 — Oracle is the only valid env).
 """
 
 from __future__ import annotations
@@ -26,127 +34,176 @@ import uuid
 import pytest
 
 pytest.importorskip("psycopg")
+import psycopg  # noqa: E402 — after importorskip on purpose
+
+from agent_alpha.config.constants import (  # noqa: E402
+    ENGAGEMENT_MEMORY_TABLE,
+    EVENT_STORE_TABLE,
+)
 
 pytestmark = pytest.mark.integration
 
 _DSN = os.environ.get("AGENT_ALPHA_PG_DSN")
 
 
-# ── store factories (one per tenant, same DSN, same physical table) ───
+def _require_dsn() -> str:
+    if not _DSN:
+        pytest.skip("AGENT_ALPHA_PG_DSN not set — Postgres integration skipped")
+    return _DSN
 
 
 def _event_store(tenant_id: str):
-    if not _DSN:
-        pytest.skip("AGENT_ALPHA_PG_DSN not set — Postgres integration skipped")
     from agent_alpha.events.store import PostgresEventStore
 
     try:
-        return PostgresEventStore(dsn=_DSN, tenant_id=tenant_id)
+        return PostgresEventStore(dsn=_require_dsn(), tenant_id=tenant_id)
     except Exception as exc:  # noqa: BLE001 — connect failure -> skip, not fail
         pytest.skip(f"Postgres unreachable: {exc}")
 
 
 def _engagement_store(tenant_id: str):
-    if not _DSN:
-        pytest.skip("AGENT_ALPHA_PG_DSN not set — Postgres integration skipped")
     from agent_alpha.memory.engagement import PostgresEngagementMemoryStore
 
     try:
-        return PostgresEngagementMemoryStore(dsn=_DSN, tenant_id=tenant_id)
+        return PostgresEngagementMemoryStore(dsn=_require_dsn(), tenant_id=tenant_id)
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"Postgres unreachable: {exc}")
 
 
+def _raw_conn(tenant_id: str):
+    """A raw connection scoped to one tenant exactly as production scopes it:
+    app.tenant_id is set per-connection so RLS applies. No app WHERE filter is
+    used by the callers below — the DB is the only thing standing between
+    tenants here."""
+    return psycopg.connect(_require_dsn(), options=f"-c app.tenant_id={tenant_id}")
+
+
 def _two_tenants() -> tuple[str, str]:
-    suffix = uuid.uuid4().hex[:8]
-    return f"rls_tenant_a_{suffix}", f"rls_tenant_b_{suffix}"
+    s = uuid.uuid4().hex[:8]
+    return f"rls_a_{s}", f"rls_b_{s}"
 
 
 def _eng() -> str:
     return "eng_rls_" + uuid.uuid4().hex[:10]
 
 
-# ── 1. HEADLINE: event-store reads are tenant-scoped by RLS ───────────
+# ── 0. GUARD: the DSN role must NOT be able to bypass RLS ─────────────
+# If this fails, every other RLS assertion is meaningless and tenant
+# isolation in production is silently void. Fail loudly, do not skip.
 
 
-def test_event_store_rls_blocks_cross_tenant_reads() -> None:
-    """Tenant B must NOT see events written by tenant A.
+def test_dsn_role_cannot_bypass_rls() -> None:
+    _require_dsn()
+    with psycopg.connect(_require_dsn()) as conn, conn.cursor() as cur:
+        cur.execute("SELECT current_setting('is_superuser')")
+        is_superuser = cur.fetchone()[0]
+        cur.execute(
+            "SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user"
+        )
+        bypass_rls = cur.fetchone()[0]
 
-    If RLS is a no-op, B.replay() returns A's event and this goes red.
-    """
+    assert is_superuser == "off", (
+        "DSN role is a SUPERUSER — it bypasses Row-Level Security even with "
+        "FORCE. Tenant isolation is NOT enforced by the database. Use a "
+        "dedicated NOSUPERUSER NOBYPASSRLS role for the app/CI DSN."
+    )
+    assert bypass_rls is False, (
+        "DSN role has BYPASSRLS — RLS provides no protection. "
+        "Use a NOBYPASSRLS role."
+    )
+
+
+# ── 1. APP layer: store API is tenant-scoped (the WHERE filter) ───────
+
+
+def test_app_layer_store_api_is_tenant_scoped() -> None:
     tenant_a, tenant_b = _two_tenants()
-    engagement_id = _eng()
+    eng = _eng()
+    store_a, store_b = _event_store(tenant_a), _event_store(tenant_b)
 
-    store_a = _event_store(tenant_a)
-    store_b = _event_store(tenant_b)
+    store_a.append("NODE_DISCOVERED", eng, "alpha", {"owner": "a"})
 
-    store_a.append("NODE_DISCOVERED", engagement_id, "alpha", {"secret": "tenant_a_only"})
-
-    # A sees its own write.
-    a_events = store_a.replay(engagement_id)
-    assert len(a_events) == 1
-    assert a_events[0].payload == {"secret": "tenant_a_only"}
-
-    # B, using the SAME engagement_id on the SAME table, sees nothing.
-    assert store_b.replay(engagement_id) == []
-    assert store_b.count(engagement_id) == 0
+    assert store_a.count(eng) == 1
+    assert store_b.replay(eng) == []  # app WHERE filter (NOT proof of RLS)
 
 
-# ── 2. Engagement-memory reads are tenant-scoped by RLS ───────────────
+# ── 2. RLS layer: raw, UNFILTERED read still cannot cross tenants ─────
+# This is the real test. The SELECT has NO tenant_id predicate; only RLS
+# stands between tenant B and tenant A's row.
 
 
-def test_engagement_memory_rls_blocks_cross_tenant_reads() -> None:
-    """Tenant B must NOT read tenant A's engagement record."""
+def test_rls_blocks_unfiltered_cross_tenant_read_event_store() -> None:
+    tenant_a, tenant_b = _two_tenants()
+    eng = _eng()
+    _event_store(tenant_a).append("NODE_DISCOVERED", eng, "alpha", {"owner": "a"})
+
+    # As tenant B, query WITHOUT a tenant_id filter. RLS must hide A's row.
+    with _raw_conn(tenant_b) as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT count(*) FROM {EVENT_STORE_TABLE} WHERE engagement_id = %s",
+            (eng,),
+        )
+        seen_by_b = cur.fetchone()[0]
+
+    # As tenant A, the same unfiltered query DOES see its own row.
+    with _raw_conn(tenant_a) as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT count(*) FROM {EVENT_STORE_TABLE} WHERE engagement_id = %s",
+            (eng,),
+        )
+        seen_by_a = cur.fetchone()[0]
+
+    assert seen_by_b == 0, "RLS FAILED: tenant B read tenant A's event via unfiltered SQL"
+    assert seen_by_a == 1
+
+
+def test_rls_blocks_unfiltered_cross_tenant_read_engagement_memory() -> None:
     from agent_alpha.memory.engagement import EngagementMemoryRecord
 
     tenant_a, tenant_b = _two_tenants()
-    engagement_id = _eng()
-
-    store_a = _engagement_store(tenant_a)
-    store_b = _engagement_store(tenant_b)
-
-    record = EngagementMemoryRecord(
-        engagement_id=engagement_id,
-        confirmed_exploits=[{"id": "tenant_a_exploit"}],
-        failed_attempts=[],
-        time_to_exploit_per_phase={"recon": 1.5},
-        tool_success_rates={"nmap": 0.9},
-        proof_artifacts=[{"ref": "p1"}],
-        scratchpad_snapshot={"note": "tenant_a"},
-        event_stream_id=engagement_id,
-        last_sequence_number=7,
+    eng = _eng()
+    _engagement_store(tenant_a).upsert(
+        EngagementMemoryRecord(
+            engagement_id=eng,
+            confirmed_exploits=[],
+            failed_attempts=[],
+            time_to_exploit_per_phase={},
+            tool_success_rates={},
+            proof_artifacts=[],
+            scratchpad_snapshot={"owner": "a"},
+            event_stream_id=eng,
+            last_sequence_number=0,
+        )
     )
-    store_a.upsert(record)
 
-    assert store_a.get(engagement_id) == record  # A sees its own.
-    assert store_b.get(engagement_id) is None  # B is blocked by RLS.
+    with _raw_conn(tenant_b) as conn, conn.cursor() as cur:
+        cur.execute(
+            f"SELECT count(*) FROM {ENGAGEMENT_MEMORY_TABLE} WHERE engagement_id = %s",
+            (eng,),
+        )
+        seen_by_b = cur.fetchone()[0]
+
+    assert seen_by_b == 0, "RLS FAILED: tenant B read tenant A's engagement record"
 
 
-# ── 3. NEGATIVE CONTROL: same engagement_id coexists, RLS is the wall ──
+# ── 3. RLS WITH CHECK: a tenant cannot forge a row for another tenant ─
 
 
-def test_event_store_rls_negative_control_rows_coexist_in_one_table() -> None:
-    """Both tenants write the SAME engagement_id; each sees ONLY its own row.
-
-    This fails if RLS is off (each tenant would see BOTH rows -> count == 2),
-    AND it fails if the suite were only passing because the DB is empty
-    (it explicitly asserts a row IS present, count == 1, for each tenant).
-    Proves the two rows live in one physical table, separated solely by RLS.
-    """
+def test_rls_with_check_blocks_forged_tenant_insert() -> None:
     tenant_a, tenant_b = _two_tenants()
-    engagement_id = _eng()  # SAME id for both tenants on purpose.
+    eng = _eng()
+    # Ensure the table exists with RLS applied.
+    _event_store(tenant_a)
 
-    store_a = _event_store(tenant_a)
-    store_b = _event_store(tenant_b)
-
-    store_a.append("NODE_DISCOVERED", engagement_id, "alpha", {"owner": "a"})
-    store_b.append("NODE_DISCOVERED", engagement_id, "alpha", {"owner": "b"})
-
-    a_events = store_a.replay(engagement_id)
-    b_events = store_b.replay(engagement_id)
-
-    # Each tenant sees exactly one row — its own — never the other's.
-    assert store_a.count(engagement_id) == 1
-    assert store_b.count(engagement_id) == 1
-    assert a_events[0].payload == {"owner": "a"}
-    assert b_events[0].payload == {"owner": "b"}
+    # As tenant B, try to INSERT a row LABELLED as tenant A. WITH CHECK must
+    # reject it — you cannot write outside your own tenant.
+    with _raw_conn(tenant_b) as conn, conn.cursor() as cur:
+        with pytest.raises(psycopg.errors.Error):
+            cur.execute(
+                f"INSERT INTO {EVENT_STORE_TABLE} "
+                "(tenant_id, event_id, event_type, engagement_id, agent, "
+                " timestamp_utc, payload, sequence_number) "
+                "VALUES (%s, %s, 'X', %s, 'alpha', '2026-01-01T00:00:00Z', '{}', 1)",
+                (tenant_a, str(uuid.uuid4()), eng),
+            )
+        conn.rollback()
