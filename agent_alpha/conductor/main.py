@@ -25,7 +25,7 @@ _log = logging.getLogger(__name__)
 
 # ── Singletons (module-level, initialized once) ─────────────────────
 
-event_store = EventStore()
+event_store = InMemoryEventStore()
 
 
 def _event_callback(event_type: str, payload: dict[str, Any]) -> None:
