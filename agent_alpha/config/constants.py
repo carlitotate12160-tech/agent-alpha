@@ -33,7 +33,7 @@ LLM_TOOL_SELECT_MAX_TOKENS = 4096  # headroom for reasoning model JSON reply
 # slower than a recon GET), kept distinct from HTTP_REQUEST_TIMEOUT_SEC.
 DEEPSEEK_HTTP_TIMEOUT_SEC = 30.0
 # Max chars of untrusted target body forwarded to an LLM (token + injection bound).
-LLM_MAX_UNTRUSTED_BODY_CHARS = 4000
+LLM_MAX_UNTRUSTED_BODY_CHARS = 2000
 
 # ── Consensus Thresholds ────────────────────────────────────
 CONSENSUS_AGREE_THRESHOLD = 0.80
