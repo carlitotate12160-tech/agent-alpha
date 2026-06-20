@@ -145,12 +145,11 @@ class Alpha:
             self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        # Empty/whitespace body → non-analysable probe.
+        # Empty/whitespace body → non-analyzable probe.
         if not resp.text or not resp.text.strip():
             self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        self._analyzable_probes += 1
         self._emit(
             "OBSERVE",
             f"Fetched {url} (HTTP {resp.status_code}); analyzing {len(resp.text)} bytes",
