@@ -17,6 +17,7 @@ dependencies = [
     "uvicorn",
     "reportlab",
     "networkx",
+    "psycopg[binary]",
 ]
 
 [tool.setuptools.packages.find]
@@ -70,4 +71,5 @@ markers = [
   "phase0: Phase 0 exit criteria tests",
   "phase1: Phase 1 exit criteria tests",
   "protected: Frozen contract tests — never modify",
+  "integration: requires real backends (Postgres/Redis); skipped without them",
 ]
