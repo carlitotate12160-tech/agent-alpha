@@ -1,12 +1,12 @@
 # tests/phase_1/test_engagement_memory.py
 # Integration tests for EngagementMemoryProjector.
-# Uses real EventStore (Phase 0) + InMemoryEngagementMemoryStore
+# Uses real InMemoryEventStore (Phase 0) + InMemoryEngagementMemoryStore
 # as test fixtures — mirrors tests/phase_1/test_projectors.py style.
 
 from __future__ import annotations
 
 from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import EventStore
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.memory.engagement import (
     EngagementMemoryProjector,
     EngagementMemoryRecord,
@@ -24,7 +24,7 @@ ENG_ID = "eng-mem-001"
 def test_project_empty_stream() -> None:
     """project() on engagement with 0 events -> all list/dict fields
     empty, last_sequence_number == 0."""
-    es = EventStore()
+    es = InMemoryEventStore()
     ms = InMemoryEngagementMemoryStore()
     projector = EngagementMemoryProjector(es, ms)
 
@@ -47,7 +47,7 @@ def test_project_empty_stream() -> None:
 def test_project_single_scratchpad_snapshot() -> None:
     """Append one SCRATCHPAD_SNAPSHOTTED event -> scratchpad_snapshot
     equals its payload."""
-    es = EventStore()
+    es = InMemoryEventStore()
     ms = InMemoryEngagementMemoryStore()
     projector = EngagementMemoryProjector(es, ms)
 
@@ -70,7 +70,7 @@ def test_project_single_scratchpad_snapshot() -> None:
 def test_project_latest_scratchpad_wins() -> None:
     """Append two SCRATCHPAD_SNAPSHOTTED events with different payloads ->
     scratchpad_snapshot equals ONLY the higher-sequence-number event."""
-    es = EventStore()
+    es = InMemoryEventStore()
     ms = InMemoryEngagementMemoryStore()
     projector = EngagementMemoryProjector(es, ms)
 
@@ -99,7 +99,7 @@ def test_project_latest_scratchpad_wins() -> None:
 def test_project_idempotent() -> None:
     """project() called twice on the same event stream -> both returned
     records are equal (dataclass equality), second upsert does not raise."""
-    es = EventStore()
+    es = InMemoryEventStore()
     ms = InMemoryEngagementMemoryStore()
     projector = EngagementMemoryProjector(es, ms)
 
@@ -131,7 +131,7 @@ def test_project_idempotent() -> None:
 def test_verify_projection_detects_drift() -> None:
     """After project(), manually corrupt the stored record ->
     verify_projection() returns False.  Without corruption, returns True."""
-    es = EventStore()
+    es = InMemoryEventStore()
     ms = InMemoryEngagementMemoryStore()
     projector = EngagementMemoryProjector(es, ms)
 
@@ -182,9 +182,9 @@ def test_verify_projection_detects_drift() -> None:
 
 def test_project_filters_by_engagement_id() -> None:
     """Append events with engagement_id "eng_A" and "eng_B" interleaved
-    in the same EventStore -> project("eng_A") only reflects "eng_A"
+    in the same InMemoryEventStore -> project("eng_A") only reflects "eng_A"
     events."""
-    es = EventStore()
+    es = InMemoryEventStore()
     ms = InMemoryEngagementMemoryStore()
     projector = EngagementMemoryProjector(es, ms)
 
