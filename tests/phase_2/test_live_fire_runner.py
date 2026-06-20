@@ -15,7 +15,7 @@ from __future__ import annotations
 import pathlib
 
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
-from agent_alpha.events.store import EventStore
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.runner import (
     EngagementConfig,

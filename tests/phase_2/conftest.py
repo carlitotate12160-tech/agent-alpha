@@ -16,7 +16,7 @@ import pytest
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.events.store import EventStore
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 
 
