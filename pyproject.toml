@@ -19,6 +19,8 @@ dependencies = [
     "networkx",
     "psycopg[binary]",
     "pytest",
+    "protobuf",
+    "grpcio",
 ]
 
 [tool.setuptools.packages.find]
