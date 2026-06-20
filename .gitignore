@@ -26,3 +26,8 @@ audit_*.jsonl
 
 # Engagement configs (local only, contain target/scope info)
 /engagements/
+
+# Runner artifacts and reports (local only)
+actions-runner/
+report.pdf
+targets/
