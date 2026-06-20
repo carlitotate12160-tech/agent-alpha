@@ -1,0 +1,13 @@
+client_id: meg
+scope:
+  ip_ranges:
+    - "103.123.17.195/32"
+  domains:
+    - megaspringbed.com
+targets:
+  - url: "https://megaspringbed.com"
+    host: megaspringbed.com
+    ground_truth_vulnerable: false
+  - url: "http://laravel-lab/trigger-error"
+    host: laravel-lab
+    ground_truth_vulnerable: true
