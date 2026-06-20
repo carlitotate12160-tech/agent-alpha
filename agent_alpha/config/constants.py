@@ -28,7 +28,7 @@ LLM_TIER_SINGLE = "single_llm"
 LLM_TIER_CONSENSUS = "consensus"
 
 # ── LLM Orchestrator ────────────────────────────────────────
-LLM_TOOL_SELECT_MAX_TOKENS = 4096  # headroom for reasoning model JSON reply
+LLM_TOOL_SELECT_MAX_TOKENS = 8192  # headroom for reasoning model JSON reply
 # DeepSeek HTTP round-trip timeout — its own concept (LLM inference is
 # slower than a recon GET), kept distinct from HTTP_REQUEST_TIMEOUT_SEC.
 DEEPSEEK_HTTP_TIMEOUT_SEC = 30.0
