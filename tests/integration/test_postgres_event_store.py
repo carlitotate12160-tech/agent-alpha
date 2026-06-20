@@ -86,7 +86,7 @@ def test_append_only_rejected_by_db(pg_store) -> None:
     pg_store.append("NODE_DISCOVERED", engagement_id, "alpha", {"k": "v"})
 
     # A raw UPDATE on a past event row must be rejected by the database itself.
-    with psycopg.connect(_DSN) as conn, conn.cursor() as cur:
+    with psycopg.connect(_DSN, options=f"-c app.tenant_id={_TENANT}") as conn, conn.cursor() as cur:
         with pytest.raises(psycopg.Error):
             cur.execute(
                 f"UPDATE {EVENT_STORE_TABLE} SET agent = 'tampered' WHERE engagement_id = %s",
@@ -94,7 +94,7 @@ def test_append_only_rejected_by_db(pg_store) -> None:
             )
         conn.rollback()
 
-    with psycopg.connect(_DSN) as conn, conn.cursor() as cur:
+    with psycopg.connect(_DSN, options=f"-c app.tenant_id={_TENANT}") as conn, conn.cursor() as cur:
         with pytest.raises(psycopg.Error):
             cur.execute(
                 f"DELETE FROM {EVENT_STORE_TABLE} WHERE engagement_id = %s",
