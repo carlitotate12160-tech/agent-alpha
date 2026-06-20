@@ -144,3 +144,11 @@ def test_get_event_nonexistent_sequence_returns_none() -> None:
     store = InMemoryEventStore()
     store.append("A", "eng_A", "conductor", {})
     assert store.get_event("eng_A", 99) is None
+
+
+def test_in_memory_event_store_satisfies_protocol() -> None:
+    """InMemoryEventStore must structurally satisfy the EventStore Protocol —
+    the seam a Postgres-backed store (P2) will also satisfy (anti-Lyndon #6)."""
+    from agent_alpha.events.store import EventStore, InMemoryEventStore
+
+    assert isinstance(InMemoryEventStore(), EventStore)

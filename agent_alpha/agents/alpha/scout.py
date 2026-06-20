@@ -36,6 +36,7 @@ from agent_alpha.graph.nodes import (
     VulnerabilityProperties,
     node_to_dict,
 )
+from agent_alpha.llm.orchestrator import OrientationError
 
 
 class Alpha:
@@ -144,12 +145,11 @@ class Alpha:
             self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        # Empty/whitespace body → non-analysable probe.
+        # Empty/whitespace body → non-analyzable probe.
         if not resp.text or not resp.text.strip():
             self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        self._analyzable_probes += 1
         self._emit(
             "OBSERVE",
             f"Fetched {url} (HTTP {resp.status_code}); analyzing {len(resp.text)} bytes",
@@ -160,7 +160,18 @@ class Alpha:
             "body": resp.text,
             "headers": dict(resp.headers),
         }
-        decision = self.orchestrator.decide(observation)
+        # An LLM/decision failure (truncation, malformed output, API/network) is
+        # a non-analyzable probe — NOT a crash. Mirrors the OBSERVE guard.
+        try:
+            decision = self.orchestrator.decide(observation)
+        except OrientationError:
+            self._emit(
+                "ORIENT",
+                f"Could not orient on {url}: LLM decision failed; non-analyzable",
+            )
+            return {"discovered_nodes": 0, "cost_usd": 0.0}
+
+        self._analyzable_probes += 1
         self._emit(
             "ORIENT",
             f"Selected tool '{decision.tool}' via the {decision.tier} tier",
