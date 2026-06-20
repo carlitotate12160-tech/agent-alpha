@@ -1,25 +1,30 @@
-# Agent-Alpha CI — P1.1 (pre-Phase-3 hardening)
+# Agent-Alpha CI — P2 seal (pre-Phase-3 hardening)
 #
-# Runs the FULL test suite + make check (ruff + mypy) on every push / PR.
-# A red run blocks merge (enable branch protection — see SETUP below).
+# Runs make check (ruff + mypy) + the FULL test suite, INCLUDING the durable
+# Postgres/Redis integration tests, on every push / PR. A red run blocks merge.
 #
-# Runs on a SELF-HOSTED runner on the Oracle ARM64 box, because the project's
-# hard rule is "Oracle ARM64 is the only valid test environment" (anti-Lyndon
-# #9). CI literally runs on the deployment env, not a look-alike.
+# Runs on a SELF-HOSTED runner on the Oracle ARM64 box — the project's hard rule
+# is "Oracle ARM64 is the only valid test environment" (anti-Lyndon #9). CI runs
+# on the deployment env, not a look-alike.
 #
-# SETUP (one-time, your part):
-#   1. GitHub repo → Settings → Actions → Runners → "New self-hosted runner".
-#      Register it ON the Oracle box with labels: self-hosted, linux, ARM64.
-#      Run it as a service:  sudo ./svc.sh install && sudo ./svc.sh start
-#   2. Settings → Branches → add a branch protection rule for `main`:
-#      "Require status checks to pass before merging" → select "quality-gate".
-#   3. (optional) Settings → Secrets → add DEEPSEEK_API_KEY to also run the 2
-#      live tests; without it they SKIP (acceptable, not a failure).
+# WHAT CHANGED FOR P2 SEAL (vs the P1.1 version):
+#   - Ephemeral Postgres + Redis service containers (fresh per run, hermetic —
+#     no shared mutable state, anti-Lyndon #3).
+#   - The app connects as a NON-superuser, NOBYPASSRLS role (agent_alpha_app).
+#     This is mandatory: a superuser bypasses Row-Level Security even with FORCE,
+#     which would make the RLS isolation tests pass falsely. Provisioned below.
+#   - AGENT_ALPHA_REQUIRE_DB=1 so the integration tests FAIL (not skip) if the
+#     backends are missing/unreachable (see tests/conftest.py). No silent pass.
 #
-# SECURITY: a self-hosted runner executes workflow code on the Oracle box.
-# Keep the runner scoped to THIS repo. Do NOT enable auto-run of workflows from
-# forked-PRs on a self-hosted runner (untrusted code on your infra). For a
-# private solo repo this is fine; revisit if you add external contributors.
+# SETUP (one-time, your part): a self-hosted runner registered on the Oracle box
+# with labels [self-hosted, linux, ARM64] and Docker available to it (service
+# containers need Docker — you already run infra/docker-compose, so this is met).
+# Branch protection on main: require the "quality-gate" check.
+#
+# SECURITY: a self-hosted runner executes workflow code on the Oracle box. Keep
+# it scoped to THIS repo; do NOT auto-run forked-PR workflows on it. The DB
+# passwords below are for the EPHEMERAL, localhost-only CI containers — they are
+# not real secrets and never touch production data.
 
 name: CI
 
@@ -36,6 +41,36 @@ concurrency:
 jobs:
   quality-gate:
     runs-on: [self-hosted, linux, ARM64]
+
+    services:
+      postgres:
+        # Match infra/docker-compose: pgvector image (pgvector reserved for the
+        # Phase 6 IntelligenceBase; harmless now). POSTGRES_USER here is the
+        # SUPERUSER used ONLY to provision the restricted app role below — the
+        # app itself never connects as it.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: agent_alpha
+          POSTGRES_PASSWORD: ci_superuser_pw
+          POSTGRES_DB: agent_alpha
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent_alpha -d agent_alpha"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,9 +79,7 @@ jobs:
         run: |
           python3.12 -m venv .venv
           .venv/bin/pip install --upgrade pip
-          # Project runtime deps (from pyproject [project.dependencies]).
           .venv/bin/pip install -e .
-          # Dev/CI tools (kept out of runtime deps on purpose).
           .venv/bin/pip install ruff mypy pytest grpcio-tools
 
       - name: Generate A2A protobuf stubs (a2a_pb2 is generated, not committed)
@@ -55,8 +88,34 @@ jobs:
       - name: Lint + typecheck (make check = ruff + ruff format --check + mypy)
         run: make check
 
-      - name: Full test suite (all phases, Oracle ARM64)
+      - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
+        # Fresh container: tables don't exist yet. The app, connecting as
+        # agent_alpha_app, will CREATE and therefore OWN them, so FORCE ROW LEVEL
+        # SECURITY actually constrains it. No ownership reassignment needed here
+        # (unlike the persistent Oracle DB, which used create_app_role.sql).
         env:
-          # If the secret is set, the 2 live DeepSeek tests run; else they SKIP.
+          PGPASSWORD: ci_superuser_pw
+        run: |
+          psql -h localhost -p 5432 -U agent_alpha -d agent_alpha -v ON_ERROR_STOP=1 <<'SQL'
+          DO $$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_alpha_app') THEN
+              CREATE ROLE agent_alpha_app LOGIN PASSWORD 'ci_app_pw'
+                NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+            END IF;
+          END
+          $$;
+          GRANT CONNECT ON DATABASE agent_alpha TO agent_alpha_app;
+          GRANT USAGE, CREATE ON SCHEMA public TO agent_alpha_app;
+          SQL
+
+      - name: Full test suite (all phases + integration, Oracle ARM64)
+        env:
+          # Integration backends are MANDATORY in CI — tests FAIL, not skip, if
+          # these are missing/unreachable (enforced by tests/conftest.py).
+          AGENT_ALPHA_REQUIRE_DB: "1"
+          AGENT_ALPHA_PG_DSN: "postgresql://agent_alpha_app:ci_app_pw@localhost:5432/agent_alpha"
+          AGENT_ALPHA_REDIS_URL: "redis://localhost:6379/0"
+          # If set, the 2 live DeepSeek tests run; else they SKIP (acceptable).
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: .venv/bin/pytest tests/ -q
