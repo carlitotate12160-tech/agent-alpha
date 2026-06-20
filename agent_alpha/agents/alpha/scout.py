@@ -161,7 +161,18 @@ class Alpha:
             "body": resp.text,
             "headers": dict(resp.headers),
         }
-        decision = self.orchestrator.decide(observation)
+        # An LLM/decision failure (truncation, malformed output, API/network) is
+        # a non-analyzable probe — NOT a crash. Mirrors the OBSERVE guard.
+        try:
+            decision = self.orchestrator.decide(observation)
+        except OrientationError:
+            self._emit(
+                "ORIENT",
+                f"Could not orient on {url}: LLM decision failed; non-analyzable",
+            )
+            return {"discovered_nodes": 0, "cost_usd": 0.0}
+
+        self._analyzable_probes += 1
         self._emit(
             "ORIENT",
             f"Selected tool '{decision.tool}' via the {decision.tier} tier",
