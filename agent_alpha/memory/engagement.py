@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 import typing
 
 from agent_alpha.config.constants import ENGAGEMENT_MEMORY_TABLE
@@ -230,13 +231,20 @@ class PostgresEngagementMemoryStore:
     def __init__(self, dsn: str, tenant_id: str) -> None:
         import psycopg  # lazy: unit suite never imports the driver
 
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", tenant_id):
+            raise ValueError(f"invalid tenant_id for RLS connection option: {tenant_id!r}")
         self._psycopg = psycopg
         self._dsn = dsn
         self._tenant_id = tenant_id
+        self._conn_options = f"-c app.tenant_id={tenant_id}"
         self._ensure_schema()
 
+    def _connect(self) -> typing.Any:
+        """Connection with app.tenant_id set so RLS scopes it to this tenant."""
+        return self._psycopg.connect(self._dsn, options=self._conn_options)
+
     def _ensure_schema(self) -> None:
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {self._table} (
@@ -247,12 +255,22 @@ class PostgresEngagementMemoryStore:
                 )
                 """
             )
+            cur.execute(f"ALTER TABLE {self._table} ENABLE ROW LEVEL SECURITY")
+            cur.execute(f"ALTER TABLE {self._table} FORCE ROW LEVEL SECURITY")
+            cur.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {self._table}")
+            cur.execute(
+                f"""
+                CREATE POLICY tenant_isolation ON {self._table}
+                    USING (tenant_id = current_setting('app.tenant_id', true))
+                    WITH CHECK (tenant_id = current_setting('app.tenant_id', true))
+                """
+            )
             conn.commit()
 
     def upsert(self, record: EngagementMemoryRecord) -> None:
         from psycopg.types.json import Json
 
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"INSERT INTO {self._table} (tenant_id, engagement_id, record) "
                 "VALUES (%s, %s, %s) "
@@ -263,7 +281,7 @@ class PostgresEngagementMemoryStore:
             conn.commit()
 
     def get(self, engagement_id: str) -> EngagementMemoryRecord | None:
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT record FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
                 (self._tenant_id, engagement_id),
