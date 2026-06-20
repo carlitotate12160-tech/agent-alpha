@@ -10,6 +10,7 @@
 
 import dataclasses
 import datetime
+import re
 import typing
 import uuid
 
@@ -198,15 +199,24 @@ class PostgresEventStore:
     def __init__(self, dsn: str, tenant_id: str) -> None:
         import psycopg  # lazy: unit suite never imports the driver
 
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", tenant_id):
+            raise ValueError(f"invalid tenant_id for RLS connection option: {tenant_id!r}")
         self._psycopg = psycopg
         self._dsn = dsn
         self._tenant_id = tenant_id
+        # app.tenant_id is set per-connection so Row-Level Security scopes every
+        # query/insert to this tenant (defence-in-depth atop the WHERE filters).
+        self._conn_options = f"-c app.tenant_id={tenant_id}"
         self._ensure_schema()
 
     # ── schema (idempotent) ───────────────────────────────────
 
+    def _connect(self) -> typing.Any:
+        """Connection with app.tenant_id set so RLS scopes it to this tenant."""
+        return self._psycopg.connect(self._dsn, options=self._conn_options)
+
     def _ensure_schema(self) -> None:
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {self._table} (
@@ -240,6 +250,16 @@ class PostgresEventStore:
                     FOR EACH ROW EXECUTE FUNCTION agent_alpha_events_append_only()
                 """
             )
+            cur.execute(f"ALTER TABLE {self._table} ENABLE ROW LEVEL SECURITY")
+            cur.execute(f"ALTER TABLE {self._table} FORCE ROW LEVEL SECURITY")
+            cur.execute(f"DROP POLICY IF EXISTS tenant_isolation ON {self._table}")
+            cur.execute(
+                f"""
+                CREATE POLICY tenant_isolation ON {self._table}
+                    USING (tenant_id = current_setting('app.tenant_id', true))
+                    WITH CHECK (tenant_id = current_setting('app.tenant_id', true))
+                """
+            )
             conn.commit()
 
     # ── helpers ───────────────────────────────────────────────
@@ -271,7 +291,7 @@ class PostgresEventStore:
     ) -> AgentEvent:
         from psycopg.types.json import Json
 
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             # Serialise concurrent appends for this engagement -> gapless sequence.
             # The lock is transaction-scoped (released on commit/rollback).
             cur.execute(
@@ -326,7 +346,7 @@ class PostgresEventStore:
             return event
 
     def get_events(self, engagement_id: str, after_sequence: int = 0) -> list[AgentEvent]:
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT {self._SELECT_COLS} FROM {self._table} "
                 "WHERE tenant_id = %s AND engagement_id = %s AND sequence_number > %s "
@@ -336,7 +356,7 @@ class PostgresEventStore:
             return [self._row_to_event(r) for r in cur.fetchall()]
 
     def get_event(self, engagement_id: str, sequence_number: int) -> AgentEvent | None:
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT {self._SELECT_COLS} FROM {self._table} "
                 "WHERE tenant_id = %s AND engagement_id = %s AND sequence_number = %s",
@@ -359,7 +379,7 @@ class PostgresEventStore:
         return events
 
     def count(self, engagement_id: str) -> int:
-        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+        with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 f"SELECT COUNT(*) FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
                 (self._tenant_id, engagement_id),
