@@ -3,11 +3,14 @@
 # ADR §8o-1: single append-only event stream. Every agent action is an
 # immutable event recorded here. All projections (AttackGraph, audit log,
 # metrics) are derived from this stream; nothing writes state directly.
-# Phase 0 uses an in-memory store (list). PostgreSQL backend is deferred to
-# Phase 1. Sequence numbers are monotonic, gapless, and per-engagement.
+# This module defines the EventStore Protocol (one canonical interface) plus
+# InMemoryEventStore. A Postgres-backed implementation of the SAME Protocol is
+# added in P2 (durable persistence). Sequence numbers are monotonic, gapless,
+# and per-engagement.
 
 import dataclasses
 import datetime
+import typing
 import uuid
 
 from agent_alpha.config.constants import (
@@ -48,7 +51,44 @@ def _utcnow() -> str:
     return datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
 
-class EventStore:
+@typing.runtime_checkable
+class EventStore(typing.Protocol):
+    """Append-only event store — the durable backbone of all system state.
+
+    One canonical interface, mirroring GraphStore / SessionStore /
+    EngagementMemoryStore. Implementations: InMemoryEventStore (below) and a
+    Postgres-backed store (P2). Sequence numbers are monotonic, gapless,
+    per-engagement; events are immutable once appended.
+    """
+
+    def append(
+        self,
+        event_type: str,
+        engagement_id: str,
+        agent: str,
+        payload: dict[str, object],
+    ) -> AgentEvent: ...
+
+    def get_events(self, engagement_id: str, after_sequence: int = 0) -> list[AgentEvent]: ...
+
+    def get_event(self, engagement_id: str, sequence_number: int) -> AgentEvent | None: ...
+
+    def replay(self, engagement_id: str) -> list[AgentEvent]: ...
+
+    def count(self, engagement_id: str) -> int: ...
+
+    def verify_immutability(
+        self,
+        engagement_id: str,
+        sequence_number: int,
+        original_event: AgentEvent,
+    ) -> bool: ...
+
+
+class InMemoryEventStore:
+    """In-memory EventStore implementation (tests/dev). The Postgres-backed
+    implementation of the same Protocol arrives in P2."""
+
     # Target table for the deferred PostgreSQL backend (Phase 1).
     _table = EVENT_STORE_TABLE
 
