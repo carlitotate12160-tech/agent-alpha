@@ -11,7 +11,7 @@ Run on Oracle ARM64:
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.conductor.emergency import EmergencyStopHandler
-from agent_alpha.events.store import EventStore
+from agent_alpha.events.store import InMemoryEventStore
 
 
 class _MockRevoker:
@@ -33,9 +33,9 @@ def _make_engagement(auth: AuthorizationStateMachine) -> str:
 
 def _handler(
     revoker: object | None = None,
-) -> tuple[EmergencyStopHandler, AuthorizationStateMachine, EventStore, str]:
+) -> tuple[EmergencyStopHandler, AuthorizationStateMachine, InMemoryEventStore, str]:
     auth = AuthorizationStateMachine()
-    store = EventStore()
+    store = InMemoryEventStore()
     handler = EmergencyStopHandler(auth, store, celery_revoker=revoker)  # type: ignore[arg-type]
     engagement_id = _make_engagement(auth)
     return handler, auth, store, engagement_id

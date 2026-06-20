@@ -25,7 +25,7 @@ from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config.constants import MAX_FP_RATE
-from agent_alpha.events.store import EventStore
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.scoring import TargetResult, score_findings
 from agent_alpha.llm.orchestrator import LLMOrchestrator
@@ -198,7 +198,7 @@ def main(argv: list[str] | None = None) -> int:
     orchestrator = LLMOrchestrator(playbook_engine, provider)
 
     graph_store = NetworkXGraphStore()
-    event_store = EventStore()
+    event_store = InMemoryEventStore()
 
     # ── Run pipeline ─────────────────────────────────────────────
     results = run_live_fire(

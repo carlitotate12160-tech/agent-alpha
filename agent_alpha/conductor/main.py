@@ -18,14 +18,14 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.config.constants import SOW_MAX_FILE_SIZE_MB
-from agent_alpha.events.store import EventStore
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.security.secrets import LogScrubber, SecretsManager
 
 _log = logging.getLogger(__name__)
 
 # ── Singletons (module-level, initialized once) ─────────────────────
 
-event_store = EventStore()
+event_store = InMemoryEventStore()
 
 
 def _event_callback(event_type: str, payload: dict[str, Any]) -> None:

@@ -1,12 +1,12 @@
 # tests/phase_1/test_projectors.py
 # Integration tests for AttackGraphProjector.
-# Uses real EventStore (Phase 0) + real NetworkXGraphStore (Phase 1)
+# Uses real InMemoryEventStore (Phase 0) + real NetworkXGraphStore (Phase 1)
 # as test fixtures — this is an integration test by nature.
 
 from __future__ import annotations
 
 from agent_alpha.events.projectors import AttackGraphProjector
-from agent_alpha.events.store import EventStore
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
     AssetProperties,
@@ -55,7 +55,7 @@ def _make_edge_payload(source_id: str, target_id: str) -> dict[str, object]:
 def test_project_zero_events() -> None:
     """project() on engagement with 0 events -> events_processed=0,
     graph_node_count=0."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -73,7 +73,7 @@ def test_project_zero_events() -> None:
 
 def test_project_single_node_discovered() -> None:
     """Append a NodeDiscovered event, project(), verify node present."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -95,7 +95,7 @@ def test_project_single_node_discovered() -> None:
 
 def test_project_nodes_and_edge() -> None:
     """Append NodeDiscovered x2 + EdgeDiscovered -> edge_count == 1."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -118,7 +118,7 @@ def test_project_nodes_and_edge() -> None:
 def test_project_last_sequence_number() -> None:
     """ProjectionResult.last_sequence_number matches the highest
     sequence_number appended."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -138,7 +138,7 @@ def test_project_last_sequence_number() -> None:
 def test_project_phase0_events_no_op() -> None:
     """Phase 0 events (EngagementCreated) mixed alongside
     NodeDiscovered do not raise and are correctly ignored by the graph."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -171,7 +171,7 @@ def test_project_phase0_events_no_op() -> None:
 def test_project_incremental_preserves_existing_graph() -> None:
     """project_incremental() after project(): new node added, previous
     nodes still present (graph NOT cleared)."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -204,7 +204,7 @@ def test_project_incremental_preserves_existing_graph() -> None:
 def test_project_idempotent() -> None:
     """project() called twice on same engagement_id -> identical
     ProjectionResult both times (idempotent full rebuild)."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -230,7 +230,7 @@ def test_verify_projection_consistent() -> None:
     """verify_projection() returns True when graph matches a fresh
     rebuild. Factory is a lambda constructing NetworkXGraphStore —
     only the TEST imports the concrete class, not the projector."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
@@ -257,7 +257,7 @@ def test_verify_projection_consistent() -> None:
 def test_verify_projection_detects_drift() -> None:
     """verify_projection() returns False when self._graph_store was
     mutated out-of-band (extra node injected directly)."""
-    es = EventStore()
+    es = InMemoryEventStore()
     gs = NetworkXGraphStore()
     projector = AttackGraphProjector(es, gs)
 
