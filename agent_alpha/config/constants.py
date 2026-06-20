@@ -52,6 +52,7 @@ SOW_HASH_ALGORITHM = "sha256"
 EVENT_SEQUENCE_GAP_ALLOWED = False
 MAX_EVENTS_PER_ENGAGEMENT = 100_000
 EVENT_STORE_TABLE = "agent_events"
+ENGAGEMENT_MEMORY_TABLE = "engagement_memory"
 
 # ── Stop Conditions (enforced Phase 2+, defined here) ────────
 MAX_ITERATIONS_PER_AGENT = 500
