@@ -1,0 +1,8 @@
+# GitGuardian configuration
+# Ignore false positives for environment variable references in docker-compose.yml
+# These are not actual secrets but environment variable placeholders
+secrets-ignore:
+  - name: Generic Password
+    paths:
+      - "infra/docker-compose.yml"
+

@@ -13,9 +13,18 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import httpx
+
 from agent_alpha.config import constants
 from agent_alpha.llm import redaction
 from agent_alpha.tools.playbook import PlaybookDecision, PlaybookEngine
+
+
+class OrientationError(Exception):
+    """The SINGLE_LLM tier could not produce a valid tool decision (provider
+    error, truncation, malformed output, or network failure). A loud,
+    catchable failure — agents treat the probe as non-analyzable
+    (anti-Lyndon #3: no silent fallback)."""
 
 
 class LLMOrchestrator:
@@ -49,15 +58,21 @@ class LLMOrchestrator:
 
         # ── SINGLE_LLM tier ─────────────────────────────────────
         messages = self._build_tool_select_messages(observation)
-        result = self.provider.complete(
-            messages=messages,
-            max_tokens=constants.LLM_TOOL_SELECT_MAX_TOKENS,
-        )
-        return self._parse_tool_response(
-            result.text,
-            cost_usd=result.usage_cost_usd,
-            reasoning=getattr(result, "reasoning", ""),
-        )
+        try:
+            result = self.provider.complete(
+                messages=messages,
+                max_tokens=constants.LLM_TOOL_SELECT_MAX_TOKENS,
+            )
+            return self._parse_tool_response(
+                result.text,
+                cost_usd=result.usage_cost_usd,
+                reasoning=getattr(result, "reasoning", ""),
+            )
+        except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+            # Truncation (CompletionTruncatedError <- RuntimeError), no-choices /
+            # empty (RuntimeError), malformed output (ValueError), API/network
+            # (httpx.HTTPError) all mean "could not decide" -> one domain error.
+            raise OrientationError(f"SINGLE_LLM tier could not produce a decision: {exc}") from exc
 
     # ── internals ───────────────────────────────────────────────
 
