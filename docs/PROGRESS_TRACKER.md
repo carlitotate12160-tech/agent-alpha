@@ -10,7 +10,7 @@
 |-------|--------|----------|--------|
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
-| Phase 2 | ✅ COMPLETED | 9/9 komponen selesai | 9 komponen |
+| Phase 2 | ✅ COMPLETED | 12/12 komponen selesai | 12 komponen |
 | Phase 3 | ⬜ NOT STARTED | 0% | - |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
@@ -562,6 +562,10 @@ Cross-engagement learning query interface (K3, K15-K20). Layer query untuk belaj
 - ✅ **Omega ROASTER** — Report generation agent
 - ✅ **HttpClient** — Production httpx-backed HTTP client
 - ✅ **Inner Monologue** — Real-time reasoning stream ke USER channel
+- ✅ **RLS Guard** — Fail-closed guard untuk Postgres RLS enforcement
+- ✅ **create_app_role.sql** — SQL script untuk least-privilege role
+- ✅ **RLS Isolation Tests** — Integration tests dengan raw SQL verification
+- ✅ **Python 3.12 + Dependencies** — Upgrade Python dan tambah pytest/protobuf
 
 ---
 
@@ -861,6 +865,148 @@ Real-time reasoning stream ke USER channel. Agent mengirim ThoughtFrame per cogn
 4. Alpha._emit("ORIENT", "Selected tool 'laravel_debug_probe' via the rule tier", reasoning="Laravel APP_DEBUG=true detected")
 5. MonologueSink.emit(ThoughtFrame(...))
 6. User melihat frame real-time via WebSocket
+```
+
+---
+
+### 21. RLS Guard (`agent_alpha/storage/rls_guard.py`)
+
+**Tanggal:** 2026-06-20
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Fail-closed guard yang mencegah Postgres stores beroperasi jika DSN role bisa bypass Row-Level Security (superuser atau BYPASSRLS). Ini memastikan tenant isolation benar-benar enforced oleh database, bukan hanya secara aplikasi.
+
+#### Efek terhadap Agent
+- Postgres stores (EventStore, EngagementMemory) menolak inisialisasi jika role bisa bypass RLS
+- Mencegah silent RLS bypass di mana tenant isolation terlihat bekerja tapi sebenarnya inert
+- Error message yang jelas jika role tidak aman
+
+#### Behavior Sistem
+- `RlsNotEnforcedError` — exception yang di-raise jika role bisa bypass RLS
+- `assert_role_cannot_bypass_rls(connect)` — main guard function
+- SQL query: `SELECT current_user, current_setting('is_superuser'), (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user)`
+- Raises error jika `is_superuser='on'` atau `rolbypassrls=True`
+- Dipanggil di akhir `PostgresEventStore.__init__` dan `PostgresEngagementMemoryStore.__init__`
+
+#### Contoh Flow
+```
+1. Aplikasi mencoba inisialisasi PostgresEventStore dengan superuser DSN
+2. assert_role_cannot_bypass_rls() dijalankan
+3. SQL query menemukan is_superuser='on'
+4. RlsNotEnforcedError di-raise dengan message:
+   "Postgres role 'agent_alpha' can bypass Row-Level Security (is_superuser='on', rolbypassrls=False).
+    Tenant isolation is NOT enforced by the database.
+    Use a dedicated NOSUPERUSER NOBYPASSRLS role for the app DSN."
+5. Aplikasi fail-closed (tidak berjalan dengan tenant isolation yang inert)
+```
+
+---
+
+### 22. create_app_role.sql (`infra/create_app_role.sql`)
+
+**Tanggal:** 2026-06-20
+**Status:** ✅ Selesai
+
+#### Apa ini?
+SQL script untuk membuat least-privilege role `agent_alpha_app` yang tidak bisa bypass RLS. Script ini menyerahkan ownership tabel P2 ke role tersebut agar FORCE ROW LEVEL SECURITY benar-benar meng-constrain role tersebut.
+
+#### Efek terhadap Agent
+- Menyediakan role yang aman untuk aplikasi DSN
+- Memastikan RLS enforcement berfungsi dengan benar
+- Role memiliki permission yang cukup untuk operasi runtime tapi tidak bisa bypass RLS
+
+#### Behavior Sistem
+- Membuat role `agent_alpha_app` dengan `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`
+- Grant CONNECT pada database dan USAGE/CREATE pada schema public
+- Transfer ownership tabel `agent_events` dan `engagement_memory` ke role tersebut
+- Transfer ownership function `agent_alpha_events_append_only()` ke role tersebut
+- Idempotent: bisa dijalankan berulang kali tanpa error
+- Verification query untuk mengecek role tidak bisa bypass RLS
+
+#### Contoh Flow
+```
+1. Jalankan script sebagai superuser:
+   psql "postgresql://agent_alpha:<superpw>@127.0.0.1:15432/agent_alpha" -f create_app_role.sql
+2. Script membuat role agent_alpha_app dengan password yang ditentukan
+3. Script grant permission yang diperlukan
+4. Script transfer ownership tabel dan function
+5. Verification query menunjukkan:
+   rolname: agent_alpha_app
+   is_superuser: f
+   can_bypass_rls: f
+6. Update AGENT_ALPHA_PG_DSN untuk menggunakan role baru
+```
+
+---
+
+### 23. RLS Isolation Tests (`tests/integration/test_rls_isolation.py`)
+
+**Tanggal:** 2026-06-20
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Integration tests yang memverifikasi Row-Level Security berfungsi dengan benar untuk multi-tenant isolation. Tests ini menggunakan raw SQL queries untuk memastikan database itu sendiri yang menegakkan isolation, bukan hanya aplikasi layer.
+
+#### Efek terhadap Agent
+- Memberikan confidence bahwa tenant isolation berfungsi dengan benar
+- Mendeteksi jika RLS configuration salah atau role bisa bypass
+- Guard untuk mencegah silent RLS bypass di production
+
+#### Behavior Sistem
+- Tests menggunakan raw SQL tanpa tenant_id predicates
+- Memverifikasi bahwa cross-tenant access diblok oleh database
+- Tests untuk both app-layer isolation (WHERE tenant_id) dan RLS-layer isolation
+- Guard untuk memastikan DSN role tidak bisa bypass RLS
+- Tests dijalankan sebagai agent_alpha_app role (bukan superuser)
+
+#### Contoh Flow
+```
+1. Test setup: buat dua tenant (tenant_a, tenant_b)
+2. Insert data untuk tenant_a
+3. Test raw SQL query tanpa WHERE tenant_id clause:
+   SELECT * FROM engagement_memory WHERE engagement_id = 'test_engagement'
+4. Jika RLS berfungsi: query hanya mengembalikan data tenant_a
+5. Jika RLS tidak berfungsi: query mengembalikan semua data (cross-tenant leak)
+6. Test assert bahwa query hanya mengembalikan data tenant_a
+7. Test guard: cek bahwa role tidak bisa bypass RLS
+```
+
+---
+
+### 24. Python 3.12 + Dependencies Upgrade
+
+**Tanggal:** 2026-06-20
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Upgrade Python environment di Oracle dari versi lama ke Python 3.12, dan tambah dependencies yang diperlukan untuk testing dan gRPC/protobuf support.
+
+#### Efek terhadap Agent
+- Python 3.12 menyediakan fitur modern (better asyncio, type hints, performance)
+- pytest untuk integration testing
+- protobuf dan grpcio untuk A2A gRPC communication
+- Konsistensi environment antara development dan production
+
+#### Behavior Sistem
+- Python 3.12 diinstall di Oracle ARM64
+- Virtual environment dibuat ulang dengan Python 3.12
+- Dependencies ditambahkan ke pyproject.toml:
+  - pytest (testing framework)
+  - protobuf (protobuf support)
+  - grpcio (gRPC support)
+- Semua dependencies diinstall di venv
+- Integration tests bisa dijalankan dengan pytest
+
+#### Contoh Flow
+```
+1. Install Python 3.12 di Oracle
+2. python3.12 -m venv .venv
+3. .venv/bin/pip install --upgrade pip
+4. .venv/bin/pip install -e . (install project dependencies)
+5. .venv/bin/pip install pytest protobuf grpcio
+6. .venv/bin/python3 -m pytest tests/integration/test_rls_isolation.py -v
+7. Tests pass dengan Python 3.12
 ```
 
 ---
