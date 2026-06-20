@@ -176,3 +176,204 @@ class InMemoryEventStore:
         if stored_event is None:
             return False
         return stored_event == original_event
+
+
+class PostgresEventStore:
+    """Durable, append-only EventStore backed by PostgreSQL (P2).
+
+    Implements the :class:`EventStore` Protocol; behaviour mirrors
+    :class:`InMemoryEventStore`. Tenant-scoped: every query filters on
+    ``tenant_id`` so a store instance only sees its own tenant's events
+    (Postgres Row-Level Security is the next hardening layer on top of this
+    app-level scoping). ``psycopg`` is imported lazily so the hermetic unit
+    suite needs no database driver.
+
+    Durability guarantee: ``timestamp_utc`` is stored verbatim as TEXT and the
+    payload as JSONB, so ``append`` then a fresh-store ``replay`` returns
+    byte-identical :class:`AgentEvent` objects.
+    """
+
+    _table = EVENT_STORE_TABLE
+
+    def __init__(self, dsn: str, tenant_id: str) -> None:
+        import psycopg  # lazy: unit suite never imports the driver
+
+        self._psycopg = psycopg
+        self._dsn = dsn
+        self._tenant_id = tenant_id
+        self._ensure_schema()
+
+    # ── schema (idempotent) ───────────────────────────────────
+
+    def _ensure_schema(self) -> None:
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {self._table} (
+                    tenant_id       text    NOT NULL,
+                    event_id        text    NOT NULL,
+                    event_type      text    NOT NULL,
+                    engagement_id   text    NOT NULL,
+                    agent           text    NOT NULL,
+                    timestamp_utc   text    NOT NULL,
+                    payload         jsonb   NOT NULL,
+                    sequence_number integer NOT NULL,
+                    PRIMARY KEY (tenant_id, engagement_id, sequence_number)
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE OR REPLACE FUNCTION agent_alpha_events_append_only()
+                RETURNS trigger AS $func$
+                BEGIN
+                    RAISE EXCEPTION 'event store is append-only: % not permitted', TG_OP;
+                END;
+                $func$ LANGUAGE plpgsql
+                """
+            )
+            cur.execute(f"DROP TRIGGER IF EXISTS agent_alpha_events_no_mutate ON {self._table}")
+            cur.execute(
+                f"""
+                CREATE TRIGGER agent_alpha_events_no_mutate
+                    BEFORE UPDATE OR DELETE ON {self._table}
+                    FOR EACH ROW EXECUTE FUNCTION agent_alpha_events_append_only()
+                """
+            )
+            conn.commit()
+
+    # ── helpers ───────────────────────────────────────────────
+
+    @staticmethod
+    def _row_to_event(row: tuple[typing.Any, ...]) -> AgentEvent:
+        return AgentEvent(
+            event_id=str(row[0]),
+            event_type=str(row[1]),
+            engagement_id=str(row[2]),
+            agent=str(row[3]),
+            timestamp_utc=str(row[4]),
+            payload=dict(row[5]),  # JSONB -> dict
+            sequence_number=int(row[6]),
+        )
+
+    _SELECT_COLS = (
+        "event_id, event_type, engagement_id, agent, timestamp_utc, payload, sequence_number"
+    )
+
+    # ── EventStore Protocol ───────────────────────────────────
+
+    def append(
+        self,
+        event_type: str,
+        engagement_id: str,
+        agent: str,
+        payload: dict[str, object],
+    ) -> AgentEvent:
+        from psycopg.types.json import Json
+
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            # Serialise concurrent appends for this engagement -> gapless sequence.
+            # The lock is transaction-scoped (released on commit/rollback).
+            cur.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                (f"{self._tenant_id}:{engagement_id}",),
+            )
+            cur.execute(
+                f"SELECT COUNT(*) FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
+                (self._tenant_id, engagement_id),
+            )
+            count_row = cur.fetchone()
+            current_count = int(count_row[0]) if count_row else 0
+            if current_count >= MAX_EVENTS_PER_ENGAGEMENT:
+                raise EventLimitExceededError(
+                    f"Engagement '{engagement_id}' has reached the maximum of "
+                    f"{MAX_EVENTS_PER_ENGAGEMENT} events"
+                )
+
+            cur.execute(
+                f"SELECT COALESCE(MAX(sequence_number), 0) FROM {self._table} "
+                "WHERE tenant_id = %s AND engagement_id = %s",
+                (self._tenant_id, engagement_id),
+            )
+            max_row = cur.fetchone()
+            next_sequence = (int(max_row[0]) if max_row else 0) + 1
+
+            event = AgentEvent(
+                event_id=str(uuid.uuid4()),
+                event_type=event_type,
+                engagement_id=engagement_id,
+                agent=agent,
+                timestamp_utc=_utcnow(),
+                payload=payload,
+                sequence_number=next_sequence,
+            )
+            cur.execute(
+                f"INSERT INTO {self._table} (tenant_id, event_id, event_type, "
+                "engagement_id, agent, timestamp_utc, payload, sequence_number) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (
+                    self._tenant_id,
+                    event.event_id,
+                    event.event_type,
+                    event.engagement_id,
+                    event.agent,
+                    event.timestamp_utc,
+                    Json(event.payload),
+                    event.sequence_number,
+                ),
+            )
+            conn.commit()
+            return event
+
+    def get_events(self, engagement_id: str, after_sequence: int = 0) -> list[AgentEvent]:
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {self._SELECT_COLS} FROM {self._table} "
+                "WHERE tenant_id = %s AND engagement_id = %s AND sequence_number > %s "
+                "ORDER BY sequence_number",
+                (self._tenant_id, engagement_id, after_sequence),
+            )
+            return [self._row_to_event(r) for r in cur.fetchall()]
+
+    def get_event(self, engagement_id: str, sequence_number: int) -> AgentEvent | None:
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT {self._SELECT_COLS} FROM {self._table} "
+                "WHERE tenant_id = %s AND engagement_id = %s AND sequence_number = %s",
+                (self._tenant_id, engagement_id, sequence_number),
+            )
+            row = cur.fetchone()
+            return self._row_to_event(row) if row else None
+
+    def replay(self, engagement_id: str) -> list[AgentEvent]:
+        events = self.get_events(engagement_id, after_sequence=0)
+        if not EVENT_SEQUENCE_GAP_ALLOWED:
+            for index, event in enumerate(events):
+                expected_sequence = index + 1
+                if event.sequence_number != expected_sequence:
+                    raise SequenceGapError(
+                        f"Sequence gap detected for engagement "
+                        f"'{engagement_id}': expected {expected_sequence}, "
+                        f"found {event.sequence_number}"
+                    )
+        return events
+
+    def count(self, engagement_id: str) -> int:
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT COUNT(*) FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
+                (self._tenant_id, engagement_id),
+            )
+            row = cur.fetchone()
+            return int(row[0]) if row else 0
+
+    def verify_immutability(
+        self,
+        engagement_id: str,
+        sequence_number: int,
+        original_event: AgentEvent,
+    ) -> bool:
+        stored_event = self.get_event(engagement_id, sequence_number)
+        if stored_event is None:
+            return False
+        return stored_event == original_event
