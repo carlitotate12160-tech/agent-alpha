@@ -83,7 +83,7 @@ def test_run_live_fire_produces_clean_scorecard(
         http_client=http_client,
         orchestrator=_orchestrator(),
         graph_store=NetworkXGraphStore(),
-        event_store=EventStore(),
+        event_store=InMemoryEventStore(),
     )
 
     # Keyed by URL — the canonical target identity.
@@ -132,7 +132,7 @@ def test_three_targets_one_host_not_collapsed() -> None:
         http_client=http_client,
         orchestrator=_orchestrator(),
         graph_store=NetworkXGraphStore(),
-        event_store=EventStore(),
+        event_store=InMemoryEventStore(),
     )
 
     score = score_findings(results, gt)

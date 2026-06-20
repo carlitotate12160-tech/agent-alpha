@@ -108,8 +108,8 @@ def http_client(laravel_target_url: str, hardened_target_url: str) -> FakeHttpCl
 
 
 @pytest.fixture
-def event_store() -> EventStore:
-    return EventStore()
+def event_store() -> InMemoryEventStore:
+    return InMemoryEventStore()
 
 
 @pytest.fixture
@@ -118,7 +118,7 @@ def graph_store() -> NetworkXGraphStore:
 
 
 @pytest.fixture
-def recon_engagement(event_store: EventStore):
+def recon_engagement(event_store: InMemoryEventStore):
     """An engagement legally cleared to RECON_ONLY — the minimum auth state
     in which Alpha may proceed (authorization.can_agent_proceed(ALPHA, ...))."""
     auth = AuthorizationStateMachine(
