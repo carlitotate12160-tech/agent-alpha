@@ -194,11 +194,12 @@ class EngagementMemoryProjector:
                     scratchpad_max_seq = event.sequence_number
                     scratchpad_snapshot = dict(event.payload)
 
-            # TODO(Phase 2): populate time_to_exploit_per_phase and
-            # tool_success_rates from OutcomeTag-tagged events once
-            # agents emit them.  The iteration logic above already
-            # processes the full event stream; add elif branches for
-            # the Phase 2 outcome event types here.
+            # DEFERRED (P0 decision, 2026-06-20 — was mislabeled TODO(Phase 2)):
+            # agents emit OutcomeTag-tagged events from PHASE 3 (on verified
+            # outcomes); this projection then populates time_to_exploit_per_phase
+            # + tool_success_rates from them. IntelligenceBase CONSUMES in Phase 6.
+            # The iteration above already walks the full event stream; add elif
+            # branches for the outcome event types when Phase 3 emits them.
 
         return EngagementMemoryRecord(
             engagement_id=engagement_id,
