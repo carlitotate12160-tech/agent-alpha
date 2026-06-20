@@ -18,6 +18,7 @@ dependencies = [
     "reportlab",
     "networkx",
     "psycopg[binary]",
+    "pytest",
 ]
 
 [tool.setuptools.packages.find]
