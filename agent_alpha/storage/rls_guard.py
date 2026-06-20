@@ -50,8 +50,8 @@ def assert_role_cannot_bypass_rls(
         assert row is not None, "SELECT current_user returned no rows"
 
         role_name: str = row[0]
-        is_superuser: str = row[1]      # 'on' | 'off'
-        bypass_rls: bool = row[2]        # True | False
+        is_superuser: str = row[1]  # 'on' | 'off'
+        bypass_rls: bool = row[2]  # True | False
 
     if is_superuser == "on" or bypass_rls is True:
         raise RlsNotEnforcedError(
