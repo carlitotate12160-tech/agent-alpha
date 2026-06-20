@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import typing
 
+from agent_alpha.config.constants import ENGAGEMENT_MEMORY_TABLE
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import AgentEvent, EventStore
 
@@ -212,3 +213,60 @@ class EngagementMemoryProjector:
             event_stream_id=engagement_id,
             last_sequence_number=last_sequence_number,
         )
+
+
+class PostgresEngagementMemoryStore:
+    """PostgreSQL-backed :class:`EngagementMemoryStore` (P2 durable read-model).
+
+    Stores each projected :class:`EngagementMemoryRecord` as a single JSONB
+    blob, keyed by ``(tenant_id, engagement_id)``. ``upsert`` is an idempotent
+    overwrite (the record is a projection, re-derivable from events) — so,
+    unlike the event store, there is deliberately NO append-only trigger.
+    Tenant-scoped; ``psycopg`` imported lazily.
+    """
+
+    _table = ENGAGEMENT_MEMORY_TABLE
+
+    def __init__(self, dsn: str, tenant_id: str) -> None:
+        import psycopg  # lazy: unit suite never imports the driver
+
+        self._psycopg = psycopg
+        self._dsn = dsn
+        self._tenant_id = tenant_id
+        self._ensure_schema()
+
+    def _ensure_schema(self) -> None:
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"""
+                CREATE TABLE IF NOT EXISTS {self._table} (
+                    tenant_id     text  NOT NULL,
+                    engagement_id text  NOT NULL,
+                    record        jsonb NOT NULL,
+                    PRIMARY KEY (tenant_id, engagement_id)
+                )
+                """
+            )
+            conn.commit()
+
+    def upsert(self, record: EngagementMemoryRecord) -> None:
+        from psycopg.types.json import Json
+
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {self._table} (tenant_id, engagement_id, record) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (tenant_id, engagement_id) "
+                "DO UPDATE SET record = EXCLUDED.record",
+                (self._tenant_id, record.engagement_id, Json(dataclasses.asdict(record))),
+            )
+            conn.commit()
+
+    def get(self, engagement_id: str) -> EngagementMemoryRecord | None:
+        with self._psycopg.connect(self._dsn) as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT record FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
+                (self._tenant_id, engagement_id),
+            )
+            row = cur.fetchone()
+            return EngagementMemoryRecord(**row[0]) if row else None
