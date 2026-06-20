@@ -27,7 +27,7 @@ class RlsNotEnforcedError(RuntimeError):
 
 
 def assert_role_cannot_bypass_rls(
-    connect: typing.Callable[[], "Connection[typing.Any]"],
+    connect: typing.Callable[[], Connection[typing.Any]],
 ) -> None:
     """Verify the DSN role cannot bypass RLS. Call once per store __init__.
 
