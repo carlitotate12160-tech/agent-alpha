@@ -8,11 +8,13 @@ from agent_alpha.events.store import AgentEvent
 
 RunStatusLiteral = Literal["queued", "running", "done", "failed", "refused", "none"]
 
+
 @dataclass(frozen=True)
 class RunStatus:
     status: RunStatusLiteral
     task_id: str | None
     updated_at: str | None
+
 
 def project_run_status(events: Iterable[AgentEvent]) -> RunStatus:
     """Pure projection folding run events into a single RunStatus.
