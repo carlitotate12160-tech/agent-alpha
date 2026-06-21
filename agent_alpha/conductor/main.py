@@ -11,13 +11,14 @@ import os
 from typing import Annotated, Any
 
 from celery import Celery
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, UploadFile
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.api_auth import Principal, require_principal
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.policy import PolicyEnforcer
+from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.config.constants import (
     CELERY_QUEUE_PREFIX,
     CELERY_RESULT_EXPIRES_SEC,
@@ -26,6 +27,7 @@ from agent_alpha.config.constants import (
     SOW_MAX_FILE_SIZE_MB,
 )
 from agent_alpha.config.stores import StoreProvider, build_event_store
+from agent_alpha.events.event_types import EventType
 from agent_alpha.security.secrets import LogScrubber, SecretsManager
 
 _log = logging.getLogger(__name__)
@@ -97,7 +99,7 @@ def run_engagement_task(engagement_id: str, tenant_id: str | None) -> dict[str, 
     def _record_refusal(reason: str) -> None:
         try:
             target_store.append(
-                event_type="EngagementRunRefused",
+                event_type=EventType.ENGAGEMENT_RUN_REFUSED,
                 engagement_id=engagement_id,
                 agent="CONDUCTOR",
                 payload={"reason": reason, "tenant_id": tenant_id},
@@ -128,7 +130,7 @@ def run_engagement_task(engagement_id: str, tenant_id: str | None) -> dict[str, 
     # Emit a "run started" audit event; name kept generic to avoid schema churn.
     try:
         target_store.append(
-            event_type="EngagementRunStarted",
+            event_type=EventType.ENGAGEMENT_RUN_STARTED,
             engagement_id=engagement_id,
             agent="CONDUCTOR",
             payload={"tenant_id": record.tenant_id},
@@ -136,7 +138,17 @@ def run_engagement_task(engagement_id: str, tenant_id: str | None) -> dict[str, 
     except Exception:  # noqa: BLE001 — failure to audit must not crash the task
         _log.exception("Failed to append EngagementRunStarted event for %s", engagement_id)
 
-    return {"engagement_id": engagement_id, "status": "started"}
+    try:
+        target_store.append(
+            event_type=EventType.ENGAGEMENT_RUN_COMPLETED,
+            engagement_id=engagement_id,
+            agent="CONDUCTOR",
+            payload={"tenant_id": record.tenant_id},
+        )
+    except Exception:  # noqa: BLE001 — failure to audit must not crash the task
+        _log.exception("Failed to append EngagementRunCompleted event for %s", engagement_id)
+
+    return {"engagement_id": engagement_id, "status": "done"}
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
@@ -228,6 +240,7 @@ def upload_sow(
 def run_engagement(
     engagement_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
+    response: Response,
 ) -> dict[str, Any]:
     try:
         record = auth.get_record(engagement_id)
@@ -237,12 +250,50 @@ def run_engagement(
     if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
         raise HTTPException(status_code=404, detail="engagement not found")
 
+    target_store = store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    run_status = project_run_status(target_store.get_events(engagement_id))
+
+    if run_status.status in ("queued", "running"):
+        response.status_code = 200
+        return {"engagement_id": engagement_id, "task_id": run_status.task_id}
+
     # Non-blocking dispatch: enqueue the task and return immediately.
     task = run_engagement_task.delay(engagement_id, principal.tenant_id)
+
+    target_store.append(
+        event_type=EventType.ENGAGEMENT_RUN_QUEUED,
+        engagement_id=engagement_id,
+        agent="API",
+        payload={"task_id": task.id, "tenant_id": principal.tenant_id},
+    )
 
     return {
         "engagement_id": engagement_id,
         "task_id": task.id,
+    }
+
+
+@engagements.get("/{engagement_id}/run-status")
+def get_run_status(
+    engagement_id: str,
+    principal: Annotated[Principal, Depends(require_principal)],
+) -> dict[str, Any]:
+    try:
+        record = auth.get_record(engagement_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="engagement not found") from None
+
+    if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="engagement not found")
+
+    target_store = store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    run_status = project_run_status(target_store.get_events(engagement_id))
+
+    return {
+        "engagement_id": engagement_id,
+        "status": run_status.status,
+        "task_id": run_status.task_id,
+        "updated_at": run_status.updated_at,
     }
 
 
