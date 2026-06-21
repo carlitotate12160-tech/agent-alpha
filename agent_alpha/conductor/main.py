@@ -138,17 +138,7 @@ def run_engagement_task(engagement_id: str, tenant_id: str | None) -> dict[str, 
     except Exception:  # noqa: BLE001 — failure to audit must not crash the task
         _log.exception("Failed to append EngagementRunStarted event for %s", engagement_id)
 
-    try:
-        target_store.append(
-            event_type=EventType.ENGAGEMENT_RUN_COMPLETED,
-            engagement_id=engagement_id,
-            agent="CONDUCTOR",
-            payload={"tenant_id": record.tenant_id},
-        )
-    except Exception:  # noqa: BLE001 — failure to audit must not crash the task
-        _log.exception("Failed to append EngagementRunCompleted event for %s", engagement_id)
-
-    return {"engagement_id": engagement_id, "status": "done"}
+    return {"engagement_id": engagement_id, "status": "started"}
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
