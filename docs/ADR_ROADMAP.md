@@ -672,3 +672,118 @@ ad-hoc spawn.
 (queue) · EventStore (append-only aggregation, §8o-1) · AttackGraph (projection, §6) ·
 config constants (concurrency caps, §2). Relates to §1, §3, §8e, and the open
 rate-limit/quota item.
+
+### 12.14 Front-door 2a — Authenticated Tenant Binding — LOCKED
+
+**Resolves** the authentication gap in P2: the Conductor API had no authentication
+and `tenant_id` came from a process env var, disconnected from the (unauthenticated)
+`client_id` body field. The RLS backstop (§12.13, P2) had no front door.
+
+**Decision.** Every engagement endpoint requires a verified JWT; `tenant_id` comes
+ONLY from the verified claim; engagement ownership enforced; per-request
+per-tenant store routing.
+
+**Implementation (verified in code):**
+- `conductor/api_auth.py` — PyJWT, algorithm pinned (`algorithms=[JWT_ALGORITHM]`,
+  no `alg=none`/confusion), `exp` checked, **fail-closed** if the secret is missing
+  or < 32 bytes, `tenant_id`/`sub` claims validated.
+- `conductor/main.py` — auth-by-default via `APIRouter(dependencies=[Depends(require_principal)])`;
+  new engagement routes cannot ship unprotected.
+- `config/stores.py` — `StoreProvider.for_tenant()` routes each tenant to its own
+  RLS-scoped store (independent in-memory store per tenant when no DSN).
+- `authorization.py` — `tenant_id` persisted on `EngagementRecord`; `_emit_event`
+  enriches the payload so auth events route to the correct tenant store.
+
+**Gaps found during review & closed (the audit working as intended):**
+- **Unwired auth (Lyndon #2).** `require_principal` existed but was not wired into
+  any route — caught immediately by the test-first 401 contract (CI red). Fixed
+  via router-level dependency.
+- **`/sow` + `/stop` lacked the ownership check (cross-tenant authZ hole).**
+  Authenticated but not authorized — any tenant could SOW-escalate or
+  emergency-stop another tenant's engagement. The original test contract
+  under-specified (only `state`/`recon` were covered); tests for `sow`/`stop`
+  were added, then the ownership check was applied to all four routes.
+  (`test_api_auth.py` 11 green.)
+- **Emergency-stop events routed to the legacy store (audit-isolation gap).**
+  `EmergencyStopHandler` now resolves the engagement's tenant via `StoreProvider`;
+  stop events land in the tenant's own store. (`test_emergency_tenant_routing.py` 2 green.)
+- **Cosmetic (open, non-blocking):** the top-of-file docstring in `config/stores.py`
+  still says "single-tenant operation for now" — contradicts `StoreProvider`; tidy
+  in a follow-up commit.
+
+**Integration points.** `conductor/api_auth.py` (Principal + JWT validation) ·
+`conductor/main.py` (router-level dependency + ownership checks) ·
+`config/stores.py` (StoreProvider per-tenant routing) ·
+`authorization.py` (tenant_id persistence + event enrichment) ·
+`tests/phase_0/test_api_auth.py` (401 + 404 contract tests). Relates to §1
+(auth gate), §12.13 (P2 RLS), and the open tenant-isolation item.
+
+### 12.15 LLM role→provider routing — roles canonical, providers configurable — LOCKED
+
+**Resolves** the OPEN DECISION in `PHASE_2_IMPLEMENTATION_ORDER.md` (constants vs
+ADR role split) and unblocks P3 (orchestrator routing).
+
+**Decision.** Two LLM ROLES, routed separately and NEVER conflated:
+- **REASONING** — ORIENT / PLAN / narrative.
+- **PAYLOAD / EXECUTION** — offensive tool & exploit-body generation.
+
+The **ROLE is the architectural invariant.** The concrete **PROVIDER behind each
+role is configuration**, swappable without any code/architecture change (the
+provider abstraction, §12). Neither option (a) nor (b) from the open decision is
+taken literally: the role split stays canonical (ADR), and
+`LLM_REASONING_PRIMARY="deepseek-v4-pro"` is reinterpreted as the *current
+(testing) reasoning provider* — config, not a permanent architectural commitment.
+
+**Provider policy per role:**
+
+| Role | Allowed transport | Provider (config) | Notes |
+|------|-------------------|-------------------|-------|
+| Reasoning | Direct vendor **or** gateway/aggregator (Bedrock/Vertex in our own cloud, or a public router ONLY with zero-retention) | `LLM_REASONING_PROVIDER` — testing: `deepseek-v4-pro` / `mimo`; production target: Claude / GPT-class | Hybrid/dynamic allowed; swap = change the constant |
+| Payload | **Direct provider API ONLY** | `LLM_PAYLOAD_PROVIDER` — open-weight: DeepSeek / MiMo / equivalent | **NEVER** a public aggregator/router (their ToS forbids offensive content + extra data egress); **NEVER** Claude (§12.10) |
+
+**Data-governance invariant (non-negotiable):**
+- Sensitive data — client vulns, harvested creds, target detail, payload bodies —
+  MUST NOT egress to a public router/aggregator absent a zero-retention,
+  no-training contractual control.
+- **Strongest posture for the payload role (recommended): self-host the
+  open-weight model in our own infra** (Oracle ARM64 / controlled cloud) so
+  payload generation never leaves our environment at all. If a vendor-hosted
+  direct API is used instead, require zero-retention/no-training terms and record
+  the data-processor in the SOW/DPA.
+- `llm/redaction.py` + the authorization gate + audit run IN FRONT of every
+  provider call, regardless of role or transport. Payload generation is gated by
+  authorization state (authorized engagements only).
+- Provider API keys live in the secrets vault — never in code or plaintext env.
+
+**Switch gate (provider maturity):** the production reasoning provider must be
+Claude/GPT-class, validated against real targets, **before the first paid client
+engagement**. Until then DeepSeek-v4-pro / MiMo are acceptable for testing only.
+"Temporary" is bounded by this gate so it cannot become permanent by inertia
+(anti-Lyndon #1/#5). [Adjust the line earlier — e.g. before Phase 4 / first demo —
+if desired.]
+
+**Constants change (config/constants.py):**
+- Rename `LLM_REASONING_PRIMARY` → `LLM_REASONING_PROVIDER` (value = current
+  testing provider; docstring marks it TEMPORARY, target Claude/GPT).
+- Add `LLM_PAYLOAD_PROVIDER` (direct open-weight provider).
+- Add `LLM_PAYLOAD_TRANSPORT = "direct"` (or equivalent) so the orchestrator
+  **refuses** to route payload generation through an aggregator-class transport.
+
+**Test contract:**
+- `reason()` dispatches to `LLM_REASONING_PROVIDER`; changing the constant changes
+  the adapter with NO code change (assert via a mock provider registry).
+- `payload()` dispatches to `LLM_PAYLOAD_PROVIDER`; assert it NEVER resolves to the
+  Claude adapter AND never to an aggregator-class transport.
+- Redaction runs before every provider call (both roles) — assert raw creds/PII
+  never reach the outbound provider payload.
+- `payload()` refuses unless the engagement's authorization state permits it
+  (gated; no payload for unauthorized/recon-only engagements).
+
+**Integration points.** `config/constants.py` (provider + transport config) →
+`llm/orchestrator.py` (role-based routing + transport policy enforcement) →
+`llm/providers/*` (adapters: deepseek, mimo, claude, gpt, + a gateway adapter) →
+`llm/redaction.py` + authorization gate IN FRONT. The cognitive loop calls
+`reason()` / `payload()` BY ROLE, never a hardcoded model name.
+
+**Supersedes:** the ambiguous `LLM_REASONING_PRIMARY` interpretation; relates to
+§12.0/§12.1 (LLM gate tiers), §12.10 (Claude never writes payloads), §1 (auth gate).
