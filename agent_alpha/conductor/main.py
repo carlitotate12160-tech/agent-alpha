@@ -19,6 +19,7 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.config.constants import (
+    CELERY_QUEUE_PREFIX,
     CELERY_RESULT_EXPIRES_SEC,
     CELERY_TASK_HARD_LIMIT_SEC,
     CELERY_TASK_SOFT_LIMIT_SEC,
@@ -58,6 +59,7 @@ celery_app.conf.update(
     task_soft_time_limit=CELERY_TASK_SOFT_LIMIT_SEC,
     task_time_limit=CELERY_TASK_HARD_LIMIT_SEC,
     result_expires=CELERY_RESULT_EXPIRES_SEC,
+    task_default_queue=f"{CELERY_QUEUE_PREFIX}default",
 )
 
 app = FastAPI(title="Agent-Alpha Conductor", version="0.1.0")
