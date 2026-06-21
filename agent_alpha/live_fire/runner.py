@@ -187,7 +187,8 @@ def main(argv: list[str] | None = None) -> int:
     config = load_engagement_config(args.config)
 
     # ── Build real dependencies ──────────────────────────────────
-    auth = AuthorizationStateMachine()
+    event_store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=event_store)
     http_client = HttpClient(engagement_id=config.client_id)
 
     api_key = os.environ["DEEPSEEK_API_KEY"]
@@ -198,7 +199,6 @@ def main(argv: list[str] | None = None) -> int:
     orchestrator = LLMOrchestrator(playbook_engine, provider)
 
     graph_store = NetworkXGraphStore()
-    event_store = InMemoryEventStore()
 
     # ── Run pipeline ─────────────────────────────────────────────
     results = run_live_fire(

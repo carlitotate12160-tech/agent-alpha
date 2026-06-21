@@ -34,8 +34,8 @@ def _make_engagement(auth: AuthorizationStateMachine) -> str:
 def _handler(
     revoker: object | None = None,
 ) -> tuple[EmergencyStopHandler, AuthorizationStateMachine, InMemoryEventStore, str]:
-    auth = AuthorizationStateMachine()
     store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
     handler = EmergencyStopHandler(auth, store, celery_revoker=revoker)  # type: ignore[arg-type]
     engagement_id = _make_engagement(auth)
     return handler, auth, store, engagement_id

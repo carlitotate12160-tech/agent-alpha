@@ -8,7 +8,6 @@
 import hashlib
 import logging
 import os
-import typing
 from typing import Annotated, Any
 
 from celery import Celery
@@ -25,40 +24,21 @@ from agent_alpha.security.secrets import LogScrubber, SecretsManager
 
 _log = logging.getLogger(__name__)
 
-# ── Singletons (module-level, initialized once) ─────────────────────
-
 event_store = build_event_store()
 store_provider = StoreProvider()
 
-
-def _event_callback(event_type: str, payload: dict[str, Any]) -> None:
-    """Append events to the appropriate tenant store.
-
-    For legacy callers/tests where no tenant_id is present on the payload,
-    events are written to the legacy single-tenant ``event_store``.
-    """
-
-    engagement_id = typing.cast(str, payload["engagement_id"])
-    tenant_id = typing.cast(str | None, payload.get("tenant_id"))
-    if tenant_id:
-        store = store_provider.for_tenant(tenant_id)
-    else:
-        store = event_store
-
-    store.append(
-        event_type=event_type,
-        engagement_id=engagement_id,
-        agent="CONDUCTOR",
-        payload=payload,
-    )
-
-
-auth = AuthorizationStateMachine(event_callback=_event_callback)
+# C1.0: AuthorizationStateMachine reads/writes directly via the EventStore.
+# NOTE (C3 deferral): auth events currently go to the single default event_store.
+# Per-tenant store routing is deferred to C3 — the SM takes an injected EventStore,
+# so C3 = inject the resolved per-tenant store, no redesign. This temporarily
+# regresses per-tenant audit isolation for auth events (same class as GAP-B).
+auth = AuthorizationStateMachine(event_store=event_store)
 policy = PolicyEnforcer()
 secrets_mgr = SecretsManager()
 log_scrubber = LogScrubber()
 log_scrubber.install_logging_filter()
 emergency = EmergencyStopHandler(auth, event_store, store_provider=store_provider)
+
 
 _redis_url = os.environ.get("AGENT_ALPHA_REDIS_URL", "redis://localhost:6379/0")
 celery_app = Celery(

@@ -79,7 +79,7 @@ def test_run_live_fire_produces_clean_scorecard(
 
     results = run_live_fire(
         config,
-        auth=AuthorizationStateMachine(),
+        auth=AuthorizationStateMachine(event_store=InMemoryEventStore()),
         http_client=http_client,
         orchestrator=_orchestrator(),
         graph_store=NetworkXGraphStore(),
@@ -128,7 +128,7 @@ def test_three_targets_one_host_not_collapsed() -> None:
 
     results = run_live_fire(
         config,
-        auth=AuthorizationStateMachine(),
+        auth=AuthorizationStateMachine(event_store=InMemoryEventStore()),
         http_client=http_client,
         orchestrator=_orchestrator(),
         graph_store=NetworkXGraphStore(),
