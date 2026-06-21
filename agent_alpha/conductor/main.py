@@ -142,7 +142,11 @@ def enable_recon(
 
 
 @engagements.post("/{engagement_id}/sow")
-def upload_sow(engagement_id: str, file: UploadFile) -> dict[str, str]:
+def upload_sow(
+    engagement_id: str,
+    file: UploadFile,
+    principal: Annotated[Principal, Depends(require_principal)],
+) -> dict[str, str]:
     max_bytes = SOW_MAX_FILE_SIZE_MB * 1024 * 1024
     content = file.file.read()
     if len(content) > max_bytes:
@@ -151,17 +155,37 @@ def upload_sow(engagement_id: str, file: UploadFile) -> dict[str, str]:
             detail=f"SOW exceeds {SOW_MAX_FILE_SIZE_MB}MB limit",
         )
 
+    try:
+        record = auth.get_record(engagement_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="engagement not found") from None
+
+    if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="engagement not found")
+
     sow_hash = hashlib.sha256(content).hexdigest()
     return {"engagement_id": engagement_id, "sow_hash": sow_hash}
 
 
 @engagements.post("/{engagement_id}/stop")
-def emergency_stop(engagement_id: str, body: dict[str, str]) -> dict[str, Any]:
+def emergency_stop(
+    engagement_id: str,
+    body: dict[str, str],
+    principal: Annotated[Principal, Depends(require_principal)],
+) -> dict[str, Any]:
     try:
         reason = body["reason"]
         issued_by = body["issued_by"]
     except KeyError as exc:
         raise HTTPException(status_code=400, detail="reason and issued_by required") from exc
+
+    try:
+        record = auth.get_record(engagement_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="engagement not found") from None
+
+    if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="engagement not found")
 
     result = emergency.execute(engagement_id, reason, issued_by)
     return {
