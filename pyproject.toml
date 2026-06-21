@@ -21,6 +21,7 @@ dependencies = [
     "pytest",
     "protobuf",
     "grpcio",
+    "pyjwt",
 ]
 
 [tool.setuptools.packages.find]
