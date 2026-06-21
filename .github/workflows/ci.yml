@@ -51,7 +51,7 @@ jobs:
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: agent_alpha
-          POSTGRES_PASSWORD: ci_superuser_pw
+          POSTGRES_PASSWORD: test-super-pw
           POSTGRES_DB: agent_alpha
         ports:
           - 5433:5432
@@ -94,13 +94,13 @@ jobs:
         # SECURITY actually constrains it. No ownership reassignment needed here
         # (unlike the persistent Oracle DB, which used create_app_role.sql).
         env:
-          PGPASSWORD: ci_superuser_pw
+          PGPASSWORD: test-super-pw
         run: |
           psql -h localhost -p 5433 -U agent_alpha -d agent_alpha -v ON_ERROR_STOP=1 <<'SQL'
           DO $$
           BEGIN
             IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'agent_alpha_app') THEN
-              CREATE ROLE agent_alpha_app LOGIN PASSWORD 'ci_app_pw'
+              CREATE ROLE agent_alpha_app LOGIN PASSWORD 'test-app-pw'
                 NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
             END IF;
           END
@@ -114,7 +114,7 @@ jobs:
           # Integration backends are MANDATORY in CI — tests FAIL, not skip, if
           # these are missing/unreachable (enforced by tests/conftest.py).
           AGENT_ALPHA_REQUIRE_DB: "1"
-          AGENT_ALPHA_PG_DSN: "postgresql://agent_alpha_app:ci_app_pw@localhost:5433/agent_alpha"
+          AGENT_ALPHA_PG_DSN: "postgresql://agent_alpha_app:test-app-pw@localhost:5433/agent_alpha"
           AGENT_ALPHA_REDIS_URL: "redis://localhost:6380/0"
           # If set, the 2 live DeepSeek tests run; else they SKIP (acceptable).
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}

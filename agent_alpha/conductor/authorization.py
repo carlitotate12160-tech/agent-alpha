@@ -121,6 +121,7 @@ class EngagementRecord:
     created_at: str  # ISO 8601 UTC
     updated_at: str  # ISO 8601 UTC
     stopped_reason: str | None  # set on EMERGENCY_STOP
+    tenant_id: str | None = None  # owning tenant (None for legacy/tests)
 
 
 # ── State machine ─────────────────────────────────────────────
@@ -150,6 +151,9 @@ class AuthorizationStateMachine:
         enriched["event_type"] = event_type
         enriched["engagement_id"] = engagement_id
         enriched["timestamp_utc"] = _utc_now_iso()
+        record = self._engagements.get(engagement_id)
+        if record is not None and record.tenant_id is not None:
+            enriched["tenant_id"] = record.tenant_id
         try:
             self._event_callback(event_type, enriched)
         except Exception:  # noqa: BLE001 — event emission must never break the gate
@@ -163,7 +167,12 @@ class AuthorizationStateMachine:
 
     # ── State transitions ─────────────────────────────────────
 
-    def create_engagement(self, client_id: str, target: str) -> EngagementRecord:
+    def create_engagement(
+        self,
+        client_id: str,
+        target: str,
+        tenant_id: str | None = None,
+    ) -> EngagementRecord:
         engagement_id = "eng_" + secrets.token_hex(4)
         now = _utc_now_iso()
         record = EngagementRecord(
@@ -176,6 +185,7 @@ class AuthorizationStateMachine:
             created_at=now,
             updated_at=now,
             stopped_reason=None,
+            tenant_id=tenant_id,
         )
         self._engagements[engagement_id] = record
         self._emit_event(
@@ -314,6 +324,10 @@ class AuthorizationStateMachine:
 
     def get_state(self, engagement_id: str) -> int:
         return self._get(engagement_id).state
+
+    def get_record(self, engagement_id: str) -> EngagementRecord:
+        """Return the full EngagementRecord or raise EngagementNotFoundError."""
+        return self._get(engagement_id)
 
     def is_in_scope(self, engagement_id: str, target: str) -> bool:
         """Return whether target is within scope and not excluded. Never raises."""

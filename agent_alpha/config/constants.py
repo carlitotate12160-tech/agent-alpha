@@ -42,6 +42,8 @@ CONSENSUS_ESCALATE_THRESHOLD = 0.50
 # ── Authorization ────────────────────────────────────────────
 EMERGENCY_STOP_TIMEOUT_SEC = 5
 MAX_SCOPE_IPS = 256
+JWT_ALGORITHM = "HS256"
+JWT_SECRET_ENV = "AGENT_ALPHA_JWT_SECRET"
 
 # ── HTTP Client ──────────────────────────────────────────────
 HTTP_REQUEST_TIMEOUT_SEC = 30.0

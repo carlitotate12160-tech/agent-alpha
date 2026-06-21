@@ -9,10 +9,25 @@ Run on Oracle ARM64:
 """
 
 from io import BytesIO
+import os
 
+import pytest
 from fastapi.testclient import TestClient
 
 from agent_alpha.conductor.main import app
+
+
+os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
+
+jwt = pytest.importorskip("jwt")
+
+
+def _token(tenant_id: str, sub: str = "tester") -> str:
+    return jwt.encode({"tenant_id": tenant_id, "sub": sub}, os.environ["AGENT_ALPHA_JWT_SECRET"], algorithm="HS256")
+
+
+def _auth(tenant_id: str = "test-tenant") -> dict[str, str]:
+    return {"Authorization": f"Bearer {_token(tenant_id)}"}
 
 
 def test_health_returns_ok() -> None:
@@ -27,6 +42,7 @@ def test_create_engagement_returns_engagement_id() -> None:
     response = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     assert response.status_code == 200
     data = response.json()
@@ -40,6 +56,7 @@ def test_enable_recon_with_valid_scope() -> None:
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     engagement_id = create_resp.json()["engagement_id"]
 
@@ -50,6 +67,7 @@ def test_enable_recon_with_valid_scope() -> None:
             "domains": ["example.com"],
             "exclusions": ["10.0.0.5"],
         },
+        headers=_auth(),
     )
     assert response.status_code == 200
     data = response.json()
@@ -62,6 +80,7 @@ def test_enable_recon_with_invalid_cidr_returns_400() -> None:
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     engagement_id = create_resp.json()["engagement_id"]
 
@@ -72,6 +91,7 @@ def test_enable_recon_with_invalid_cidr_returns_400() -> None:
             "domains": ["example.com"],
             "exclusions": [],
         },
+        headers=_auth(),
     )
     assert response.status_code == 400
 
@@ -81,6 +101,7 @@ def test_upload_sow_with_valid_pdf_returns_hash() -> None:
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     engagement_id = create_resp.json()["engagement_id"]
 
@@ -91,6 +112,7 @@ def test_upload_sow_with_valid_pdf_returns_hash() -> None:
     response = client.post(
         f"/engagements/{engagement_id}/sow",
         files={"file": (file.name, file, "application/pdf")},
+        headers=_auth(),
     )
     assert response.status_code == 200
     data = response.json()
@@ -104,6 +126,7 @@ def test_upload_sow_exceeding_size_limit_returns_400() -> None:
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     engagement_id = create_resp.json()["engagement_id"]
 
@@ -115,6 +138,7 @@ def test_upload_sow_exceeding_size_limit_returns_400() -> None:
     response = client.post(
         f"/engagements/{engagement_id}/sow",
         files={"file": (file.name, file, "application/pdf")},
+        headers=_auth(),
     )
     assert response.status_code == 400
 
@@ -124,12 +148,14 @@ def test_emergency_stop_returns_success() -> None:
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     engagement_id = create_resp.json()["engagement_id"]
 
     response = client.post(
         f"/engagements/{engagement_id}/stop",
         json={"reason": "abort", "issued_by": "operator"},
+        headers=_auth(),
     )
     assert response.status_code == 200
     data = response.json()
@@ -144,10 +170,11 @@ def test_get_state_returns_state_field() -> None:
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     engagement_id = create_resp.json()["engagement_id"]
 
-    response = client.get(f"/engagements/{engagement_id}/state")
+    response = client.get(f"/engagements/{engagement_id}/state", headers=_auth())
     assert response.status_code == 200
     data = response.json()
     assert data["engagement_id"] == engagement_id
@@ -157,7 +184,7 @@ def test_get_state_returns_state_field() -> None:
 
 def test_get_state_nonexistent_returns_404() -> None:
     client = TestClient(app)
-    response = client.get("/engagements/eng_does_not_exist/state")
+    response = client.get("/engagements/eng_does_not_exist/state", headers=_auth())
     assert response.status_code == 404
 
 
@@ -166,15 +193,17 @@ def test_emergency_stop_then_state_returns_emergency_stop() -> None:
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
     )
     engagement_id = create_resp.json()["engagement_id"]
 
     client.post(
         f"/engagements/{engagement_id}/stop",
         json={"reason": "abort", "issued_by": "operator"},
+        headers=_auth(),
     )
 
-    response = client.get(f"/engagements/{engagement_id}/state")
+    response = client.get(f"/engagements/{engagement_id}/state", headers=_auth())
     assert response.status_code == 200
     data = response.json()
     assert data["state"] == "EMERGENCY_STOP"
