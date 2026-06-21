@@ -69,8 +69,9 @@ def _handoff(msg: "a2a_pb2.A2AMessage") -> "a2a_pb2.HandoffPayload":
 
 def test_alpha_refuses_without_authorization(alpha_factory, http_client):
     from agent_alpha.conductor.authorization import AuthorizationStateMachine
+    from agent_alpha.events.store import InMemoryEventStore
 
-    auth = AuthorizationStateMachine()
+    auth = AuthorizationStateMachine(event_store=InMemoryEventStore())
     rec = auth.create_engagement(client_id="c", target="lab-target.invalid")
     # State is CREATED, not RECON_ONLY -> Alpha may NOT proceed.
     agent, _ = alpha_factory(auth, http_client)
