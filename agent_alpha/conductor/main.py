@@ -58,7 +58,7 @@ policy = PolicyEnforcer()
 secrets_mgr = SecretsManager()
 log_scrubber = LogScrubber()
 log_scrubber.install_logging_filter()
-emergency = EmergencyStopHandler(auth, event_store)
+emergency = EmergencyStopHandler(auth, event_store, store_provider=store_provider)
 
 _redis_url = os.environ.get("AGENT_ALPHA_REDIS_URL", "redis://localhost:6379/0")
 celery_app = Celery(

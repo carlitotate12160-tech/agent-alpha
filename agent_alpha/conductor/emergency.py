@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.config.constants import EMERGENCY_STOP_TIMEOUT_SEC
+from agent_alpha.config.stores import StoreProvider
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import EventStore
 
@@ -54,10 +55,12 @@ class EmergencyStopHandler:
         auth: AuthorizationStateMachine,
         event_store: EventStore,
         celery_revoker: CeleryRevoker | None = None,
+        store_provider: StoreProvider | None = None,
     ) -> None:
         self._auth = auth
         self._event_store = event_store
         self._celery_revoker = celery_revoker
+        self._store_provider = store_provider
 
     def execute(
         self,
@@ -85,7 +88,16 @@ class EmergencyStopHandler:
                 tasks_revoked = self._celery_revoker.revoke_engagement_tasks(engagement_id)
 
             # Step 4: emit the audit event.
-            self._event_store.append(
+            target_store = self._event_store
+            if self._store_provider is not None:
+                try:
+                    record = self._auth.get_record(engagement_id)
+                except Exception:
+                    record = None
+                if record is not None and record.tenant_id is not None:
+                    target_store = self._store_provider.for_tenant(record.tenant_id)
+
+            target_store.append(
                 event_type=EventType.EMERGENCY_STOP_EXECUTED,
                 engagement_id=engagement_id,
                 agent="CONDUCTOR",
