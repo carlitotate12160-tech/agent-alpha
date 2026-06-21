@@ -28,7 +28,7 @@ class DeepSeekProvider:
     def __init__(
         self,
         api_key: str,
-        model: str = constants.LLM_REASONING_PRIMARY,
+        model: str = constants.LLM_REASONING_PROVIDER,
         base_url: str = "https://api.deepseek.com",
         timeout: float = constants.DEEPSEEK_HTTP_TIMEOUT_SEC,
         transport: httpx.BaseTransport | None = None,

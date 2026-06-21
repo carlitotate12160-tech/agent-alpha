@@ -11,41 +11,35 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 from agent_alpha.conductor.models import EngagementRecord, Scope
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import AgentEvent
 
-
-def _scope_from_payload(raw: dict[str, object]) -> Scope:
-    """Reconstruct a Scope from a serialized payload dict.
-
-    Expected shape: {"ip_ranges": [...], "domains": [...], "exclusions": [...],
-    "verified": bool}.
-    """
-    return Scope(
-        ip_ranges=list(raw.get("ip_ranges", [])),  # type: ignore[arg-type]
-        domains=list(raw.get("domains", [])),  # type: ignore[arg-type]
-        exclusions=list(raw.get("exclusions", [])),  # type: ignore[arg-type]
-        verified=bool(raw.get("verified", False)),
-    )
+# ── Typed payload helpers (no type: ignore needed) ────────────
 
 
-def _sow_hash_from_payload(raw: object) -> bytes | None:
-    """Decode sow_hash from its payload representation.
+def _opt_str(p: dict[str, object], key: str) -> str | None:
+    """Optional string field — absent or non-str → None."""
+    v = p.get(key)
+    return v if isinstance(v, str) else None
 
-    In the event payload, sow_hash is stored as a hex string for JSON
-    serializability. This function handles both hex-string (durable path)
-    and raw bytes (legacy/in-memory edge case).
-    """
-    if raw is None:
-        return None
-    if isinstance(raw, bytes):
-        return raw
-    if isinstance(raw, str):
-        return bytes.fromhex(raw)
-    return None
+
+def _req_int(p: dict[str, object], key: str) -> int:
+    """Required int field — raises ValueError on wrong type."""
+    v = p.get(key)
+    if not isinstance(v, int):
+        raise ValueError(f"{key} must be int, got {type(v).__name__}")
+    return v
+
+
+def _str_list(d: dict[str, object], key: str) -> list[str]:
+    """Required list[str] field — raises ValueError on wrong shape."""
+    v = d.get(key, [])
+    if not isinstance(v, list) or not all(isinstance(x, str) for x in v):
+        raise ValueError(f"{key} must be list[str]")
+    return list(v)
 
 
 def apply_event(
@@ -67,13 +61,13 @@ def apply_event(
             engagement_id=event.engagement_id,
             client_id=str(payload.get("client_id", "")),
             target=str(payload.get("target", "")),
-            state=int(payload.get("state", 0)),  # type: ignore[arg-type]
+            state=_req_int(payload, "state"),
             scope=None,
             sow_hash=None,
             created_at=event.timestamp_utc,
             updated_at=event.timestamp_utc,
             stopped_reason=None,
-            tenant_id=payload.get("tenant_id"),  # type: ignore[assignment]
+            tenant_id=_opt_str(payload, "tenant_id"),
         )
 
     # All remaining event types require an existing record.
@@ -81,24 +75,30 @@ def apply_event(
         return None
 
     if event.event_type == EventType.STATE_TRANSITIONED:
-        record.state = int(payload.get("to_state", record.state))  # type: ignore[arg-type]
+        record.state = _req_int(payload, "to_state")
         record.updated_at = event.timestamp_utc
 
         # Scope — persisted in the recon transition payload (gate-critical).
-        scope_raw = payload.get("scope")
-        if scope_raw is not None and isinstance(scope_raw, dict):
-            record.scope = _scope_from_payload(scope_raw)
+        scope_data = payload.get("scope")
+        if isinstance(scope_data, dict):
+            sc = Scope(
+                ip_ranges=_str_list(scope_data, "ip_ranges"),
+                domains=_str_list(scope_data, "domains"),
+                exclusions=_str_list(scope_data, "exclusions"),
+            )
+            sc.verified = bool(scope_data.get("verified", False))
+            record.scope = sc
 
-        # sow_hash — persisted in the offensive transition payload.
-        sow_raw = payload.get("sow_hash")
-        if sow_raw is not None:
-            record.sow_hash = _sow_hash_from_payload(sow_raw)
+        # sow_hash — hex string → bytes (optional).
+        sow = payload.get("sow_hash")
+        if isinstance(sow, str):
+            record.sow_hash = bytes.fromhex(sow)
 
         return record
 
     if event.event_type == EventType.EMERGENCY_STOP:
-        record.state = int(payload.get("to_state", record.state))  # type: ignore[arg-type]
-        record.stopped_reason = payload.get("reason")  # type: ignore[assignment]
+        record.state = _req_int(payload, "to_state")
+        record.stopped_reason = _opt_str(payload, "reason")
         record.updated_at = event.timestamp_utc
         return record
 

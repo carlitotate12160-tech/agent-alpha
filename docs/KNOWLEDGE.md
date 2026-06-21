@@ -609,9 +609,9 @@ generation, and review.
 
 **Current runtime LLM configuration (testing phase, see K6 and
 `config/constants.py`):**
-- `LLM_REASONING_PRIMARY = "deepseek-v4-pro"` 
+- `LLM_REASONING_PROVIDER = "deepseek-v4-pro"` 
 - `LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"` 
-- `LLM_PAYLOAD_GEN = "deepseek-v4-pro"` 
+- `LLM_PAYLOAD_PROVIDER = "deepseek-v4-pro"` 
 - `LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6"]` — Kimi 2.6 is a
   K21 payload fallback only (used when the primary refuses or errors),
   never a K6 reasoning-consensus partner. `LLM_REASONING_CONSENSUS` 

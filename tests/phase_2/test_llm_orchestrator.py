@@ -33,13 +33,13 @@ class _StubProvider:
 
     def __init__(self) -> None:
         self.calls = 0
-        self.model = constants.LLM_REASONING_PRIMARY
+        self.model = constants.LLM_REASONING_PROVIDER
 
     def complete(self, *args: object, **kwargs: object):
         self.calls += 1
         return type(
             "R", (), {"text": '{"tool": "generic_http_probe"}', "usage_cost_usd": 0.002,
-                      "model": constants.LLM_REASONING_PRIMARY}
+                      "model": constants.LLM_REASONING_PROVIDER}
         )()
 
 

@@ -17,16 +17,16 @@ import logging
 import secrets
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.engagement_reducer import rebuild_engagement
 from agent_alpha.conductor.models import (  # noqa: F401 — re-exported for backward compat
     EngagementNotFoundError,
     EngagementRecord,
     InvalidScopeError,
-    SOWError,
     Scope,
-    _ParsedAddress,
+    SOWError,
     _coerce_address,
+    _ParsedAddress,
 )
-from agent_alpha.conductor.engagement_reducer import rebuild_engagement
 from agent_alpha.config.constants import (
     EMERGENCY_STOP_TIMEOUT_SEC,
     SOW_HASH_ALGORITHM,
