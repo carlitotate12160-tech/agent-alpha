@@ -27,7 +27,9 @@ import pytest
 # Secret must be set BEFORE the app imports its config. If the impl reads the
 # key elsewhere (SecretsManager), point this at the same source.
 # ≥32 chars to avoid InsecureKeyLengthWarning for HS256 (RFC 7518 §3.2).
-os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
+os.environ.setdefault(
+    "AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-at-least-32-bytes!!"
+)
 
 jwt = pytest.importorskip("jwt")  # PyJWT; align if impl uses another lib
 fastapi_testclient = pytest.importorskip("fastapi.testclient")
@@ -136,3 +138,72 @@ def test_cross_tenant_mutation_returns_404() -> None:
         headers=_auth(tenant_b),
     )
     assert r.status_code == 404
+
+
+def test_cross_tenant_sow_upload_returns_404() -> None:
+    """Tenant B must not upload a SOW against tenant A's engagement.
+
+    Critical going forward: SOW upload is the gate to OFFENSIVE_APPROVED — an
+    unguarded /sow lets one tenant escalate another tenant's engagement.
+    """
+    tenant_a, tenant_b = _tenant(), _tenant()
+    eng = _new_engagement(tenant_a)
+
+    r = client.post(
+        f"/engagements/{eng}/sow",
+        files={"file": ("sow.pdf", b"%PDF-1.4 fake sow", "application/pdf")},
+        headers=_auth(tenant_b),
+    )
+    assert r.status_code == 404, r.text
+
+
+def test_owner_sow_upload_allowed() -> None:
+    """Guard: the ownership check must NOT break legitimate same-tenant access."""
+    tenant_a = _tenant()
+    eng = _new_engagement(tenant_a)
+
+    r = client.post(
+        f"/engagements/{eng}/sow",
+        files={"file": ("sow.pdf", b"%PDF-1.4 fake sow", "application/pdf")},
+        headers=_auth(tenant_a),
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_cross_tenant_emergency_stop_returns_404() -> None:
+    """Tenant B must not emergency-stop tenant A's engagement.
+
+    /stop revokes tasks + mutates engagement state; cross-tenant access is a
+    live abuse (DoS / tampering). The ownership check MUST reject (404) BEFORE
+    emergency.execute runs.
+    """
+    tenant_a, tenant_b = _tenant(), _tenant()
+    eng = _new_engagement(tenant_a)
+
+    r = client.post(
+        f"/engagements/{eng}/stop",
+        json={"reason": "unauthorized-stop", "issued_by": "tenant-b"},
+        headers=_auth(tenant_b),
+    )
+    assert r.status_code == 404, r.text
+
+
+def test_stop_and_sow_still_require_a_token() -> None:
+    """Both routes must also reject unauthenticated access (router-level auth)."""
+    tenant_a = _tenant()
+    eng = _new_engagement(tenant_a)
+
+    assert (
+        client.post(
+            f"/engagements/{eng}/sow",
+            files={"file": ("s.pdf", b"x", "application/pdf")},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.post(
+            f"/engagements/{eng}/stop",
+            json={"reason": "x", "issued_by": "y"},
+        ).status_code
+        == 401
+    )
