@@ -4,12 +4,14 @@
 emergency stop idempotency, per-agent gating, scope membership, event
 emission, and SOW hash storage.
 
+C1.0: AuthorizationStateMachine is now event-sourced — constructor takes
+an EventStore, not an event_callback. All tests updated accordingly.
+
 Run on Oracle ARM64:
     .venv/bin/pytest tests/phase_0/test_authorization.py -v
 """
 
 import hashlib
-from unittest import mock
 
 import pytest
 
@@ -21,6 +23,12 @@ from agent_alpha.conductor.authorization import (
     Scope,
     SOWError,
 )
+from agent_alpha.events.event_types import EventType
+from agent_alpha.events.store import InMemoryEventStore
+
+
+def _store() -> InMemoryEventStore:
+    return InMemoryEventStore()
 
 
 def _valid_scope() -> Scope:
@@ -52,7 +60,7 @@ def _engagement_in_offensive(sm: AuthorizationStateMachine) -> str:
 
 # ── Test 1 ────────────────────────────────────────────────────
 def test_create_engagement_state_created() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     rec = sm.create_engagement("client_a", "10.0.0.0/24")
     assert isinstance(rec, EngagementRecord)
     assert rec.state == a2a_pb2.CREATED
@@ -60,7 +68,7 @@ def test_create_engagement_state_created() -> None:
 
 # ── Test 2 ────────────────────────────────────────────────────
 def test_enable_recon_valid_scope() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     rec = sm.create_engagement("client_a", "10.0.0.0/24")
     assert sm.enable_recon(rec.engagement_id, _valid_scope()) is True
     assert sm.get_state(rec.engagement_id) == a2a_pb2.RECON_ONLY
@@ -68,7 +76,7 @@ def test_enable_recon_valid_scope() -> None:
 
 # ── Test 3 ────────────────────────────────────────────────────
 def test_enable_recon_invalid_cidr() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     rec = sm.create_engagement("client_a", "x")
     bad = Scope(ip_ranges=["not-a-cidr"], domains=[], exclusions=[])
     with pytest.raises(InvalidScopeError):
@@ -77,7 +85,7 @@ def test_enable_recon_invalid_cidr() -> None:
 
 # ── Test 4 ────────────────────────────────────────────────────
 def test_enable_recon_too_many_ips() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     rec = sm.create_engagement("client_a", "x")
     # /23 == 512 addresses > MAX_SCOPE_IPS (256)
     big = Scope(ip_ranges=["10.0.0.0/23"], domains=[], exclusions=[])
@@ -87,7 +95,7 @@ def test_enable_recon_too_many_ips() -> None:
 
 # ── Test 5 ────────────────────────────────────────────────────
 def test_enable_active_without_recon_raises() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     rec = sm.create_engagement("client_a", "x")
     with pytest.raises(ValueError):
         sm.enable_active(rec.engagement_id)
@@ -95,7 +103,7 @@ def test_enable_active_without_recon_raises() -> None:
 
 # ── Test 6 ────────────────────────────────────────────────────
 def test_enable_active_after_recon() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_recon(sm)
     assert sm.enable_active(eid) is True
     assert sm.get_state(eid) == a2a_pb2.ACTIVE_APPROVED
@@ -103,7 +111,7 @@ def test_enable_active_after_recon() -> None:
 
 # ── Test 7 ────────────────────────────────────────────────────
 def test_enable_offensive_valid_sow() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_active(sm)
     assert sm.enable_offensive(eid, b"sow bytes") is True
     assert sm.get_state(eid) == a2a_pb2.OFFENSIVE_APPROVED
@@ -111,7 +119,7 @@ def test_enable_offensive_valid_sow() -> None:
 
 # ── Test 8 ────────────────────────────────────────────────────
 def test_enable_offensive_empty_sow_raises() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_active(sm)
     with pytest.raises(SOWError):
         sm.enable_offensive(eid, b"")
@@ -119,7 +127,7 @@ def test_enable_offensive_empty_sow_raises() -> None:
 
 # ── Test 9 ────────────────────────────────────────────────────
 def test_emergency_stop_from_any_state() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     rec = sm.create_engagement("client_a", "x")
     assert sm.emergency_stop(rec.engagement_id, "manual abort") is True
     assert sm.get_state(rec.engagement_id) == a2a_pb2.EMERGENCY_STOP
@@ -127,7 +135,7 @@ def test_emergency_stop_from_any_state() -> None:
 
 # ── Test 10 ───────────────────────────────────────────────────
 def test_emergency_stop_idempotent() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     rec = sm.create_engagement("client_a", "x")
     assert sm.emergency_stop(rec.engagement_id, "first") is True
     assert sm.emergency_stop(rec.engagement_id, "second") is True
@@ -136,28 +144,28 @@ def test_emergency_stop_idempotent() -> None:
 
 # ── Test 11 ───────────────────────────────────────────────────
 def test_alpha_can_proceed_recon() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_recon(sm)
     assert sm.can_agent_proceed(a2a_pb2.ALPHA, eid) is True
 
 
 # ── Test 12 ───────────────────────────────────────────────────
 def test_gamma_cannot_proceed_active() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_active(sm)
     assert sm.can_agent_proceed(a2a_pb2.GAMMA, eid) is False
 
 
 # ── Test 13 ───────────────────────────────────────────────────
 def test_gamma_can_proceed_offensive() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_offensive(sm)
     assert sm.can_agent_proceed(a2a_pb2.GAMMA, eid) is True
 
 
 # ── Test 14 ───────────────────────────────────────────────────
 def test_no_agent_proceeds_emergency_stop() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_offensive(sm)
     sm.emergency_stop(eid, "halt")
     for role in (
@@ -174,33 +182,35 @@ def test_no_agent_proceeds_emergency_stop() -> None:
 
 # ── Test 15 ───────────────────────────────────────────────────
 def test_is_in_scope_ip_inside_range() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_recon(sm)
     assert sm.is_in_scope(eid, "10.0.0.42") is True
 
 
 # ── Test 16 ───────────────────────────────────────────────────
 def test_is_in_scope_ip_excluded() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_recon(sm)
     assert sm.is_in_scope(eid, "10.0.0.5") is False
 
 
 # ── Test 17 ───────────────────────────────────────────────────
-def test_event_callback_on_transition() -> None:
-    cb = mock.Mock()
-    sm = AuthorizationStateMachine(event_callback=cb)
+def test_events_appended_to_store_on_transition() -> None:
+    """C1.0: events are appended to the EventStore, not a callback."""
+    store = _store()
+    sm = AuthorizationStateMachine(event_store=store)
     rec = sm.create_engagement("client_a", "10.0.0.0/24")
     sm.enable_recon(rec.engagement_id, _valid_scope())
 
-    event_types = [call.args[0] for call in cb.call_args_list]
-    assert "EngagementCreated" in event_types
-    assert "StateTransitioned" in event_types
+    events = store.get_events(rec.engagement_id)
+    event_types = [e.event_type for e in events]
+    assert EventType.ENGAGEMENT_CREATED in event_types
+    assert EventType.STATE_TRANSITIONED in event_types
 
 
 # ── Test 18 ───────────────────────────────────────────────────
 def test_sow_hash_stored_as_digest_not_raw() -> None:
-    sm = AuthorizationStateMachine()
+    sm = AuthorizationStateMachine(event_store=_store())
     eid = _engagement_in_active(sm)
     sow_bytes = b"the full statement of work content"
     sm.enable_offensive(eid, sow_bytes)
@@ -209,7 +219,7 @@ def test_sow_hash_stored_as_digest_not_raw() -> None:
     assert state == a2a_pb2.OFFENSIVE_APPROVED
 
     expected = hashlib.sha256(sow_bytes).digest()
-    # Reach into the private registry only for verification.
-    record = sm._engagements[eid]  # noqa: SLF001 — test introspection
+    # C1.0: use public API (get_record), not private dict.
+    record = sm.get_record(eid)
     assert record.sow_hash == expected
     assert record.sow_hash != sow_bytes

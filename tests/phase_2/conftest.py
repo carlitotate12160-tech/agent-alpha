@@ -121,14 +121,7 @@ def graph_store() -> NetworkXGraphStore:
 def recon_engagement(event_store: InMemoryEventStore):
     """An engagement legally cleared to RECON_ONLY — the minimum auth state
     in which Alpha may proceed (authorization.can_agent_proceed(ALPHA, ...))."""
-    auth = AuthorizationStateMachine(
-        event_callback=lambda et, payload: event_store.append(
-            event_type=et,
-            engagement_id=payload["engagement_id"],
-            agent="conductor",
-            payload=payload,
-        )
-    )
+    auth = AuthorizationStateMachine(event_store=event_store)
     record = auth.create_engagement(client_id="client_lab", target="lab-target.invalid")
     auth.enable_recon(
         record.engagement_id,
@@ -144,6 +137,7 @@ def recon_engagement(event_store: InMemoryEventStore):
     assert auth.get_state(record.engagement_id) == a2a_pb2.RECON_ONLY
     assert auth.can_agent_proceed(a2a_pb2.ALPHA, record.engagement_id) is True
     return auth, record.engagement_id
+
 
 
 @pytest.fixture
