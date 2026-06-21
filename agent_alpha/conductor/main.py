@@ -250,7 +250,9 @@ def run_engagement(
     if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
         raise HTTPException(status_code=404, detail="engagement not found")
 
-    target_store = store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    target_store = (
+        store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    )
     run_status = project_run_status(target_store.get_events(engagement_id))
 
     if run_status.status in ("queued", "running"):
@@ -286,7 +288,9 @@ def get_run_status(
     if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
         raise HTTPException(status_code=404, detail="engagement not found")
 
-    target_store = store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    target_store = (
+        store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    )
     run_status = project_run_status(target_store.get_events(engagement_id))
 
     return {
