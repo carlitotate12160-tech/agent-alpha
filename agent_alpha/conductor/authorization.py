@@ -1,127 +1,52 @@
 # agent_alpha/conductor/authorization.py
 # Phase 0 — Non-bypassable authorization gate (ADR §1 + §9).
 #
+# C1.0: state = projection of the append-only event stream (§8o-1, §12.11).
+# Any process (API server, Celery worker) with access to the same EventStore
+# reconstructs the same engagement/auth state. The in-memory _cache is a perf
+# optimization only — never the source of truth.
+#
 # This module is the ONLY place in the entire codebase that reads or writes
 # EngagementState. Agents may query state via the Conductor RPC surface, but
 # they NEVER hold an instance of AuthorizationStateMachine and NEVER write
 # state directly. Only the Conductor owns an instance.
 
-import datetime
 import hashlib
 import ipaddress
 import logging
 import secrets
-import typing
-from dataclasses import dataclass
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.engagement_reducer import rebuild_engagement
+from agent_alpha.conductor.models import (
+    EngagementNotFoundError,
+    EngagementRecord,
+    InvalidScopeError,
+    Scope,
+    SOWError,
+    _coerce_address,
+    _ParsedAddress,
+)
 from agent_alpha.config.constants import (
     EMERGENCY_STOP_TIMEOUT_SEC,
-    MAX_SCOPE_IPS,
     SOW_HASH_ALGORITHM,
     SOW_MAX_FILE_SIZE_MB,
 )
 from agent_alpha.events.event_types import EventType
+from agent_alpha.events.store import AgentEvent, EventStore
+
+# Explicit re-exports for backward compatibility (mypy requires __all__ or
+# redundant aliases to treat a re-export as public).
+__all__ = [
+    "AuthorizationStateMachine",
+    "EngagementNotFoundError",
+    "EngagementRecord",
+    "InvalidScopeError",
+    "SOWError",
+    "Scope",
+]
 
 _log = logging.getLogger(__name__)
-
-
-# ── Custom exceptions ─────────────────────────────────────────
-
-
-class InvalidScopeError(ValueError):
-    """Raised when an engagement scope fails validation."""
-
-
-class SOWError(ValueError):
-    """Raised when a Statement-of-Work payload is invalid."""
-
-
-class EngagementNotFoundError(KeyError):
-    """Raised when an engagement_id is not present in the state machine."""
-
-
-# ── Helpers ───────────────────────────────────────────────────
-
-
-def _utc_now_iso() -> str:
-    """Return the current UTC time as an ISO 8601 string with a 'Z' suffix."""
-    return datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-
-
-@dataclass
-class _ParsedAddress:
-    kind: str
-    value: (
-        ipaddress.IPv4Address
-        | ipaddress.IPv6Address
-        | ipaddress.IPv4Network
-        | ipaddress.IPv6Network
-        | str
-    )
-
-
-def _coerce_address(value: str) -> _ParsedAddress:
-    """Parse a string as an ip_address, ip_network, or fall back to a domain.
-
-    Returns a _ParsedAddress where kind is one of 'address', 'network',
-    or 'domain'. Domains are normalised to lower-case.
-    """
-    try:
-        return _ParsedAddress("address", ipaddress.ip_address(value))
-    except ValueError:
-        pass
-    try:
-        return _ParsedAddress("network", ipaddress.ip_network(value, strict=False))
-    except ValueError:
-        pass
-    return _ParsedAddress("domain", value.strip().lower())
-
-
-# ── Dataclasses ───────────────────────────────────────────────
-
-
-@dataclass
-class Scope:
-    ip_ranges: list[str]  # CIDR notation
-    domains: list[str]
-    exclusions: list[str]  # IPs/domains explicitly out of scope
-    verified: bool = False
-
-    def validate(self) -> None:
-        """Validate the scope. Raises ValueError on any problem."""
-        if not self.ip_ranges:
-            raise ValueError("scope.ip_ranges must not be empty")
-
-        total_ips = 0
-        for cidr in self.ip_ranges:
-            try:
-                network = ipaddress.ip_network(cidr, strict=False)
-            except ValueError as exc:
-                raise ValueError(f"invalid CIDR in ip_ranges: {cidr!r}") from exc
-            total_ips += network.num_addresses
-
-        if total_ips > MAX_SCOPE_IPS:
-            raise ValueError(f"scope spans {total_ips} IPs, exceeds MAX_SCOPE_IPS={MAX_SCOPE_IPS}")
-
-        for exclusion in self.exclusions:
-            parsed = _coerce_address(exclusion)
-            if parsed.kind == "domain" and not exclusion.strip():
-                raise ValueError(f"unparseable exclusion: {exclusion!r}")
-
-
-@dataclass
-class EngagementRecord:
-    engagement_id: str
-    client_id: str
-    target: str
-    state: int  # a2a_pb2.EngagementState value
-    scope: Scope | None
-    sow_hash: bytes | None
-    created_at: str  # ISO 8601 UTC
-    updated_at: str  # ISO 8601 UTC
-    stopped_reason: str | None  # set on EMERGENCY_STOP
-    tenant_id: str | None = None  # owning tenant (None for legacy/tests)
 
 
 # ── State machine ─────────────────────────────────────────────
@@ -130,40 +55,68 @@ class EngagementRecord:
 class AuthorizationStateMachine:
     """The single, non-bypassable authorization gate.
 
+    C1.0: state is a projection of the durable event stream. The constructor
+    takes an injected ``EventStore`` (read + append). Transition methods
+    validate against the folded current state, then append the transition
+    event. Any process with access to the same ``EventStore`` reconstructs
+    the identical engagement/auth state.
+
+    The ``_cache`` dict is a per-process performance optimization only —
+    never the source of truth. ``_rebuild`` refreshes it from events.
+
+    NOTE (C3 deferral): auth events currently write to the single injected
+    ``EventStore``. Per-tenant store routing is deferred to C3, which will
+    inject the resolved per-tenant ``EventStore`` — the SM already takes an
+    injected store, so C3 = inject the right store, no redesign.
+
     Only the Conductor instantiates and owns this object. The engagement
     registry is private; no public attribute access is permitted.
     """
 
     def __init__(
         self,
-        event_callback: typing.Callable[[str, dict[str, object]], None] | None = None,
+        event_store: EventStore,
     ) -> None:
-        self._event_callback = event_callback
-        self._engagements: dict[str, EngagementRecord] = {}
+        self._event_store = event_store
+        # Performance cache — rebuilt from events on every read. NEVER the
+        # source of truth (Lyndon #2/#3: events are the source of truth).
+        self._cache: dict[str, EngagementRecord] = {}
 
     # ── Private helpers ───────────────────────────────────────
 
-    def _emit_event(self, event_type: str, engagement_id: str, payload: dict[str, object]) -> None:
-        """Emit an event to the configured callback. Never raises."""
-        if self._event_callback is None:
-            return
-        enriched = dict(payload)
-        enriched["event_type"] = event_type
-        enriched["engagement_id"] = engagement_id
-        enriched["timestamp_utc"] = _utc_now_iso()
-        record = self._engagements.get(engagement_id)
-        if record is not None and record.tenant_id is not None:
-            enriched["tenant_id"] = record.tenant_id
-        try:
-            self._event_callback(event_type, enriched)
-        except Exception:  # noqa: BLE001 — event emission must never break the gate
-            _log.exception("event_callback failed for event_type=%s", event_type)
+    def _append_event(
+        self,
+        event_type: str,
+        engagement_id: str,
+        payload: dict[str, object],
+    ) -> AgentEvent:
+        """Append an event to the store. Returns the persisted AgentEvent."""
+        return self._event_store.append(
+            event_type=event_type,
+            engagement_id=engagement_id,
+            agent="CONDUCTOR",
+            payload=payload,
+        )
+
+    def _rebuild(self, engagement_id: str) -> None:
+        """Rebuild the cached EngagementRecord from the event stream.
+
+        This is the canonical projection path — any process calling this
+        with access to the same EventStore converges to the same state.
+        """
+        events = self._event_store.get_events(engagement_id)
+        record = rebuild_engagement(events)
+        if record is not None:
+            self._cache[engagement_id] = record
+        else:
+            self._cache.pop(engagement_id, None)
 
     def _get(self, engagement_id: str) -> EngagementRecord:
-        try:
-            return self._engagements[engagement_id]
-        except KeyError as exc:
-            raise EngagementNotFoundError(engagement_id) from exc
+        self._rebuild(engagement_id)
+        record = self._cache.get(engagement_id)
+        if record is None:
+            raise EngagementNotFoundError(engagement_id)
+        return record
 
     # ── State transitions ─────────────────────────────────────
 
@@ -174,26 +127,20 @@ class AuthorizationStateMachine:
         tenant_id: str | None = None,
     ) -> EngagementRecord:
         engagement_id = "eng_" + secrets.token_hex(4)
-        now = _utc_now_iso()
-        record = EngagementRecord(
-            engagement_id=engagement_id,
-            client_id=client_id,
-            target=target,
-            state=a2a_pb2.CREATED,
-            scope=None,
-            sow_hash=None,
-            created_at=now,
-            updated_at=now,
-            stopped_reason=None,
-            tenant_id=tenant_id,
-        )
-        self._engagements[engagement_id] = record
-        self._emit_event(
+        payload: dict[str, object] = {
+            "client_id": client_id,
+            "target": target,
+            "state": a2a_pb2.CREATED,
+        }
+        if tenant_id is not None:
+            payload["tenant_id"] = tenant_id
+        self._append_event(
             EventType.ENGAGEMENT_CREATED,
             engagement_id,
-            {"client_id": client_id, "target": target, "state": a2a_pb2.CREATED},
+            payload,
         )
-        return record
+        self._rebuild(engagement_id)
+        return self._cache[engagement_id]
 
     def enable_recon(self, engagement_id: str, scope: Scope) -> bool:
         record = self._get(engagement_id)
@@ -205,15 +152,25 @@ class AuthorizationStateMachine:
             raise InvalidScopeError(str(exc)) from exc
 
         scope.verified = True
-        record.scope = scope
         previous = record.state
-        record.state = a2a_pb2.RECON_ONLY
-        record.updated_at = _utc_now_iso()
-        self._emit_event(
+        # Gate-critical (C1.0 Rev 1): persist the full scope in the event
+        # payload so any process can reconstruct it from the event stream.
+        # Without this, is_in_scope() and enable_active break after rebuild.
+        self._append_event(
             EventType.STATE_TRANSITIONED,
             engagement_id,
-            {"from_state": previous, "to_state": a2a_pb2.RECON_ONLY},
+            {
+                "from_state": previous,
+                "to_state": a2a_pb2.RECON_ONLY,
+                "scope": {
+                    "ip_ranges": scope.ip_ranges,
+                    "domains": scope.domains,
+                    "exclusions": scope.exclusions,
+                    "verified": scope.verified,
+                },
+            },
         )
+        self._rebuild(engagement_id)
         return True
 
     def enable_active(self, engagement_id: str) -> bool:
@@ -224,13 +181,12 @@ class AuthorizationStateMachine:
             raise ValueError("enable_active requires a verified scope")
 
         previous = record.state
-        record.state = a2a_pb2.ACTIVE_APPROVED
-        record.updated_at = _utc_now_iso()
-        self._emit_event(
+        self._append_event(
             EventType.STATE_TRANSITIONED,
             engagement_id,
             {"from_state": previous, "to_state": a2a_pb2.ACTIVE_APPROVED},
         )
+        self._rebuild(engagement_id)
         return True
 
     def enable_offensive(self, engagement_id: str, sow_bytes: bytes) -> bool:
@@ -249,29 +205,25 @@ class AuthorizationStateMachine:
             )
 
         sow_hash = hashlib.new(SOW_HASH_ALGORITHM, sow_bytes).digest()
-        record.sow_hash = sow_hash
         previous = record.state
-        record.state = a2a_pb2.OFFENSIVE_APPROVED
-        record.updated_at = _utc_now_iso()
-        self._emit_event(
+        # sow_hash stored as hex string for JSON/JSONB serializability.
+        self._append_event(
             EventType.STATE_TRANSITIONED,
             engagement_id,
             {
                 "from_state": previous,
                 "to_state": a2a_pb2.OFFENSIVE_APPROVED,
-                "sow_hash": sow_hash,
+                "sow_hash": sow_hash.hex(),
             },
         )
+        self._rebuild(engagement_id)
         return True
 
     def emergency_stop(self, engagement_id: str, reason: str) -> bool:
         """Force ANY state to EMERGENCY_STOP. Idempotent, never raises."""
         record = self._get(engagement_id)
         previous = record.state
-        record.state = a2a_pb2.EMERGENCY_STOP
-        record.stopped_reason = reason
-        record.updated_at = _utc_now_iso()
-        self._emit_event(
+        self._append_event(
             EventType.EMERGENCY_STOP,
             engagement_id,
             {
@@ -281,13 +233,18 @@ class AuthorizationStateMachine:
                 "timeout_sec": EMERGENCY_STOP_TIMEOUT_SEC,
             },
         )
+        self._rebuild(engagement_id)
         return True
 
     # ── Queries ───────────────────────────────────────────────
 
     def can_agent_proceed(self, agent_role: int, engagement_id: str) -> bool:
         """Return whether the given agent role may proceed. Never raises."""
-        record = self._engagements.get(engagement_id)
+        try:
+            self._rebuild(engagement_id)
+        except Exception:  # noqa: BLE001 — gate query must never crash
+            return False
+        record = self._cache.get(engagement_id)
         if record is None:
             return False
 
@@ -331,7 +288,11 @@ class AuthorizationStateMachine:
 
     def is_in_scope(self, engagement_id: str, target: str) -> bool:
         """Return whether target is within scope and not excluded. Never raises."""
-        record = self._engagements.get(engagement_id)
+        try:
+            self._rebuild(engagement_id)
+        except Exception:  # noqa: BLE001 — scope query must never crash
+            return False
+        record = self._cache.get(engagement_id)
         if record is None or record.scope is None:
             return False
 

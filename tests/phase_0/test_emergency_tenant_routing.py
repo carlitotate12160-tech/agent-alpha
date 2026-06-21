@@ -30,7 +30,8 @@ def test_emergency_stop_event_routes_to_tenant_store(monkeypatch) -> None:
 
     legacy = InMemoryEventStore()
     provider = StoreProvider()
-    auth = AuthorizationStateMachine()
+    auth_store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=auth_store)
     handler = EmergencyStopHandler(auth, legacy, store_provider=provider)
 
     record = auth.create_engagement("client-x", "10.0.0.0/24", tenant_id="tenant_gapb")
@@ -50,7 +51,8 @@ def test_emergency_stop_falls_back_to_legacy_when_no_tenant(monkeypatch) -> None
 
     legacy = InMemoryEventStore()
     provider = StoreProvider()
-    auth = AuthorizationStateMachine()
+    auth_store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=auth_store)
     handler = EmergencyStopHandler(auth, legacy, store_provider=provider)
 
     record = auth.create_engagement("client-x", "10.0.0.0/24")  # no tenant_id

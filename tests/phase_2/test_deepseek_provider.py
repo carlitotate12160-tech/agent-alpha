@@ -23,7 +23,7 @@ from agent_alpha.llm.providers.deepseek import DeepSeekProvider
 def test_default_model_is_single_source_of_truth() -> None:
     """Model id must come from constants, never hardcoded (anti-Lyndon #7)."""
     provider = DeepSeekProvider(api_key="unit-test-noop")
-    assert provider.model == constants.LLM_REASONING_PRIMARY == "deepseek-v4-pro"
+    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-v4-pro"
 
 
 def test_provider_rejects_forbidden_payload_models() -> None:
@@ -89,7 +89,7 @@ def test_deepseek_reachable_from_oracle(deepseek_api_key: str) -> None:
     reasoning model is actually offered by the account."""
     provider = DeepSeekProvider(api_key=deepseek_api_key)
     models = provider.list_models()
-    assert constants.LLM_REASONING_PRIMARY in models
+    assert constants.LLM_REASONING_PROVIDER in models
 
 
 @pytest.mark.live
@@ -108,4 +108,4 @@ def test_deepseek_inference_roundtrip(deepseek_api_key: str) -> None:
     )
     assert result.text.strip(), "completion text must be non-empty"
     assert result.usage_cost_usd >= 0.0
-    assert result.model == constants.LLM_REASONING_PRIMARY
+    assert result.model == constants.LLM_REASONING_PROVIDER
