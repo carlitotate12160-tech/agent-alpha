@@ -18,7 +18,7 @@ import secrets
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.engagement_reducer import rebuild_engagement
-from agent_alpha.conductor.models import (  # noqa: F401 — re-exported for backward compat
+from agent_alpha.conductor.models import (
     EngagementNotFoundError,
     EngagementRecord,
     InvalidScopeError,
@@ -34,6 +34,17 @@ from agent_alpha.config.constants import (
 )
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import AgentEvent, EventStore
+
+# Explicit re-exports for backward compatibility (mypy requires __all__ or
+# redundant aliases to treat a re-export as public).
+__all__ = [
+    "AuthorizationStateMachine",
+    "EngagementNotFoundError",
+    "EngagementRecord",
+    "InvalidScopeError",
+    "SOWError",
+    "Scope",
+]
 
 _log = logging.getLogger(__name__)
 
