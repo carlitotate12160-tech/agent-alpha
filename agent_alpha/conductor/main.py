@@ -9,7 +9,7 @@ import hashlib
 import logging
 import os
 import typing
-from typing import Any
+from typing import Annotated, Any
 
 from celery import Celery
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile
@@ -93,7 +93,7 @@ def health() -> dict[str, str]:
 @engagements.post("")
 def create_engagement(
     body: dict[str, str],
-    principal: Principal = Depends(require_principal),
+    principal: Annotated[Principal, Depends(require_principal)],
 ) -> dict[str, str]:
     try:
         client_id = body["client_id"]
@@ -112,7 +112,7 @@ def create_engagement(
 def enable_recon(
     engagement_id: str,
     body: dict[str, list[str]],
-    principal: Principal = Depends(require_principal),
+    principal: Annotated[Principal, Depends(require_principal)],
 ) -> dict[str, str]:
     try:
         ip_ranges = body["ip_ranges"]
@@ -177,7 +177,7 @@ def emergency_stop(engagement_id: str, body: dict[str, str]) -> dict[str, Any]:
 @engagements.get("/{engagement_id}/state")
 def get_state(
     engagement_id: str,
-    principal: Principal = Depends(require_principal),
+    principal: Annotated[Principal, Depends(require_principal)],
 ) -> dict[str, Any]:
     try:
         record = auth.get_record(engagement_id)

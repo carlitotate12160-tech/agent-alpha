@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Dict
 
 from agent_alpha.events.store import EventStore, InMemoryEventStore
 
@@ -53,7 +52,7 @@ class StoreProvider:
 
     def __init__(self, dsn: str | None = None) -> None:
         self._dsn = dsn or os.environ.get(PG_DSN_ENV)
-        self._stores: Dict[str, EventStore] = {}
+        self._stores: dict[str, EventStore] = {}
         self._lock = threading.Lock()
 
     def for_tenant(self, tenant_id: str) -> EventStore:
