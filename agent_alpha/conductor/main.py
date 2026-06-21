@@ -18,7 +18,12 @@ from agent_alpha.conductor.api_auth import Principal, require_principal
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.policy import PolicyEnforcer
-from agent_alpha.config.constants import SOW_MAX_FILE_SIZE_MB
+from agent_alpha.config.constants import (
+    CELERY_RESULT_EXPIRES_SEC,
+    CELERY_TASK_HARD_LIMIT_SEC,
+    CELERY_TASK_SOFT_LIMIT_SEC,
+    SOW_MAX_FILE_SIZE_MB,
+)
 from agent_alpha.config.stores import StoreProvider, build_event_store
 from agent_alpha.security.secrets import LogScrubber, SecretsManager
 
@@ -46,6 +51,14 @@ celery_app = Celery(
     broker=_redis_url,
     backend=_redis_url,
 )
+celery_app.conf.update(
+    task_serializer="json",
+    accept_content=["json"],
+    result_serializer="json",
+    task_soft_time_limit=CELERY_TASK_SOFT_LIMIT_SEC,
+    task_time_limit=CELERY_TASK_HARD_LIMIT_SEC,
+    result_expires=CELERY_RESULT_EXPIRES_SEC,
+)
 
 app = FastAPI(title="Agent-Alpha Conductor", version="0.1.0")
 
@@ -54,12 +67,74 @@ engagements = APIRouter(
     dependencies=[Depends(require_principal)],
 )
 
-# ── Celery task (placeholder) ────────────────────────────────────────
+# ── Celery task (Phase 3 placeholder: gate + status only) ────────────
 
 
 @celery_app.task  # type: ignore[untyped-decorator]
-def run_engagement_task(engagement_id: str) -> dict[str, Any]:
-    return {"engagement_id": engagement_id, "status": "placeholder"}
+def run_engagement_task(engagement_id: str, tenant_id: str | None) -> dict[str, Any]:
+    """Run an engagement in a worker process, enforcing the auth gate.
+
+    C1.6 design-now: the task is tenant-aware. The worker reconstructs the
+    AuthorizationStateMachine over the correct EventStore instance and enforces
+    the gate locally before any agent logic runs.
+
+    C1.8: The return value (and thus the Celery result backend) carries only
+    opaque status — never findings, creds, or payloads. Domain data flows
+    through the tenant-scoped event store instead.
+    """
+
+    target_store = event_store
+    if tenant_id is not None:
+        try:
+            target_store = store_provider.for_tenant(tenant_id)
+        except Exception:  # noqa: BLE001 — fallback to default store
+            _log.exception("Failed to resolve tenant store for tenant_id=%s", tenant_id)
+
+    worker_auth = AuthorizationStateMachine(event_store=target_store)
+
+    def _record_refusal(reason: str) -> None:
+        try:
+            target_store.append(
+                event_type="EngagementRunRefused",
+                engagement_id=engagement_id,
+                agent="CONDUCTOR",
+                payload={"reason": reason, "tenant_id": tenant_id},
+            )
+        except Exception:  # noqa: BLE001 — refusal audit must not crash the task
+            _log.exception("Failed to append EngagementRunRefused event for %s", engagement_id)
+
+    try:
+        record = worker_auth.get_record(engagement_id)
+    except Exception:  # noqa: BLE001 — not found / unauthorized
+        _record_refusal("not_found")
+        return {"engagement_id": engagement_id, "status": "refused"}
+
+    # Enforce tenant ownership in-worker when a tenant_id is provided.
+    if tenant_id is not None and record.tenant_id is not None and record.tenant_id != tenant_id:
+        _record_refusal("tenant_mismatch")
+        return {"engagement_id": engagement_id, "status": "refused"}
+
+    # Authorization gate: if no agent is allowed to proceed, refuse.
+    if not worker_auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
+        _record_refusal("not_authorized")
+        return {"engagement_id": engagement_id, "status": "refused"}
+
+    # TODO (C6): real agent run pipeline goes here once implemented.
+    # For C1.x we only prove that a worker process can reconstruct auth state
+    # from the shared EventStore and apply the gate.
+
+    # Emit a "run started" audit event; name kept generic to avoid schema churn.
+    try:
+        target_store.append(
+            event_type="EngagementRunStarted",
+            engagement_id=engagement_id,
+            agent="CONDUCTOR",
+            payload={"tenant_id": record.tenant_id},
+        )
+    except Exception:  # noqa: BLE001 — failure to audit must not crash the task
+        _log.exception("Failed to append EngagementRunStarted event for %s", engagement_id)
+
+    return {"engagement_id": engagement_id, "status": "started"}
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
@@ -145,6 +220,28 @@ def upload_sow(
 
     sow_hash = hashlib.sha256(content).hexdigest()
     return {"engagement_id": engagement_id, "sow_hash": sow_hash}
+
+
+@engagements.post("/{engagement_id}/run", status_code=202)
+def run_engagement(
+    engagement_id: str,
+    principal: Annotated[Principal, Depends(require_principal)],
+) -> dict[str, Any]:
+    try:
+        record = auth.get_record(engagement_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="engagement not found") from None
+
+    if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="engagement not found")
+
+    # Non-blocking dispatch: enqueue the task and return immediately.
+    task = run_engagement_task.delay(engagement_id, principal.tenant_id)
+
+    return {
+        "engagement_id": engagement_id,
+        "task_id": task.id,
+    }
 
 
 @engagements.post("/{engagement_id}/stop")

@@ -82,6 +82,7 @@ ALPHA_RECON_NO_PROGRESS_ITERS = 1  # one idle cycle after the queue drains ends 
 CELERY_TASK_SOFT_LIMIT_SEC = 3_600
 CELERY_TASK_HARD_LIMIT_SEC = 14_400
 CELERY_QUEUE_PREFIX = "engagement_"
+CELERY_RESULT_EXPIRES_SEC = 3_600
 
 # ── Security ─────────────────────────────────────────────────
 SECRETS_ENCRYPTION_ALGO = "AES-256-GCM"

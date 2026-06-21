@@ -20,6 +20,19 @@ import os
 import pytest
 
 
+@pytest.fixture
+def celery_eager_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Configure Celery to run tasks eagerly (synchronously) for testing.
+
+    This allows task-body tests to run without a real Celery worker.
+    """
+    from agent_alpha.conductor.main import celery_app
+
+    # Configure Celery directly (not via env vars, since app is already initialized)
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+
+
 def _require_db() -> bool:
     return os.environ.get("AGENT_ALPHA_REQUIRE_DB") == "1"
 
