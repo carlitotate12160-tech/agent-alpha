@@ -47,3 +47,10 @@ class EventType(enum.StrEnum):
     EXPLOIT_CONFIRMED = "ExploitConfirmed"
     EXPLOIT_FAILED = "ExploitFailed"
     PROOF_ARTIFACT_RECORDED = "ProofArtifactRecorded"
+
+    # ── Phase 3 (run status) ───────────────────────────────────
+    ENGAGEMENT_RUN_QUEUED = "EngagementRunQueued"
+    ENGAGEMENT_RUN_STARTED = "EngagementRunStarted"
+    ENGAGEMENT_RUN_COMPLETED = "EngagementRunCompleted"
+    ENGAGEMENT_RUN_FAILED = "EngagementRunFailed"
+    ENGAGEMENT_RUN_REFUSED = "EngagementRunRefused"
