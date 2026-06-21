@@ -607,3 +607,68 @@ never stored only in volatile memory.
 - Phase 0–3: NetworkX (in-memory, simple, sufficient). Phase 4+: evaluate Memgraph
   (Cypher, in-memory) or Neo4j if cross-engagement/large-graph queries prove necessary
   — still rebuilt from events, never the source of truth.
+
+### 12.13 Agent scaling model — Hybrid orchestrated fan-out — LOCKED
+
+**Decision.** The six Greek agents (Alpha…Omega) are **ROLES / capabilities, not
+singleton instances**. Within a phase, work is executed by N stateless **workers**
+of that role, running concurrently. This is a **hybrid** model: a centrally
+orchestrated kill-chain pipeline (§3) with **intra-phase horizontal fan-out**.
+It is explicitly **NOT a swarm** (no peer-to-peer agents, no self-spawning, no
+emergent top-level coordination).
+
+**Who fans out.** The **Conductor / planner** partitions a phase's work into
+bounded task units and enqueues them on Celery+Redis (§2). **An agent never spawns
+or commands workers itself** — that would re-introduce agent-to-agent control and
+breach the non-bypassable authorization gate (§1). Workers pull pre-authorized
+units; they do not talk to each other.
+
+Example: a Reconnaissance task over 20 hosts does **not** mean "Alpha spawns 20
+children." It means the Conductor partitions the scope into 20 (or fewer, capped)
+RECON units and enqueues them; up to `MAX_RECON_WORKERS` execute in parallel; every
+result flows back through the Conductor into the event log.
+
+**Two valid fan-out patterns (both gated):**
+- **Data-parallel** — same capability, partitioned target slice (e.g., 200 hosts split across workers).
+- **Functional-parallel** — different techniques in one phase (e.g., DNS enum / port scan / JS-secret extraction concurrently).
+
+**Invariants (non-negotiable):**
+1. **Gate never dilutes.** A unit is enqueued ONLY after the Conductor validates
+   the engagement's authorization state (RECON_ONLY → … per §1). Workers never read
+   or write authorization state; each unit carries its pre-authorized scope.
+2. **Bounded autonomy.** Per-engagement / per-tenant max concurrency is config-driven
+   (single source of truth, no scattered literals — anti-Lyndon #7) and bounded by
+   blast-radius + rate/quota limits. Fan-out degree is never unbounded.
+3. **Deterministic aggregation.** Worker results merge into the append-only event
+   stream (monotonic, gapless sequence) and project into the AttackGraph (§6, §8o-1).
+   Empty/failed results are rejected, never counted as success (anti-Lyndon #3).
+4. **No direct A2A dispatch.** No code path lets one agent enqueue work for another;
+   only the Conductor dispatches (§3 one-way handoff).
+
+**Role extensibility.** The role taxonomy MAY grow (e.g., a cloud-recon or
+AD-specific role) under the SAME gate as engagement profiles expand (§8e). "Six" is
+the current role set, not a hard ceiling — adding a role is an ADR change, not an
+ad-hoc spawn.
+
+**Phasing (anti-Lyndon #1 — foundation before scale):**
+- **Phase 0–2:** single worker per role. Prove the Alpha→Omega pipeline end-to-end first.
+- **Phase 3 (orchestrator):** design the Conductor↔Celery dispatch interface to be
+  fan-out-aware (partition → enqueue → bounded concurrency → aggregate). Build
+  multi-worker scaling incrementally AFTER the single-worker pipeline is proven.
+- Multi-worker scaling is NOT built before the pipeline works (no feature-before-foundation).
+
+**Test contract (what "done" means for the fan-out interface):**
+- Conductor partitions a RECON scope of N hosts into N units; all units enqueue ONLY
+  when state ∈ {RECON_ONLY, ACTIVE_APPROVED, OFFENSIVE_APPROVED} as appropriate; a
+  worker executing a unit without valid auth context is rejected.
+- Concurrency cap honored: with cap = K and N > K units, at most K run at once; the
+  rest queue (assert never > K concurrent for an engagement).
+- Aggregation: results from M workers form ONE engagement event stream with a
+  monotonic, gapless sequence; duplicate or empty unit results are rejected.
+- Negative: no API/code path lets agent X enqueue a task targeted at agent Y
+  directly (only Conductor dispatch).
+
+**Integration points.** Conductor (partition + gate + dispatch + aggregate) · Celery+Redis
+(queue) · EventStore (append-only aggregation, §8o-1) · AttackGraph (projection, §6) ·
+config constants (concurrency caps, §2). Relates to §1, §3, §8e, and the open
+rate-limit/quota item.
