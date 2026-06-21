@@ -22,7 +22,7 @@ path (anti-Lyndon #2) — the e2e test is the wiring proof.
 
 ## New interfaces the tests imply (signatures, bodies filled by impl)
 ```
-DeepSeekProvider(api_key: str, model: str = constants.LLM_REASONING_PRIMARY)
+DeepSeekProvider(api_key: str, model: str = constants.LLM_REASONING_PROVIDER)
   .list_models() -> list[str]
   .complete(messages: list[dict], max_tokens: int) -> CompletionResult
       # CompletionResult: .text:str  .usage_cost_usd:float  .model:str
@@ -55,12 +55,12 @@ Omega(graph_store)            # read-only
 ```
 
 ## OPEN DECISION — resolve before building component #3
-`config/constants.py` sets `LLM_REASONING_PRIMARY = "deepseek-v4-pro"`, but the
+`config/constants.py` sets `LLM_REASONING_PROVIDER = "deepseek-v4-pro"`, but the
 master ADR's LLM role split says **Claude = reasoning/planning/narrative,
 DeepSeek = payload only**. ORIENT/PLAN in the cognitive loop are *reasoning*.
 These two cannot both be canonical. Pick one and make the other follow:
   - (a) constants win: DeepSeek does reasoning too → update the ADR role split.
   - (b) ADR wins: add a `LLM_REASONING_CLAUDE` constant and route ORIENT/PLAN
         there; keep DeepSeek for payload/SINGLE_LLM tool selection.
-Tests reference `constants.LLM_REASONING_PRIMARY` symbolically, so they stay
+Tests reference `constants.LLM_REASONING_PROVIDER` symbolically, so they stay
 valid either way — but the orchestrator's routing depends on the answer.

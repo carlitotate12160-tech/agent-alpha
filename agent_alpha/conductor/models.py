@@ -11,7 +11,6 @@ from dataclasses import dataclass
 
 from agent_alpha.config.constants import MAX_SCOPE_IPS
 
-
 # ── Custom exceptions ─────────────────────────────────────────
 
 

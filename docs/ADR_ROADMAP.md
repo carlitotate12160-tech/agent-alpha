@@ -763,8 +763,7 @@ engagement**. Until then DeepSeek-v4-pro / MiMo are acceptable for testing only.
 if desired.]
 
 **Constants change (config/constants.py):**
-- Rename `LLM_REASONING_PRIMARY` → `LLM_REASONING_PROVIDER` (value = current
-  testing provider; docstring marks it TEMPORARY, target Claude/GPT).
+- ~~Rename `LLM_REASONING_PRIMARY` → `LLM_REASONING_PROVIDER`~~ ✅ DONE
 - Add `LLM_PAYLOAD_PROVIDER` (direct open-weight provider).
 - Add `LLM_PAYLOAD_TRANSPORT = "direct"` (or equivalent) so the orchestrator
   **refuses** to route payload generation through an aggregator-class transport.
