@@ -3,17 +3,32 @@
 # All other files import from this module — never define magic numbers elsewhere.
 
 # ── LLM Providers ──────────────────────────────────────────
-LLM_REASONING_PRIMARY = "deepseek-v4-pro"
-LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"
+# ADR §12.15: roles canonical, providers configurable.
+# REASONING = ORIENT / PLAN / narrative. PAYLOAD = offensive tool & exploit-body generation.
+# The ROLE is the architectural invariant; the PROVIDER behind each role is configuration.
+
+# Reasoning provider (TEMPORARY testing value; production target: Claude / GPT-class)
+# See ADR §12.15 switch gate: must be Claude/GPT-class before first paid client engagement.
+LLM_REASONING_PROVIDER = "deepseek-v4-pro"  # Current testing provider
+LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"  # Consensus secondary
+
+# Payload provider (direct open-weight provider ONLY; NEVER aggregator/router, NEVER Claude)
+LLM_PAYLOAD_PROVIDER = "deepseek-v4-pro"  # Primary payload provider
+LLM_PAYLOAD_FALLBACK = "kimi-2.6"  # Fallback when primary refuses
+
+# Transport policy (ADR §12.15)
+LLM_PAYLOAD_TRANSPORT = "direct"  # Payload MUST use direct provider API ONLY
+# Valid values: "direct" (vendor API), "gateway" (aggregator like OpenRouter/Bedrock)
+# Payload role enforces "direct" only; reasoning role allows both with zero-retention contract.
+
+# Provider allowlists (hard guards)
 LLM_PAYLOAD_NEVER = [
     "claude",
     "sonnet",
     "opus",
     "gpt",
-]  # HARD GUARD: never allow these for payload generation
+]  # HARD GUARD: never allow these for payload generation (ADR §12.10)
 LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6"]  # Allowed payload providers
-LLM_PAYLOAD_GEN = "deepseek-v4-pro"  # Primary payload provider
-LLM_PAYLOAD_FALLBACK = "kimi-2.6"  # Fallback when primary refuses
 # NOTE: there is intentionally no "TESTING_MODE" flag here. Payload-prompt
 # permissiveness must never vary by a boolean switch — see
 # config/payload_prompt_template.md ("Enforcement note"). The only thing
