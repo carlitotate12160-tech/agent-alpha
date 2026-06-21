@@ -81,7 +81,7 @@ async def require_principal(request: Request) -> Principal:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid access token",
-        )
+        ) from None
     tenant_id = payload.get("tenant_id")
     if not isinstance(tenant_id, str) or not tenant_id:
         raise HTTPException(
