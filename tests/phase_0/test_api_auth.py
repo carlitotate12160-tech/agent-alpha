@@ -26,7 +26,8 @@ import pytest
 
 # Secret must be set BEFORE the app imports its config. If the impl reads the
 # key elsewhere (SecretsManager), point this at the same source.
-os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret")
+# ≥32 chars to avoid InsecureKeyLengthWarning for HS256 (RFC 7518 §3.2).
+os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
 
 jwt = pytest.importorskip("jwt")  # PyJWT; align if impl uses another lib
 fastapi_testclient = pytest.importorskip("fastapi.testclient")

@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import base64
 import dataclasses
-import hashlib
-import hmac
-import json
 import os
 import typing
 
+import jwt as pyjwt
 from fastapi import HTTPException, Request, status
 
 from agent_alpha.config.constants import JWT_ALGORITHM, JWT_SECRET_ENV
@@ -17,42 +14,28 @@ class JWTError(Exception):
     pass
 
 
-def _b64url_decode(data: str) -> bytes:
-    padding = "=" * (-len(data) % 4)
-    return base64.urlsafe_b64decode(data + padding)
-
-
-def _get_jwt_secret() -> bytes:
+def _get_jwt_secret() -> str:
     secret = os.environ.get(JWT_SECRET_ENV)
     if not secret:
         raise RuntimeError(f"{JWT_SECRET_ENV} is not set")
-    return secret.encode("utf-8")
+    if len(secret) < 32:
+        raise RuntimeError(
+            f"{JWT_SECRET_ENV} must be at least 32 characters for HS256 (RFC 7518 §3.2)"
+        )
+    return secret
 
 
 def _decode_and_verify_jwt(token: str) -> dict[str, typing.Any]:
     try:
-        header_b64, payload_b64, signature_b64 = token.split(".")
-    except ValueError as exc:
-        raise JWTError("invalid token format") from exc
-    try:
-        header_bytes = _b64url_decode(header_b64)
-        payload_bytes = _b64url_decode(payload_b64)
-        signature = _b64url_decode(signature_b64)
-    except Exception as exc:  # noqa: BLE001
-        raise JWTError("invalid base64 encoding") from exc
-    try:
-        header = typing.cast(dict[str, typing.Any], json.loads(header_bytes))
-        payload = typing.cast(dict[str, typing.Any], json.loads(payload_bytes))
-    except Exception as exc:  # noqa: BLE001
-        raise JWTError("invalid JSON in token") from exc
-    alg = header.get("alg")
-    if alg != JWT_ALGORITHM:
-        raise JWTError("unsupported signing algorithm")
-    signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
-    key = _get_jwt_secret()
-    expected_sig = hmac.new(key, signing_input, hashlib.sha256).digest()
-    if not hmac.compare_digest(expected_sig, signature):
-        raise JWTError("invalid token signature")
+        payload = pyjwt.decode(
+            token,
+            _get_jwt_secret(),
+            algorithms=[JWT_ALGORITHM],
+        )
+    except pyjwt.ExpiredSignatureError as exc:
+        raise JWTError("token expired") from exc
+    except pyjwt.InvalidTokenError as exc:
+        raise JWTError("invalid token") from exc
     return payload
 
 
