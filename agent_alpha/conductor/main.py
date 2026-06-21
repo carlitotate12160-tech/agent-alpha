@@ -7,6 +7,7 @@
 
 import hashlib
 import logging
+import os
 import typing
 from typing import Any
 
@@ -44,10 +45,11 @@ log_scrubber = LogScrubber()
 log_scrubber.install_logging_filter()
 emergency = EmergencyStopHandler(auth, event_store)
 
+_redis_url = os.environ.get("AGENT_ALPHA_REDIS_URL", "redis://localhost:6379/0")
 celery_app = Celery(
     "agent_alpha",
-    broker="redis://localhost:6379/0",
-    backend="redis://localhost:6379/0",
+    broker=_redis_url,
+    backend=_redis_url,
 )
 
 app = FastAPI(title="Agent-Alpha Conductor", version="0.1.0")
