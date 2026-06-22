@@ -11,10 +11,21 @@
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
 | Phase 2 | ✅ COMPLETED | 12/12 komponen selesai | 12 komponen |
-| Phase 3 | ⬜ NOT STARTED | 0% | - |
+| Phase 3 | 🟦 IN PROGRESS | C1–C3 of C1–C8 done (Oracle-green) | C1–C8 |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
 | Phase 6 | ⬜ NOT STARTED | 0% | - |
+
+---
+
+> **Source-of-truth note (2026-06-22).** The authoritative Phase-3 (Orchestrator
+> hardening) step list + exit criteria is **`docs/PHASE_3_TEST_CONTRACT.md`** (C1–C8).
+> The "C1 — Phase 0 Extension" numbering BELOW is an older, narrower breakdown and uses
+> DIFFERENT labels (e.g. tracker C1.0 = "Celery skeleton" / C1.7 = "Emergency stop" vs
+> contract C1.0 = "event-source auth state" / C1.7 = "json-only"). Do NOT cross-reference
+> the two by number. Reality as of 2026-06-22: contract **C1, C2, C3 GREEN on Oracle**;
+> next = C4 (real revoker ≤5s). See also the Pre-Beta Gate (rate-limit, observability) in
+> the contract.
 
 ---
 
