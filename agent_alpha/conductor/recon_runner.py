@@ -49,7 +49,7 @@ class BlockedTargetError(ValueError):
 
 def _resolve_ips(host: str) -> list[str]:
     """Resolve *host* to its IP literals. Seam: tests monkeypatch this to avoid DNS."""
-    return [info[4][0] for info in socket.getaddrinfo(host, None)]
+    return [str(info[4][0]) for info in socket.getaddrinfo(host, None)]
 
 
 def _screen_host(host: str) -> None:
