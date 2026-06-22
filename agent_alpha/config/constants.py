@@ -20,6 +20,8 @@ __all__ = [
     "CONSENSUS_ESCALATE_THRESHOLD",
     "EMERGENCY_STOP_TIMEOUT_SEC",
     "MAX_SCOPE_IPS",
+    "MAX_WORKERS_PER_ROLE",
+    "DEFAULT_MAX_WORKERS",
     "JWT_ALGORITHM",
     "JWT_SECRET_ENV",
     "HTTP_REQUEST_TIMEOUT_SEC",
@@ -194,6 +196,22 @@ LARAVEL_CREDENTIAL_USERNAME_KEYS: frozenset[str] = frozenset(
 # intelligence.py::_wilson_lower_bound already guards overconfidence
 # at small N. This threshold only gates "informative at all".
 MIN_SAMPLES_BEFORE_SKIP = 3
+
+# ── Fan-out concurrency caps (§12.13 / C5) ──────────────────
+# Single source of truth for per-engagement fan-out degree per role
+# (anti-Lyndon #7: no scattered literals). The Conductor partitions a phase's
+# scope into bounded units and never dispatches more than this many concurrently
+# for one engagement. Bounded autonomy (§12.13 invariant 2): degree is never
+# unbounded. Gamma (exploitation) is deliberately the tightest — blast radius.
+# Roles are keyed by lowercase name; unknown roles fall back to DEFAULT.
+DEFAULT_MAX_WORKERS = 4
+MAX_WORKERS_PER_ROLE = {
+    "alpha": 10,  # SCOUT — recon fans out widest
+    "beta": 4,  # STRIKE
+    "gamma": 2,  # ANCHOR — exploitation kept tight (blast radius)
+    "delta": 4,  # HUNTER
+    "epsilon": 4,  # SCOUT-HUNTER
+}
 
 # ── Pricing ──────────────────────────────────────────────────
 DEEPSEEK_PRICING_USD_PER_1K = {
