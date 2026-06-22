@@ -63,6 +63,7 @@ if __name__ == "__main__":
     targets = [
         "http://baraya-travel.com",
         "https://baraya-travel.com",
+        "https://www.baraya-travel.com",
     ]
     
     for target in targets:
