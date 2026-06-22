@@ -3,7 +3,8 @@
 
 Two layers:
   * ``run_live_fire(...)`` — hermetic, injected-dependency (tested with fakes).
-  * ``main()`` — builds REAL HttpClient + DeepSeekProvider from config + env
+  * ``main()`` — builds REAL HttpClient + reasoning provider (via
+    ``resolve_reasoning_provider``, ADR §12.15) from config + env
     (operational, not unit-tested).
 
 Reuses canonical types only — never redeclares (anti-Lyndon #6).
@@ -29,7 +30,7 @@ from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.scoring import TargetResult, score_findings
 from agent_alpha.llm.orchestrator import LLMOrchestrator
-from agent_alpha.llm.providers.deepseek import DeepSeekProvider
+from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.tools.playbook import PlaybookEngine
 
 # ── Data classes ──────────────────────────────────────────────────────
@@ -192,7 +193,8 @@ def main(argv: list[str] | None = None) -> int:
     http_client = HttpClient(engagement_id=config.client_id)
 
     api_key = os.environ["DEEPSEEK_API_KEY"]
-    provider = DeepSeekProvider(api_key=api_key)
+    # Reasoning role -> provider is config-only (ADR §12.15 / C2).
+    provider = resolve_reasoning_provider(api_key=api_key)
 
     playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
     playbook_engine = PlaybookEngine.from_directory(playbook_dir)
