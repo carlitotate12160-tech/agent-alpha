@@ -308,3 +308,60 @@ def test_re_runnable_after_completion() -> None:
         assert second_resp.status_code == 202
         # Should get a new task_id
         assert second_resp.json()["task_id"] == "test-task-id-456"
+
+
+def test_failed_run_is_re_runnable() -> None:
+    """C1.3 interplay: after status "failed", new POST /run is accepted."""
+    client = TestClient(app)
+
+    # Create an engagement
+    create_resp = client.post(
+        "/engagements",
+        json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
+    )
+    engagement_id = create_resp.json()["engagement_id"]
+
+    # Mock .delay
+    mock_task = MagicMock()
+    mock_task.id = "test-task-id-123"
+    mock_task.delay.return_value = mock_task
+
+    with patch("agent_alpha.conductor.main.run_engagement_task.delay", mock_task.delay):
+        # First dispatch
+        first_resp = client.post(
+            f"/engagements/{engagement_id}/run",
+            headers=_auth(),
+        )
+        assert first_resp.status_code == 202
+
+    # Simulate failure by emitting FAILED event (via direct store access)
+    from agent_alpha.conductor import main as conductor_main
+    from agent_alpha.events.event_types import EventType
+
+    store = conductor_main.store_provider.for_tenant("test-tenant")
+    store.append(
+        event_type=EventType.ENGAGEMENT_RUN_STARTED,
+        engagement_id=engagement_id,
+        agent="WORKER",
+        payload={},
+    )
+    store.append(
+        event_type=EventType.ENGAGEMENT_RUN_FAILED,
+        engagement_id=engagement_id,
+        agent="WORKER",
+        payload={"reason": "simulated failure"},
+    )
+
+    # New dispatch should be accepted after failure
+    mock_task.id = "test-task-id-456"
+    mock_task.delay.reset_mock()
+
+    with patch("agent_alpha.conductor.main.run_engagement_task.delay", mock_task.delay):
+        second_resp = client.post(
+            f"/engagements/{engagement_id}/run",
+            headers=_auth(),
+        )
+        assert second_resp.status_code == 202
+        # Should get a new task_id
+        assert second_resp.json()["task_id"] == "test-task-id-456"
