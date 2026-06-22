@@ -68,6 +68,8 @@ class CompletionProvider(Protocol):
     """Structural type every provider must satisfy: a ``complete(**kw)`` returning
     an object exposing ``.text`` (the orchestrator depends on exactly this)."""
 
+    model: str
+
     def complete(self, messages: list[dict[str, Any]], max_tokens: int) -> Any: ...
 
 
