@@ -19,20 +19,33 @@ Run on Oracle ARM64:
 from __future__ import annotations
 
 import os
-from unittest.mock import patch
+from types import SimpleNamespace
 
 import pytest
-from celery.exceptions import SoftTimeLimitExceeded
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor import recon_runner
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.conductor.main import celery_app, run_engagement_task
 from agent_alpha.conductor.models import Scope
 from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.config import constants
-from agent_alpha.config.stores import StoreProvider
 
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
+
+
+@pytest.fixture(autouse=True)
+def _stub_recon_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C6a wired the real Alpha→Omega pipeline (needs DEEPSEEK_API_KEY + network) into
+    the worker's authorized path. These tests exercise the worker's gate / status /
+    failure mechanics, NOT the pipeline (that is covered hermetically by
+    tests/phase_2/test_async_kill_chain.py), so stub the run seam. The worker reads
+    only ``node_count`` + ``targets_scanned`` off the result."""
+    monkeypatch.setattr(
+        recon_runner,
+        "run_recon_for_engagement",
+        lambda *a, **k: SimpleNamespace(node_count=1, targets_scanned=1),
+    )
 
 
 def test_task_refuses_unauthorized_engagement(celery_eager_config: None) -> None:
@@ -63,7 +76,6 @@ def test_task_starts_authorized_engagement(celery_eager_config: None) -> None:
     """Authorized path emits started after enable_recon."""
     # Use the global event_store that the task closes over
     from agent_alpha.conductor import main as conductor_main
-    from agent_alpha.config.stores import StoreProvider
 
     store = conductor_main.event_store
     auth = AuthorizationStateMachine(event_store=store)
@@ -128,9 +140,6 @@ def test_task_refuses_tenant_mismatch(celery_eager_config: None) -> None:
 
 def test_task_refuses_not_found_engagement(celery_eager_config: None) -> None:
     """Worker rejects engagement that doesn't exist."""
-    # Use the global event_store that the task closes over
-    from agent_alpha.conductor import main as conductor_main
-
     # Run task with non-existent engagement
     result = run_engagement_task("eng_does_not_exist", "test-tenant")
 

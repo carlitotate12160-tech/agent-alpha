@@ -28,11 +28,13 @@ Deterministic + no DB: relies on the in-memory backend (no AGENT_ALPHA_PG_DSN).
 from __future__ import annotations
 
 import os
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
 from agent_alpha.conductor import main as m
+from agent_alpha.conductor import recon_runner
 from agent_alpha.events.store import InMemoryEventStore
 
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
@@ -106,7 +108,9 @@ def test_second_tenant_cannot_see_first_tenants_events() -> None:
     assert m.store_provider.for_tenant("tenant_b").count(eid) == 0
 
 
-def test_worker_finds_engagement_created_via_api(celery_eager_config: None) -> None:
+def test_worker_finds_engagement_created_via_api(
+    celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """End-to-end consistency: an engagement created + recon-enabled through the
     API must be visible to the worker reading the SAME tenant store. Pre-fix the
     worker reads the tenant store while create wrote to the default store, so the
@@ -119,6 +123,14 @@ def test_worker_finds_engagement_created_via_api(celery_eager_config: None) -> N
         headers=_auth("tenant_a"),
     )
 
+    # C6a: the authorized path now runs the real pipeline; stub it (the pipeline is
+    # covered by tests/phase_2/test_async_kill_chain.py). This test is about the worker
+    # FINDING the engagement on the tenant store (no split-brain refusal).
+    monkeypatch.setattr(
+        recon_runner,
+        "run_recon_for_engagement",
+        lambda *a, **k: SimpleNamespace(node_count=1, targets_scanned=1),
+    )
     # Invoke the task body directly (eager, no broker); RECON_ONLY lets ALPHA proceed.
     result = m.run_engagement_task(eid, "tenant_a")
 
@@ -126,4 +138,4 @@ def test_worker_finds_engagement_created_via_api(celery_eager_config: None) -> N
         "worker refused an engagement it should find on the tenant store "
         "(split-brain: create wrote to default store, worker reads tenant store)"
     )
-    assert result["status"] == "started"
+    assert result["status"] == "completed"
