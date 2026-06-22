@@ -11,6 +11,7 @@ import os
 from typing import Annotated, Any
 
 from celery import Celery
+from celery.exceptions import SoftTimeLimitExceeded
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, UploadFile
 
 from agent_alpha.a2a import a2a_pb2
@@ -23,11 +24,13 @@ from agent_alpha.config.constants import (
     CELERY_QUEUE_PREFIX,
     CELERY_RESULT_EXPIRES_SEC,
     CELERY_TASK_HARD_LIMIT_SEC,
+    CELERY_TASK_MAX_RETRIES,
     CELERY_TASK_SOFT_LIMIT_SEC,
     SOW_MAX_FILE_SIZE_MB,
 )
 from agent_alpha.config.stores import StoreProvider, build_event_store
 from agent_alpha.events.event_types import EventType
+from agent_alpha.events.store import TransientStoreError
 from agent_alpha.security.secrets import LogScrubber, SecretsManager
 
 _log = logging.getLogger(__name__)
@@ -74,8 +77,15 @@ engagements = APIRouter(
 # ── Celery task (Phase 3 placeholder: gate + status only) ────────────
 
 
-@celery_app.task  # type: ignore[untyped-decorator]
-def run_engagement_task(engagement_id: str, tenant_id: str | None) -> dict[str, Any]:
+@celery_app.task(
+    bind=True,
+    acks_late=True,
+    task_reject_on_worker_lost=True,
+    autoretry_for=(TransientStoreError,),
+    retry_backoff=True,
+    max_retries=CELERY_TASK_MAX_RETRIES,
+)  # type: ignore[untyped-decorator]
+def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) -> dict[str, Any]:
     """Run an engagement in a worker process, enforcing the auth gate.
 
     C1.6 design-now: the task is tenant-aware. The worker reconstructs the
@@ -88,57 +98,97 @@ def run_engagement_task(engagement_id: str, tenant_id: str | None) -> dict[str, 
     """
 
     target_store = event_store
-    if tenant_id is not None:
-        try:
-            target_store = store_provider.for_tenant(tenant_id)
-        except Exception:  # noqa: BLE001 — fallback to default store
-            _log.exception("Failed to resolve tenant store for tenant_id=%s", tenant_id)
 
-    worker_auth = AuthorizationStateMachine(event_store=target_store)
-
-    def _record_refusal(reason: str) -> None:
+    def _record_failure(reason: str) -> None:
         try:
             target_store.append(
-                event_type=EventType.ENGAGEMENT_RUN_REFUSED,
+                event_type=EventType.ENGAGEMENT_RUN_FAILED,
                 engagement_id=engagement_id,
                 agent="CONDUCTOR",
                 payload={"reason": reason, "tenant_id": tenant_id},
             )
-        except Exception:  # noqa: BLE001 — refusal audit must not crash the task
-            _log.exception("Failed to append EngagementRunRefused event for %s", engagement_id)
+        except Exception:  # noqa: BLE001
+            _log.exception("Failed to append EngagementRunFailed event for %s", engagement_id)
 
     try:
-        record = worker_auth.get_record(engagement_id)
-    except Exception:  # noqa: BLE001 — not found / unauthorized
-        _record_refusal("not_found")
-        return {"engagement_id": engagement_id, "status": "refused"}
+        if tenant_id is not None:
+            try:
+                target_store = store_provider.for_tenant(tenant_id)
+            except TransientStoreError:
+                raise
+            except Exception:  # noqa: BLE001 — fallback to default store
+                _log.exception("Failed to resolve tenant store for tenant_id=%s", tenant_id)
 
-    # Enforce tenant ownership in-worker when a tenant_id is provided.
-    if tenant_id is not None and record.tenant_id is not None and record.tenant_id != tenant_id:
-        _record_refusal("tenant_mismatch")
-        return {"engagement_id": engagement_id, "status": "refused"}
+        worker_auth = AuthorizationStateMachine(event_store=target_store)
 
-    # Authorization gate: if no agent is allowed to proceed, refuse.
-    if not worker_auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
-        _record_refusal("not_authorized")
-        return {"engagement_id": engagement_id, "status": "refused"}
+        def _record_refusal(reason: str) -> None:
+            try:
+                target_store.append(
+                    event_type=EventType.ENGAGEMENT_RUN_REFUSED,
+                    engagement_id=engagement_id,
+                    agent="CONDUCTOR",
+                    payload={"reason": reason, "tenant_id": tenant_id},
+                )
+            except Exception:  # noqa: BLE001 — refusal audit must not crash the task
+                _log.exception("Failed to append EngagementRunRefused event for %s", engagement_id)
 
-    # TODO (C6): real agent run pipeline goes here once implemented.
-    # For C1.x we only prove that a worker process can reconstruct auth state
-    # from the shared EventStore and apply the gate.
+        try:
+            record = worker_auth.get_record(engagement_id)
+        except TransientStoreError:
+            raise
+        except Exception:  # noqa: BLE001 — not found / unauthorized
+            _record_refusal("not_found")
+            return {"engagement_id": engagement_id, "status": "refused"}
 
-    # Emit a "run started" audit event; name kept generic to avoid schema churn.
+        # Enforce tenant ownership in-worker when a tenant_id is provided.
+        if tenant_id is not None and record.tenant_id is not None and record.tenant_id != tenant_id:
+            _record_refusal("tenant_mismatch")
+            return {"engagement_id": engagement_id, "status": "refused"}
+
+        # Authorization gate: if no agent is allowed to proceed, refuse.
+        if not worker_auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
+            _record_refusal("not_authorized")
+            return {"engagement_id": engagement_id, "status": "refused"}
+
+    except SoftTimeLimitExceeded:
+        _record_failure("timeout")
+        return {"engagement_id": engagement_id, "status": "failed"}
+    except TransientStoreError:
+        if self.request.retries >= self.max_retries:
+            _record_failure("transient_store_error_exhausted")
+            return {"engagement_id": engagement_id, "status": "failed"}
+        raise
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("Unexpected exception during engagement run setup")
+        _record_failure(str(exc))
+        return {"engagement_id": engagement_id, "status": "failed"}
+
+    # --- OFFENSIVE RUN (NO RETRIES) ---
     try:
-        target_store.append(
-            event_type=EventType.ENGAGEMENT_RUN_STARTED,
-            engagement_id=engagement_id,
-            agent="CONDUCTOR",
-            payload={"tenant_id": record.tenant_id},
-        )
-    except Exception:  # noqa: BLE001 — failure to audit must not crash the task
-        _log.exception("Failed to append EngagementRunStarted event for %s", engagement_id)
+        # TODO (C6): real agent run pipeline goes here once implemented.
+        # For C1.x we only prove that a worker process can reconstruct auth state
+        # from the shared EventStore and apply the gate.
 
-    return {"engagement_id": engagement_id, "status": "started"}
+        # Emit a "run started" audit event; name kept generic to avoid schema churn.
+        try:
+            target_store.append(
+                event_type=EventType.ENGAGEMENT_RUN_STARTED,
+                engagement_id=engagement_id,
+                agent="CONDUCTOR",
+                payload={"tenant_id": record.tenant_id},
+            )
+        except Exception:  # noqa: BLE001 — failure to audit must not crash the task
+            _log.exception("Failed to append EngagementRunStarted event for %s", engagement_id)
+
+        return {"engagement_id": engagement_id, "status": "started"}
+
+    except SoftTimeLimitExceeded:
+        _record_failure("timeout")
+        return {"engagement_id": engagement_id, "status": "failed"}
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("Unexpected exception during offensive run")
+        _record_failure(str(exc))
+        return {"engagement_id": engagement_id, "status": "failed"}
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
