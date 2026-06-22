@@ -19,6 +19,7 @@ from agent_alpha.conductor.api_auth import Principal, require_principal
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.policy import PolicyEnforcer
+from agent_alpha.conductor.revoker import CeleryTaskRevoker
 from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.config.constants import (
     CELERY_QUEUE_PREFIX,
@@ -59,8 +60,13 @@ def auth_for(tenant_id: str | None) -> AuthorizationStateMachine:
 
 def emergency_for(tenant_id: str | None) -> EmergencyStopHandler:
     store = store_provider.for_tenant(tenant_id) if tenant_id else event_store
-    # celery_revoker stays None until C4 wires the real revoker.
-    return EmergencyStopHandler(auth_for(tenant_id), store, store_provider=store_provider)
+    # C4: the real revoker reads this tenant's store for all queued task_ids and
+    # broadcasts a Celery revoke for each. The auth-state flip (handler, synchronous)
+    # remains the authoritative "no agent proceeds" guarantee; revoke is best-effort.
+    revoker = CeleryTaskRevoker(celery_app.control, store)
+    return EmergencyStopHandler(
+        auth_for(tenant_id), store, celery_revoker=revoker, store_provider=store_provider
+    )
 
 
 _redis_url = os.environ.get("AGENT_ALPHA_REDIS_URL", "redis://localhost:6379/0")
