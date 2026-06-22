@@ -12,15 +12,24 @@ from agent_alpha.agents.http_client import HttpClient
 import re
 
 def check_laravel_signatures(body: str) -> tuple[bool, list[str]]:
-    """Check if body contains Laravel debug signatures."""
+    """Check if body contains Laravel signatures (debug or normal)."""
     signals = []
     
+    # Debug mode signatures
     if "Whoops" in body:
-        signals.append("Whoops")
+        signals.append("Whoops (debug)")
     if "Illuminate\\" in body:
-        signals.append("Illuminate\\")
+        signals.append("Illuminate\\ (debug)")
     if re.search(r"Laravel v[0-9]", body):
-        signals.append("Laravel version pattern")
+        signals.append("Laravel version pattern (debug)")
+    
+    # Normal Laravel signatures
+    if 'name="csrf-token"' in body:
+        signals.append("csrf-token meta (Laravel CSRF protection)")
+    if "/storage/" in body:
+        signals.append("/storage/ path (Laravel storage)")
+    if "laravel" in body.lower():
+        signals.append("laravel string (case-insensitive)")
     
     return len(signals) > 0, signals
 
