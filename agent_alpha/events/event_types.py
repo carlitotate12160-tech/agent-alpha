@@ -54,3 +54,10 @@ class EventType(enum.StrEnum):
     ENGAGEMENT_RUN_COMPLETED = "EngagementRunCompleted"
     ENGAGEMENT_RUN_FAILED = "EngagementRunFailed"
     ENGAGEMENT_RUN_REFUSED = "EngagementRunRefused"
+
+    # ── Phase 3 (fan-out dispatch, §12.13 / C5) ────────────────
+    WORK_UNIT_QUEUED = "WorkUnitQueued"
+    # ^ FanOutDispatcher: one event per bounded work unit the Conductor enqueued
+    # for an engagement. Aggregating these into the single append-only stream is
+    # the deterministic-aggregation invariant (§12.13 #3): all units of a fanned-
+    # out phase land in ONE monotonic, gapless engagement sequence.
