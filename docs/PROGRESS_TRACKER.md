@@ -18,6 +18,297 @@
 
 ---
 
+## C1 — Run Status & Idempotency (Phase 0 Extension)
+
+**Tujuan C1:** Menambahkan run status tracking dan idempotency untuk engagement execution. Ini memungkinkan user memantau status run engagement dan memastikan task tidak di-dispatch secara redundant.
+
+### C1 Checklist
+
+- ✅ **C1.0** — Celery task skeleton (run_engagement_task)
+- ✅ **C1.1** — Authorization gate enforcement (refusal when not authorized)
+- ✅ **C1.2** — Status queryable via GET /run-status
+- ✅ **C1.3** — Idempotent dispatch, re-runnable after completion
+- ✅ **C1.4** — Failure handling and recording (ENGAGEMENT_RUN_FAILED)
+- ✅ **C1.5** — Timeout recording (SoftTimeLimitExceeded)
+- ✅ **C1.6** — Tenant-aware worker reconstruction
+- ✅ **C1.7** — Emergency stop execution
+- ✅ **C1.8** — Opaque return value (no sensitive data)
+
+---
+
+## Komponen yang Sudah Dibuat (C1)
+
+### C1.0 - Celery Task Skeleton (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Celery task skeleton untuk engagement execution. Task ini di-dispatch oleh FastAPI endpoint dan dijalankan oleh Celery worker.
+
+#### Efek terhadap Agent
+- Agent task dijalankan secara asynchronous di background
+- User bisa query status run tanpa blocking
+- Task bisa di-retry jika transient error terjadi
+
+#### Behavior Sistem
+- `run_engagement_task(engagement_id, tenant_id)` — main task function
+- Worker reconstructs auth state dari EventStore
+- Authorization gate enforcement (refusal jika tidak authorized)
+- Emits ENGAGEMENT_RUN_STARTED jika authorized
+- Emits ENGAGEMENT_RUN_REFUSED jika tidak authorized
+- Returns status "started" atau "refused"
+
+#### Contoh Flow
+```
+1. User POST /engagements/{id}/run
+2. FastAPI dispatch run_engagement_task.delay(engagement_id, tenant_id)
+3. Celery worker picks up task
+4. Worker reconstructs auth state dari EventStore
+5. Worker cek can_agent_proceed(ALPHA)
+6. Jika True → emit ENGAGEMENT_RUN_STARTED → return "started"
+7. Jika False → emit ENGAGEMENT_RUN_REFUSED → return "refused"
+```
+
+---
+
+### C1.1 - Authorization Gate Enforcement (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Authorization gate enforcement di dalam Celery task. Worker memastikan hanya agent yang authorized bisa menjalankan task.
+
+#### Efek terhadap Agent
+- Agent tidak bisa menjalankan task tanpa izin
+- Refusal event dicatat untuk audit
+- Tenant ownership enforced
+
+#### Behavior Sistem
+- Worker reconstructs EngagementRecord dari EventStore
+- Cek state machine (CREATED, RECON_ONLY, ACTIVE_APPROVED, OFFENSIVE_APPROVED)
+- Cek can_agent_proceed(agent_type)
+- Jika tidak authorized → emit ENGAGEMENT_RUN_REFUSED → return "refused"
+- Jika authorized → lanjut ke task body
+
+#### Contoh Flow
+```
+1. Task di-dispatch untuk engagement di state CREATED
+2. Worker reconstructs EngagementRecord
+3. Worker cek can_agent_proceed(ALPHA) → False
+4. Worker emit ENGAGEMENT_RUN_REFUSED
+5. Worker return "refused"
+```
+
+---
+
+### C1.2 - Status Queryable via GET /run-status (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+GET endpoint untuk query status run engagement. User bisa memantau progress task secara real-time.
+
+#### Efek terhadap Agent
+- User bisa query status tanpa blocking
+- Status visible via projection dari event log
+- Tenant ownership enforced
+
+#### Behavior Sistem
+- `GET /engagements/{id}/run-status` — endpoint
+- `project_run_status(events)` — pure projection function
+- Status literals: "queued", "running", "done", "failed", "refused", "none"
+- Returns: engagement_id, status, task_id, updated_at
+- Tenant ownership check (404 jika cross-tenant)
+
+#### Contoh Flow
+```
+1. User GET /engagements/{id}/run-status
+2. FastAPI cek tenant ownership
+3. FastAPI project_run_status(store.get_events(engagement_id))
+4. Return: {"engagement_id": "eng_123", "status": "running", "task_id": "abc", "updated_at": "..."}
+```
+
+---
+
+### C1.3 - Idempotent Dispatch, Re-runnable After Completion (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Idempotent dispatch untuk mencegah redundant task dispatch. Jika task sudah queued/running, return existing task_id. Jika task done/failed/refused, accept new dispatch.
+
+#### Efek terhadap Agent
+- User tidak perlu khawatir double-click
+- Task tidak di-dispatch redundant
+- Re-runnable setelah completion (terminal status)
+
+#### Behavior Sistem
+- Cek run status sebelum dispatch
+- Jika "queued" atau "running" → return 200 dengan existing task_id
+- Jika "done", "failed", atau "refused" → accept new dispatch (202)
+- Emit ENGAGEMENT_RUN_QUEUED dengan task_id
+
+#### Contoh Flow
+```
+1. User POST /engagements/{id}/run → task queued
+2. User POST lagi (double-click) → return 200 dengan existing task_id
+3. Task selesai → status "done"
+4. User POST lagi → accept new dispatch (202) dengan new task_id
+```
+
+---
+
+### C1.4 - Failure Handling and Recording (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Generic failure handling untuk task execution. Jika task body raise exception, catch dan emit ENGAGEMENT_RUN_FAILED.
+
+#### Efek terhadap Agent
+- Failure tidak hilang (recorded di event log)
+- Task return "failed" status
+- Failure visible via projection
+
+#### Behavior Sistem
+- Try-catch di task body
+- Jika exception → emit ENGAGEMENT_RUN_FAILED dengan reason
+- Return "failed" status
+- Tidak re-raise (failure captured, not lost)
+
+#### Contoh Flow
+```
+1. Task body raise RuntimeError("simulated failure")
+2. Task catch exception
+3. Task emit ENGAGEMENT_RUN_FAILED dengan reason "simulated failure"
+4. Task return {"engagement_id": "eng_123", "status": "failed"}
+```
+
+---
+
+### C1.5 - Timeout Recording (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Timeout handling untuk Celery task. Jika SoftTimeLimitExceeded di-raise, catch dan record sebagai failure dengan "timeout" reason.
+
+#### Efek terhadap Agent
+- Timeout tidak hilang (recorded di event log)
+- Task return "failed" status
+- Timeout visible via projection
+
+#### Behavior Sistem
+- Catch SoftTimeLimitExceeded
+- Emit ENGAGEMENT_RUN_FAILED dengan reason "timeout"
+- Return "failed" status
+
+#### Contoh Flow
+```
+1. Task melebihi soft time limit
+2. Celery raise SoftTimeLimitExceeded
+3. Task catch exception
+4. Task emit ENGAGEMENT_RUN_FAILED dengan reason "timeout"
+5. Task return {"engagement_id": "eng_123", "status": "failed"}
+```
+
+---
+
+### C1.6 - Tenant-Aware Worker Reconstruction (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Worker reconstructs tenant-specific event store dari StoreProvider. Setiap tenant memiliki isolated event store.
+
+#### Efek terhadap Agent
+- Tenant isolation enforced di worker level
+- Worker tidak bisa cross-tenant access
+- Multi-tenant support
+
+#### Behavior Sistem
+- Task menerima tenant_id parameter
+- Worker calls store_provider.for_tenant(tenant_id)
+- Tenant-specific event store digunakan
+- Cross-tenant access diblok
+
+#### Contoh Flow
+```
+1. Task di-dispatch dengan tenant_id="tenant_a"
+2. Worker calls store_provider.for_tenant("tenant_a")
+3. Worker gunakan tenant_a event store
+4. Worker tidak bisa access tenant_b data
+```
+
+---
+
+### C1.7 - Emergency Stop Execution (`agent_alpha/conductor/emergency.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Emergency stop handler untuk kill switch tunggal. Force state ke EMERGENCY_STOP dan revoke semua Celery tasks.
+
+#### Efek terhadap Agent
+- Semua agent diblokir setelah emergency stop
+- Task yang sedang berjalan di-revoke
+- Audit event dicatat
+
+#### Behavior Sistem
+- `execute(engagement_id, reason, issued_by)` — main function
+- Force state ke EMERGENCY_STOP
+- Revoke semua Celery tasks (Phase 0: mock)
+- Emit audit event
+- Return EmergencyStopResult dengan elapsed time
+
+#### Contoh Flow
+```
+1. Operator trigger emergency stop
+2. EmergencyStopHandler.execute("eng_123", "Anomali", "operator_1")
+3. State forced ke EMERGENCY_STOP
+4. Tasks revoked
+5. Event emitted
+6. Return result dengan elapsed time
+```
+
+---
+
+### C1.8 - Opaque Return Value (`agent_alpha/conductor/main.py`)
+
+**Tanggal:** 2026-06-22
+**Status:** ✅ Selesai
+
+#### Apa ini?
+Task return value hanya berisi engagement_id dan status. Tidak ada sensitive data (findings, creds, payload, target, client_id).
+
+#### Efek terhadap Agent
+- Sensitive data tidak bocor lewat task return
+- Return value aman untuk logging
+- Audit trail tetap lengkap di event log
+
+#### Behavior Sistem
+- Task return: {"engagement_id": "eng_123", "status": "started"}
+- Tidak ada sensitive keys di return value
+- Sensitive data hanya di event log (encrypted jika perlu)
+
+#### Contoh Flow
+```
+1. Task selesai
+2. Task return {"engagement_id": "eng_123", "status": "started"}
+3. User tidak melihat findings, creds, payload, dll.
+4. Sensitive data tetap di event log
+```
+
+---
+
 ## Phase 0 — Fondasi Sistem
 
 **Tujuan Phase 0:** Membangun komponen-komponen kritis yang menjadi fondasi sebelum sistem bisa berjalan. Tanpa komponen ini, agent tidak bisa beroperasi dengan aman.
@@ -1043,10 +1334,10 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 
 ### Test Coverage
 - **PROTECTED tests** (6 test) — kontrak protobuf, tidak boleh dimodifikasi
-- **Phase 0 tests** (101 test) — uji semua komponen Phase 0
+- **Phase 0 tests** (159 test) — uji semua komponen Phase 0 + C1 run status & idempotency
 - **Phase 1 tests** (85 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory, IntelligenceBase
 - **Phase 2 tests** (13 test) — uji DeepSeekProvider, PlaybookEngine, LLMOrchestrator, ToolRegistry, Alpha SCOUT, Omega ROASTER, HttpClient, Inner Monologue
-- Total: 205 test, semua passing
+- Total: 263 test, semua passing
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -1327,7 +1618,7 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-06-19
+**Dokumen ini diperbarui terakhir:** 2026-06-22
 **Phase saat ini:** Phase 2 (COMPLETED)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (9/9)
-**Total tests:** 205 passing
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), C1 completed (9/9)
+**Total tests:** 263 passing
