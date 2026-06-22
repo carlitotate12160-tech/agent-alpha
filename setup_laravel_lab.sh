@@ -18,6 +18,7 @@ if ! command -v composer &> /dev/null; then
     curl -sS https://getcomposer.org/installer | php
     sudo mv composer.phar /usr/local/bin/composer
     sudo chmod +x /usr/local/bin/composer
+    export PATH="/usr/local/bin:$PATH"
 fi
 
 # Create Laravel project
@@ -28,7 +29,7 @@ if [ -d "lab-target" ]; then
     rm -rf lab-target
 fi
 
-composer create-project laravel/laravel lab-target
+/usr/local/bin/composer create-project laravel/laravel lab-target
 cd lab-target
 
 # Enable debug mode
