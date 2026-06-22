@@ -91,8 +91,8 @@ def test_task_starts_authorized_engagement(celery_eager_config: None) -> None:
     # Run the task body
     result = run_engagement_task(engagement_id, "test-tenant")
 
-    # Task should start because Alpha is authorized in RECON_ONLY state
-    assert result["status"] == "started"
+    # Task should complete because Alpha is authorized in RECON_ONLY state (C6a: real pipeline)
+    assert result["status"] == "completed"
     assert result["engagement_id"] == engagement_id
 
 
@@ -225,9 +225,9 @@ def test_task_records_generic_failure(celery_eager_config: None) -> None:
 
     conductor_main.store_provider._stores["test-tenant"] = store
 
-    # Run the task normally to emit STARTED
+    # Run the task normally to emit COMPLETED (C6a: real pipeline)
     result = run_engagement_task(engagement_id, "test-tenant")
-    assert result["status"] == "started"
+    assert result["status"] == "completed"
 
     # Manually append a FAILED event to simulate failure during run
     # (The actual task failure handling is tested by the projection test)
