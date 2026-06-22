@@ -25,6 +25,10 @@ class EventStoreError(Exception):
     pass
 
 
+class TransientStoreError(EventStoreError):
+    pass
+
+
 class EventLimitExceededError(EventStoreError):
     pass
 
@@ -35,6 +39,18 @@ class SequenceGapError(EventStoreError):
 
 class EventNotFoundError(EventStoreError):
     pass
+
+
+__all__ = [
+    "EventStoreError",
+    "TransientStoreError",
+    "EventLimitExceededError",
+    "SequenceGapError",
+    "EventNotFoundError",
+    "AgentEvent",
+    "EventStore",
+    "InMemoryEventStore",
+]
 
 
 @dataclasses.dataclass(frozen=True)
