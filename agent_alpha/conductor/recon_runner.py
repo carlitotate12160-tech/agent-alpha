@@ -12,8 +12,10 @@ and the live-fire FP<20% gate are C6b.
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import pathlib
+import socket
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,6 +23,7 @@ from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega, Report
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
+from agent_alpha.config import constants
 from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
@@ -28,6 +31,60 @@ from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
+
+# Canonical org-specific exclusions (single source of truth, anti-Lyndon #7); the
+# structural non-routable classes (loopback / RFC1918 / link-local incl. cloud
+# metadata 169.254.169.254 / multicast / reserved / IPv6 ULA + link-local) are
+# covered by Python's ``ipaddress`` properties below, not a hand-rolled denylist.
+_EXCLUDED_NETWORKS = [ipaddress.ip_network(c) for c in constants.SCOPE_ALWAYS_EXCLUDED]
+
+
+class BlockedTargetError(ValueError):
+    """A recon target resolves to a non-routable / excluded address — refused by the
+    SSRF guard (CWE-918). Fail-closed: a host that does not resolve is also blocked,
+    so a control-plane worker can never be steered at internal infrastructure (cloud
+    metadata, loopback, RFC1918) by tenant-supplied scope. This is platform
+    self-protection and holds regardless of what an engagement's scope claims."""
+
+
+def _resolve_ips(host: str) -> list[str]:
+    """Resolve *host* to its IP literals. Seam: tests monkeypatch this to avoid DNS."""
+    return [info[4][0] for info in socket.getaddrinfo(host, None)]
+
+
+def _screen_host(host: str) -> None:
+    """Raise BlockedTargetError unless EVERY address *host* resolves to is public.
+
+    Resolution-aware (catches a domain that points at an internal IP), fail-closed
+    (no resolution -> blocked). NOTE residual: this validates at resolve time; a
+    DNS-rebinding attacker could return a different IP at connect time. The complete
+    control pins the connection to the screened IP (HttpClient hardening) and a
+    network egress policy on the worker — tracked follow-up, not closed here.
+    """
+    try:
+        ip_strs = _resolve_ips(host)
+    except OSError as exc:  # gaierror is an OSError subclass
+        raise BlockedTargetError(f"{host!r} does not resolve (fail-closed)") from exc
+    if not ip_strs:
+        raise BlockedTargetError(f"{host!r} resolved to no addresses (fail-closed)")
+    for ip_str in ip_strs:
+        ip = ipaddress.ip_address(ip_str)
+        if (
+            ip.is_loopback
+            or ip.is_private
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
+            raise BlockedTargetError(
+                f"{host!r} resolves to non-routable {ip} — SSRF blocked (CWE-918)"
+            )
+        for net in _EXCLUDED_NETWORKS:
+            if ip in net:
+                raise BlockedTargetError(
+                    f"{host!r} resolves to excluded network member {ip} ({net})"
+                )
 
 
 class NoTargetsError(ValueError):
@@ -85,12 +142,17 @@ def resolve_recon_targets(record: Any) -> list[str]:
     (no silent no-op).
     """
     scope = getattr(record, "scope", None)
-    domains = list(scope.domains) if scope is not None else []
-    urls = [f"https://{d.strip()}" for d in domains if d and d.strip()]
-    if not urls:
+    domains = [
+        d.strip() for d in (list(scope.domains) if scope is not None else []) if d and d.strip()
+    ]
+    if not domains:
         raise NoTargetsError(
             f"engagement {getattr(record, 'engagement_id', '?')!r} has no in-scope recon targets"
         )
+    urls: list[str] = []
+    for host in domains:
+        _screen_host(host)  # SSRF guard (CWE-918) — raises BlockedTargetError if internal
+        urls.append(f"https://{host}")
     return urls
 
 

@@ -46,16 +46,20 @@ class _StubProvider:
         )()
 
 
-# ── resolve_recon_targets (real seam, unit) ───────────────────────────
+# ── resolve_recon_targets + SSRF guard (real seam, unit) ──────────────
 
 
-def test_resolve_targets_from_verified_scope_domains() -> None:
-    record = type(
+def _record(*domains: str) -> object:
+    return type(
         "_R",
         (),
-        {"engagement_id": "e", "scope": Scope(ip_ranges=[], domains=["a.invalid", "b.invalid"], exclusions=[])},
+        {"engagement_id": "e", "scope": Scope(ip_ranges=[], domains=list(domains), exclusions=[])},
     )()
-    assert recon_runner.resolve_recon_targets(record) == [
+
+
+def test_resolve_targets_allows_public_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(recon_runner, "_resolve_ips", lambda host: ["93.184.216.34"])
+    assert recon_runner.resolve_recon_targets(_record("a.invalid", "b.invalid")) == [
         "https://a.invalid",
         "https://b.invalid",
     ]
@@ -69,6 +73,50 @@ def test_resolve_targets_empty_scope_raises() -> None:
     )()
     with pytest.raises(recon_runner.NoTargetsError):
         recon_runner.resolve_recon_targets(record)
+
+
+@pytest.mark.parametrize(
+    "internal_ip",
+    [
+        "169.254.169.254",  # cloud metadata (link-local)
+        "127.0.0.1",  # loopback
+        "10.0.0.5",  # RFC1918
+        "192.168.1.1",  # RFC1918
+        "172.16.0.1",  # RFC1918
+        "::1",  # IPv6 loopback
+        "fd00::1",  # IPv6 ULA
+    ],
+)
+def test_resolve_targets_blocks_internal_destinations(
+    monkeypatch: pytest.MonkeyPatch, internal_ip: str
+) -> None:
+    """SSRF (CWE-918): a tenant domain that resolves to an internal address is
+    refused before any fetch — the control-plane worker cannot be steered inward."""
+    monkeypatch.setattr(recon_runner, "_resolve_ips", lambda host: [internal_ip])
+    with pytest.raises(recon_runner.BlockedTargetError):
+        recon_runner.resolve_recon_targets(_record("sneaky.invalid"))
+
+
+def test_resolve_targets_blocks_unresolvable_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket as _socket
+
+    def _boom(host: str) -> list[str]:
+        raise _socket.gaierror("nxdomain")
+
+    monkeypatch.setattr(recon_runner, "_resolve_ips", _boom)
+    with pytest.raises(recon_runner.BlockedTargetError):
+        recon_runner.resolve_recon_targets(_record("does-not-exist.invalid"))
+
+
+def test_resolve_targets_blocks_if_any_resolved_ip_is_internal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Public + internal in one resolution (DNS-rebinding shape) → blocked (ALL must be public)."""
+    monkeypatch.setattr(
+        recon_runner, "_resolve_ips", lambda host: ["93.184.216.34", "169.254.169.254"]
+    )
+    with pytest.raises(recon_runner.BlockedTargetError):
+        recon_runner.resolve_recon_targets(_record("rebind.invalid"))
 
 
 # ── async worker runs the real pipeline (integration) ─────────────────
