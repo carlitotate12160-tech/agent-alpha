@@ -38,17 +38,29 @@ _log = logging.getLogger(__name__)
 event_store = build_event_store()
 store_provider = StoreProvider()
 
-# C1.0: AuthorizationStateMachine reads/writes directly via the EventStore.
-# NOTE (C3 deferral): auth events currently go to the single default event_store.
-# Per-tenant store routing is deferred to C3 — the SM takes an injected EventStore,
-# so C3 = inject the resolved per-tenant store, no redesign. This temporarily
-# regresses per-tenant audit isolation for auth events (same class as GAP-B).
-auth = AuthorizationStateMachine(event_store=event_store)
 policy = PolicyEnforcer()
 secrets_mgr = SecretsManager()
 log_scrubber = LogScrubber()
 log_scrubber.install_logging_filter()
-emergency = EmergencyStopHandler(auth, event_store, store_provider=store_provider)
+
+
+# C3: single source of truth for auth-event routing. Every synchronous route AND
+# the worker build their AuthorizationStateMachine through auth_for(), so an
+# engagement's entire lifecycle — create, scope, SOW, run, stop — is read from and
+# written to ONE store per tenant. This closes the C1.0 split-brain where the API
+# wrote auth events to the default store while the worker read the tenant store
+# (a functional break for real tenants, not merely an audit-isolation gap).
+# tenant_id is the JWT-verified claim (API) or the propagated task arg (worker);
+# None routes to the legacy single-tenant default store (no-tenant ops / tests).
+def auth_for(tenant_id: str | None) -> AuthorizationStateMachine:
+    store = store_provider.for_tenant(tenant_id) if tenant_id else event_store
+    return AuthorizationStateMachine(event_store=store)
+
+
+def emergency_for(tenant_id: str | None) -> EmergencyStopHandler:
+    store = store_provider.for_tenant(tenant_id) if tenant_id else event_store
+    # celery_revoker stays None until C4 wires the real revoker.
+    return EmergencyStopHandler(auth_for(tenant_id), store, store_provider=store_provider)
 
 
 _redis_url = os.environ.get("AGENT_ALPHA_REDIS_URL", "redis://localhost:6379/0")
@@ -210,7 +222,9 @@ def create_engagement(
     except KeyError as exc:
         raise HTTPException(status_code=400, detail="client_id and target required") from exc
 
-    record = auth.create_engagement(client_id, target, tenant_id=principal.tenant_id)
+    record = auth_for(principal.tenant_id).create_engagement(
+        client_id, target, tenant_id=principal.tenant_id
+    )
     return {
         "engagement_id": record.engagement_id,
         "state": a2a_pb2.EngagementState.Name(record.state),
@@ -233,8 +247,9 @@ def enable_recon(
         ) from exc
 
     scope = Scope(ip_ranges=ip_ranges, domains=domains, exclusions=exclusions)
+    sm = auth_for(principal.tenant_id)
     try:
-        record = auth.get_record(engagement_id)
+        record = sm.get_record(engagement_id)
     except Exception:
         raise HTTPException(status_code=404, detail="engagement not found") from None
 
@@ -242,11 +257,11 @@ def enable_recon(
         raise HTTPException(status_code=404, detail="engagement not found")
 
     try:
-        auth.enable_recon(engagement_id, scope)
+        sm.enable_recon(engagement_id, scope)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    state = auth.get_state(engagement_id)
+    state = sm.get_state(engagement_id)
     return {"engagement_id": engagement_id, "state": a2a_pb2.EngagementState.Name(state)}
 
 
@@ -265,7 +280,7 @@ def upload_sow(
         )
 
     try:
-        record = auth.get_record(engagement_id)
+        record = auth_for(principal.tenant_id).get_record(engagement_id)
     except Exception:
         raise HTTPException(status_code=404, detail="engagement not found") from None
 
@@ -283,7 +298,7 @@ def run_engagement(
     response: Response,
 ) -> dict[str, Any]:
     try:
-        record = auth.get_record(engagement_id)
+        record = auth_for(principal.tenant_id).get_record(engagement_id)
     except Exception:
         raise HTTPException(status_code=404, detail="engagement not found") from None
 
@@ -321,7 +336,7 @@ def get_run_status(
     principal: Annotated[Principal, Depends(require_principal)],
 ) -> dict[str, Any]:
     try:
-        record = auth.get_record(engagement_id)
+        record = auth_for(principal.tenant_id).get_record(engagement_id)
     except Exception:
         raise HTTPException(status_code=404, detail="engagement not found") from None
 
@@ -354,14 +369,14 @@ def emergency_stop(
         raise HTTPException(status_code=400, detail="reason and issued_by required") from exc
 
     try:
-        record = auth.get_record(engagement_id)
+        record = auth_for(principal.tenant_id).get_record(engagement_id)
     except Exception:
         raise HTTPException(status_code=404, detail="engagement not found") from None
 
     if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
         raise HTTPException(status_code=404, detail="engagement not found")
 
-    result = emergency.execute(engagement_id, reason, issued_by)
+    result = emergency_for(principal.tenant_id).execute(engagement_id, reason, issued_by)
     return {
         "engagement_id": result.engagement_id,
         "success": result.success,
@@ -378,7 +393,7 @@ def get_state(
     principal: Annotated[Principal, Depends(require_principal)],
 ) -> dict[str, Any]:
     try:
-        record = auth.get_record(engagement_id)
+        record = auth_for(principal.tenant_id).get_record(engagement_id)
     except Exception:
         raise HTTPException(status_code=404, detail="engagement not found") from None
 
