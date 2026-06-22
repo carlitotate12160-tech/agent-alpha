@@ -29,7 +29,7 @@ def test_target(url: str) -> None:
     print(f"\nTesting: {url}")
     print("=" * 60)
     
-    client = HttpClient(timeout=30.0)
+    client = HttpClient(engagement_id="test-engagement", timeout=30.0)
     
     try:
         resp = client.get(url)
