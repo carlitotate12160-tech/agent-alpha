@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Test Laravel detection for client-target.com and its IP addresses.
+"""Test Laravel detection for client-targetsolusi.co.id
 
 Run this on the Oracle ARM64 box:
-    python3 test_client-target_laravel.py
+    python3 test_client-targetsolusi.py
 """
 
 import sys
@@ -61,16 +61,8 @@ def test_target(url: str) -> None:
 
 if __name__ == "__main__":
     targets = [
-        "http://client-target.com",
-        "http://18.172.226.25",
-        "http://18.172.226.69",
-        "http://18.172.226.83",
-        "http://18.172.226.52",
-        "https://client-target.com",
-        "https://18.172.226.25",
-        "https://18.172.226.69",
-        "https://18.172.226.83",
-        "https://18.172.226.52",
+        "http://client-targetsolusi.co.id",
+        "https://client-targetsolusi.co.id",
     ]
     
     for target in targets:

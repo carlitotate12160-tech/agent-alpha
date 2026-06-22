@@ -15,6 +15,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, UploadFile
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor import recon_runner
 from agent_alpha.conductor.api_auth import Principal, require_principal
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
@@ -183,11 +184,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
 
     # --- OFFENSIVE RUN (NO RETRIES) ---
     try:
-        # TODO (C6): real agent run pipeline goes here once implemented.
-        # For C1.x we only prove that a worker process can reconstruct auth state
-        # from the shared EventStore and apply the gate.
-
-        # Emit a "run started" audit event; name kept generic to avoid schema churn.
+        # Emit a "run started" audit event.
         try:
             target_store.append(
                 event_type=EventType.ENGAGEMENT_RUN_STARTED,
@@ -198,7 +195,31 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         except Exception:  # noqa: BLE001 — failure to audit must not crash the task
             _log.exception("Failed to append EngagementRunStarted event for %s", engagement_id)
 
-        return {"engagement_id": engagement_id, "status": "started"}
+        # C6a (Shape B): run the real Alpha→Omega recon pipeline for this engagement.
+        # Heavy deps are built inside the seam (json-only Celery args, C1.7). Per-unit
+        # fan-out execution + live-fire FP gate are C6b.
+        run_result = recon_runner.run_recon_for_engagement(
+            engagement_id, tenant_id, worker_auth, target_store, record
+        )
+
+        # C1.8: only OPAQUE metadata leaves to the event store — never the report
+        # narrative (it can carry a leaked secret) and never the Celery result backend.
+        try:
+            target_store.append(
+                event_type=EventType.ENGAGEMENT_RUN_COMPLETED,
+                engagement_id=engagement_id,
+                agent="CONDUCTOR",
+                payload={
+                    "tenant_id": record.tenant_id,
+                    "node_count": run_result.node_count,
+                    "targets_scanned": run_result.targets_scanned,
+                    "report_generated": True,
+                },
+            )
+        except Exception:  # noqa: BLE001 — failure to audit must not crash the task
+            _log.exception("Failed to append EngagementRunCompleted event for %s", engagement_id)
+
+        return {"engagement_id": engagement_id, "status": "completed"}
 
     except SoftTimeLimitExceeded:
         _record_failure("timeout")

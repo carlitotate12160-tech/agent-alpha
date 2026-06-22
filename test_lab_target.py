@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Test Laravel detection for client-target.com and its IP addresses.
+"""Test Laravel lab target for C6 testing
 
 Run this on the Oracle ARM64 box:
-    python3 test_client-target_laravel.py
+    python3 test_lab_target.py
 """
 
 import sys
@@ -11,8 +11,8 @@ sys.path.insert(0, '/home/ubuntu/agent-alpha')
 from agent_alpha.agents.http_client import HttpClient
 import re
 
-def check_laravel_signatures(body: str) -> tuple[bool, list[str]]:
-    """Check if body contains Laravel debug signatures."""
+def check_laravel_debug(body: str) -> tuple[bool, list[str]]:
+    """Check if body contains Laravel DEBUG signatures."""
     signals = []
     
     if "Whoops" in body:
@@ -21,11 +21,15 @@ def check_laravel_signatures(body: str) -> tuple[bool, list[str]]:
         signals.append("Illuminate\\")
     if re.search(r"Laravel v[0-9]", body):
         signals.append("Laravel version pattern")
+    if "SQLSTATE" in body:
+        signals.append("SQLSTATE (database error)")
+    if "Illuminate\\Foundation\\Http\\Kernel" in body:
+        signals.append("Laravel stack trace")
     
     return len(signals) > 0, signals
 
 def test_target(url: str) -> None:
-    """Test a single URL for Laravel signatures."""
+    """Test a single URL for Laravel debug signatures."""
     print(f"\nTesting: {url}")
     print("=" * 60)
     
@@ -42,13 +46,13 @@ def test_target(url: str) -> None:
         print(f"Server: {server}")
         print(f"X-Powered-By: {powered_by}")
         
-        # Check Laravel signatures
-        is_laravel, signals = check_laravel_signatures(resp.text)
+        # Check Laravel debug signatures
+        is_debug, signals = check_laravel_debug(resp.text)
         
-        if is_laravel:
-            print(f"✅ LARAVEL DETECTED - Signals: {signals}")
+        if is_debug:
+            print(f"✅ LARAVEL DEBUG DETECTED - Signals: {signals}")
         else:
-            print(f"❌ No Laravel signatures found")
+            print(f"❌ No Laravel debug signatures found")
             
         # Show first 500 chars of body for context
         print(f"\nFirst 500 chars of body:")
@@ -61,16 +65,7 @@ def test_target(url: str) -> None:
 
 if __name__ == "__main__":
     targets = [
-        "http://client-target.com",
-        "http://18.172.226.25",
-        "http://18.172.226.69",
-        "http://18.172.226.83",
-        "http://18.172.226.52",
-        "https://client-target.com",
-        "https://18.172.226.25",
-        "https://18.172.226.69",
-        "https://18.172.226.83",
-        "https://18.172.226.52",
+        "http://localhost:8081/trigger-error",
     ]
     
     for target in targets:
