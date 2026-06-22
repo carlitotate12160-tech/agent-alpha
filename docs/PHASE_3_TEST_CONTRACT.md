@@ -22,7 +22,7 @@ pub-sub **delivery** (emission core already done in P2).
 
 ---
 
-## C1 — Non-blocking execution (expanded after scope review)
+## C1 — Non-blocking execution (expanded after scope review)  ✅ DONE (Oracle-green 2026-06-21)
 
 ### 🔴 C1.0 — PRECONDITION: event-source the auth/engagement state (do FIRST)
 Auth/engagement state is an in-memory dict (`authorization.py:142`), NOT a
@@ -75,13 +75,22 @@ only opaque status, if anything.
 
 ---
 
-## C2 — LLM role routing (§12.15)
+## C2 — LLM role routing (§12.15)  ✅ DONE (Oracle-green 2026-06-22) — see scope note
 `reason()`→`LLM_REASONING_PROVIDER`; `payload()`→`LLM_PAYLOAD_PROVIDER`.
 - Test: provider swap = config-only (mock registry); `payload()` never resolves
   to Claude and never to an aggregator transport; redaction before every call;
   `payload()` refuses unless auth state permits.
 
-## C3 — Tenant propagation through Celery (front-door 2b)
+> **Scope note (delivered 2026-06-22, ADR §12.15 Option A).** C2 ships the *routing
+> chokepoint* only: `resolve_reasoning_provider` (wired live) + `resolve_payload_provider`
+> guarded factory enforcing `transport=="direct"` + ALLOWED + NEVER (no aggregator, never
+> Claude/GPT) + reasoning redaction. Payload **generation** and its **auth-state gate**
+> (`payload()` refuses unless OFFENSIVE_APPROVED + SOW) are DEFERRED to **Phase 4 (Gamma)**:
+> there is no runtime payload caller yet, so building/gating generation now would be dead
+> code (#2). The auth-gate-on-payload bullet above is therefore a **Phase-4** acceptance
+> criterion, not a C2 one. Tracked in [pre-phase-3-plan / p3-audit-gaps].
+
+## C3 — Tenant propagation through Celery (front-door 2b)  ✅ DONE (Oracle-green 2026-06-22)
 A task carries `tenant_id`; the worker resolves the correct per-tenant store.
 - Test: async engagement for tenant A → ALL events in tenant-A's store, none in
   default/other; cross-tenant async access impossible.
@@ -115,6 +124,17 @@ of truth (#7); no agent-to-agent direct dispatch (§3, §12.13); Oracle-only (#9
 
 ---
 
+## Pre-Beta Gate (OUTSIDE C1–C8 — must not be skipped on the way to Beta)
+
+Not orchestrator C-steps, but hard requirements before Beta runs against real targets
+(see scale-and-rate-limit). Listed here so closing P3 does not silently skip them:
+
+- **Rate-limit enforcement** — `rate_limit_rps` is declared but NOT enforced today
+  (Rules-of-Engagement risk + anti-Lyndon #2: declared-not-wired).
+- **Observability / CPU-brake monitoring** — no custom resource governor / real monitoring yet.
+
+---
+
 ## Build order (foundation before feature)
 1. **C1.0** event-source auth state — prove cross-process rebuild. *(first, non-negotiable)*
 2. **C1.1 + C1.7 + C1.8** real dispatch + json-only + result-backend hygiene.
@@ -125,6 +145,9 @@ of truth (#7); no agent-to-agent direct dispatch (§3, §12.13); Oracle-only (#9
 7. **C4** real emergency revoker.
 8. **C5** fan-out interface.
 9. **C6** e2e async kill chain.
+10. **C7** no-regression: full suite green on Oracle + `make check` clean + branch protection.
+11. **C8** anti-Lyndon per-component gates verified (#2 wired, #3 no false success, #7 SoT,
+    §3/§12.13 no agent-to-agent dispatch, #9 Oracle-only).
 
 Each step lands with its own tests green before the next. No step N+1 before step N passes.
 
