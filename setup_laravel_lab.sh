@@ -29,7 +29,7 @@ if [ -d "lab-target" ]; then
     rm -rf lab-target
 fi
 
-/usr/local/bin/composer create-project laravel/laravel lab-target
+/usr/local/bin/composer create-project laravel/laravel lab-target --no-interaction --ignore-platform-reqs --ignore-advisories
 cd lab-target
 
 # Enable debug mode
