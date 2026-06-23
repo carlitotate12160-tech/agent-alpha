@@ -786,3 +786,77 @@ if desired.]
 
 **Supersedes:** the ambiguous `LLM_REASONING_PRIMARY` interpretation; relates to
 §12.0/§12.1 (LLM gate tiers), §12.10 (Claude never writes payloads), §1 (auth gate).
+
+### 12.16 Tool Layer: capabilities-vs-roles, contracts, composition discipline — LOCKED
+
+**Status:** LOCKED (2026-06-22, co-authored Opus + Natanael). Amends §12.4.
+**Relates to:** §12.13 (scaling/roles), §12.8/K19 (IntelligenceBase reliability), §12.1
+(tier ladder), §12.4 (RAG timing). Companion: `docs/TOOL_LAYER.md` (the contract scaffold).
+
+#### 12.16.1 — Agents are kill-chain ROLES; payload/proxy/browser are CAPABILITIES, not agents
+
+**Decision.** The agent taxonomy stays the six kill-chain roles (Alpha…Omega) under §12.13.
+"PayloadGenerator", "Proxy Tester", and "Browser" are **capabilities/tools**, NOT new agent
+roles. Rejected as agents.
+
+**Rationale.** An agent = a PHASE of the kill chain (recon → access → exploit → post →
+lateral → report). Payload generation, proxying, and browsing are *how* an agent does its
+work, not *what phase* it is. Modeling a capability as an agent repeats **Lyndon #4** (generic
+architecture: mixing capability with role) and pollutes the clean role taxonomy.
+
+**Placement.**
+- **PayloadGenerator** → the **LLM payload role** (DeepSeek, direct, §12.15) + **ToolComposer**.
+  Invoked BY Gamma/Beta; never a standalone agent.
+- **Browser (Playwright)** → a **shared capability** in the deterministic layer. Used by BOTH
+  Alpha (JS/SPA recon, client-rendered targets) AND Beta (anti-detect spray + Cloudflare/
+  Turnstile bypass). Built ONCE, injected into whoever needs it — never duplicated per agent.
+- **Proxy** → a tool (rotation: residential/SOCKS5) PLUS an explicit **proxy-health / OPSEC
+  check** (alive, not burned) that MUST run before any spray. Named as a tool, gated like one.
+
+#### 12.16.2 — Tool layer contracts + composition discipline
+
+**Decision.** All tools plug into one foundation (see `docs/TOOL_LAYER.md` §2): canonical
+`Tool` + `Template` protocols, `ToolRegistry`, `ToolComposer`. Non-negotiable invariants:
+
+1. **`ToolComposer.compose()` returns a PLAN, never executes.** Execution stays in the agent
+   cognitive loop, where **each step is re-gated (auth state) and verified**. No autonomous
+   "retrieve/compose → exploit" chain — preserves the non-bypassable gate (§1) + audit.
+2. **Every `Template` MUST implement `verify()`.** A tool is "successful" only when `verify()`
+   PROVES exploitability from the response and captures a proof artifact. "version matches CVE"
+   or "csrf-token present" is a hypothesis, not a finding (anti-Lyndon #3). This is the line
+   between Agent-Alpha and a scanner.
+3. **Selection is reliability-ranked, never hardcoded.** `ToolRegistry.for_context` ranks via
+   `IntelligenceBase.tool_reliability` (K19); no literal tool order in agent code (K11 / #7).
+4. **Authoring split (§12.15 / K21):** Claude authors the contracts + registry/composer glue +
+   test contracts (non-offensive). DeepSeek authors every offensive body (`run`/`build`/
+   `verify` payload logic) in `tools/templates/*`. Claude never writes payload bodies.
+5. **Bounded autonomy:** every tool runs under a `ResourceBudget` (requests/time/cost/rps),
+   single-sourced from constants (§12.13 #2 / #7). `rate_limit_rps` ties to the Pre-Beta
+   rate-limit control.
+
+**Build order (does NOT pull phases forward — anti-Lyndon #1/#5):** foundation contracts now;
+recon-finding tools next (first real `verify()` consumer); Access=Phase 3, Exploit + live
+ToolComposer=Phase 4, Post/Lateral=Phase 5. Offensive bodies land per-phase, never up front.
+
+#### 12.16.3 — Amends §12.4: RAG external-vs-internal split
+
+**Decision.** Split the single "RAG = Phase 6" into two tracks:
+- **Internal RAG** (pgvector over cross-engagement data) — stays **Phase 6**. Hard cold-start:
+  embeddings over an empty corpus retrieve nothing; needs accumulated real engagement data.
+- **External RAG** (CVE / Exploit-DB / MITRE ATT&CK feeds) — has **no cold-start** (data exists
+  day 1) and **MAY precede** internal embeddings. BUT only AFTER (a) the hypothesis→verify loop
+  exists and (b) recon produces precise version fingerprints — otherwise external CVE-matching
+  is just a worse Nessus/nuclei (scanner-grade, the thing we beat).
+
+**Invariant (both tracks).** RAG is **advisory + gated**: it enriches the SINGLE_LLM/CONSENSUS
+reasoning tiers (§12.1) and feeds `hypothesis.py` → `verifier.py`; it is NEVER an autonomous
+retrieve→exploit path. RULE tier (deterministic playbook) stays first for reproducibility/
+anti-injection/cost. External feed content crosses a trust boundary → redaction before any LLM
+(§8l); payload bodies still DeepSeek-direct; feed freshness is a correctness requirement (a
+stale CVE DB = false confidence, worse than none).
+
+**Consequences**
+- No new agent classes; capability work routes into the deterministic tool layer.
+- The differentiator is now concretely located: ToolComposer + `verify()`-gated templates +
+  reliability ranking + (Phase 6) RAG — NOT breadth of external-tool wrappers.
+- A clear DeepSeek/Claude contract boundary for every future tool.
