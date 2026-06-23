@@ -1,7 +1,7 @@
 # agent_alpha/agents/rate_limiter.py
 """Per-engagement egress rate limiter (Rules-of-Engagement control).
 
-`policy.yaml` declares `rate_limiting_enabled` + per-OPSEC-profile `rate_limit_rps` 
+`policy.yaml` declares `rate_limiting_enabled` + per-OPSEC-profile `rate_limit_rps`
 (quiet=2 / normal=10 / loud=50), but nothing enforced it — recon fired requests as
 fast as the network allowed (anti-Lyndon #2: declared-not-wired; a real RoE risk
 once probing live client targets). This is the enforcement: a blocking min-interval
