@@ -11,7 +11,7 @@ nothing to compose now would be dead code (#2).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.config import constants
 
@@ -49,7 +49,7 @@ class ToolResult:
     tool: str
     success: bool
     confidence: float
-    findings: tuple[dict, ...] = ()
+    findings: tuple[dict[str, Any], ...] = ()
     proof_artifacts: tuple[str, ...] = ()
     error: str | None = None
 
@@ -74,12 +74,12 @@ class Template(Protocol):
     mitre_technique: str
     required_auth: str
 
-    def build(self, ctx: TargetContext) -> dict:
+    def build(self, ctx: TargetContext) -> dict[str, Any]:
         """OFFENSIVE BODY → DeepSeek. Construct the probe/payload for `ctx`. Must stay
         within `required_auth`."""
         ...
 
-    def verify(self, response: dict) -> ToolResult:
+    def verify(self, response: dict[str, Any]) -> ToolResult:
         """OFFENSIVE BODY → DeepSeek. Turn a response into a ToolResult: PROOF, not
         assumption. 'version matches CVE' / 'csrf-token present' is a hypothesis, not a
         finding — return success only when exploitability is confirmed + a proof artifact
