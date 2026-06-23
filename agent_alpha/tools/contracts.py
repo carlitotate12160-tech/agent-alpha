@@ -31,7 +31,7 @@ class TargetContext:
 
 @dataclass(frozen=True)
 class ResourceBudget:
-    """Bounded autonomy (§12.13 #2): every tool runs under a hard cap. `rate_limit_rps` 
+    """Bounded autonomy (§12.13 #2): every tool runs under a hard cap. `rate_limit_rps`
     is enforced by the egress RateLimiter we already built (single source, #7)."""
 
     max_requests: int
