@@ -25,6 +25,7 @@ __all__ = [
     "JWT_ALGORITHM",
     "JWT_SECRET_ENV",
     "HTTP_REQUEST_TIMEOUT_SEC",
+    "DEFAULT_RATE_LIMIT_RPS",
     "SOW_MAX_FILE_SIZE_MB",
     "SOW_HASH_ALGORITHM",
     "EVENT_SEQUENCE_GAP_ALLOWED",
@@ -114,6 +115,11 @@ JWT_SECRET_ENV = "AGENT_ALPHA_JWT_SECRET"
 
 # ── HTTP Client ──────────────────────────────────────────────
 HTTP_REQUEST_TIMEOUT_SEC = 30.0
+# Default egress rate limit (requests/sec) per engagement HttpClient. Safe RoE
+# default = the policy.yaml "quiet" OPSEC profile (2 rps); per-engagement OPSEC
+# profile selection (policy.yaml normal=10/loud=50) overrides via the ctor when
+# that feature lands. Single source for the code-level default (anti-Lyndon #7).
+DEFAULT_RATE_LIMIT_RPS = 2.0
 SOW_MAX_FILE_SIZE_MB = 50
 SOW_HASH_ALGORITHM = "sha256"
 

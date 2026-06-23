@@ -6,6 +6,7 @@ import dataclasses
 
 import httpx
 
+from agent_alpha.agents.rate_limiter import RateLimiter
 from agent_alpha.config import constants
 
 
@@ -37,12 +38,17 @@ class HttpClient:
         engagement_id: str,
         timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC,
         transport: httpx.BaseTransport | None = None,
+        rate_limit_rps: float = constants.DEFAULT_RATE_LIMIT_RPS,
+        rate_limiter: RateLimiter | None = None,
     ) -> None:
         self.timeout = timeout
         self._headers = {
             "User-Agent": f"Agent-Alpha-Recon/{engagement_id}",
         }
         self._transport = transport
+        # RoE rate limit at the egress chokepoint. Per-engagement; the OPSEC profile
+        # (policy.yaml) will inject a different rps here once profile-selection lands.
+        self._rate_limiter = rate_limiter or RateLimiter(rate_limit_rps)
 
     def get(self, url: str) -> HttpResponse:
         """Issue a GET request with configured timeout and headers.
@@ -51,6 +57,9 @@ class HttpClient:
         timeout) are re-raised as :class:`HttpClientError`. ``httpx``
         never escapes this method.
         """
+        # RoE: block to honour the engagement rate limit before egress. Delays,
+        # never drops (anti-Lyndon #3).
+        self._rate_limiter.acquire()
         try:
             with httpx.Client(
                 timeout=self.timeout,
