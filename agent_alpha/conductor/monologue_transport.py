@@ -24,7 +24,7 @@ _REDIS_URL = os.environ.get("AGENT_ALPHA_REDIS_URL", "redis://localhost:6379/0")
 class RedisPublisher:
     """Publishes a payload to a channel (worker side)."""
 
-    def __init__(self, client: redis.Redis) -> None:
+    def __init__(self, client: typing.Any) -> None:
         self._client = client
 
     def publish(self, channel: str, payload: str) -> None:
@@ -34,7 +34,7 @@ class RedisPublisher:
 class RedisSubscriber:
     """Yields payloads published to a channel, in arrival order (API side)."""
 
-    def __init__(self, client: redis.Redis) -> None:
+    def __init__(self, client: typing.Any) -> None:
         self._client = client
 
     def listen(self, channel: str) -> typing.Iterator[str]:
