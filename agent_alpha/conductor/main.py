@@ -15,9 +15,8 @@ from celery.exceptions import SoftTimeLimitExceeded
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, UploadFile
 
 from agent_alpha.a2a import a2a_pb2
-from agent_alpha.conductor import recon_runner
+from agent_alpha.conductor import recon_runner, routes_monologue
 from agent_alpha.conductor.api_auth import Principal, require_principal
-from agent_alpha.conductor import routes_monologue
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.policy import PolicyEnforcer
