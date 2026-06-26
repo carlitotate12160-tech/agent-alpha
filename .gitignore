@@ -25,7 +25,7 @@ archive/
 audit_*.jsonl
 
 # Engagement configs (local only, contain target/scope info)
-/engagements/
+/engagements/*.yaml
 
 # Runner artifacts and reports (local only)
 actions-runner/
