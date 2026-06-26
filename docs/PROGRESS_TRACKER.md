@@ -1,6 +1,6 @@
 # Agent-Alpha — Progress Tracker
 
-**Dokumen ini selalu diperbarui setelah setiap task selesai.** Berisi penjelasan lengkap tentang kemajuan proyek, modul yang ditambahkan, efeknya terhadap agent, behavior sistem, dan flow dengan contoh.
+**Ringkasan kemajuan proyek Agent-Alpha.**
 
 ---
 
@@ -11,1256 +11,179 @@
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
 | Phase 2 | ✅ COMPLETED | 12/12 komponen selesai | 12 komponen |
-| Phase 3 | 🟦 IN PROGRESS | C1–C3 of C1–C8 done (Oracle-green) | C1–C8 |
+| Phase 3 | 🟦 IN PROGRESS | C1–C6a of C1–C8 done (Oracle-green) | C1–C8 |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
 | Phase 6 | ⬜ NOT STARTED | 0% | - |
 
 ---
 
-> **Source-of-truth note (2026-06-22).** The authoritative Phase-3 (Orchestrator
-> hardening) step list + exit criteria is **`docs/PHASE_3_TEST_CONTRACT.md`** (C1–C8).
-> The "C1 — Phase 0 Extension" numbering BELOW is an older, narrower breakdown and uses
-> DIFFERENT labels (e.g. tracker C1.0 = "Celery skeleton" / C1.7 = "Emergency stop" vs
-> contract C1.0 = "event-source auth state" / C1.7 = "json-only"). Do NOT cross-reference
-> the two by number. Reality as of 2026-06-22: contract **C1, C2, C3 GREEN on Oracle**;
-> next = C4 (real revoker ≤5s). See also the Pre-Beta Gate (rate-limit, observability) in
-> the contract.
+> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Next: C6b (fan-out execution + live-fire FP<20%).
 
 ---
 
-## C1 — Run Status & Idempotency (Phase 0 Extension)
+## Ringkasan Komponen per Phase
 
-**Tujuan C1:** Menambahkan run status tracking dan idempotency untuk engagement execution. Ini memungkinkan user memantau status run engagement dan memastikan task tidak di-dispatch secara redundant.
+### Phase 0 — Fondasi Sistem (7/7 selesai)
+- **A2A Contract** — Protokol gRPC/protobuf untuk komunikasi antar agent
+- **Authorization State Machine** — State machine untuk otorisasi engagement (CREATED → RECON_ONLY → ACTIVE_APPROVED → OFFENSIVE_APPROVED → EMERGENCY_STOP)
+- **Event Store** — Audit trail append-only untuk semua aksi agent
+- **Secrets Vault** — Penyimpanan kredensial terenkripsi dengan Fernet
+- **Policy Enforcer** — Enforcement Rules of Engagement dari policy.yaml
+- **Emergency Stop** — Kill switch tunggal untuk menghentikan semua agent
+- **Conductor Skeleton** — FastAPI + Celery app untuk task execution
 
-### C1 Checklist
+### Phase 1 — Attack Graph & Knowledge Representation (5/5 selesai)
+- **GraphStore Protocol** — Interface abstrak untuk graph engine (NetworkX → Memgraph/Neo4j)
+- **NetworkXGraphStore** — Implementasi NetworkX untuk attack graph
+- **EngagementMemory** — Event-sourced projection untuk post-engagement learning/audit
+- **SessionMemory** — Volatile Redis-backed store untuk live state engagement
+- **IntelligenceBase** — Cross-engagement learning queries (tool reliability, FP rates, strategies)
 
-- ✅ **C1.0** — Celery task skeleton (run_engagement_task)
-- ✅ **C1.1** — Authorization gate enforcement (refusal when not authorized)
-- ✅ **C1.2** — Status queryable via GET /run-status
-- ✅ **C1.3** — Idempotent dispatch, re-runnable after completion
-- ✅ **C1.4** — Failure handling and recording (ENGAGEMENT_RUN_FAILED)
-- ✅ **C1.5** — Timeout recording (SoftTimeLimitExceeded)
-- ✅ **C1.6** — Tenant-aware worker reconstruction
-- ✅ **C1.7** — Emergency stop execution
-- ✅ **C1.8** — Opaque return value (no sensitive data)
+### Phase 2 — Cognitive Loop & Agent Implementation (12/12 selesai)
+- **DeepSeekProvider** — LLM provider untuk reasoning/payload generation
+- **PlaybookEngine** — Deterministic RULE tier decision engine dari YAML playbooks
+- **LLMOrchestrator** — Routing ke RULE/SINGLE_LLM/CONSENSUS decision ladder
+- **ToolRegistry** — Registry untuk tool yang tersedia
+- **BoundedAutonomy + run_cognitive_loop** — Cognitive loop dengan stop conditions
+- **Alpha SCOUT** — Reconnaissance agent pertama
+- **Omega ROASTER** — Report generation agent
+- **HttpClient** — Production httpx-backed HTTP client
+- **Inner Monologue** — Real-time reasoning stream ke USER channel
+- **RLS Guard** — Fail-closed guard untuk Postgres RLS enforcement
+- **create_app_role.sql** — SQL script untuk least-privilege role
+- **RLS Isolation Tests** — Integration tests dengan raw SQL verification
+- **Python 3.12 + Dependencies** — Upgrade Python dan tambah pytest/protobuf
 
----
+### Phase 3 — Orchestrator Hardening (C1–C6a selesai)
+- **C1** — Event-sourced auth state reconstruction (Oracle-green)
+- **C2** — Emergency revoker ≤5s (Oracle-green)
+- **C3** — Fan-out interface (Oracle-green)
+- **C4** — Real emergency revoker (Oracle-green)
+- **C5** — Async kill chain Shape B + SSRF guard (Oracle-green)
+- **C6a** — Phase 0 test stubs (Oracle-green)
+- **C6b** — Per-unit fan-out execution + live-fire FP<20% (PENDING)
+- **C7** — No regression + CI (PENDING)
+- **C8** — Anti-Lyndon gates (PENDING)
 
-## Komponen yang Sudah Dibuat (C1)
-
-### C1.0 - Celery Task Skeleton (`agent_alpha/conductor/main.py`)
-
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Celery task skeleton untuk engagement execution. Task ini di-dispatch oleh FastAPI endpoint dan dijalankan oleh Celery worker.
-
-#### Efek terhadap Agent
-- Agent task dijalankan secara asynchronous di background
-- User bisa query status run tanpa blocking
-- Task bisa di-retry jika transient error terjadi
-
-#### Behavior Sistem
-- `run_engagement_task(engagement_id, tenant_id)` — main task function
-- Worker reconstructs auth state dari EventStore
-- Authorization gate enforcement (refusal jika tidak authorized)
-- Emits ENGAGEMENT_RUN_STARTED jika authorized
-- Emits ENGAGEMENT_RUN_REFUSED jika tidak authorized
-- Returns status "started" atau "refused"
-
-#### Contoh Flow
-```
-1. User POST /engagements/{id}/run
-2. FastAPI dispatch run_engagement_task.delay(engagement_id, tenant_id)
-3. Celery worker picks up task
-4. Worker reconstructs auth state dari EventStore
-5. Worker cek can_agent_proceed(ALPHA)
-6. Jika True → emit ENGAGEMENT_RUN_STARTED → return "started"
-7. Jika False → emit ENGAGEMENT_RUN_REFUSED → return "refused"
-```
+### Phase 3 Additional Components
+- **ADR §12.16: Tool Layer Contracts** — Template protocol untuk build/verify methods (MERGED)
+- **RateLimiter + HttpClient RoE Enforcement** — Rate limiting dan RoE enforcement (MERGED)
+- **Laravel Finding Template** — Template untuk Laravel debug exposure detection (MERGED)
+- **Laravel Template Wiring** — Integration template ke scout.py dengan Laravel-specific redaction (MERGED)
 
 ---
 
-### C1.1 - Authorization Gate Enforcement (`agent_alpha/conductor/main.py`)
+## Detail Komponen Penting
 
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
+### A2A Contract (`proto/a2a.proto`)
+Protokol gRPC/protobuf untuk komunikasi antar agent. Semua agent (Alpha, Beta, Gamma, Delta, Epsilon, Omega) berkomunikasi lewat schema ini untuk memastikan konsistensi data.
 
-#### Apa ini?
-Authorization gate enforcement di dalam Celery task. Worker memastikan hanya agent yang authorized bisa menjalankan task.
+### Authorization State Machine (`agent_alpha/conductor/authorization.py`)
+Mesin state untuk otorisasi engagement. State transitions: CREATED → RECON_ONLY → ACTIVE_APPROVED → OFFENSIVE_APPROVED → EMERGENCY_STOP. Hanya Conductor yang boleh baca/tulis state ini.
 
-#### Efek terhadap Agent
-- Agent tidak bisa menjalankan task tanpa izin
-- Refusal event dicatat untuk audit
-- Tenant ownership enforced
+### Event Store (`agent_alpha/events/store.py`)
+Penyimpanan event append-only untuk audit trail. Setiap aksi agent dicatat sebagai event yang tidak bisa dihapus atau dimodifikasi. Event menjadi single source of truth.
 
-#### Behavior Sistem
-- Worker reconstructs EngagementRecord dari EventStore
-- Cek state machine (CREATED, RECON_ONLY, ACTIVE_APPROVED, OFFENSIVE_APPROVED)
-- Cek can_agent_proceed(agent_type)
-- Jika tidak authorized → emit ENGAGEMENT_RUN_REFUSED → return "refused"
-- Jika authorized → lanjut ke task body
+### Secrets Vault (`agent_alpha/security/secrets.py`)
+Penyimpanan kredensial terenkripsi dengan Fernet. Kredensial tidak pernah muncul di plaintext di log/event. LogScrubber otomatis menghapus sensitive data dari log.
 
-#### Contoh Flow
-```
-1. Task di-dispatch untuk engagement di state CREATED
-2. Worker reconstructs EngagementRecord
-3. Worker cek can_agent_proceed(ALPHA) → False
-4. Worker emit ENGAGEMENT_RUN_REFUSED
-5. Worker return "refused"
-```
+### Policy Enforcer (`agent_alpha/conductor/policy.py`)
+Enforcement Rules of Engagement dari policy.yaml. Mencegah agent melakukan teknik yang dilarang, menyerang network yang di-exclude, atau menggunakan LLM provider yang dilarang.
 
----
+### Emergency Stop (`agent_alpha/conductor/emergency.py`)
+Kill switch tunggal untuk menghentikan semua agent. Force state ke EMERGENCY_STOP dan revoke semua Celery tasks. Best-effort implementation (tidak pernah raise exception).
 
-### C1.2 - Status Queryable via GET /run-status (`agent_alpha/conductor/main.py`)
+### GraphStore Protocol (`agent_alpha/graph/store.py`)
+Interface abstrak untuk graph engine. Memungkinkan swapping NetworkX → Memgraph/Neo4j tanpa mengubah consumer code. Event-sourced: graph adalah projection dari event log.
 
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
+### NetworkXGraphStore (`agent_alpha/graph/networkx_store.py`)
+Implementasi NetworkX untuk attack graph. Directed graph untuk relationship yang berarah. Event handlers untuk NodeDiscovered, EdgeDiscovered, NodeVerified.
 
-#### Apa ini?
-GET endpoint untuk query status run engagement. User bisa memantau progress task secara real-time.
+### EngagementMemory (`agent_alpha/memory/engagement.py`)
+Event-sourced projection untuk post-engagement learning/audit. EngagementMemoryRecord frozen (immutable). Source of truth adalah event log, bukan EngagementMemory.
 
-#### Efek terhadap Agent
-- User bisa query status tanpa blocking
-- Status visible via projection dari event log
-- Tenant ownership enforced
+### SessionMemory (`agent_alpha/memory/session.py`)
+Volatile Redis-backed store untuk live state engagement. SessionRecord mutable untuk high-frequency write path. Source of truth adalah dirinya sendiri selama engagement berjalan.
 
-#### Behavior Sistem
-- `GET /engagements/{id}/run-status` — endpoint
-- `project_run_status(events)` — pure projection function
-- Status literals: "queued", "running", "done", "failed", "refused", "none"
-- Returns: engagement_id, status, task_id, updated_at
-- Tenant ownership check (404 jika cross-tenant)
+### IntelligenceBase (`agent_alpha/memory/intelligence.py`)
+Cross-engagement learning queries. Methods: what_worked_for_similar_targets, credential_patterns, false_positive_rate, tool_reliability. Phase 1: return InsufficientData (belum ada data cross-engagement).
 
-#### Contoh Flow
-```
-1. User GET /engagements/{id}/run-status
-2. FastAPI cek tenant ownership
-3. FastAPI project_run_status(store.get_events(engagement_id))
-4. Return: {"engagement_id": "eng_123", "status": "running", "task_id": "abc", "updated_at": "..."}
-```
+### DeepSeekProvider (`agent_alpha/llm/providers/deepseek.py`)
+LLM provider untuk DeepSeek API. Menyediakan interface untuk inference dengan cost tracking dan error handling. Timeout 30.0 detik untuk semua HTTP requests.
+
+### PlaybookEngine (`agent_alpha/tools/playbook.py`)
+Deterministic RULE tier decision engine. Membaca YAML playbooks dan mengembalikan tool decision tanpa LLM. Indicators: body_contains, body_regex.
+
+### LLMOrchestrator (`agent_alpha/llm/orchestrator.py`)
+Orchestrator untuk LLM decision routing. Decision ladder: RULE → SINGLE_LLM → CONSENSUS. Cost optimization (RULE tier gratis, SINGLE_LLM murah, CONSENSUS mahal).
+
+### Alpha SCOUT (`agent_alpha/agents/alpha/scout.py`)
+Reconnaissance agent pertama. Melakukan reconnaissance (port scan, subdomain enumeration, tech detection) dan menulis findings ke AttackGraph dan EventStore. Handoff ke Beta setelah selesai.
+
+### Laravel Finding Template (`agent_alpha/tools/templates/cms/laravel_finding.py`)
+Template untuk Laravel debug exposure detection. RECON_ONLY probing dengan proof-based verification. Laravel-specific redaction untuk APP_KEY dan env keys.
+
+### Laravel Env Redaction (`agent_alpha/security/laravel_env.py`)
+Single source of truth untuk parsing + redacting Laravel debug-page env leaks. Regex untuk <td>KEY</td><td>VALUE</td> table form.
 
 ---
 
-### C1.3 - Idempotent Dispatch, Re-runnable After Completion (`agent_alpha/conductor/main.py`)
-
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Idempotent dispatch untuk mencegah redundant task dispatch. Jika task sudah queued/running, return existing task_id. Jika task done/failed/refused, accept new dispatch.
-
-#### Efek terhadap Agent
-- User tidak perlu khawatir double-click
-- Task tidak di-dispatch redundant
-- Re-runnable setelah completion (terminal status)
-
-#### Behavior Sistem
-- Cek run status sebelum dispatch
-- Jika "queued" atau "running" → return 200 dengan existing task_id
-- Jika "done", "failed", atau "refused" → accept new dispatch (202)
-- Emit ENGAGEMENT_RUN_QUEUED dengan task_id
-
-#### Contoh Flow
-```
-1. User POST /engagements/{id}/run → task queued
-2. User POST lagi (double-click) → return 200 dengan existing task_id
-3. Task selesai → status "done"
-4. User POST lagi → accept new dispatch (202) dengan new task_id
-```
-
----
-
-### C1.4 - Failure Handling and Recording (`agent_alpha/conductor/main.py`)
-
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Generic failure handling untuk task execution. Jika task body raise exception, catch dan emit ENGAGEMENT_RUN_FAILED.
-
-#### Efek terhadap Agent
-- Failure tidak hilang (recorded di event log)
-- Task return "failed" status
-- Failure visible via projection
-
-#### Behavior Sistem
-- Try-catch di task body
-- Jika exception → emit ENGAGEMENT_RUN_FAILED dengan reason
-- Return "failed" status
-- Tidak re-raise (failure captured, not lost)
-
-#### Contoh Flow
-```
-1. Task body raise RuntimeError("simulated failure")
-2. Task catch exception
-3. Task emit ENGAGEMENT_RUN_FAILED dengan reason "simulated failure"
-4. Task return {"engagement_id": "eng_123", "status": "failed"}
-```
-
----
-
-### C1.5 - Timeout Recording (`agent_alpha/conductor/main.py`)
-
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Timeout handling untuk Celery task. Jika SoftTimeLimitExceeded di-raise, catch dan record sebagai failure dengan "timeout" reason.
-
-#### Efek terhadap Agent
-- Timeout tidak hilang (recorded di event log)
-- Task return "failed" status
-- Timeout visible via projection
-
-#### Behavior Sistem
-- Catch SoftTimeLimitExceeded
-- Emit ENGAGEMENT_RUN_FAILED dengan reason "timeout"
-- Return "failed" status
-
-#### Contoh Flow
-```
-1. Task melebihi soft time limit
-2. Celery raise SoftTimeLimitExceeded
-3. Task catch exception
-4. Task emit ENGAGEMENT_RUN_FAILED dengan reason "timeout"
-5. Task return {"engagement_id": "eng_123", "status": "failed"}
-```
-
----
-
-### C1.6 - Tenant-Aware Worker Reconstruction (`agent_alpha/conductor/main.py`)
-
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Worker reconstructs tenant-specific event store dari StoreProvider. Setiap tenant memiliki isolated event store.
-
-#### Efek terhadap Agent
-- Tenant isolation enforced di worker level
-- Worker tidak bisa cross-tenant access
-- Multi-tenant support
-
-#### Behavior Sistem
-- Task menerima tenant_id parameter
-- Worker calls store_provider.for_tenant(tenant_id)
-- Tenant-specific event store digunakan
-- Cross-tenant access diblok
-
-#### Contoh Flow
-```
-1. Task di-dispatch dengan tenant_id="tenant_a"
-2. Worker calls store_provider.for_tenant("tenant_a")
-3. Worker gunakan tenant_a event store
-4. Worker tidak bisa access tenant_b data
-```
-
----
-
-### C1.7 - Emergency Stop Execution (`agent_alpha/conductor/emergency.py`)
-
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Emergency stop handler untuk kill switch tunggal. Force state ke EMERGENCY_STOP dan revoke semua Celery tasks.
-
-#### Efek terhadap Agent
-- Semua agent diblokir setelah emergency stop
-- Task yang sedang berjalan di-revoke
-- Audit event dicatat
-
-#### Behavior Sistem
-- `execute(engagement_id, reason, issued_by)` — main function
-- Force state ke EMERGENCY_STOP
-- Revoke semua Celery tasks (Phase 0: mock)
-- Emit audit event
-- Return EmergencyStopResult dengan elapsed time
-
-#### Contoh Flow
-```
-1. Operator trigger emergency stop
-2. EmergencyStopHandler.execute("eng_123", "Anomali", "operator_1")
-3. State forced ke EMERGENCY_STOP
-4. Tasks revoked
-5. Event emitted
-6. Return result dengan elapsed time
-```
-
----
-
-### C1.8 - Opaque Return Value (`agent_alpha/conductor/main.py`)
-
-**Tanggal:** 2026-06-22
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Task return value hanya berisi engagement_id dan status. Tidak ada sensitive data (findings, creds, payload, target, client_id).
-
-#### Efek terhadap Agent
-- Sensitive data tidak bocor lewat task return
-- Return value aman untuk logging
-- Audit trail tetap lengkap di event log
-
-#### Behavior Sistem
-- Task return: {"engagement_id": "eng_123", "status": "started"}
-- Tidak ada sensitive keys di return value
-- Sensitive data hanya di event log (encrypted jika perlu)
-
-#### Contoh Flow
-```
-1. Task selesai
-2. Task return {"engagement_id": "eng_123", "status": "started"}
-3. User tidak melihat findings, creds, payload, dll.
-4. Sensitive data tetap di event log
-```
-
----
-
-## Phase 0 — Fondasi Sistem
-
-**Tujuan Phase 0:** Membangun komponen-komponen kritis yang menjadi fondasi sebelum sistem bisa berjalan. Tanpa komponen ini, agent tidak bisa beroperasi dengan aman.
-
-### Komponen Phase 0 Checklist
-
-- ✅ **A2A Contract** — Protokol komunikasi antar agent
-- ✅ **Authorization State Machine** — Otorisasi engagement
-- ✅ **Event Store** — Audit trail append-only
-- ✅ **Secrets Vault** — Penyimpanan kredensial terenkripsi
-- ✅ **Policy Enforcer** — Enforcement Rules of Engagement
-- ✅ **Emergency Stop** — Kill switch tunggal
-- ✅ **Conductor Skeleton** — FastAPI + Celery app
-
----
-
-## Komponen yang Sudah Dibuat
-
-### 1. A2A Contract (`proto/a2a.proto`)
-
-**Tanggal:** Sebelum sesi ini  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Protokol komunikasi antar agent menggunakan gRPC/protobuf. Ini adalah "bahasa" yang semua agent gunakan untuk berkomunikasi.
-
-#### Efek terhadap Agent
-- Semua agent (Alpha, Beta, Gamma, Delta, Epsilon, Omega) berkomunikasi lewat schema ini
-- Tidak ada teks bebas antar agent — semua terstruktur
-- Memastikan konsistensi data antar agent
-
-#### Behavior Sistem
-- Agent mengirim pesan dengan format: `A2AMessage`
-- Setiap pesan berisi: engagement_id, from_agent, to_agent, message_type, timestamp, payload, confidence
-- Contoh pesan: Alpha mengirim handoff ke Beta setelah selesai reconnaissance
-
-#### Contoh Flow
-```
-1. Alpha (SCOUT) selesai reconnaissance
-2. Alpha kirim A2AMessage ke Conductor:
-   - message_type: HANDOFF_READY
-   - from_agent: ALPHA
-   - to_agent: CONDUCTOR
-   - payload: HandoffPayload (findings, proof_artifacts)
-3. Conductor validasi dan authorize
-4. Conductor kirim A2AMessage ke Beta (STRIKE):
-   - message_type: HANDOFF_READY
-   - from_agent: CONDUCTOR
-   - to_agent: BETA
-   - payload: HandoffPayload (dari Alpha)
-5. Beta mulai eksekusi serangan
-```
-
----
-
-### 2. Authorization State Machine (`agent_alpha/conductor/authorization.py`)
-
-**Tanggal:** Sebelum sesi ini  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Mesin state yang mengontrol otorisasi engagement. Hanya Conductor yang boleh baca/tulis state ini (Rule 9).
-
-#### Efek terhadap Agent
-- Agent TIDAK bisa menjalankan aksi tanpa izin dari state machine
-- Setiap agent harus memanggil `can_agent_proceed()` sebelum aksi
-- Jika state tidak mengizinkan, agent diblokir
-
-#### Behavior Sistem
-State transitions:
-```
-CREATED → RECON_ONLY → ACTIVE_APPROVED → OFFENSIVE_APPROVED → EMERGENCY_STOP
-```
-
-- **CREATED**: Engagement baru, belum ada izin
-- **RECON_ONLY**: Hanya Alpha (SCOUT) boleh reconnaissance
-- **ACTIVE_APPROVED**: Beta, Gamma, Delta, Epsilon boleh beroperasi (non-offensive)
-- **OFFENSIVE_APPROVED**: Semua agent boleh beroperasi termasuk offensive
-- **EMERGENCY_STOP**: SEMUA agent diblokir, tidak ada yang boleh proceed
-
-#### Contoh Flow
-```
-1. Engagement dibuat → state: CREATED
-2. Conductor enable RECON_ONLY → state: RECON_ONLY
-3. Alpha (SCOUT) panggil can_agent_proceed(ALPHA) → True (boleh recon)
-4. Alpha selesai reconnaissance
-5. Conductor enable ACTIVE_APPROVED → state: ACTIVE_APPROVED
-6. Beta (STRIKE) panggil can_agent_proceed(BETA) → True (boleh strike)
-7. Gamma (ANCHOR) panggil can_agent_proceed(GAMMA) → False (belum offensive)
-8. Conductor enable OFFENSIVE_APPROVED → state: OFFENSIVE_APPROVED
-9. Gamma (ANCHOR) panggil can_agent_proceed(GAMMA) → True (boleh persistence)
-10. Emergency stop triggered → state: EMERGENCY_STOP
-11. Semua agent panggil can_agent_proceed() → False (semua diblokir)
-```
-
----
-
-### 3. Event Store (`agent_alpha/events/store.py`)
-
-**Tanggal:** Sebelum sesi ini  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Penyimpanan event *append-only* — setiap aksi agent dicatat sebagai event yang tidak bisa dihapus atau dimodifikasi.
-
-#### Efek terhadap Agent
-- Setiap aksi agent mencatat event ke Event Store
-- Agent tidak perlu khawatir tentang audit — Conductor yang mencatat
-- Event menjadi sumber kebenaran tunggal (single source of truth)
-
-#### Behavior Sistem
-- Event berisi: event_id, event_type, engagement_id, agent, timestamp, payload, sequence_number
-- Sequence number monotonic (1, 2, 3, ...) per engagement
-- Tidak ada gap yang diizinkan (kecuali di-override)
-- Phase 0: in-memory (Phase 1: PostgreSQL)
-
-#### Contoh Flow
-```
-1. Alpha (SCOUT) melakukan port scan
-2. Conductor append event:
-   - event_type: "PortScanCompleted"
-   - engagement_id: "eng_123"
-   - agent: "ALPHA"
-   - payload: {"ports": [22, 80, 443], "host": "192.168.1.1"}
-   - sequence_number: 1
-3. Beta (STRIKE) melakukan exploit
-4. Conductor append event:
-   - event_type: "ExploitAttempted"
-   - engagement_id: "eng_123"
-   - agent: "BETA"
-   - payload: {"technique": "T1190", "target": "192.168.1.1:22"}
-   - sequence_number: 2
-5. Auditor replay event untuk engagement:
-   - get_events("eng_123") → [event_1, event_2, ...]
-   - Urut berdasarkan sequence_number
-   - Lihat timeline lengkap semua aksi
-```
-
----
-
-### 4. Secrets Vault (`agent_alpha/security/secrets.py`)
-
-**Tanggal:** Sesi ini (selesai)  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Penyimpanan kredensial terenkripsi (password, API key, token) menggunakan Fernet symmetric encryption. Kredensial TIDAK PERNAH muncul di plaintext di log/event.
-
-#### Efek terhadap Agent
-- Agent menyimpan kredensial lewat SecretsManager
-- Agent hanya bisa retrieve kredensial yang dimiliki
-- Log agent otomatis di-scrub (sensitive data dihapus)
-
-#### Behavior Sistem
-- `store(label, value, engagement_id)` → menyimpan terenkripsi
-- `retrieve(secret_id)` → mengembalikan plaintext
-- `delete(secret_id)` → menghapus (diizinkan untuk secrets)
-- `list_labels(engagement_id)` → hanya label, tidak ada nilai
-- LogScrubber: menghapus password, token, Bearer dari log
-
-#### Contoh Flow
-```
-1. Alpha (SCOUT) mendapatkan password database target
-2. Alpha panggil secrets_manager.store("db_password", "supersecret123", "eng_123")
-3. SecretsManager mengenkripsi dan menyimpan:
-   - secret_id: "secret_a1b2c3d4"
-   - label: "db_password"
-   - encrypted_value: <bytes terenkripsi>
-   - engagement_id: "eng_123"
-4. Alpha log: "Connecting to database with password=supersecret123"
-5. LogScrubber otomatis mengubah menjadi:
-   - "Connecting to database with [REDACTED]"
-6. Beta (STRIKE) butuh password:
-   - secrets_manager.retrieve("secret_a1b2c3d4") → "supersecret123"
-7. Audit event hanya berisi encrypted_value, bukan plaintext
-```
-
----
-
-### 5. Policy Enforcer (`agent_alpha/conductor/policy.py`)
-
-**Tanggal:** Sesi ini (selesai)  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Enforcement layer untuk Rules of Engagement (RoE). Membaca `policy.yaml` dan menegakkan aturan sebelum agent melakukan aksi.
-
-#### Efek terhadap Agent
-- Conductor memanggil PolicyEnforcer sebelum authorize aksi agent
-- Agent tidak bisa melakukan teknik yang dilarang
-- Agent tidak bisa menyerang network yang di-exclude
-- Agent tidak bisa menggunakan LLM provider yang dilarang
-
-#### Behavior Sistem
-- `check_technique(mitre_id)` → cek apakah teknik dilarang
-- `check_scope(target)` → cek apakah target di-exclude
-- `get_opsec_profile(profile_name)` → ambil konfigurasi OPSEC
-- `is_provider_allowed_for_payload(provider)` → cek provider LLM
-- `requires_human_approval(transition_to)` → cek butuh approval manusia
-
-#### Contoh Flow
-```
-1. Beta (STRIKE) ingin melakukan DoS (T1498)
-2. Conductor panggil policy.check_technique("T1498")
-3. PolicyEnforcer kembalikan PolicyViolation:
-   - rule: "excluded_technique"
-   - detail: "Destructive — never allowed"
-   - mitre_id: "T1498"
-4. Conductor tolak aksi Beta
-5. Beta (STRIKE) ingin scan 169.254.1.1 (link-local)
-6. Conductor panggil policy.check_scope("169.254.1.1")
-7. PolicyEnforcer kembalikan PolicyViolation:
-   - rule: "excluded_network"
-   - detail: "Target 169.254.1.1 is in excluded network 169.254.0.0/16"
-8. Conductor tolak aksi Beta
-9. Beta (STRIKE) ingin scan 192.168.1.1
-10. Conductor panggil policy.check_scope("192.168.1.1")
-11. PolicyEnforcer kembalikan None (allowed)
-12. Conductor izinkan aksi Beta
-```
-
----
-
-### 6. Emergency Stop (`agent_alpha/conductor/emergency.py`)
-
-**Tanggal:** Sesi ini (baru dibuat user)  
-**Status:** ✅ Selesai (perlu test)
-
-#### Apa ini?
-Tombol "kill switch" tunggal untuk menghentikan SEMUA agent secara paksa. Ketika triggered, semua agent diblokir dan semua task Celery di-revoke.
-
-#### Efek terhadap Agent
-- Agent tidak bisa proceed setelah emergency stop
-- Task yang sedang berjalan di-revoke (dibatalkan)
-- Agent harus berhenti segera ketika state EMERGENCY_STOP
-
-#### Behavior Sistem
-- `execute(engagement_id, reason, issued_by)` → jalankan emergency stop
-- Langkah-langkah:
-  1. Force state ke EMERGENCY_STOP
-  2. Revoke semua task Celery (Phase 0: mock)
-  3. Emit audit event
-  4. Hitung elapsed time
-  5. Warn jika melebihi timeout (5 detik)
-- `is_stopped(engagement_id)` → cek apakah engagement di-stopped
-- **Best-effort**: TIDAK PERNAH raise exception
-
-#### Contoh Flow
-```
-1. Engagement berjalan dengan state OFFENSIVE_APPROVED
-2. Operator mendeteksi anomali berbahaya
-3. Operator panggil emergency_stop.execute("eng_123", "Anomali terdeteksi", "operator_1")
-4. EmergencyStopHandler:
-   a. Panggil auth.emergency_stop("eng_123", "Anomali terdeteksi")
-   b. State berubah ke EMERGENCY_STOP
-   c. Revoke semua task Celery (Phase 0: 0 task)
-   d. Emit event "EmergencyStopExecuted"
-   e. Hitung elapsed time: 120ms
-5. Kembalikan EmergencyStopResult:
-   - engagement_id: "eng_123"
-   - success: True
-   - tasks_revoked: 0
-   - elapsed_ms: 120.0
-   - reason: "Anomali terdeteksi"
-   - timestamp_utc: "2026-06-16T09:30:00Z"
-6. Alpha (SCOUT) panggil can_agent_proceed(ALPHA) → False
-7. Beta (STRIKE) panggil can_agent_proceed(BETA) → False
-8. Semua agent berhenti
-```
-
----
-
-## Flow Sistem Lengkap (Phase 0)
+## Flow Sistem Lengkap
 
 ### Normal Operation Flow
-```
 1. Engagement dibuat → state: CREATED
 2. Conductor enable RECON_ONLY → state: RECON_ONLY
-3. Alpha (SCOUT) panggil can_agent_proceed(ALPHA) → True
-4. Alpha melakukan reconnaissance
+3. Alpha SCOUT panggil can_agent_proceed(ALPHA) → True
+4. Alpha melakukan reconnaissance dengan cognitive loop
 5. Alpha selesai, kirim handoff ke Conductor
-6. Conductor validasi dengan PolicyEnforcer:
-   - check_technique() → OK
-   - check_scope() → OK
+6. Conductor validasi dengan PolicyEnforcer
 7. Conductor emit event ke EventStore
 8. Conductor enable ACTIVE_APPROVED → state: ACTIVE_APPROVED
-9. Beta (STRIKE) panggil can_agent_proceed(BETA) → True
+9. Beta STRIKE panggil can_agent_proceed(BETA) → True
 10. Beta melakukan exploit
-11. Beta butuh kredensial → retrieve dari SecretsVault
-12. Beta log aktivitas → LogScrubber menghapus sensitive data
-13. Conductor emit event ke EventStore
-14. Engagement selesai → state: EMERGENCY_STOP (cleanup)
-```
+11. Engagement selesai → state: EMERGENCY_STOP (cleanup)
 
 ### Emergency Stop Flow
-```
 1. Engagement berjalan → state: OFFENSIVE_APPROVED
 2. Operator trigger emergency stop
-3. EmergencyStopHandler.execute():
-   a. Force state ke EMERGENCY_STOP
-   b. Revoke semua task Celery
-   c. Emit event
+3. EmergencyStopHandler.execute(): force state ke EMERGENCY_STOP, revoke tasks, emit event
 4. Semua agent diblokir
 5. Audit trail lengkap di EventStore
-```
 
 ---
 
-## Phase 1 — Attack Graph & Knowledge Representation
+## Testing Strategy
 
-**Tujuan Phase 1:** Membangun sistem representasi knowledge graph untuk attack surface dan path reasoning. Graph ini menjadi dasar untuk cognitive loop agent.
+### Unit Tests
+- Phase 0: Authorization, EventStore, SecretsVault, PolicyEnforcer, EmergencyStop
+- Phase 1: GraphStore, EngagementMemory, SessionMemory, IntelligenceBase
+- Phase 2: DeepSeekProvider, PlaybookEngine, LLMOrchestrator, Alpha SCOUT
+- Phase 3: Laravel template, Laravel redaction, Template wiring
 
-### Komponen Phase 1 Checklist
+### Integration Tests
+- Redis SessionStore (skip jika Redis tidak tersedia)
+- PostgreSQL EngagementMemory (skip jika PG tidak tersedia)
+- PostgreSQL EventStore (skip jika PG tidak tersedia)
+- RLS Guard (raw SQL verification)
 
-- ✅ **GraphStore Protocol** — Interface abstrak read-model untuk graph engine
-- ✅ **NetworkXGraphStore** — Implementasi konkret NetworkX untuk Phase 0-3
-- ✅ **EngagementMemory** — Event-sourced projection untuk post-engagement learning/audit
-- ✅ **SessionMemory** — Volatile live state store untuk active engagement (Redis-backed)
-- ✅ **IntelligenceBase** — Cross-engagement learning queries (K3, K15-K20)
-
----
-
-## Komponen yang Sudah Dibuat (Phase 1)
-
-### 7. GraphStore Protocol (`agent_alpha/graph/store.py`)
-
-**Tanggal:** 2026-06-17  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Interface abstrak (Protocol) untuk read-model graph. Memungkinkan swapping graph engine (NetworkX → Memgraph/Neo4j) tanpa mengubah consumer code.
-
-#### Efek terhadap Agent
-- Cognitive Loop hanya bergantung pada GraphStore, bukan implementasi spesifik
-- Event-sourced: graph adalah projection dari event log (event log adalah single source of truth)
-- Tidak ada method save/persist/commit — hanya apply_event untuk mutasi
-
-#### Behavior Sistem
-- `apply_event(event_type, payload)` — satu-satunya write path
-- `get_node`, `get_edge`, `all_nodes`, `all_edges` — query methods
-- `nodes_by_type`, `edges_by_relationship` — filtering
-- `neighbors`, `find_paths` — graph traversal
-- `clear` — reset untuk rebuild
-- `rebuild_from_events(store, events)` — helper function generic
-
-#### Contoh Flow
-```
-1. Event log berisi: NodeDiscovered, EdgeDiscovered, NodeVerified
-2. rebuild_from_events(store, events):
-   a. store.clear()
-   b. apply_event(NodeDiscovered) → tambah node
-   c. apply_event(EdgeDiscovered) → tambah edge
-   d. apply_event(NodeVerified) → update verified=True
-3. Graph siap untuk query cognitive loop
-```
+### Oracle ARM64 Testing
+- Full test suite dijalankan di Oracle ARM64 untuk final validation
+- Phase 3 contract (C1–C8) harus GREEN di Oracle sebelum merge
 
 ---
 
-### 8. NetworkXGraphStore (`agent_alpha/graph/networkx_store.py`)
-
-**Tanggal:** 2026-06-17
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Implementasi konkret GraphStore menggunakan NetworkX DiGraph. Ini satu-satunya file yang boleh import networkx.
-
-#### Efek terhadap Agent
-- Agent bisa reasoning tentang attack surface dan attack paths
-- Graph query: neighbors, find_paths, filtering by type/relationship
-- Event-driven: graph dibangun dari event log
-
-#### Behavior Sistem
-- Directed graph (nx.DiGraph) untuk relationship yang berarah
-- Node/Edge disimpan di attribute "data" (tidak unpack fields)
-- Event handlers:
-  - NodeDiscovered → add_node dengan AttackNode
-  - EdgeDiscovered → add_edge dengan AttackEdge
-  - NodeVerified → dataclasses.replace(verified=True)
-- Unknown event types → no-op (forward-compatible)
-
-#### Contoh Flow
-```
-1. Alpha (SCOUT) menemukan asset 10.0.0.1
-2. Event: NodeDiscovered (id="asset1", type=ASSET, properties={...})
-3. NetworkXGraphStore.apply_event() → add_node("asset1", data=AttackNode)
-4. Alpha menemukan vulnerability CVE-2024-1234 di asset
-5. Event: EdgeDiscovered (source="asset1", target="vuln1", relationship=EXPLOITS)
-6. NetworkXGraphStore.apply_event() → add_edge("asset1", "vuln1", data=AttackEdge)
-7. Cognitive loop query: find_paths("asset1", "credential1") → [asset1 → vuln1 → credential1]
-```
-
----
-
-### 9. EngagementMemory (`agent_alpha/memory/engagement.py`)
-
-**Tanggal:** 2026-06-17
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Event-sourced projection untuk post-engagement learning dan audit. EngagementMemory adalah read-model yang dibangun murni dari event log — tidak pernah ditulis langsung.
-
-#### Efek terhadap Agent
-- Agent tidak perlu khawatir tentang learning/audit — Conductor yang memproses
-- EngagementMemoryRecord frozen (immutable) — hanya dibaca, tidak dimutasi
-- Source of truth adalah event log, bukan EngagementMemory
-
-#### Behavior Sistem
-- `EngagementMemoryProjector.project(engagement_id)` — replay event log dan derive record
-- Fields: confirmed_exploits, failed_attempts, time_to_exploit_per_phase, tool_success_rates, proof_artifacts, scratchpad_snapshot
-- Event handlers:
-  - EXPLOIT_CONFIRMED → append ke confirmed_exploits
-  - EXPLOIT_FAILED → append ke failed_attempts
-  - PROOF_ARTIFACT_RECORDED → append ke proof_artifacts
-  - SCRATCHPAD_SNAPSHOTTED → update scratchpad_snapshot (latest wins)
-- `verify_projection()` — consistency check untuk drift detection
-
-#### Contoh Flow
-```
-1. Engagement selesai dengan 10 events
-2. EngagementMemoryProjector.project("eng_123"):
-   a. get_events("eng_123") → [event_1, ..., event_10]
-   b. Process setiap event → derive fields
-   c. upsert EngagementMemoryRecord
-3. Record berisi:
-   - confirmed_exploits: [CVE-2024-0001, CVE-2024-0002]
-   - failed_attempts: [CVE-2024-0003]
-   - scratchpad_snapshot: {"notes": "engagement complete"}
-4. Auditor query EngagementMemory untuk learning
-```
-
----
-
-### 10. SessionMemory (`agent_alpha/memory/session.py`)
-
-**Tanggal:** 2026-06-17
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Volatile live state store untuk active engagement. SessionMemory adalah genuinely volatile (Redis-backed), bukan event-sourced — source of truth adalah dirinya sendiri selama engagement berjalan.
-
-#### Efek terhadap Agent
-- Agent read/write SessionMemory langsung selama Cognitive Loop
-- SessionRecord mutable — di-update in-place (ORIENT/PLAN steps)
-- Scratchpad untuk temporary notes antar cognitive loop iteration
-- Jika Redis hilang mid-engagement, live progress hilang — tapi durable facts (AttackGraph, confirmed exploits) TIDAK hilang (sudah dipromote ke event log)
-
-#### Behavior Sistem
-- `SessionStore` Protocol + `InMemorySessionStore` test double
-- Fields: engagement_id, target_scope, active_agent, current_phase, current_phase_iteration, authorization, scratchpad, ttl_seconds
-- Methods:
-  - `get()` / `set()` — basic CRUD
-  - `update_scratchpad()` — convenience untuk high-frequency write path
-  - `delete()` — idempotent removal
-  - `exists()` — boolean check
-  - `snapshot_scratchpad_event()` — return tuple untuk Conductor append ke EventStore (deep copy untuk mencegah payload drift)
-- Tidak ada EventStore dependency — checkpointing adalah Conductor's job
-
-#### Contoh Flow
-```
-1. Engagement dimulai → SessionRecord dibuat
-2. Alpha (SCOUT) ORIENT step:
-   a. get("eng_123") → SessionRecord
-   b. update_scratchpad("eng_123", {"phase": "RECON", "notes": "port scan complete"})
-3. Conductor checkpoint:
-   a. snapshot_scratchpad_event("eng_123") → (SCRATCHPAD_SNAPSHOTTED, scratchpad_copy)
-   b. EventStore.append(...) → durably append ke event log
-4. Beta (STRIKE) PLAN step:
-   a. get("eng_123") → SessionRecord
-   b. update_scratchpad("eng_123", {"phase": "EXPLOIT", "target": "10.0.0.1"})
-5. Engagement selesai → delete("eng_123")
-```
-
----
-
-### 11. IntelligenceBase (`agent_alpha/memory/intelligence.py`)
-
-**Tanggal:** 2026-06-18
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Cross-engagement learning query interface (K3, K15-K20). Layer query untuk belajar dari engagement sebelumnya — tool reliability, false positive rates, scan strategies, credential patterns.
-
-#### Efek terhadap Agent
-- Agent bisa query "apa yang berhasil untuk target mirip?" sebelum memilih tool
-- Agent bisa melihat reliability score tool sebelum menggunakannya
-- Cognitive loop menggunakan IntelligenceBase untuk ORIENT/PLAN decisions
-- Phase 1: semua methods return `InsufficientData` (belum ada data cross-engagement)
-- Phase 2+: mulai return real scores setelah `tool_success_rates` populated
-
-#### Behavior Sistem
-- `IntelligenceBase` Protocol + `RecordBackedIntelligenceBase` implementation
-- Methods:
-  - `what_worked_for_similar_targets(tech_stack, target_type)` → strategy recommendation
-  - `credential_patterns(industry, region)` → credential pattern lookup
-  - `false_positive_rate(tool, target_type)` → FP rate untuk tool
-  - `tool_reliability(tool, conditions)` → reliability score (Wilson lower-bound)
-- Backend: Option A — no dedicated storage, query over `list[EngagementMemoryRecord]`
-- Anti-Lyndon #3: explicit `InsufficientData` type, bukan silent 0.0
-- Wilson lower-bound formula (K20) untuk statistical correction pada small samples
-
-#### Contoh Flow (Phase 2+)
-```
-1. Conductor load semua EngagementMemoryRecord dari database
-2. RecordBackedIntelligenceBase dibuat dengan records tersebut
-3. Beta (STOUT) ORIENT step:
-   a. what_worked_for_similar_targets(["laravel", "mysql"], "webapp")
-   b. Return: ScanStrategy(recommended_tool_order=["nuclei", "httpx"], ...)
-4. Beta PLAN step:
-   a. tool_reliability("nuclei", {})
-   b. Return: ToolReliabilityScore(success_rate=0.85, samples=12)
-5. Beta memilih nuclei karena reliability tinggi
-6. Beta execute exploit
-```
-
-#### Contoh Flow (Phase 1 Reality)
-```
-1. Conductor load EngagementMemoryRecord (semua tool_success_rates = {})
-2. RecordBackedIntelligenceBase dibuat
-3. Beta (STRIKE) ORIENT step:
-   a. what_worked_for_similar_targets(["laravel", "mysql"], "webapp")
-   b. Return: InsufficientData(reason="no tech_stack field on record")
-4. Beta PLAN step:
-   a. tool_reliability("nuclei", {})
-   b. Return: InsufficientData(reason="no tool_success_rates recorded")
-5. Beta fallback ke default tool selection (hardcoded logic)
-```
-
----
-
-## Phase 2 — Cognitive Loop & Agent Implementation
-
-**Tujuan Phase 2:** Membangun cognitive loop dan implementasi agent pertama (Alpha SCOUT) dengan LLM reasoning dan decision ladder.
-
-### Komponen Phase 2 Checklist
-
-- ✅ **DeepSeekProvider** — LLM provider untuk reasoning/payload
-- ✅ **PlaybookEngine** — RULE tier decision making (deterministic)
-- ✅ **LLMOrchestrator** — Routing ke RULE/SINGLE_LLM/CONSENSUS
-- ✅ **ToolRegistry** — Registry untuk tool yang tersedia
-- ✅ **BoundedAutonomy + run_cognitive_loop** — Cognitive loop dengan stop conditions
-- ✅ **Alpha SCOUT** — Reconnaissance agent pertama
-- ✅ **Omega ROASTER** — Report generation agent
-- ✅ **HttpClient** — Production httpx-backed HTTP client
-- ✅ **Inner Monologue** — Real-time reasoning stream ke USER channel
-- ✅ **RLS Guard** — Fail-closed guard untuk Postgres RLS enforcement
-- ✅ **create_app_role.sql** — SQL script untuk least-privilege role
-- ✅ **RLS Isolation Tests** — Integration tests dengan raw SQL verification
-- ✅ **Python 3.12 + Dependencies** — Upgrade Python dan tambah pytest/protobuf
-
----
-
-## Komponen yang Sudah Dibuat (Phase 2)
-
-### 12. DeepSeekProvider (`agent_alpha/llm/providers/deepseek.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-LLM provider untuk DeepSeek API (reasoning model deepseek-v4-pro). Menyediakan interface untuk inference dengan cost tracking dan error handling.
-
-#### Efek terhadap Agent
-- Agent bisa melakukan LLM reasoning untuk decision making
-- Cost tracking untuk budget enforcement
-- Error handling untuk truncation (max_tokens too small)
-- Timeout enforcement untuk network reliability
-
-#### Behavior Sistem
-- `list_models()` — fetch available models from DeepSeek API
-- `complete(messages, max_tokens)` — single inference round-trip
-- Returns `CompletionResult(text, usage_cost_usd, model)`
-- Raises `CompletionTruncatedError` jika max_tokens terlalu kecil
-- Warning untuk unpriced models
-- Timeout 30.0 detik untuk semua HTTP requests
-
-#### Contoh Flow
-```
-1. LLMOrchestrator memanggil DeepSeekProvider.complete()
-2. HTTP request ke api.deepseek.com/v1/chat/completions
-3. Response berisi choices[0].message.content
-4. Cost dihitung dari prompt_tokens + completion_tokens
-5. Return CompletionResult dengan text dan cost
-```
-
----
-
-### 13. PlaybookEngine (`agent_alpha/tools/playbook.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Deterministic RULE tier decision engine. Membaca YAML playbooks dan mengembalikan tool decision tanpa LLM. Ini adalah tier pertama dari decision ladder.
-
-#### Efek terhadap Agent
-- Agent bisa mengetahui tool yang harus digunakan untuk observation tertentu
-- Tidak ada LLM call untuk known patterns (lebih cepat dan lebih murah)
-- Escalation ke LLM hanya jika playbook tidak match
-
-#### Behavior Sistem
-- `from_directory(path)` — load semua *.yaml playbooks dari directory
-- `match(observation)` — cari playbook yang match observation
-- Indicators: body_contains, body_regex
-- Logical OR untuk any_indicator
-- Stable sorted order (deterministic)
-- Returns `PlaybookDecision(tool, tier, technique_id, cost_usd)` atau None
-
-#### Contoh Flow
-```
-1. Alpha SCOUT mengamati Laravel debug page
-2. Observation: {"body": "Whoops...Illuminate\\...", "headers": {...}}
-3. PlaybookEngine.match() mengecek laravel_debug.yaml
-4. body_contains "Whoops" → match
-5. Return PlaybookDecision(tool="laravel_debug_probe", tier="rule", technique_id="T1592.002")
-6. Alpha execute laravel_debug_probe
-```
-
----
-
-### 14. LLMOrchestrator (`agent_alpha/llm/orchestrator.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Orchestrator untuk LLM decision routing. Mengimplementasikan decision ladder: RULE → SINGLE_LLM → CONSENSUS.
-
-#### Efek terhadap Agent
-- Agent mendapatkan tool decision yang optimal
-- Cost optimization (RULE tier gratis, SINGLE_LLM murah, CONSENSUS mahal)
-- Fallback jika tier gagal
-
-#### Behavior Sistem
-- `decide(observation)` — main decision method
-- Priority: PlaybookEngine (RULE) → LLM (SINGLE_LLM) → Consensus (CONSENSUS)
-- Returns `Decision(tool, tier, technique_id, cost_usd)`
-- Cost tracking per decision
-
-#### Contoh Flow
-```
-1. Alpha SCOUT panggil orchestrator.decide(observation)
-2. Cek PlaybookEngine.match() → match
-3. Return RULE tier decision (cost_usd=0.0)
-4. Jika tidak match → panggil LLM provider
-5. Parse JSON response untuk tool selection
-6. Return SINGLE_LLM tier decision (cost_usd>0.0)
-```
-
----
-
-### 15. ToolRegistry (`agent_alpha/tools/registry.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Registry untuk tool yang tersedia di sistem. Menyediakan lookup tool metadata dan validation.
-
-#### Efek terhadap Agent
-- Agent bisa mengetahui tool yang tersedia
-- Validation untuk tool calls
-- Metadata untuk tool (description, tier, technique_id)
-
-#### Behavior Sistem
-- `get_tool(tool_name)` — ambil tool metadata
-- `list_tools()` — list semua tool yang tersedia
-- `is_tool_available(tool_name)` — cek availability
-
-#### Contoh Flow
-```
-1. LLMOrchestrator memilih tool "laravel_debug_probe"
-2. ToolRegistry.get_tool("laravel_debug_probe")
-3. Return tool metadata
-4. Agent execute tool
-```
-
----
-
-### 16. BoundedAutonomy + run_cognitive_loop (`agent_alpha/agents/base.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Cognitive loop implementation dengan bounded autonomy. Agent menjalankan loop OBSERVE → ORIENT → PLAN → ACT → VERIFY → PERSIST dengan stop conditions.
-
-#### Efek terhadap Agent
-- Agent memiliki autonomy terbatas (tidak berjalan tanpa batas)
-- Stop conditions: no_progress_threshold, max_iterations
-- Deterministic behavior (tidak infinite loop)
-
-#### Behavior Sistem
-- `BoundedAutonomy` — policy untuk stop conditions
-- `run_cognitive_loop(agent, policy)` — main loop driver
-- Loop: agent.step() → check stop conditions → continue or stop
-- Stop jika: no_progress_threshold tercapai atau max_iterations tercapai
-
-#### Contoh Flow
-```
-1. Alpha SCOUT panggil run_cognitive_loop(self, policy)
-2. Loop:
-   a. agent.step() → OBSERVE → ORIENT → PLAN → ACT → VERIFY → PERSIST
-   b. check stop conditions
-   c. jika tidak tercapai → continue
-   d. jika tercapai → stop
-3. Return outcome
-```
-
----
-
-### 17. Alpha SCOUT (`agent_alpha/agents/alpha/scout.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Reconnaissance agent pertama. Alpha bertugas melakukan reconnaissance pada target dan menemukan vulnerabilities.
-
-#### Efek terhadap Agent
-- Alpha melakukan reconnaissance (port scan, subdomain enumeration, tech detection)
-- Alpha menulis findings ke AttackGraph dan EventStore
-- Alpha handoff ke Beta setelah reconnaissance selesai
-
-#### Behavior Sistem
-- `run_recon(engagement_id, target_url)` — main entry point
-- Authorization gate: cek can_agent_proceed(ALPHA)
-- Scope gate: cek is_in_scope(target_host)
-- Cognitive loop: OBSERVE → ORIENT → PLAN → ACT → VERIFY → PERSIST
-- Tool handlers: laravel_debug_probe, generic_http_probe
-- Handoff ke Conductor setelah selesai
-
-#### Contoh Flow
-```
-1. Conductor panggil Alpha.run_recon(engagement_id, target_url)
-2. Authorization gate: can_agent_proceed(ALPHA) → True
-3. Scope gate: is_in_scope(target_host) → True
-4. Cognitive loop:
-   a. OBSERVE: HTTP GET ke target_url
-   b. ORIENT: orchestrator.decide(observation)
-   c. PLAN: tool selection
-   d. ACT: execute tool
-   e. VERIFY: check result
-   f. PERSIST: write ke AttackGraph dan EventStore
-5. Stop conditions tercapai
-6. Handoff ke Conductor
-```
-
----
-
-### 18. Omega ROASTER (`agent_alpha/agents/omega/roaster.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Report generation agent. Omega bertugas membuat report dari findings yang dikumpulkan oleh agent lain.
-
-#### Efek terhadap Agent
-- Omega menghasilkan executive report dan technical report
-- Omega mengorganisir proof artifacts
-- Omega menulis narrative dari attack path
-
-#### Behavior Sistem
-- `generate_report(engagement_id)` — main entry point
-- Query AttackGraph untuk findings
-- Generate narrative dari attack path
-- Generate executive summary
-- Attach proof artifacts
-
-#### Contoh Flow
-```
-1. Conductor panggil Omega.generate_report(engagement_id)
-2. Omega query AttackGraph untuk findings
-3. Omega generate narrative dari attack path
-4. Omega generate executive summary
-5. Omega attach proof artifacts
-6. Omega return report
-```
-
----
-
-### 19. HttpClient (`agent_alpha/agents/http_client.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Production httpx-backed HTTP client untuk Alpha reconnaissance. Menggantikan FakeHttpClient di production.
-
-#### Efek terhadap Agent
-- Alpha bisa melakukan HTTP request ke real target
-- User-Agent identification untuk blue team
-- Timeout enforcement untuk reliability
-- Transport injection untuk testing
-
-#### Behavior Sistem
-- `HttpClient(engagement_id, timeout, transport)` — constructor
-- `get(url)` — HTTP GET request
-- Returns `HttpResponse(status_code, text, headers, url)`
-- User-Agent: "Agent-Alpha-Recon/{engagement_id}"
-- Timeout: 30.0 detik (default)
-
-#### Contoh Flow
-```
-1. Alpha SCOUT panggil HttpClient.get(target_url)
-2. httpx.Client dengan timeout dan headers
-3. HTTP GET ke target_url
-4. Return HttpResponse
-5. Alpha process response
-```
-
----
-
-### 20. Inner Monologue (`agent_alpha/agents/monologue.py`)
-
-**Tanggal:** 2026-06-19  
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Real-time reasoning stream ke USER channel. Agent mengirim ThoughtFrame per cognitive-loop phase (OBSERVE, ORIENT, ACT, PERSIST) untuk memberikan visibility ke user tentang decision-making process.
-
-#### Efek terhadap Agent
-- Agent memiliki transparency dalam decision-making
-- User bisa melihat reasoning real-time (RULE tier: playbook rationale, SINGLE_LLM tier: DeepSeek reasoning_content)
-- Backward compatible: tanpa sink menggunakan NullMonologueSink (no-op)
-- A2A messages tetap structured JSON (tidak terkontaminasi reasoning text)
-
-#### Behavior Sistem
-- `ThoughtFrame` dataclass: engagement_id, agent, phase, message, timestamp_utc, reasoning
-- `MonologueSink` Protocol: duck-typed emit(frame) method
-- `NullMonologueSink`: default no-op sink untuk backward compatibility
-- `CollectingMonologueSink`: in-memory sink untuk testing/replay
-- Alpha emits frames di setiap cognitive-loop phase:
-  - OBSERVE: HTTP fetch result
-  - ORIENT: tool selection dengan reasoning (playbook rationale atau LLM reasoning_content)
-  - ACT: tool execution
-  - PERSIST: graph persistence result
-- Reasoning chain: DeepSeek reasoning_content → LLMOrchestrator → PlaybookDecision → Alpha monologue
-
-#### Contoh Flow
-```
-1. Alpha SCOUT panggil orchestrator.decide(observation)
-2. PlaybookEngine.match() → match (RULE tier)
-3. PlaybookDecision berisi reasoning: "Laravel APP_DEBUG=true detected"
-4. Alpha._emit("ORIENT", "Selected tool 'laravel_debug_probe' via the rule tier", reasoning="Laravel APP_DEBUG=true detected")
-5. MonologueSink.emit(ThoughtFrame(...))
-6. User melihat frame real-time via WebSocket
-```
-
----
-
-### 21. RLS Guard (`agent_alpha/storage/rls_guard.py`)
-
-**Tanggal:** 2026-06-20
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Fail-closed guard yang mencegah Postgres stores beroperasi jika DSN role bisa bypass Row-Level Security (superuser atau BYPASSRLS). Ini memastikan tenant isolation benar-benar enforced oleh database, bukan hanya secara aplikasi.
-
-#### Efek terhadap Agent
-- Postgres stores (EventStore, EngagementMemory) menolak inisialisasi jika role bisa bypass RLS
-- Mencegah silent RLS bypass di mana tenant isolation terlihat bekerja tapi sebenarnya inert
-- Error message yang jelas jika role tidak aman
-
-#### Behavior Sistem
-- `RlsNotEnforcedError` — exception yang di-raise jika role bisa bypass RLS
-- `assert_role_cannot_bypass_rls(connect)` — main guard function
-- SQL query: `SELECT current_user, current_setting('is_superuser'), (SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user)`
-- Raises error jika `is_superuser='on'` atau `rolbypassrls=True`
-- Dipanggil di akhir `PostgresEventStore.__init__` dan `PostgresEngagementMemoryStore.__init__`
-
-#### Contoh Flow
-```
-1. Aplikasi mencoba inisialisasi PostgresEventStore dengan superuser DSN
-2. assert_role_cannot_bypass_rls() dijalankan
-3. SQL query menemukan is_superuser='on'
-4. RlsNotEnforcedError di-raise dengan message:
-   "Postgres role 'agent_alpha' can bypass Row-Level Security (is_superuser='on', rolbypassrls=False).
-    Tenant isolation is NOT enforced by the database.
-    Use a dedicated NOSUPERUSER NOBYPASSRLS role for the app DSN."
-5. Aplikasi fail-closed (tidak berjalan dengan tenant isolation yang inert)
-```
-
----
-
-### 22. create_app_role.sql (`infra/create_app_role.sql`)
-
-**Tanggal:** 2026-06-20
-**Status:** ✅ Selesai
-
-#### Apa ini?
-SQL script untuk membuat least-privilege role `agent_alpha_app` yang tidak bisa bypass RLS. Script ini menyerahkan ownership tabel P2 ke role tersebut agar FORCE ROW LEVEL SECURITY benar-benar meng-constrain role tersebut.
-
-#### Efek terhadap Agent
-- Menyediakan role yang aman untuk aplikasi DSN
-- Memastikan RLS enforcement berfungsi dengan benar
-- Role memiliki permission yang cukup untuk operasi runtime tapi tidak bisa bypass RLS
-
-#### Behavior Sistem
-- Membuat role `agent_alpha_app` dengan `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`
-- Grant CONNECT pada database dan USAGE/CREATE pada schema public
-- Transfer ownership tabel `agent_events` dan `engagement_memory` ke role tersebut
-- Transfer ownership function `agent_alpha_events_append_only()` ke role tersebut
-- Idempotent: bisa dijalankan berulang kali tanpa error
-- Verification query untuk mengecek role tidak bisa bypass RLS
-
-#### Contoh Flow
-```
-1. Jalankan script sebagai superuser:
-   psql "postgresql://agent_alpha:<superpw>@127.0.0.1:15432/agent_alpha" -f create_app_role.sql
-2. Script membuat role agent_alpha_app dengan password yang ditentukan
-3. Script grant permission yang diperlukan
-4. Script transfer ownership tabel dan function
-5. Verification query menunjukkan:
-   rolname: agent_alpha_app
-   is_superuser: f
-   can_bypass_rls: f
-6. Update AGENT_ALPHA_PG_DSN untuk menggunakan role baru
-```
-
----
-
-### 23. RLS Isolation Tests (`tests/integration/test_rls_isolation.py`)
-
-**Tanggal:** 2026-06-20
-**Status:** ✅ Selesai
-
-#### Apa ini?
-Integration tests yang memverifikasi Row-Level Security berfungsi dengan benar untuk multi-tenant isolation. Tests ini menggunakan raw SQL queries untuk memastikan database itu sendiri yang menegakkan isolation, bukan hanya aplikasi layer.
-
-#### Efek terhadap Agent
-- Memberikan confidence bahwa tenant isolation berfungsi dengan benar
-- Mendeteksi jika RLS configuration salah atau role bisa bypass
-- Guard untuk mencegah silent RLS bypass di production
-
-#### Behavior Sistem
-- Tests menggunakan raw SQL tanpa tenant_id predicates
-- Memverifikasi bahwa cross-tenant access diblok oleh database
-- Tests untuk both app-layer isolation (WHERE tenant_id) dan RLS-layer isolation
-- Guard untuk memastikan DSN role tidak bisa bypass RLS
-- Tests dijalankan sebagai agent_alpha_app role (bukan superuser)
+## Next Steps
+
+### Phase 3 Remaining
+- **C6b** — Per-unit fan-out execution + live-fire FP<20%
+- **C7** — No regression + CI
+- **C8** — Anti-Lyndon gates
+
+### Future Phases
+- **Phase 4** — Beta STRKE, Gamma ANCHOR, Delta PERSIST, Epsilon CLEAN
+- **Phase 5** — Multi-engagement orchestration
+- **Phase 6** — IntelligenceBase dengan pgvector untuk embeddings
 
 #### Contoh Flow
 ```
