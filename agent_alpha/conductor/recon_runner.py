@@ -114,6 +114,7 @@ def build_recon_pipeline(
     tenant_id: str | None,
     auth: AuthorizationStateMachine,
     store: EventStore,
+    publisher: Any = None,
 ) -> ReconPipeline:
     """Construct a real recon pipeline (Alpha + its own graph) for one worker run.
 
@@ -124,12 +125,21 @@ def build_recon_pipeline(
     provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(_PLAYBOOK_DIR), provider)
     graph_store = NetworkXGraphStore()
+
+    # Wire tenant-scoped monologue sink if publisher is provided (Phase 3 infra)
+    monologue_sink = None
+    if publisher is not None and tenant_id is not None:
+        from agent_alpha.agents.monologue_stream import RedisMonologueSink
+
+        monologue_sink = RedisMonologueSink(publisher, tenant_id, engagement_id)
+
     alpha = Alpha(
         authorization=auth,
         graph_store=graph_store,
         event_store=store,
         orchestrator=orchestrator,
         http_client=http_client,
+        monologue=monologue_sink,
     )
     return ReconPipeline(alpha=alpha, graph_store=graph_store)
 

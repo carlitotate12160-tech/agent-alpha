@@ -45,6 +45,21 @@ class Principal:
     subject: str
 
 
+def principal_from_token(token: str) -> Principal:
+    """Decode a raw JWT (no Bearer prefix) into a Principal. Raises JWTError on an
+    invalid/expired token or a missing tenant_id/subject claim. Shared by the HTTP
+    dependency (require_principal) and the WS route — one place maps token -> tenant
+    (anti-Lyndon #6/#7)."""
+    payload = _decode_and_verify_jwt(token)
+    tenant_id = payload.get("tenant_id")
+    if not isinstance(tenant_id, str) or not tenant_id:
+        raise JWTError("tenant_id claim missing")
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject:
+        raise JWTError("subject claim missing")
+    return Principal(tenant_id=tenant_id, subject=subject)
+
+
 async def require_principal(request: Request) -> Principal:
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
@@ -59,22 +74,9 @@ async def require_principal(request: Request) -> Principal:
             detail="Missing or invalid Authorization header",
         )
     try:
-        payload = _decode_and_verify_jwt(token)
+        return principal_from_token(token)
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid access token",
         ) from None
-    tenant_id = payload.get("tenant_id")
-    if not isinstance(tenant_id, str) or not tenant_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="tenant_id claim missing",
-        )
-    subject = payload.get("sub")
-    if not isinstance(subject, str) or not subject:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="subject claim missing",
-        )
-    return Principal(tenant_id=tenant_id, subject=subject)
