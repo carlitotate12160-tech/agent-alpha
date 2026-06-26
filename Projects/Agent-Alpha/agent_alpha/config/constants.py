@@ -1,0 +1,138 @@
+# agent_alpha/config/constants.py
+# SINGLE SOURCE OF TRUTH for all threshold and configuration values.
+# All other files import from this module — never define magic numbers elsewhere.
+
+# ── LLM Providers ──────────────────────────────────────────
+LLM_REASONING_PRIMARY = "deepseek-v4-pro"
+LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"
+LLM_PAYLOAD_NEVER = [
+    "claude",
+    "sonnet",
+    "opus",
+    "gpt",
+]  # HARD GUARD: never allow these for payload generation
+LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6"]  # Allowed payload providers
+LLM_PAYLOAD_GEN = "deepseek-v4-pro"  # Primary payload provider
+LLM_PAYLOAD_FALLBACK = "kimi-2.6"  # Fallback when primary refuses
+# NOTE: there is intentionally no "TESTING_MODE" flag here. Payload-prompt
+# permissiveness must never vary by a boolean switch — see
+# config/payload_prompt_template.md ("Enforcement note"). The only thing
+# that gates payload generation is a live AuthorizationStateMachine query
+# (engagement_id -> EngagementRecord.state == OFFENSIVE_APPROVED, sow_hash
+# present). If you find yourself wanting to add a mode flag here, that is
+# the signal to stop and re-read this note.
+
+# ── LLM Tier Labels ─────────────────────────────────────────
+LLM_TIER_RULE = "rule"
+LLM_TIER_SINGLE = "single_llm"
+LLM_TIER_CONSENSUS = "consensus"
+
+# ── LLM Orchestrator ────────────────────────────────────────
+LLM_TOOL_SELECT_MAX_TOKENS = 512  # headroom for reasoning model JSON reply
+# DeepSeek HTTP round-trip timeout — its own concept (LLM inference is
+# slower than a recon GET), kept distinct from HTTP_REQUEST_TIMEOUT_SEC.
+DEEPSEEK_HTTP_TIMEOUT_SEC = 30.0
+# Max chars of untrusted target body forwarded to an LLM (token + injection bound).
+LLM_MAX_UNTRUSTED_BODY_CHARS = 4000
+
+# ── Consensus Thresholds ────────────────────────────────────
+CONSENSUS_AGREE_THRESHOLD = 0.80
+CONSENSUS_ESCALATE_THRESHOLD = 0.50
+
+# ── Authorization ────────────────────────────────────────────
+EMERGENCY_STOP_TIMEOUT_SEC = 5
+MAX_SCOPE_IPS = 256
+
+# ── HTTP Client ──────────────────────────────────────────────
+HTTP_REQUEST_TIMEOUT_SEC = 30.0
+SOW_MAX_FILE_SIZE_MB = 50
+SOW_HASH_ALGORITHM = "sha256"
+
+# ── Event Store ──────────────────────────────────────────────
+EVENT_SEQUENCE_GAP_ALLOWED = False
+MAX_EVENTS_PER_ENGAGEMENT = 100_000
+EVENT_STORE_TABLE = "agent_events"
+ENGAGEMENT_MEMORY_TABLE = "engagement_memory"
+
+# ── Stop Conditions (enforced Phase 2+, defined here) ────────
+MAX_ITERATIONS_PER_AGENT = 500
+MAX_TIME_BUDGET_SECONDS = 14_400
+MAX_COST_BUDGET_USD = 50.0
+NO_PROGRESS_THRESHOLD_ITERS = 20
+ALPHA_RECON_NO_PROGRESS_ITERS = 1  # one idle cycle after the queue drains ends recon
+
+# ── Celery ───────────────────────────────────────────────────
+CELERY_TASK_SOFT_LIMIT_SEC = 3_600
+CELERY_TASK_HARD_LIMIT_SEC = 14_400
+CELERY_QUEUE_PREFIX = "engagement_"
+
+# ── Security ─────────────────────────────────────────────────
+SECRETS_ENCRYPTION_ALGO = "AES-256-GCM"
+LOG_SCRUB_PATTERNS = [
+    r"password['\"]?\s*[:=]\s*\S+",
+    r"token['\"]?\s*[:=]\s*\S+",
+    r"api_key['\"]?\s*[:=]\s*\S+",
+    r"secret['\"]?\s*[:=]\s*\S+",
+    r"Bearer\s+[A-Za-z0-9\-._~+/]+=*",
+]
+
+# ── Scope Enforcement ────────────────────────────────────────
+SCOPE_ALWAYS_EXCLUDED = [
+    "169.254.0.0/16",  # link-local
+    "224.0.0.0/4",  # multicast
+    "0.0.0.0/8",  # reserved
+]
+
+# ── Reporting ────────────────────────────────────────────────
+REPORT_FORMATS = ["pdf", "json", "sarif", "md"]
+MITRE_ATTACK_VERSION = "v14"
+
+# ── Laravel Credential Env Keys (SSOT — anti-Lyndon #7) ─────
+# Bounded set of .env keys that constitute leaked credentials when
+# exposed through a Laravel Whoops/Ignition debug page. Alpha scans
+# for these keys; all consumers import from here.
+LARAVEL_CREDENTIAL_ENV_KEYS: frozenset[str] = frozenset(
+    {
+        "DB_PASSWORD",
+        "DB_USERNAME",
+        "APP_KEY",
+        "REDIS_PASSWORD",
+        "MAIL_PASSWORD",
+    }
+)
+
+# Mapping of env-key prefix → service label for CredentialProperties.service.
+LARAVEL_CREDENTIAL_SERVICE_MAP: dict[str, str] = {
+    "DB_": "database",
+    "REDIS_": "redis",
+    "MAIL_": "mail",
+    "APP_": "laravel_app",
+}
+
+# Keys that represent a username rather than a secret.
+LARAVEL_CREDENTIAL_USERNAME_KEYS: frozenset[str] = frozenset(
+    {
+        "DB_USERNAME",
+    }
+)
+
+# ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
+# Single source of truth for K19 "decision threshold". Score itself
+# is computed adaptively from event-stream data; this threshold is NOT.
+# Agent must never change this value itself (ADR §8o-6).
+# K19 only — NOT K20 (playbook promotion, deferred Phase 6).
+# Value = 3: acceptable because Wilson lower-bound in
+# intelligence.py::_wilson_lower_bound already guards overconfidence
+# at small N. This threshold only gates "informative at all".
+MIN_SAMPLES_BEFORE_SKIP = 3
+
+# ── Pricing ──────────────────────────────────────────────────
+DEEPSEEK_PRICING_USD_PER_1K = {
+    "deepseek-v4-pro": {"input": 0.001, "output": 0.002},
+    "deepseek-v4-flash": {"input": 0.0001, "output": 0.0002},
+}
+
+# ── Live-Fire Scoring (Phase 2) ───────────────────────────────
+# Phase 2 exit criterion: "<20% FP rate in findings"
+# FP rate in findings = FP / (TP + FP) — fraction of REPORTED findings that are false
+MAX_FP_RATE = 0.20

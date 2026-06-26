@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-alpha"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+    "cryptography",
+    "fastapi",
+    "httpx",
+    "celery",
+    "redis",
+    "python-multipart",
+    "uvicorn",
+    "reportlab",
+    "networkx",
+]
+
+[tool.setuptools.packages.find]
+include = ["agent_alpha*"]
+exclude = ["proto*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# Generated protobuf/gRPC code (agent_alpha/a2a/*_pb2.py, *_pb2_grpc.py) is
+# excluded from lint/format everywhere, not just specific Makefile targets.
+# protoc emits PascalCase gRPC method/service names by convention — that
+# will never satisfy pep8-naming (N) and isn't meant to. Mirrors the
+# [[tool.mypy.overrides]] ignore_errors entry for agent_alpha.a2a.* below.
+extend-exclude = ["agent_alpha/a2a"]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes
+  "I",    # isort
+  "B",    # flake8-bugbear
+  "UP",   # pyupgrade
+  "N",    # pep8-naming
+]
+ignore = [
+  "E501",  # line too long (handled by formatter)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+exclude = ["tests/", "proto/"]
+
+[[tool.mypy.overrides]]
+module = "agent_alpha.a2a.*"
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+markers = [
+  "phase0: Phase 0 exit criteria tests",
+  "phase1: Phase 1 exit criteria tests",
+  "protected: Frozen contract tests — never modify",
+]
