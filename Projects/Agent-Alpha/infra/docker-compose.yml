@@ -1,0 +1,59 @@
+# Agent-Alpha — local stateful backends for P2 (durable persistence).
+#
+# Redis    : session memory + (later) Celery broker.
+# Postgres : append-only event store + engagement memory.
+#
+# SECURITY: both bound to 127.0.0.1 ONLY — never expose these to the network.
+# Credentials come from infra/.env (gitignored). The schema (tables, the
+# append-only constraint, tenant_id + Postgres Row-Level Security per decision
+# D0.3) is applied by the app's adapters/migrations — NOT here. This file only
+# provisions the engines.
+name: agent-alpha-infra
+
+services:
+  postgres:
+    # Postgres 16 + pgvector. pgvector is reserved for the Phase 6 IntelligenceBase
+    # (embeddings); harmless to have now. P2's event/engagement tables don't need it.
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-agent_alpha}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in infra/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_alpha}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/00-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-agent_alpha} -d ${POSTGRES_DB:-agent_alpha}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    # Password-protected + append-only persistence (durable across restarts —
+    # which is the whole point of P2; the restart→replay test depends on it).
+    command:
+      - "redis-server"
+      - "--requirepass"
+      - "${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/.env}"
+      - "--appendonly"
+      - "yes"
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in infra/.env}
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:

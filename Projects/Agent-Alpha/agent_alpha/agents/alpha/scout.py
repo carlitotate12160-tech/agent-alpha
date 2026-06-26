@@ -14,6 +14,7 @@ any (anti-Lyndon #6).
 from __future__ import annotations
 
 import datetime
+import re
 import uuid
 from typing import Any
 from urllib.parse import urlparse
@@ -36,8 +37,6 @@ from agent_alpha.graph.nodes import (
     node_to_dict,
 )
 from agent_alpha.llm.orchestrator import OrientationError
-from agent_alpha.security.laravel_env import iter_env_leaks
-from agent_alpha.tools.templates.cms.laravel_finding import LaravelFindingTemplate
 
 
 class Alpha:
@@ -146,7 +145,7 @@ class Alpha:
             self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        # Empty/whitespace body → non-analyzable probe.
+        # Empty/whitespace body → non-analysable probe.
         if not resp.text or not resp.text.strip():
             self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
@@ -162,7 +161,7 @@ class Alpha:
             "headers": dict(resp.headers),
         }
         # An LLM/decision failure (truncation, malformed output, API/network) is
-        # a non-analyzable probe — NOT a crash. Mirrors the OBSERVE guard.
+        # a non-analysable probe — NOT a crash. Mirrors the OBSERVE guard.
         try:
             decision = self.orchestrator.decide(observation)
         except OrientationError:
@@ -197,26 +196,17 @@ class Alpha:
     # ── Private: tool handlers ──────────────────────────────────
 
     def _handle_laravel_debug(self, resp: Any, decision: Any, url: str) -> int:
-        """Confirm Laravel debug exposure via the tool-layer template and persist findings."""
+        """Confirm Laravel debug exposure and persist findings."""
         body = resp.text
 
-        # Delegate detection + proof capture to the template (single canonical path).
-        resp_dict = {
-            "url": url,
-            "status": resp.status_code,
-            "headers": dict(resp.headers),
-            "body": body,
-        }
-        result = LaravelFindingTemplate().verify(resp_dict)
-        if not result.success:
-            return 0
-
-        # Extract real captured, redacted evidence from the template result.
-        evidence = (
-            result.findings[0].get("redacted_snippet")
-            or result.findings[0].get("evidence")
-            or "Laravel debug exposure"
+        # Confirm the detection: body must contain one of the signals.
+        is_confirmed = (
+            "Whoops" in body
+            or "Illuminate\\" in body
+            or re.search(r"Laravel v[0-9]", body) is not None
         )
+        if not is_confirmed:
+            return 0
 
         host = urlparse(url).hostname or urlparse(url).netloc
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
@@ -245,12 +235,12 @@ class Alpha:
                 affected_service="laravel",
                 exploit_available=True,
             ),
-            confidence=result.confidence,
+            confidence=0.90,
             proof_artifacts=[
                 ProofArtifact(
                     type="http_response",
                     storage_ref=(f"engagements/{self._engagement_id}/proofs/laravel_debug_{host}"),
-                    description=evidence,
+                    description=("Laravel APP_DEBUG=true page leaking stack trace + environment"),
                     captured_at=now_utc,
                     agent="alpha",
                     artifact_id=str(uuid.uuid4()),
@@ -322,9 +312,22 @@ class Alpha:
         Returns the number of CREDENTIAL nodes added.
         """
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+
+        # Build a regex that captures <KEY> and <VALUE> from an HTML
+        # env table rendered by Whoops / Ignition.  The table cells are
+        # <td>KEY</td><td>VALUE</td>, possibly with whitespace.
+        key_pattern = "|".join(re.escape(k) for k in constants.LARAVEL_CREDENTIAL_ENV_KEYS)
+        env_re = re.compile(
+            rf"<td>\s*({key_pattern})\s*</td>\s*<td>\s*([^<]+?)\s*</td>",
+            re.IGNORECASE,
+        )
+
+        found: list[tuple[str, str]] = env_re.findall(body)
         nodes_added = 0
 
-        for key, _raw_value in iter_env_leaks(body):
+        for raw_key, _raw_value in found:
+            key = raw_key.upper()
+
             # Determine the service label from the key prefix (SSOT).
             service = "unknown"
             for prefix, svc in constants.LARAVEL_CREDENTIAL_SERVICE_MAP.items():

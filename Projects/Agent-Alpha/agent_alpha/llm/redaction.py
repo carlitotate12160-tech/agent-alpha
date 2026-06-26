@@ -25,20 +25,14 @@ from __future__ import annotations
 from typing import Any
 
 from agent_alpha.config import constants
-from agent_alpha.security.laravel_env import redact_env_table
 from agent_alpha.security.secrets import LogScrubber
 
 _scrubber = LogScrubber()  # reuse LOG_SCRUB_PATTERNS — single source of truth
 
 
 def redact_secrets(text: str) -> str:
-    """Mask secret values so they never leave to an LLM.
-
-    Pipeline: generic LOG_SCRUB_PATTERNS first (key=value, Bearer, JSON secrets),
-    then Laravel env-table form (<td>KEY</td><td>VALUE</td>) via the SSOT regex.
-    Neither layer alone catches everything; composed they cover both formats.
-    """
-    return redact_env_table(_scrubber.scrub(text))
+    """Mask secret values (LOG_SCRUB_PATTERNS) so they never leave to an LLM."""
+    return _scrubber.scrub(text)
 
 
 def sanitize_observation(
