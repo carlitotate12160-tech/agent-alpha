@@ -96,16 +96,26 @@ def test_ws_delivers_frames_to_authorized_tenant(monkeypatch: pytest.MonkeyPatch
     assert second["message"] == "laravel debug exposure confirmed"
 
 
-def test_ws_other_tenant_receives_no_frames(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Frames exist ONLY on t1's channel. A t2 token subscribes to t2's channel,
-    # finds nothing, and the server closes — no cross-tenant leak.
+def test_ws_subscribes_to_callers_tenant_channel_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # BOTH tenants have a frame queued. A t2 token must receive ONLY its own channel
+    # (monologue:t2:eng_1) and NEVER t1's — proving the endpoint keys the channel on
+    # the caller's JWT tenant (the isolation mechanism). Receiving its own frame keeps
+    # the test deterministic (no dependency on server-close timing — that path blocks
+    # legitimately in prod, where a live stream stays open waiting for frames).
     fake = _FakeSubscriber(
-        {channel_for("t1", "eng_1"): [_frame_json("eng_1", "t1-only secret op")]}
+        {
+            channel_for("t1", "eng_1"): [_frame_json("eng_1", "TENANT-ONE-SECRET")],
+            channel_for("t2", "eng_1"): [_frame_json("eng_1", "tenant-two-own-frame")],
+        }
     )
     monkeypatch.setattr(routes_monologue, "subscriber_factory", lambda: fake)
 
-    with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(
-            f"/engagements/eng_1/monologue/ws?token={_token('t2')}"
-        ) as ws:
-            ws.receive_json()
+    with client.websocket_connect(
+        f"/engagements/eng_1/monologue/ws?token={_token('t2')}"
+    ) as ws:
+        got = ws.receive_json()
+
+    assert got["message"] == "tenant-two-own-frame"  # got its OWN tenant's frame
+    assert "TENANT-ONE-SECRET" not in json.dumps(got)  # never the other tenant's
