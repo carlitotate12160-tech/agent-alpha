@@ -44,6 +44,14 @@ from agent_alpha.graph.nodes import (
     node_to_dict,
 )
 from agent_alpha.llm.orchestrator import OrientationError
+from agent_alpha.llm.redaction import redact_secrets
+from agent_alpha.tools.contracts import ResourceBudget, TargetContext
+from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
+
+# Budget for the default-creds tool — generous enough for the full dictionary
+# but bounded (anti-Lyndon #7: single source, not a magic number in step).
+_DEFAULT_CREDS_MAX_REQUESTS = 30
+_DEFAULT_CREDS_MAX_SECONDS = 120.0
 
 # Access levels are a closed vocabulary (anti-Lyndon #6: one canonical set).
 ACCESS_NONE = "none"
@@ -104,6 +112,13 @@ class Beta:
                 engagement_id, status=a2a_pb2.BLOCKED, confidence=0.0
             )
 
+        # ── Dep-precondition (Claude's lane) ─────────────────────
+        if self.http_client is None or self.orchestrator is None:
+            raise ValueError(
+                "Beta.run_strike requires http_client and orchestrator "
+                "— wiring bug, not access failure"
+            )
+
         # ── Initialise per-run state ────────────────────────────
         self._engagement_id = engagement_id
         self._entry_point = entry_point
@@ -143,13 +158,15 @@ class Beta:
     def step(self, context: dict[str, object]) -> dict[str, object]:
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST initial-access cycle.
 
-        Contract the body MUST satisfy (do not change the surrounding gates):
-          * Use the injected rate-limited ``http_client`` (RoE-enforced egress)
-            and ``orchestrator`` for ORIENT/PLAN — never raw network calls.
-          * On validated access, append vault REFERENCES (not raw secrets) to
-            ``self._credential_refs`` / ``self._session_token_refs``, set
-            ``self._access_level``, and append proof storage refs to
-            ``self._proof_artifacts``. PERSIST nodes/edges to ``graph_store``.
+        Offensive-body author: GLM 5.2 High (NOT Claude).
+
+        Contract the body satisfies (do not change the surrounding gates):
+          * OBSERVE the entry_point, ORIENT via orchestrator.decide.
+          * ACT: delegate to DefaultCredsTool(http_client=...).run(ctx, budget).
+          * VERIFY via ToolResult.success (the type forbids empty success — #3).
+          * PERSIST (single persistence owner — scout/Laravel #45 pattern):
+            REDACT proof (SSOT), event_store.append → mint retrievable refs,
+            build ACCESS_LEVEL + CREDENTIAL nodes + ENABLES edge.
           * Return ``{"discovered_nodes": int, "cost_usd": float}``; 0 new
             nodes signals no-progress to BoundedAutonomy.
         """
@@ -182,142 +199,114 @@ class Beta:
 
         cost_usd = decision.cost_usd
 
-        # ── ACT: gather candidate credentials from prior recon ──
-        candidate_creds = [
-            n
-            for n in self.graph_store.nodes_by_type(NodeType.CREDENTIAL)
-            if isinstance(n.properties, CredentialProperties)
-        ]
+        # ── ACT: delegate to DefaultCredsTool (one credential-attack
+        #    body, one place — anti-Lyndon #6) ──────────────────────
+        ctx = TargetContext(
+            engagement_id=self._engagement_id,
+            tenant_id=None,
+            target=self._entry_point,
+        )
+        budget = ResourceBudget(
+            max_requests=_DEFAULT_CREDS_MAX_REQUESTS,
+            max_seconds=_DEFAULT_CREDS_MAX_SECONDS,
+            max_cost_usd=0.0,  # no LLM cost for default-cred check
+        )
+        tool = DefaultCredsTool(http_client=self.http_client)
+        result = tool.run(ctx, budget)
 
-        verified_cred_node: AttackNode | None = None
-        access_level = ACCESS_NONE
-        session_token_ref: str | None = None
-        proof_storage_ref: str | None = None
-        failed_attempts = 0
-        max_failures = 3  # lockout-aware: stop after small threshold
+        # ── VERIFY: ToolResult.success (type forbids empty success — #3) ──
+        if not result.success:
+            return {"discovered_nodes": 0, "cost_usd": cost_usd}
 
-        for cred_node in candidate_creds:
-            if failed_attempts >= max_failures:
-                break
+        # ── PERSIST (single persistence owner — Beta.step mints refs
+        #    from content, like scout/Laravel #45) ──────────────────
+        finding = result.findings[0]
+        access_level: str = finding["access_level"]
 
-            cred_props = cred_node.properties
-            if not isinstance(cred_props, CredentialProperties):
-                continue
+        # REDACT proof before persisting (reuse the redaction SSOT —
+        # session tokens / PII never hit the event store unmasked).
+        proof_request = finding["proof_request"]
+        raw_proof_response = finding["proof_response"]
+        redacted_proof_response = {
+            k: redact_secrets(str(v)) if isinstance(v, str) else v
+            for k, v in raw_proof_response.items()
+        }
 
-            # Resolve the credential: retrieve the real secret from the vault
-            # via its secret_ref. If no secrets_manager is injected, use the
-            # secret_ref as the credential value (fallback for test doubles).
-            credential_value = cred_props.secret_ref
-            if self._secrets_manager is not None:
-                try:
-                    credential_value = self._secrets_manager.retrieve(cred_props.secret_ref)
-                except Exception:
-                    failed_attempts += 1
-                    continue
-
-            # APPLY the credential through the authed transport — the credential
-            # MUST reach the wire (anti-Lyndon #3: no proof-theatre).
-            auth_headers = {"Authorization": f"Bearer {credential_value}"}
-            try:
-                auth_resp = self.http_client.post(
-                    self._entry_point,
-                    data={"username": cred_props.username, "password": credential_value},
-                )
-            except HttpClientError:
-                failed_attempts += 1
-                continue
-
-            # VERIFY: authed response must differ from baseline AND indicate
-            # success. Identical baseline vs authed ⇒ NO access (a credential
-            # that changes nothing is not access).
-            if auth_resp.status_code not in (200, 301, 302):
-                failed_attempts += 1
-                continue
-            if auth_resp.text == baseline_resp.text:
-                failed_attempts += 1
-                continue
-
-            # VERIFY: confirm with a second authed request.
-            try:
-                verify_resp = self.http_client.get(
-                    self._entry_point,
-                    headers=auth_headers,
-                )
-            except HttpClientError:
-                failed_attempts += 1
-                continue
-
-            if verify_resp.status_code not in (200, 301, 302):
-                failed_attempts += 1
-                continue
-            if verify_resp.text == baseline_resp.text:
-                failed_attempts += 1
-                continue
-
-            # Access verified — determine access level from response content.
-            access_level = ACCESS_USER
-            body_lower = (verify_resp.text or "").lower()
-            if "admin" in body_lower or "administrator" in body_lower:
-                access_level = ACCESS_ADMIN
-
-            verified_cred_node = cred_node
-
-            # CAPTURE REAL PROOF: store the actual authenticated request/response
-            # pair as a proof artifact via the event store. The event_id is a
-            # real, retrievable storage_ref — no synthesized path strings.
-            proof_data = {
+        # MINT proof_ref: event_store.append → event_id (retrievable).
+        proof_event = self.event_store.append(
+            EventType.PROOF_ARTIFACT_RECORDED,
+            self._engagement_id,
+            "beta",
+            {
                 "entry_point": self._entry_point,
-                "username": cred_props.username,
-                "secret_ref": cred_props.secret_ref,
-                "baseline_status": baseline_resp.status_code,
-                "authed_status": auth_resp.status_code,
-                "verify_status": verify_resp.status_code,
-                "authed_body_excerpt": (auth_resp.text or "")[:500],
-                "verify_body_excerpt": (verify_resp.text or "")[:500],
+                "proof_request": proof_request,
+                "proof_response": redacted_proof_response,
                 "captured_at": now_utc,
-            }
-            proof_event = self.event_store.append(
+            },
+        )
+        proof_ref = proof_event.event_id
+
+        # MINT credential_ref: event_store.append → event_id.
+        # Default password is public knowledge, not a harvested secret — no vault.
+        cred_event = self.event_store.append(
+            EventType.PROOF_ARTIFACT_RECORDED,
+            self._engagement_id,
+            "beta",
+            {
+                "type": "default_credential_validated",
+                "username": finding["username"],
+                "target": self._entry_point,
+                "access_level": access_level,
+                "captured_at": now_utc,
+            },
+        )
+        credential_ref = cred_event.event_id
+
+        # MINT session_token_ref if a session cookie was issued.
+        session_token_ref: str | None = None
+        if finding.get("session_cookie"):
+            session_event = self.event_store.append(
                 EventType.PROOF_ARTIFACT_RECORDED,
                 self._engagement_id,
                 "beta",
-                proof_data,
+                {
+                    "type": "session_token",
+                    "target": self._entry_point,
+                    "session_cookie_redacted": redact_secrets(
+                        finding["session_cookie"]
+                    ),
+                    "captured_at": now_utc,
+                },
             )
-            proof_storage_ref = proof_event.event_id
+            session_token_ref = session_event.event_id
 
-            # Capture session token reference from set-cookie header.
-            set_cookie = auth_resp.headers.get("set-cookie", "")
-            if set_cookie:
-                if self._secrets_manager is not None:
-                    session_record = self._secrets_manager.store(
-                        label=f"session:{host}",
-                        value=set_cookie,
-                        engagement_id=self._engagement_id,
-                    )
-                    session_token_ref = session_record.secret_id
-                else:
-                    session_token_ref = f"vault://session/{host}"
-
-            break
-
-        # No verified access — record nothing.
-        if access_level == ACCESS_NONE:
-            return {"discovered_nodes": 0, "cost_usd": cost_usd}
-
-        # ── PERSIST: record validated access ─────────────────────
+        # Update per-run state with minted refs.
         self._access_level = access_level
-
-        if verified_cred_node is not None:
-            cred_props = verified_cred_node.properties
-            if isinstance(cred_props, CredentialProperties):
-                self._credential_refs.append(cred_props.secret_ref)
-
+        self._credential_refs.append(credential_ref)
         if session_token_ref:
             self._session_token_refs.append(session_token_ref)
-
-        if proof_storage_ref:
-            self._proof_artifacts.append(proof_storage_ref)
+        self._proof_artifacts.append(proof_ref)
 
         nodes_added = 0
+
+        # CREDENTIAL node.
+        cred_node_id = f"cred:{host}:{finding['username']}"
+        cred_node = AttackNode(
+            id=cred_node_id,
+            type=NodeType.CREDENTIAL,
+            properties=CredentialProperties(
+                username=finding["username"],
+                secret_ref=credential_ref,
+                service="http",
+                access_level=access_level,
+            ),
+            confidence=result.confidence,
+            agent="beta",
+            timestamp_utc=now_utc,
+            verified=True,
+        )
+        self._persist_node(cred_node)
+        nodes_added += 1
 
         # ACCESS_LEVEL node (verified).
         access_node = AttackNode(
@@ -325,13 +314,13 @@ class Beta:
             type=NodeType.ACCESS_LEVEL,
             properties=AccessLevelProperties(
                 level=access_level,
-                user_context="authenticated",
+                user_context=finding["username"],
             ),
-            confidence=0.85,
+            confidence=result.confidence,
             proof_artifacts=[
                 ProofArtifact(
                     type="authenticated_request",
-                    storage_ref=proof_storage_ref or "",
+                    storage_ref=proof_ref,
                     description=f"Verified {access_level} access on {host}",
                     captured_at=now_utc,
                     agent="beta",
@@ -346,15 +335,14 @@ class Beta:
         nodes_added += 1
 
         # CREDENTIAL → ACCESS_LEVEL edge (ENABLES).
-        if verified_cred_node is not None:
-            cred_edge = AttackEdge(
-                source_id=verified_cred_node.id,
-                target_id=access_node.id,
-                relationship=RelationshipType.ENABLES,
-                confidence=0.85,
-                technique_id=decision.technique_id,
-            )
-            self._persist_edge(cred_edge)
+        cred_edge = AttackEdge(
+            source_id=cred_node_id,
+            target_id=access_node.id,
+            relationship=RelationshipType.ENABLES,
+            confidence=result.confidence,
+            technique_id=decision.technique_id,
+        )
+        self._persist_edge(cred_edge)
 
         return {"discovered_nodes": nodes_added, "cost_usd": cost_usd}
 

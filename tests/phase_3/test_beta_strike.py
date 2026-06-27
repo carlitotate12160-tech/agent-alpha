@@ -3,7 +3,7 @@ A2A handoff discipline, and the false-success guard.  Phase 3.
 
 This is the RED test that DEFINES "done" for the Beta gate before any
 offensive body is written (per the per-tool loop — Claude's RED test first,
-DeepSeek fills the body, IDE never edits the contract).
+GLM fills the body, IDE never edits the contract).
 
 What is LOCKED here (must stay green; the offensive body cannot weaken it):
   1. Beta runs ONLY at ACTIVE_APPROVED or OFFENSIVE_APPROVED. At CREATED or
@@ -13,14 +13,13 @@ What is LOCKED here (must stay green; the offensive body cannot weaken it):
   3. Every Beta message goes to the CONDUCTOR, never to another agent
      (agents never call agents directly).
   4. False-success guard (anti-Lyndon #3): an empty access result is FAILED,
-     never COMPLETE — encoded as a strict-xfail that DeepSeek flips when the
-     body records access.
-
-The single RED frontier is Beta.step() (the initial-access technique), which
-raises NotImplementedError until DeepSeek authors it.
+     never COMPLETE — all default credentials rejected ⇒ FAILED.
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
 
 import pytest
 
@@ -65,6 +64,39 @@ def _new_auth() -> tuple[AuthorizationStateMachine, str]:
 def _advance_to_active(auth: AuthorizationStateMachine, eng: str) -> None:
     auth.enable_recon(eng, _scope())
     auth.enable_active(eng)  # RECON_ONLY + verified scope -> ACTIVE_APPROVED
+
+
+# ── Test doubles for false-success guard (deps-injected path) ────────────────
+
+
+@dataclass
+class _Resp:
+    status_code: int
+    text: str
+    headers: dict[str, str] = field(default_factory=dict)
+    url: str = IN_SCOPE_ENTRY
+
+
+class _RejectingHttpClient:
+    """All default credentials are rejected — no positive auth signal."""
+
+    def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _Resp:
+        return _Resp(401, "<html>login required</html>")
+
+    def post(
+        self, url: str, *, data: Any = None, json_body: Any = None,
+        headers: Any = None, cookies: Any = None,
+    ) -> _Resp:
+        return _Resp(403, "<html>forbidden</html>")
+
+
+class _StubOrchestrator:
+    def decide(self, observation: dict[str, Any]) -> Any:
+        return type(
+            "D", (), {"tool": "default_creds", "tier": "rule",
+                       "technique_id": "T1078", "cost_usd": 0.0,
+                       "reasoning": ""},
+        )()
 
 
 # ── 1. Gate semantics (documents the role gate the agent relies on) ──────────
@@ -113,29 +145,27 @@ def test_handoff_addressed_to_conductor() -> None:
     assert msg.message_type == a2a_pb2.HANDOFF_READY
 
 
-# ── 4. The RED frontier: gate passes, the offensive body is what's missing ───
+# ── 4. False-success guard (anti-Lyndon #3): no access ⇒ FAILED ─────────────
 
 
-def test_authorized_in_scope_reaches_offensive_body() -> None:
-    """Proves the gates PASSED (no BLOCKED): control reaches step(), which is
-    the DeepSeek lane and raises NotImplementedError until authored."""
-    auth, eng = _new_auth()
-    _advance_to_active(auth, eng)
-    with pytest.raises(NotImplementedError):
-        _beta(auth).run_strike(eng, IN_SCOPE_ENTRY)
-
-
-@pytest.mark.xfail(
-    raises=NotImplementedError,
-    strict=True,
-    reason="Beta.step body is the DeepSeek lane. When access-recording exists, "
-    "delete this marker: an empty access result MUST be FAILED, not COMPLETE.",
-)
 def test_false_success_guard_empty_access_is_failed() -> None:
+    """All default credentials rejected → FAILED, not COMPLETE.
+
+    Injecting a rejecting HTTP client so the body actually runs through
+    the live path and no credential produces a positive auth signal.
+    """
     auth, eng = _new_auth()
     _advance_to_active(auth, eng)
-    msg = _beta(auth).run_strike(eng, IN_SCOPE_ENTRY)
+    beta = Beta(
+        authorization=auth,
+        graph_store=NetworkXGraphStore(),
+        event_store=InMemoryEventStore(),
+        orchestrator=_StubOrchestrator(),
+        http_client=_RejectingHttpClient(),
+    )
+    msg = beta.run_strike(eng, IN_SCOPE_ENTRY)
     payload = _decode(msg)
-    # Holds once the body runs and records NO credentials/sessions:
+    # Holds because the body ran and recorded NO credentials/sessions:
     assert payload.status == a2a_pb2.FAILED
     assert payload.findings_count == 0
+
