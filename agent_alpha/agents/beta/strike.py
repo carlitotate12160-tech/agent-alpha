@@ -59,6 +59,36 @@ ACCESS_USER = "user"
 ACCESS_ADMIN = "admin"
 
 
+def _deep_redact(obj: Any) -> Any:
+    """Recursively redact all strings in a nested dict/list structure.
+
+    Unlike the flat ``redact_secrets`` call in the old code, this traverses
+    into dict values and list elements so no raw header/cookie string
+    survives in a nested structure (anti-Lyndon #45).
+    """
+    if isinstance(obj, str):
+        return redact_secrets(obj)
+    if isinstance(obj, dict):
+        return {k: _deep_redact(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return type(obj)(_deep_redact(v) for v in obj)
+    return obj
+
+
+def _cookie_name_only(set_cookie: str) -> str:
+    """Extract just the cookie NAME from a Set-Cookie header value.
+
+    ``session=S3CR3T; Path=/; HttpOnly`` → ``session``.
+    The VALUE is a secret — never persist it, even redacted.
+    """
+    if not set_cookie:
+        return ""
+    first_part = set_cookie.split(";", 1)[0].strip()
+    if "=" not in first_part:
+        return first_part or ""
+    return first_part.split("=", 1)[0].strip()
+
+
 class Beta:
     """STRIKE agent — gains and proves initial access under ACTIVE_APPROVED.
 
@@ -223,14 +253,12 @@ class Beta:
         finding = result.findings[0]
         access_level: str = finding["access_level"]
 
-        # REDACT proof before persisting (reuse the redaction SSOT —
-        # session tokens / PII never hit the event store unmasked).
-        proof_request = finding["proof_request"]
-        raw_proof_response = finding["proof_response"]
-        redacted_proof_response = {
-            k: redact_secrets(str(v)) if isinstance(v, str) else v
-            for k, v in raw_proof_response.items()
-        }
+        # DEEP-REDACT proof before persisting — recursively redact all
+        # strings in nested dicts/lists so no raw header/cookie value
+        # survives (anti-Lyndon #45). The old flat redact missed dict
+        # values like headers={"set-cookie": "session=SECRET; ..."}.
+        proof_request = _deep_redact(finding["proof_request"])
+        redacted_proof_response = _deep_redact(finding["proof_response"])
 
         # MINT proof_ref: event_store.append → event_id (retrievable).
         proof_event = self.event_store.append(
@@ -272,7 +300,7 @@ class Beta:
                 {
                     "type": "session_token",
                     "target": self._entry_point,
-                    "session_cookie_redacted": redact_secrets(finding["session_cookie"]),
+                    "session_cookie_name": _cookie_name_only(finding["session_cookie"]),
                     "captured_at": now_utc,
                 },
             )

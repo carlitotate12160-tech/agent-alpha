@@ -255,7 +255,7 @@ class DefaultCredsTool:
                 },
                 "proof_response": {
                     "status_code": auth_resp.status_code,
-                    "headers": dict(auth_resp.headers),
+                    "header_names": list(auth_resp.headers.keys()),
                     "body_excerpt": (auth_resp.text or "")[:500],
                     "confirm_status_code": confirm_resp.status_code,
                     "confirm_body_excerpt": (confirm_resp.text or "")[:500],
