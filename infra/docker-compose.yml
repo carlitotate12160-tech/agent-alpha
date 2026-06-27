@@ -36,15 +36,29 @@ services:
     command:
       - "redis-server"
       - "--requirepass"
-      - "$${REDIS_PASSWORD}"
+      - "${REDIS_PASSWORD}"
       - "--appendonly"
       - "yes"
+      - "--protected-mode"
+      - "yes"
+      - "--rename-command"
+      - "CONFIG"
+      - ""
+      - "--rename-command"
+      - "FLUSHALL"
+      - ""
+      - "--rename-command"
+      - "MODULE"
+      - ""
+      - "--rename-command"
+      - "REPLICAOF"
+      - ""
     ports:
       - "127.0.0.1:6379:6379"
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10

@@ -64,7 +64,7 @@ jobs:
       redis:
         image: redis:7-alpine
         ports:
-          - 6380:6379
+          - 127.0.0.1:6380:6379
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 5s
