@@ -53,21 +53,39 @@ class _Fake:
     def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _Resp:
         return self._route(headers, cookies, None)
 
-    def post(self, url: str, *, data: Any = None, json_body: Any = None,
-             headers: Any = None, cookies: Any = None) -> _Resp:
+    def post(
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+    ) -> _Resp:
         return self._route(headers, cookies, data or json_body)
 
 
 class _StubOrchestrator:
     def decide(self, observation: dict[str, Any]) -> Any:
-        return type("D", (), {"tool": "default_creds", "tier": "rule",
-                              "technique_id": "T1078", "cost_usd": 0.0, "reasoning": ""})()
+        return type(
+            "D",
+            (),
+            {
+                "tool": "default_creds",
+                "tier": "rule",
+                "technique_id": "T1078",
+                "cost_usd": 0.0,
+                "reasoning": "",
+            },
+        )()
 
 
 def test_session_token_value_never_persisted_to_event_store() -> None:
     auth = AuthorizationStateMachine(event_store=InMemoryEventStore())
     rec = auth.create_engagement(client_id="c", target=HOST)
-    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=["10.0.0.0/30"], domains=[HOST], exclusions=[]))
+    auth.enable_recon(
+        rec.engagement_id, Scope(ip_ranges=["10.0.0.0/30"], domains=[HOST], exclusions=[])
+    )
     auth.enable_active(rec.engagement_id)
     eng = rec.engagement_id
 
