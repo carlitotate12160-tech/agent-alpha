@@ -22,7 +22,9 @@ def test_defaults_come_from_constants() -> None:
 
 def test_stops_at_max_iterations() -> None:
     policy = BoundedAutonomy(max_iterations=3)
-    assert policy.should_stop(iteration=2, elapsed_s=0, cost_usd=0, iters_without_progress=0) is None
+    assert (
+        policy.should_stop(iteration=2, elapsed_s=0, cost_usd=0, iters_without_progress=0) is None
+    )
     assert policy.should_stop(iteration=3, elapsed_s=0, cost_usd=0, iters_without_progress=0) is (
         StopReason.MAX_ITERATIONS
     )
@@ -37,9 +39,9 @@ def test_stops_on_time_budget() -> None:
 
 def test_stops_on_cost_budget() -> None:
     policy = BoundedAutonomy(cost_budget_usd=1.0)
-    assert policy.should_stop(iteration=1, elapsed_s=0, cost_usd=1.01, iters_without_progress=0) is (
-        StopReason.COST_BUDGET
-    )
+    assert policy.should_stop(
+        iteration=1, elapsed_s=0, cost_usd=1.01, iters_without_progress=0
+    ) is (StopReason.COST_BUDGET)
 
 
 def test_stops_on_no_progress() -> None:

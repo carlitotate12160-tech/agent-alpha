@@ -16,13 +16,11 @@ Run on Oracle ARM64:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-import pytest
-
-from agent_alpha.conductor.run_status import project_run_status, RunStatus
-from agent_alpha.events.store import AgentEvent
+from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.events.event_types import EventType
+from agent_alpha.events.store import AgentEvent
 
 
 def _make_event(
@@ -36,7 +34,7 @@ def _make_event(
         event_type=event_type,
         engagement_id=engagement_id,
         agent="API",
-        timestamp_utc=datetime.now(timezone.utc).isoformat(),
+        timestamp_utc=datetime.now(UTC).isoformat(),
         payload=payload or {},
         sequence_number=1,
     )

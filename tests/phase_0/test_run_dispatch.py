@@ -15,8 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_alpha.config import constants
 from agent_alpha.conductor.main import app, celery_app
+from agent_alpha.config import constants
 
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
 
@@ -24,7 +24,11 @@ jwt = pytest.importorskip("jwt")
 
 
 def _token(tenant_id: str, sub: str = "tester") -> str:
-    return jwt.encode({"tenant_id": tenant_id, "sub": sub}, os.environ["AGENT_ALPHA_JWT_SECRET"], algorithm="HS256")
+    return jwt.encode(
+        {"tenant_id": tenant_id, "sub": sub},
+        os.environ["AGENT_ALPHA_JWT_SECRET"],
+        algorithm="HS256",
+    )
 
 
 def _auth(tenant_id: str = "test-tenant") -> dict[str, str]:

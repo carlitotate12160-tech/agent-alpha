@@ -1,8 +1,16 @@
-"""Production HTTP client for Alpha reconnaissance."""
+"""Production HTTP client for agent egress.
+
+Phase 2: GET-only for Alpha recon. Phase 3: an AUTHENTICATED request surface so
+Beta (STRIKE) can actually apply a credential — without it, "initial access" is
+structurally impossible and any "verification" is theatre (anti-Lyndon #3). The
+new ``headers``/``cookies`` kwargs and ``post()`` are additive: ``get(url)`` keeps
+working unchanged for Alpha (#10 — no behavioural change to the existing path).
+"""
 
 from __future__ import annotations
 
 import dataclasses
+from typing import Any
 
 import httpx
 
@@ -12,7 +20,8 @@ from agent_alpha.config import constants
 
 @dataclasses.dataclass(frozen=True)
 class HttpResponse:
-    """HTTP response shape consumed by Alpha."""
+    """HTTP response shape consumed by agents. ``headers`` carries set-cookie, so
+    a session token is observable without widening this contract yet."""
 
     status_code: int
     text: str
@@ -50,22 +59,64 @@ class HttpClient:
         # (policy.yaml) will inject a different rps here once profile-selection lands.
         self._rate_limiter = rate_limiter or RateLimiter(rate_limit_rps)
 
-    def get(self, url: str) -> HttpResponse:
-        """Issue a GET request with configured timeout and headers.
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> HttpResponse:
+        """Issue a GET. ``headers``/``cookies`` (default None) let Beta apply a
+        credential's auth context; omitting them reproduces the Phase-2 recon GET
+        exactly. Transport failures raise :class:`HttpClientError`; httpx never
+        escapes this method."""
+        return self._request("GET", url, headers=headers, cookies=cookies)
 
-        Transport failures (connection refused, DNS error, connect/read
-        timeout) are re-raised as :class:`HttpClientError`. ``httpx``
-        never escapes this method.
-        """
+    def post(
+        self,
+        url: str,
+        *,
+        data: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> HttpResponse:
+        """Issue a POST (e.g. a login form submission). Exactly one of ``data``
+        (form-encoded) or ``json_body`` should be set. Same error contract as
+        :meth:`get`."""
+        return self._request(
+            "POST", url, headers=headers, cookies=cookies, data=data, json_body=json_body
+        )
+
+    # ── internal ────────────────────────────────────────────────
+
+    def _request(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        data: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+    ) -> HttpResponse:
         # RoE: block to honour the engagement rate limit before egress. Delays,
-        # never drops (anti-Lyndon #3).
+        # never drops (anti-Lyndon #3). Single chokepoint for every method (#7).
         self._rate_limiter.acquire()
+        merged_headers = {**self._headers, **(headers or {})}
         try:
             with httpx.Client(
                 timeout=self.timeout,
                 transport=self._transport,
             ) as client:
-                response = client.get(url, headers=self._headers)
+                response = client.request(
+                    method,
+                    url,
+                    headers=merged_headers,
+                    cookies=cookies,
+                    data=data,
+                    json=json_body,
+                )
                 return HttpResponse(
                     status_code=response.status_code,
                     text=response.text,
@@ -75,4 +126,4 @@ class HttpClient:
         except httpx.TransportError as exc:
             # httpx.TimeoutException is itself a TransportError, so this
             # single band covers connect/read/timeout failures.
-            raise HttpClientError(f"GET {url} failed: {exc}") from exc
+            raise HttpClientError(f"{method} {url} failed: {exc}") from exc

@@ -2,7 +2,7 @@
 
 Today EmergencyStopHandler appends EMERGENCY_STOP_EXECUTED to the legacy
 single-tenant event_store (emergency.py:88), so a tenant's own stop event lands
-in the "default" store instead of its own RLS-scoped store 
+in the "default" store instead of its own RLS-scoped store
 (an audit-isolation gap: stop is a safety-critical, legally-auditable action).
 
 This test is RED until the handler resolves the engagement's tenant and writes
@@ -11,7 +11,7 @@ to that tenant's store. Deterministic + no DB (forces in-memory via monkeypatch)
 CONTRACT KNOB: assumes the fix passes a StoreProvider as `store_provider=` and
 the handler resolves tenant via auth.get_record(engagement_id).tenant_id. If the
 implementation wires tenant-resolution differently, adapt the construction
-below 
+below
 — the BEHAVIOUR asserted (event → tenant store, NOT legacy) is the contract.
 """
 

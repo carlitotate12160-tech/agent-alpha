@@ -21,7 +21,9 @@ from agent_alpha.tools.contracts import (
 
 def _ctx() -> TargetContext:
     return TargetContext(
-        engagement_id="e", tenant_id="t", target="https://lab.invalid",
+        engagement_id="e",
+        tenant_id="t",
+        target="https://lab.invalid",
         tech_stack={"framework": "laravel", "version": "10.3.1"},
     )
 
@@ -46,8 +48,13 @@ def test_confidence_must_be_bounded() -> None:
 
 
 def test_valid_results_construct() -> None:
-    ok = ToolResult(tool="x", success=True, confidence=0.8, findings=({"id": "f1"},),
-                    proof_artifacts=("evt:123",))
+    ok = ToolResult(
+        tool="x",
+        success=True,
+        confidence=0.8,
+        findings=({"id": "f1"},),
+        proof_artifacts=("evt:123",),
+    )
     assert ok.success and ok.findings
     miss = ToolResult(tool="x", success=False, confidence=0.0)
     assert not miss.success and miss.findings == ()
@@ -75,9 +82,13 @@ class _FakeTemplate:
     def verify(self, response: dict) -> ToolResult:
         # proof-bearing success only when the response confirms exposure
         if response.get("exposed"):
-            return ToolResult(tool=self.template_id, success=True, confidence=0.95,
-                              findings=({"type": "config_exposure"},),
-                              proof_artifacts=("evt:abc",))
+            return ToolResult(
+                tool=self.template_id,
+                success=True,
+                confidence=0.95,
+                findings=({"type": "config_exposure"},),
+                proof_artifacts=("evt:abc",),
+            )
         return ToolResult(tool=self.template_id, success=False, confidence=0.2)
 
 
@@ -101,12 +112,13 @@ def test_fakes_satisfy_the_protocols() -> None:
 def test_applies_to_drives_relevance_not_a_hardcoded_ladder() -> None:
     tool = _FakeTool()
     assert tool.applies_to(_ctx()) == 1.0
-    other = TargetContext(engagement_id="e", tenant_id="t", target="x",
-                          tech_stack={"framework": "django"})
+    other = TargetContext(
+        engagement_id="e", tenant_id="t", target="x", tech_stack={"framework": "django"}
+    )
     assert tool.applies_to(other) == 0.0
 
 
 def test_template_verify_is_proof_not_assumption() -> None:
     tpl = _FakeTemplate()
     assert tpl.verify({"exposed": True}).success is True
-    assert tpl.verify({"exposed": False}).success is False   # mere presence != finding
+    assert tpl.verify({"exposed": False}).success is False  # mere presence != finding

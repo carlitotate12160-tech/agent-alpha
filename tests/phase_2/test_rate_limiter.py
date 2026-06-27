@@ -121,7 +121,9 @@ def test_httpclient_acquires_a_slot_before_each_request() -> None:
 
 def test_httpclient_default_limiter_is_single_source_rps() -> None:
     """Default rps comes from the constant, not a hardcoded literal (anti-Lyndon #7)."""
-    client = HttpClient(engagement_id="eng1", transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    client = HttpClient(
+        engagement_id="eng1", transport=httpx.MockTransport(lambda r: httpx.Response(200))
+    )
     # one request is immediate regardless; this just asserts construction wires the default.
     assert constants.DEFAULT_RATE_LIMIT_RPS == 2.0
     client.get("https://lab-target.invalid")  # must not raise / must not block on first call

@@ -135,9 +135,7 @@ def test_payload_policy_reads_canonical_constants() -> None:
 def test_payload_rejects_gateway_transport() -> None:
     builder = _RecordingBuilder()
     with pytest.raises(PayloadTransportError):
-        resolve_payload_provider(
-            api_key="noop", config=_config(transport="gateway"), build=builder
-        )
+        resolve_payload_provider(api_key="noop", config=_config(transport="gateway"), build=builder)
     assert builder.calls == []  # gate runs BEFORE any provider is built
 
 
