@@ -20,6 +20,9 @@ from agent_alpha.conductor.monologue_transport import build_monologue_subscriber
 
 router = APIRouter()
 
+# Seam for testing: override this to inject a fake subscriber.
+subscriber_factory = build_monologue_subscriber
+
 
 @router.websocket("/engagements/{engagement_id}/monologue/ws")
 async def monologue_ws(websocket: WebSocket, engagement_id: str) -> None:
@@ -31,7 +34,7 @@ async def monologue_ws(websocket: WebSocket, engagement_id: str) -> None:
         return
 
     await websocket.accept()
-    frames = stream_monologue(build_monologue_subscriber(), principal.tenant_id, engagement_id)
+    frames = stream_monologue(subscriber_factory(), principal.tenant_id, engagement_id)
     try:
         while True:
             # listen() blocks on Redis → pull each frame OFF the event loop.

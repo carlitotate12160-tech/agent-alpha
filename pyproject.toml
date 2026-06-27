@@ -19,6 +19,7 @@ dependencies = [
     "networkx",
     "psycopg[binary]",
     "pytest",
+    "pytest-timeout",
     "protobuf",
     "grpcio",
     "pyjwt",
@@ -70,7 +71,7 @@ ignore_errors = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --tb=short --strict-markers --timeout=120 --timeout-method=thread"
 markers = [
   "phase0: Phase 0 exit criteria tests",
   "phase1: Phase 1 exit criteria tests",
