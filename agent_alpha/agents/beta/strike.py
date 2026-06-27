@@ -239,9 +239,7 @@ class Beta:
             # Capture session token reference if present in response headers.
             set_cookie = auth_resp.headers.get("set-cookie", "")
             if set_cookie:
-                session_token_ref = (
-                    f"engagements/{self._engagement_id}/secrets/session_{host}"
-                )
+                session_token_ref = f"engagements/{self._engagement_id}/secrets/session_{host}"
 
             break
 
@@ -340,7 +338,7 @@ class Beta:
         self,
         engagement_id: str,
         *,
-        status: "a2a_pb2.PhaseStatus",
+        status: a2a_pb2.PhaseStatus,
         confidence: float,
         handoff_data: dict[str, object] | None = None,
         proof_artifacts: list[str] | None = None,
