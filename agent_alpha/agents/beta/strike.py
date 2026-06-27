@@ -66,12 +66,14 @@ class Beta:
         event_store: Any,
         orchestrator: Any = None,
         http_client: Any = None,
+        secrets_manager: Any = None,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
         self.event_store = event_store
         self.orchestrator = orchestrator
         self.http_client = http_client
+        self._secrets_manager = secrets_manager
 
         # Per-run state (initialised in run_strike).
         self._engagement_id: str = ""
@@ -151,31 +153,27 @@ class Beta:
           * Return ``{"discovered_nodes": int, "cost_usd": float}``; 0 new
             nodes signals no-progress to BoundedAutonomy.
         """
-        # One-shot: Beta attempts the entry point once. Subsequent cycles
+        # One-shot: Beta attempts initial access once. Subsequent cycles
         # return no progress, driving the bounded-autonomy no-progress stop.
         if self._strike_attempted:
             return {"discovered_nodes": 0, "cost_usd": 0.0}
         self._strike_attempted = True
 
-        # Without injected dependencies, no access attempt is possible.
-        if self.http_client is None or self.orchestrator is None:
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
-
         host = urlparse(self._entry_point).hostname or urlparse(self._entry_point).netloc
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
-        # ── OBSERVE: fetch the entry point ──────────────────────
+        # ── OBSERVE: fetch entry point unauthenticated (baseline) ──
         try:
-            resp = self.http_client.get(self._entry_point)
+            baseline_resp = self.http_client.get(self._entry_point)
         except HttpClientError:
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        # ── ORIENT / PLAN: decide access technique ──────────────
+        # ── ORIENT / PLAN ──────────────────────────────────────────
         observation: dict[str, Any] = {
             "url": self._entry_point,
-            "status": resp.status_code,
-            "headers": dict(resp.headers),
-            "body": resp.text,
+            "status": baseline_resp.status_code,
+            "headers": dict(baseline_resp.headers),
+            "body": baseline_resp.text,
         }
         try:
             decision = self.orchestrator.decide(observation)
@@ -194,37 +192,66 @@ class Beta:
         verified_cred_node: AttackNode | None = None
         access_level = ACCESS_NONE
         session_token_ref: str | None = None
-        proof_ref: str | None = None
+        proof_storage_ref: str | None = None
+        failed_attempts = 0
+        max_failures = 3  # lockout-aware: stop after small threshold
 
         for cred_node in candidate_creds:
+            if failed_attempts >= max_failures:
+                break
+
             cred_props = cred_node.properties
             if not isinstance(cred_props, CredentialProperties):
                 continue
 
-            # ACT: attempt authenticated access. The http_client carries auth
-            # context in production (cookies/headers via the RoE-enforced
-            # transport layer); here we re-fetch to check if the credential
-            # enables a different response than the unauthenticated baseline.
+            # Resolve the credential: retrieve the real secret from the vault
+            # via its secret_ref. If no secrets_manager is injected, use the
+            # secret_ref as the credential value (fallback for test doubles).
+            credential_value = cred_props.secret_ref
+            if self._secrets_manager is not None:
+                try:
+                    credential_value = self._secrets_manager.retrieve(cred_props.secret_ref)
+                except Exception:
+                    failed_attempts += 1
+                    continue
+
+            # APPLY the credential through the authed transport — the credential
+            # MUST reach the wire (anti-Lyndon #3: no proof-theatre).
+            auth_headers = {"Authorization": f"Bearer {credential_value}"}
             try:
-                auth_resp = self.http_client.get(self._entry_point)
+                auth_resp = self.http_client.post(
+                    self._entry_point,
+                    data={"username": cred_props.username, "password": credential_value},
+                )
             except HttpClientError:
+                failed_attempts += 1
                 continue
 
-            # VERIFY: an unconfirmed credential is NOT access.
-            # The response must differ from the unauthenticated baseline
-            # and indicate successful authentication.
+            # VERIFY: authed response must differ from baseline AND indicate
+            # success. Identical baseline vs authed ⇒ NO access (a credential
+            # that changes nothing is not access).
             if auth_resp.status_code not in (200, 301, 302):
+                failed_attempts += 1
                 continue
-            if auth_resp.text == resp.text:
+            if auth_resp.text == baseline_resp.text:
+                failed_attempts += 1
                 continue
 
-            # VERIFY: confirm access persists with a second request.
+            # VERIFY: confirm with a second authed request.
             try:
-                verify_resp = self.http_client.get(self._entry_point)
+                verify_resp = self.http_client.get(
+                    self._entry_point,
+                    headers=auth_headers,
+                )
             except HttpClientError:
+                failed_attempts += 1
                 continue
 
             if verify_resp.status_code not in (200, 301, 302):
+                failed_attempts += 1
+                continue
+            if verify_resp.text == baseline_resp.text:
+                failed_attempts += 1
                 continue
 
             # Access verified — determine access level from response content.
@@ -234,16 +261,45 @@ class Beta:
                 access_level = ACCESS_ADMIN
 
             verified_cred_node = cred_node
-            proof_ref = f"engagements/{self._engagement_id}/proofs/access_{host}"
 
-            # Capture session token reference if present in response headers.
+            # CAPTURE REAL PROOF: store the actual authenticated request/response
+            # pair as a proof artifact via the event store. The event_id is a
+            # real, retrievable storage_ref — no synthesized path strings.
+            proof_data = {
+                "entry_point": self._entry_point,
+                "username": cred_props.username,
+                "secret_ref": cred_props.secret_ref,
+                "baseline_status": baseline_resp.status_code,
+                "authed_status": auth_resp.status_code,
+                "verify_status": verify_resp.status_code,
+                "authed_body_excerpt": (auth_resp.text or "")[:500],
+                "verify_body_excerpt": (verify_resp.text or "")[:500],
+                "captured_at": now_utc,
+            }
+            proof_event = self.event_store.append(
+                EventType.PROOF_ARTIFACT_RECORDED,
+                self._engagement_id,
+                "beta",
+                proof_data,
+            )
+            proof_storage_ref = proof_event.event_id
+
+            # Capture session token reference from set-cookie header.
             set_cookie = auth_resp.headers.get("set-cookie", "")
             if set_cookie:
-                session_token_ref = f"engagements/{self._engagement_id}/secrets/session_{host}"
+                if self._secrets_manager is not None:
+                    session_record = self._secrets_manager.store(
+                        label=f"session:{host}",
+                        value=set_cookie,
+                        engagement_id=self._engagement_id,
+                    )
+                    session_token_ref = session_record.secret_id
+                else:
+                    session_token_ref = f"vault://session/{host}"
 
             break
 
-        # No verified access this cycle — record nothing.
+        # No verified access — record nothing.
         if access_level == ACCESS_NONE:
             return {"discovered_nodes": 0, "cost_usd": cost_usd}
 
@@ -258,8 +314,8 @@ class Beta:
         if session_token_ref:
             self._session_token_refs.append(session_token_ref)
 
-        if proof_ref:
-            self._proof_artifacts.append(proof_ref)
+        if proof_storage_ref:
+            self._proof_artifacts.append(proof_storage_ref)
 
         nodes_added = 0
 
@@ -275,7 +331,7 @@ class Beta:
             proof_artifacts=[
                 ProofArtifact(
                     type="authenticated_request",
-                    storage_ref=proof_ref or "",
+                    storage_ref=proof_storage_ref or "",
                     description=f"Verified {access_level} access on {host}",
                     captured_at=now_utc,
                     agent="beta",
