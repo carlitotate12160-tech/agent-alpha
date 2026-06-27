@@ -28,7 +28,7 @@ from agent_alpha.live_fire.scoring import score_findings
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.tools.playbook import PlaybookEngine
 
-from .conftest import FakeHttpClient, FakeHttpResponse, HARDENED_BODY, LARAVEL_DEBUG_BODY
+from .conftest import HARDENED_BODY, LARAVEL_DEBUG_BODY, FakeHttpClient, FakeHttpResponse
 
 PLAYBOOK_DIR = pathlib.Path(__file__).parent / "fixtures" / "playbooks"
 ENGAGEMENTS_DIR = pathlib.Path(__file__).parent / "fixtures" / "engagements"
@@ -42,8 +42,13 @@ class _StubProvider:
 
     def complete(self, *a: object, **k: object):
         return type(
-            "R", (), {"text": '{"tool": "generic_http_probe"}',
-                      "usage_cost_usd": 0.0, "model": "deepseek-v4-pro"}
+            "R",
+            (),
+            {
+                "text": '{"tool": "generic_http_probe"}',
+                "usage_cost_usd": 0.0,
+                "model": "deepseek-v4-pro",
+            },
         )()
 
 
@@ -70,10 +75,12 @@ def test_run_live_fire_produces_clean_scorecard(
         scope_ip_ranges=["10.0.0.0/30"],
         scope_domains=["lab-target.invalid", "hardened.invalid"],
         targets=[
-            TargetSpec(url=laravel_target_url, host="lab-target.invalid",
-                       ground_truth_vulnerable=True),
-            TargetSpec(url=hardened_target_url, host="hardened.invalid",
-                       ground_truth_vulnerable=False),
+            TargetSpec(
+                url=laravel_target_url, host="lab-target.invalid", ground_truth_vulnerable=True
+            ),
+            TargetSpec(
+                url=hardened_target_url, host="hardened.invalid", ground_truth_vulnerable=False
+            ),
         ],
     )
 
@@ -88,8 +95,8 @@ def test_run_live_fire_produces_clean_scorecard(
 
     # Keyed by URL — the canonical target identity.
     by_url = {r.url: r.predicted_vulnerable for r in results}
-    assert by_url[laravel_target_url] is True     # detected -> TP
-    assert by_url[hardened_target_url] is False    # not flagged -> TN
+    assert by_url[laravel_target_url] is True  # detected -> TP
+    assert by_url[hardened_target_url] is False  # not flagged -> TN
 
     score = score_findings(results, ground_truth_from_config(config))
     assert (score.tp, score.fp, score.fn, score.tn) == (1, 0, 0, 1)
@@ -105,12 +112,15 @@ def test_three_targets_one_host_not_collapsed() -> None:
     hardened_url = "http://127.0.0.1:8082/trigger-error"
     static_url = "http://127.0.0.1:8083/"
 
-    http_client = FakeHttpClient({
-        vuln_url: FakeHttpResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, vuln_url),
-        hardened_url: FakeHttpResponse(500, HARDENED_BODY, {"server": "nginx"}, hardened_url),
-        static_url: FakeHttpResponse(200, "<html>nginx welcome</html>",
-                                     {"server": "nginx"}, static_url),
-    })
+    http_client = FakeHttpClient(
+        {
+            vuln_url: FakeHttpResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, vuln_url),
+            hardened_url: FakeHttpResponse(500, HARDENED_BODY, {"server": "nginx"}, hardened_url),
+            static_url: FakeHttpResponse(
+                200, "<html>nginx welcome</html>", {"server": "nginx"}, static_url
+            ),
+        }
+    )
 
     config = EngagementConfig(
         client_id="internal_lab",
@@ -124,7 +134,7 @@ def test_three_targets_one_host_not_collapsed() -> None:
     )
 
     gt = ground_truth_from_config(config)
-    assert len(gt) == 3   # NOT collapsed by the shared host
+    assert len(gt) == 3  # NOT collapsed by the shared host
 
     results = run_live_fire(
         config,

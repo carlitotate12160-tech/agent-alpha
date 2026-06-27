@@ -28,8 +28,7 @@ class _StubProvider:
     model = "deepseek-v4-pro"
 
     def complete(self, *a: object, **k: object):
-        return type("R", (), {"text": "{}", "usage_cost_usd": 0.0,
-                              "model": "deepseek-v4-pro"})()
+        return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "deepseek-v4-pro"})()
 
 
 @pytest.fixture
@@ -58,15 +57,15 @@ def test_omega_generates_grounded_narrative(populated_graph):
 
     report = omega.generate_report(style="technical")
 
-    assert report.narrative.strip()                       # non-empty
-    assert "laravel" in report.narrative.lower()          # grounded in the finding
-    assert populated_graph.node_count() == before         # read-only: no mutation
+    assert report.narrative.strip()  # non-empty
+    assert "laravel" in report.narrative.lower()  # grounded in the finding
+    assert populated_graph.node_count() == before  # read-only: no mutation
 
 
 def test_report_is_mitre_mapped(populated_graph):
     report = Omega(populated_graph).generate_report(style="technical")
-    assert report.mitre_techniques                        # non-empty
-    assert "T1592.002" in report.mitre_techniques         # technique from the probe
+    assert report.mitre_techniques  # non-empty
+    assert "T1592.002" in report.mitre_techniques  # technique from the probe
     assert report.mitre_attack_version == constants.MITRE_ATTACK_VERSION
 
 

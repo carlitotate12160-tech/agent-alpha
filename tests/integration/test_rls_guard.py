@@ -12,7 +12,6 @@ Integration test (only with AGENT_ALPHA_SUPERUSER_DSN):
 from __future__ import annotations
 
 import os
-from unittest import mock
 
 import pytest
 
@@ -20,7 +19,6 @@ from agent_alpha.storage.rls_guard import (
     RlsNotEnforcedError,
     assert_role_cannot_bypass_rls,
 )
-
 
 # ── Unit tests (no DB required) ──────────────────────────────────────
 
@@ -76,9 +74,7 @@ def test_guard_rejects_both_flags() -> None:
 
 def test_error_message_names_role() -> None:
     with pytest.raises(RlsNotEnforcedError, match="my_bad_role"):
-        assert_role_cannot_bypass_rls(
-            _mock_connect("on", False, role="my_bad_role")
-        )
+        assert_role_cannot_bypass_rls(_mock_connect("on", False, role="my_bad_role"))
 
 
 # ── Integration: construct-as-superuser raises ───────────────────────

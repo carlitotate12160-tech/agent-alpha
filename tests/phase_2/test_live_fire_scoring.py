@@ -23,24 +23,24 @@ from agent_alpha.live_fire.scoring import TargetResult, score_findings
 
 def test_mixed_results_compute_correct_confusion_matrix() -> None:
     results = [
-        TargetResult(url="https://h/a", predicted_vulnerable=True),   # actual True  -> TP
+        TargetResult(url="https://h/a", predicted_vulnerable=True),  # actual True  -> TP
         TargetResult(url="https://h/b", predicted_vulnerable=False),  # actual False -> TN
-        TargetResult(url="https://h/c", predicted_vulnerable=True),   # actual False -> FP
+        TargetResult(url="https://h/c", predicted_vulnerable=True),  # actual False -> FP
     ]
     ground_truth = {"https://h/a": True, "https://h/b": False, "https://h/c": False}
 
     score = score_findings(results, ground_truth)
 
     assert (score.tp, score.fp, score.fn, score.tn) == (1, 1, 0, 1)
-    assert score.fp_rate_of_findings == 0.5      # 1 of 2 findings false
-    assert score.passed is False                 # 0.5 not < 0.20
+    assert score.fp_rate_of_findings == 0.5  # 1 of 2 findings false
+    assert score.passed is False  # 0.5 not < 0.20
 
 
 def test_clean_run_with_a_real_finding_passes() -> None:
     results = [
-        TargetResult(url="http://127.0.0.1:8081/trigger-error", predicted_vulnerable=True),   # TP
+        TargetResult(url="http://127.0.0.1:8081/trigger-error", predicted_vulnerable=True),  # TP
         TargetResult(url="http://127.0.0.1:8082/trigger-error", predicted_vulnerable=False),  # TN
-        TargetResult(url="http://127.0.0.1:8083/", predicted_vulnerable=False),               # TN
+        TargetResult(url="http://127.0.0.1:8083/", predicted_vulnerable=False),  # TN
     ]
     ground_truth = {
         "http://127.0.0.1:8081/trigger-error": True,
@@ -52,7 +52,7 @@ def test_clean_run_with_a_real_finding_passes() -> None:
 
     assert (score.tp, score.fp, score.fn, score.tn) == (1, 0, 0, 2)
     assert score.fp_rate_of_findings == 0.0
-    assert score.passed is True                  # TP>=1 and fp_rate < 0.20
+    assert score.passed is True  # TP>=1 and fp_rate < 0.20
 
 
 def test_same_host_distinct_urls_are_scored_independently() -> None:
@@ -71,7 +71,7 @@ def test_same_host_distinct_urls_are_scored_independently() -> None:
 
     score = score_findings(results, ground_truth)
 
-    assert score.tp + score.fp + score.fn + score.tn == 3   # not collapsed to 1
+    assert score.tp + score.fp + score.fn + score.tn == 3  # not collapsed to 1
     assert (score.tp, score.tn) == (1, 2)
 
 
@@ -89,8 +89,8 @@ def test_zero_findings_is_not_a_silent_pass() -> None:
     score = score_findings(results, ground_truth)
 
     assert (score.tp, score.fp) == (0, 0)
-    assert score.fp_rate_of_findings == 0.0      # no division error
-    assert score.passed is False                 # but nothing was found -> not a pass
+    assert score.fp_rate_of_findings == 0.0  # no division error
+    assert score.passed is False  # but nothing was found -> not a pass
 
 
 def test_no_findings_with_a_miss_is_not_pass() -> None:

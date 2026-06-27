@@ -28,8 +28,6 @@ from __future__ import annotations
 
 import pathlib
 
-import pytest
-
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.monologue import (
@@ -53,9 +51,14 @@ def _orchestrator():
 
         def complete(self, *a: object, **k: object):
             return type(
-                "R", (), {"text": '{"tool": "generic_http_probe"}',
-                          "usage_cost_usd": 0.0, "model": "deepseek-v4-pro",
-                          "reasoning": "no playbook hit; selecting a generic probe"},
+                "R",
+                (),
+                {
+                    "text": '{"tool": "generic_http_probe"}',
+                    "usage_cost_usd": 0.0,
+                    "model": "deepseek-v4-pro",
+                    "reasoning": "no playbook hit; selecting a generic probe",
+                },
             )()
 
     return LLMOrchestrator(
@@ -141,15 +144,19 @@ def test_alpha_without_sink_defaults_to_null(
 
     payload = a2a_pb2.HandoffPayload()
     payload.ParseFromString(msg.payload)
-    assert payload.status == a2a_pb2.COMPLETE          # runs normally
+    assert payload.status == a2a_pb2.COMPLETE  # runs normally
     assert isinstance(agent.monologue, NullMonologueSink)
 
 
 def test_null_sink_emit_is_noop() -> None:
     NullMonologueSink().emit(
         ThoughtFrame(
-            engagement_id="eng_x", agent="alpha", phase="OBSERVE",
-            message="m", timestamp_utc="2026-06-19T00:00:00Z", reasoning="",
+            engagement_id="eng_x",
+            agent="alpha",
+            phase="OBSERVE",
+            message="m",
+            timestamp_utc="2026-06-19T00:00:00Z",
+            reasoning="",
         )
     )  # must not raise
 
@@ -187,8 +194,11 @@ def test_custom_sink_satisfies_protocol() -> None:
 
     sink: MonologueSink = _ListSink()
     frame = ThoughtFrame(
-        engagement_id="e", agent="alpha", phase="PERSIST",
-        message="wrote vuln node", timestamp_utc="2026-06-19T00:00:00Z",
+        engagement_id="e",
+        agent="alpha",
+        phase="PERSIST",
+        message="wrote vuln node",
+        timestamp_utc="2026-06-19T00:00:00Z",
         reasoning="confirmed",
     )
     sink.emit(frame)
