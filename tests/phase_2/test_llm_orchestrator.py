@@ -38,8 +38,13 @@ class _StubProvider:
     def complete(self, *args: object, **kwargs: object):
         self.calls += 1
         return type(
-            "R", (), {"text": '{"tool": "generic_http_probe"}', "usage_cost_usd": 0.002,
-                      "model": constants.LLM_REASONING_PROVIDER}
+            "R",
+            (),
+            {
+                "text": '{"tool": "generic_http_probe"}',
+                "usage_cost_usd": 0.002,
+                "model": constants.LLM_REASONING_PROVIDER,
+            },
         )()
 
 
@@ -52,9 +57,7 @@ def _orchestrator(provider: object) -> LLMOrchestrator:
 
 def test_rule_hit_skips_llm_entirely() -> None:
     orch = _orchestrator(_ExplodingProvider())
-    decision = orch.decide(
-        {"body": "Whoops! ... Laravel v10.3.1", "headers": {}}
-    )
+    decision = orch.decide({"body": "Whoops! ... Laravel v10.3.1", "headers": {}})
     assert decision.tool == "laravel_debug_probe"
     assert decision.tier == constants.LLM_TIER_RULE
 

@@ -2,7 +2,7 @@
 template, carry retrievable + REDACTED proof, with NO duplicate detection path (ADR §12.16).
 
 WHY THIS EXISTS (anti-Lyndon, caught 2026-06-26):
-  #44 merged `LaravelFindingTemplate`, but NOTHING in the live path calls it — `scout.py` 
+  #44 merged `LaravelFindingTemplate`, but NOTHING in the live path calls it — `scout.py`
   still detects Laravel inline via `_handle_laravel_debug`. That is dead + duplicate code
   (Lyndon #2 + #6), and the agent owns domain logic the tool layer is supposed to own
   (#4/#8). The template's *unit* test passed in isolation, which hid all of this.
@@ -85,8 +85,9 @@ class _StubProvider:
     def complete(self, *a: object, **k: object):
         self.calls += 1
         return type(
-            "R", (), {"text": '{"tool": "generic_http_probe"}', "usage_cost_usd": 0.0,
-                      "model": self.model}
+            "R",
+            (),
+            {"text": '{"tool": "generic_http_probe"}', "usage_cost_usd": 0.0, "model": self.model},
         )()
 
 

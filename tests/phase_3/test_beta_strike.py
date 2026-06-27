@@ -21,8 +21,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-import pytest
-
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
@@ -84,8 +82,13 @@ class _RejectingHttpClient:
         return _Resp(401, "<html>login required</html>")
 
     def post(
-        self, url: str, *, data: Any = None, json_body: Any = None,
-        headers: Any = None, cookies: Any = None,
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
     ) -> _Resp:
         return _Resp(403, "<html>forbidden</html>")
 
@@ -93,9 +96,15 @@ class _RejectingHttpClient:
 class _StubOrchestrator:
     def decide(self, observation: dict[str, Any]) -> Any:
         return type(
-            "D", (), {"tool": "default_creds", "tier": "rule",
-                       "technique_id": "T1078", "cost_usd": 0.0,
-                       "reasoning": ""},
+            "D",
+            (),
+            {
+                "tool": "default_creds",
+                "tier": "rule",
+                "technique_id": "T1078",
+                "cost_usd": 0.0,
+                "reasoning": "",
+            },
         )()
 
 
@@ -108,7 +117,7 @@ def test_beta_gate_is_active_approved_or_higher() -> None:
     auth.enable_recon(eng, _scope())
     assert auth.can_agent_proceed(a2a_pb2.BETA, eng) is False  # RECON_ONLY — Alpha's tier
     auth.enable_active(eng)
-    assert auth.can_agent_proceed(a2a_pb2.BETA, eng) is True   # ACTIVE_APPROVED
+    assert auth.can_agent_proceed(a2a_pb2.BETA, eng) is True  # ACTIVE_APPROVED
 
 
 # ── 2. Beta refuses to run unauthorized (no body reached) ────────────────────
@@ -168,4 +177,3 @@ def test_false_success_guard_empty_access_is_failed() -> None:
     # Holds because the body ran and recorded NO credentials/sessions:
     assert payload.status == a2a_pb2.FAILED
     assert payload.findings_count == 0
-

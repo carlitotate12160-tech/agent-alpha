@@ -8,14 +8,13 @@ Run on Oracle ARM64:
     .venv/bin/pytest tests/phase_0/test_conductor_main.py -v
 """
 
-from io import BytesIO
 import os
+from io import BytesIO
 
 import pytest
 from fastapi.testclient import TestClient
 
 from agent_alpha.conductor.main import app
-
 
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
 
@@ -23,7 +22,11 @@ jwt = pytest.importorskip("jwt")
 
 
 def _token(tenant_id: str, sub: str = "tester") -> str:
-    return jwt.encode({"tenant_id": tenant_id, "sub": sub}, os.environ["AGENT_ALPHA_JWT_SECRET"], algorithm="HS256")
+    return jwt.encode(
+        {"tenant_id": tenant_id, "sub": sub},
+        os.environ["AGENT_ALPHA_JWT_SECRET"],
+        algorithm="HS256",
+    )
 
 
 def _auth(tenant_id: str = "test-tenant") -> dict[str, str]:

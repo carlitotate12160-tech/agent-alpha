@@ -47,8 +47,13 @@ class _AuthAwareHttpClient:
         return self._route(headers, cookies, None)
 
     def post(
-        self, url: str, *, data: Any = None, json_body: Any = None,
-        headers: Any = None, cookies: Any = None,
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
     ) -> _Resp:
         return self._route(headers, cookies, data or json_body)
 
@@ -104,8 +109,11 @@ def test_applies_to_baseline() -> None:
 def test_run_success_returns_finding_with_content() -> None:
     http = _AuthAwareHttpClient(
         unauth=_Resp(401, "<html>login required</html>"),
-        authed=_Resp(200, "<html>admin dashboard — welcome administrator</html>",
-                     headers={"set-cookie": "session=abc"}),
+        authed=_Resp(
+            200,
+            "<html>admin dashboard — welcome administrator</html>",
+            headers={"set-cookie": "session=abc"},
+        ),
     )
     tool = DefaultCredsTool(http_client=http)
     result = tool.run(_ctx(), _budget())

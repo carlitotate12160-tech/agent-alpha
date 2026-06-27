@@ -139,7 +139,6 @@ def recon_engagement(event_store: InMemoryEventStore):
     return auth, record.engagement_id
 
 
-
 @pytest.fixture
 def deepseek_api_key() -> str:
     key = os.environ.get("DEEPSEEK_API_KEY")

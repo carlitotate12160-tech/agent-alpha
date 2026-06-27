@@ -97,9 +97,7 @@ def test_dsn_role_cannot_bypass_rls() -> None:
     with psycopg.connect(_require_dsn()) as conn, conn.cursor() as cur:
         cur.execute("SELECT current_setting('is_superuser')")
         is_superuser = cur.fetchone()[0]
-        cur.execute(
-            "SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user"
-        )
+        cur.execute("SELECT rolbypassrls FROM pg_roles WHERE rolname = current_user")
         bypass_rls = cur.fetchone()[0]
 
     assert is_superuser == "off", (
@@ -108,8 +106,7 @@ def test_dsn_role_cannot_bypass_rls() -> None:
         "dedicated NOSUPERUSER NOBYPASSRLS role for the app/CI DSN."
     )
     assert bypass_rls is False, (
-        "DSN role has BYPASSRLS — RLS provides no protection. "
-        "Use a NOBYPASSRLS role."
+        "DSN role has BYPASSRLS — RLS provides no protection. Use a NOBYPASSRLS role."
     )
 
 

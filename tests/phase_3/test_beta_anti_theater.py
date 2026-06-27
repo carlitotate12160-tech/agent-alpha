@@ -84,8 +84,13 @@ class _StubOrchestrator:
         return type(
             "D",
             (),
-            {"tool": "default_creds", "tier": "rule", "technique_id": "T1078",
-             "cost_usd": 0.0, "reasoning": ""},
+            {
+                "tool": "default_creds",
+                "tier": "rule",
+                "technique_id": "T1078",
+                "cost_usd": 0.0,
+                "reasoning": "",
+            },
         )()
 
 
@@ -95,7 +100,9 @@ class _StubOrchestrator:
 def _active_engagement() -> tuple[AuthorizationStateMachine, str]:
     auth = AuthorizationStateMachine(event_store=InMemoryEventStore())
     rec = auth.create_engagement(client_id="c", target=HOST)
-    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=["10.0.0.0/30"], domains=[HOST], exclusions=[]))
+    auth.enable_recon(
+        rec.engagement_id, Scope(ip_ranges=["10.0.0.0/30"], domains=[HOST], exclusions=[])
+    )
     auth.enable_active(rec.engagement_id)
     return auth, rec.engagement_id
 
@@ -123,14 +130,17 @@ def test_success_requires_credential_actually_applied() -> None:
     auth, eng = _active_engagement()
     http = AuthAwareFakeHttpClient(
         unauth=_Resp(401, "<html>login required</html>"),
-        authed=_Resp(200, "<html>admin dashboard — welcome administrator</html>",
-                     headers={"set-cookie": "session=abc"}),
+        authed=_Resp(
+            200,
+            "<html>admin dashboard — welcome administrator</html>",
+            headers={"set-cookie": "session=abc"},
+        ),
     )
     payload = _decode(_beta(auth, http).run_strike(eng, ENTRY))
 
     assert payload.status == a2a_pb2.COMPLETE
     assert payload.findings_count >= 1
-    assert list(payload.proof_artifacts)                       # non-empty proof
+    assert list(payload.proof_artifacts)  # non-empty proof
     assert "credential_refs" in payload.handoff_data.decode()
     assert any(c["auth"] for c in http.calls), "credential never applied — theatre"
 

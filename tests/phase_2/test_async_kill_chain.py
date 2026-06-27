@@ -41,9 +41,7 @@ class _StubProvider:
     model = "deepseek-v4-pro"
 
     def complete(self, *a: object, **k: object) -> object:
-        return type(
-            "R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "deepseek-v4-pro"}
-        )()
+        return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "deepseek-v4-pro"})()
 
 
 # ── resolve_recon_targets + SSRF guard (real seam, unit) ──────────────
@@ -69,7 +67,10 @@ def test_resolve_targets_empty_scope_raises() -> None:
     record = type(
         "_R",
         (),
-        {"engagement_id": "e", "scope": Scope(ip_ranges=["10.0.0.0/30"], domains=[], exclusions=[])},
+        {
+            "engagement_id": "e",
+            "scope": Scope(ip_ranges=["10.0.0.0/30"], domains=[], exclusions=[]),
+        },
     )()
     with pytest.raises(recon_runner.NoTargetsError):
         recon_runner.resolve_recon_targets(record)

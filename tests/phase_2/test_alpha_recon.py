@@ -36,8 +36,15 @@ class _StubProvider:
 
     def complete(self, *a: object, **k: object):
         self.calls += 1
-        return type("R", (), {"text": '{"tool": "generic_http_probe"}',
-                              "usage_cost_usd": 0.0, "model": "deepseek-v4-pro"})()
+        return type(
+            "R",
+            (),
+            {
+                "text": '{"tool": "generic_http_probe"}',
+                "usage_cost_usd": 0.0,
+                "model": "deepseek-v4-pro",
+            },
+        )()
 
 
 @pytest.fixture
@@ -55,10 +62,11 @@ def alpha_factory(graph_store, event_store):
             http_client=http_client,
         )
         return agent, provider
+
     return _make
 
 
-def _handoff(msg: "a2a_pb2.A2AMessage") -> "a2a_pb2.HandoffPayload":
+def _handoff(msg: a2a_pb2.A2AMessage) -> a2a_pb2.HandoffPayload:
     payload = a2a_pb2.HandoffPayload()
     payload.ParseFromString(msg.payload)
     return payload
@@ -106,8 +114,8 @@ def test_alpha_detects_laravel_debug_and_writes_graph(
 
     msg = agent.run_recon(engagement_id, laravel_target_url)
 
-    assert laravel_target_url in http_client.calls          # actually fetched
-    assert provider.calls == 0                              # RULE tier, no LLM
+    assert laravel_target_url in http_client.calls  # actually fetched
+    assert provider.calls == 0  # RULE tier, no LLM
 
     assets = graph_store.nodes_by_type(NodeType.ASSET)
     vulns = graph_store.nodes_by_type(NodeType.VULNERABILITY)
@@ -148,9 +156,7 @@ def test_alpha_reaches_different_conclusion_on_hardened_target(
 # ── 4. No silent success ──────────────────────────────────────────────
 
 
-def test_empty_target_is_failure_not_silent_success(
-    alpha_factory, recon_engagement, http_client
-):
+def test_empty_target_is_failure_not_silent_success(alpha_factory, recon_engagement, http_client):
     auth, engagement_id = recon_engagement
     agent, _ = alpha_factory(auth, http_client)
 

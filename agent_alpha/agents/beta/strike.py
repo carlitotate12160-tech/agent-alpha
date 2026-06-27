@@ -272,9 +272,7 @@ class Beta:
                 {
                     "type": "session_token",
                     "target": self._entry_point,
-                    "session_cookie_redacted": redact_secrets(
-                        finding["session_cookie"]
-                    ),
+                    "session_cookie_redacted": redact_secrets(finding["session_cookie"]),
                     "captured_at": now_utc,
                 },
             )

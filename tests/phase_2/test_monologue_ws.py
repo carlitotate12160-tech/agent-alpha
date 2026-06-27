@@ -18,9 +18,7 @@ import typing
 
 import pytest
 
-os.environ.setdefault(
-    "AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-at-least-32-bytes!!"
-)
+os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-at-least-32-bytes!!")
 
 jwt = pytest.importorskip("jwt")
 pytest.importorskip("fastapi.testclient")
@@ -69,9 +67,7 @@ def test_ws_rejects_missing_token() -> None:
 
 def test_ws_rejects_invalid_token() -> None:
     with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect(
-            "/engagements/eng_1/monologue/ws?token=not-a-jwt"
-        ) as ws:
+        with client.websocket_connect("/engagements/eng_1/monologue/ws?token=not-a-jwt") as ws:
             ws.receive_json()
 
 
@@ -86,9 +82,7 @@ def test_ws_delivers_frames_to_authorized_tenant(monkeypatch: pytest.MonkeyPatch
     )
     monkeypatch.setattr(routes_monologue, "subscriber_factory", lambda: fake)
 
-    with client.websocket_connect(
-        f"/engagements/eng_1/monologue/ws?token={_token('t1')}"
-    ) as ws:
+    with client.websocket_connect(f"/engagements/eng_1/monologue/ws?token={_token('t1')}") as ws:
         first = ws.receive_json()
         second = ws.receive_json()
 
@@ -112,9 +106,7 @@ def test_ws_subscribes_to_callers_tenant_channel_only(
     )
     monkeypatch.setattr(routes_monologue, "subscriber_factory", lambda: fake)
 
-    with client.websocket_connect(
-        f"/engagements/eng_1/monologue/ws?token={_token('t2')}"
-    ) as ws:
+    with client.websocket_connect(f"/engagements/eng_1/monologue/ws?token={_token('t2')}") as ws:
         got = ws.receive_json()
 
     assert got["message"] == "tenant-two-own-frame"  # got its OWN tenant's frame

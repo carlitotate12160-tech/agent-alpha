@@ -2,7 +2,7 @@
 
 Closes the Phase 2 live-fire blocker. Today `Alpha.step()` calls
 `self.http_client.get(url)` with NO guard; the production HttpClient is
-httpx-backed and raises `httpx.ConnectError` / `httpx.TimeoutException` 
+httpx-backed and raises `httpx.ConnectError` / `httpx.TimeoutException`
 on an unreachable or slow host. That exception propagates out of the
 cognitive loop and out of `run_recon()` → the agent CRASHES. The fake
 client in conftest never raises, so this path is currently UNTESTED
@@ -12,7 +12,7 @@ Required two-layer interface (implementation, ≤2 files):
 
   Layer 1 — agent_alpha/agents/http_client.py
     Add `class HttpClientError(Exception)`. `HttpClient.get` wraps the
-    httpx call: on `httpx.TimeoutException` or `httpx.TransportError` 
+    httpx call: on `httpx.TimeoutException` or `httpx.TransportError`
     (covers ConnectError, ReadError, etc.) re-raise as `HttpClientError`.
     Alpha must NOT import httpx — the domain error decouples it.
 
@@ -39,7 +39,7 @@ from agent_alpha.agents.http_client import HttpClient, HttpClientError
 from agent_alpha.graph.nodes import NodeType
 
 
-def _handoff(msg: "a2a_pb2.A2AMessage") -> "a2a_pb2.HandoffPayload":
+def _handoff(msg: a2a_pb2.A2AMessage) -> a2a_pb2.HandoffPayload:
     payload = a2a_pb2.HandoffPayload()
     payload.ParseFromString(msg.payload)
     return payload
@@ -109,9 +109,7 @@ def test_httpclienterror_is_not_an_httpx_exception():
 # ── Layer 2: Alpha handles HttpClientError → FAILED, never crashes ─────────
 
 
-def test_alpha_unreachable_target_fails_not_crash(
-    recon_engagement, graph_store, event_store
-):
+def test_alpha_unreachable_target_fails_not_crash(recon_engagement, graph_store, event_store):
     """The headline contract: an authorized target that is down/timing out
     yields a terminal FAILED handoff — the agent returns normally instead
     of raising out of the cognitive loop."""
@@ -130,14 +128,12 @@ def test_alpha_unreachable_target_fails_not_crash(
     msg = agent.run_recon(engagement_id, "https://lab-target.invalid/trigger-error")
 
     handoff = _handoff(msg)
-    assert handoff.status == a2a_pb2.FAILED          # no silent success
+    assert handoff.status == a2a_pb2.FAILED  # no silent success
     assert handoff.findings_count == 0
     assert http.calls, "Alpha must have actually attempted the fetch"
 
 
-def test_unreachable_target_writes_no_graph_nodes(
-    recon_engagement, graph_store, event_store
-):
+def test_unreachable_target_writes_no_graph_nodes(recon_engagement, graph_store, event_store):
     """A failed OBSERVE must not fabricate findings — the AttackGraph stays
     empty (anti-Lyndon #3: a crash-or-empty probe is never a conclusion)."""
     auth, engagement_id = recon_engagement

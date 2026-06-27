@@ -116,7 +116,8 @@ def _has_login_form(text: str) -> bool:
 
 
 def _has_positive_auth_signal(
-    auth_resp: Any, baseline_resp: Any,
+    auth_resp: Any,
+    baseline_resp: Any,
 ) -> bool:
     """Return True only when the auth response carries a POSITIVE authentication
     signal — not merely 'text differs from baseline' (a failed-login error page
@@ -177,16 +178,16 @@ class DefaultCredsTool:
         Returns **content**, not refs — Beta.step() persists + mints refs.
         """
         if self._http_client is None:
-            raise ValueError(
-                "DefaultCredsTool.run requires an injected http_client"
-            )
+            raise ValueError("DefaultCredsTool.run requires an injected http_client")
 
         # ── Baseline (unauthenticated GET) ──────────────────────────
         try:
             baseline = self._http_client.get(ctx.target)
         except Exception:
             return ToolResult(
-                tool=self.name, success=False, confidence=0.0,
+                tool=self.name,
+                success=False,
+                confidence=0.0,
                 error="baseline request failed",
             )
 
@@ -223,7 +224,8 @@ class DefaultCredsTool:
             if cookies:
                 try:
                     confirm_resp = self._http_client.get(
-                        ctx.target, cookies=cookies,
+                        ctx.target,
+                        cookies=cookies,
                     )
                     requests_used += 1
                 except Exception:
@@ -237,9 +239,7 @@ class DefaultCredsTool:
             # ── Access verified — determine access level ────────────
             body_lower = (confirm_resp.text or "").lower()
             access_level: str = (
-                "admin"
-                if ("admin" in body_lower or "administrator" in body_lower)
-                else "user"
+                "admin" if ("admin" in body_lower or "administrator" in body_lower) else "user"
             )
 
             # ── Build finding with raw content (tool returns content,
