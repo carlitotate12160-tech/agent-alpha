@@ -186,6 +186,24 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Verdict: {'CHAIN PROVEN' if result.chain_proven else 'FAIL'}")
     print("=" * 64)
 
+    from agent_alpha.agents.omega.roaster import Omega
+
+    report = Omega(graph_store).generate_report("technical")
+    cf = report.chain_finding
+    print()
+    print("OMEGA REPORT (chain finding)")
+    print("-" * 64)
+    if cf is None:
+        print("  No cred-reuse chain finding produced.")
+    else:
+        print(f"  Severity        : {cf.severity.upper()}")
+        print(f"  Credential      : {cf.credential_id}")
+        print(f"  Access          : {cf.access_id}  (level={cf.access_level})")
+        print(f"  Downstream mapped: {cf.downstream_mapped}")
+        print(f"  Rationale       : {cf.rationale}")
+        print(f"  MITRE           : {', '.join(report.mitre_techniques)}")
+    print("=" * 64)
+
     return 0 if result.chain_proven else 1
 
 
