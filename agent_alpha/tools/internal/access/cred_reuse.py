@@ -58,6 +58,8 @@ class CredReuseTool:
     name = "cred_reuse"
     phase = "access"
     required_auth = "ACTIVE_APPROVED"
+    mitre_technique = "T1078.003"  # Valid Accounts: Local Accounts (reused harvested cred,
+    #                                NOT a default account — distinct from default_creds)
 
     def __init__(
         self,
