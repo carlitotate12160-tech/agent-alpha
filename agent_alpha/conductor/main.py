@@ -30,10 +30,10 @@ from agent_alpha.config.constants import (
     CELERY_TASK_SOFT_LIMIT_SEC,
     SOW_MAX_FILE_SIZE_MB,
 )
-from agent_alpha.config.stores import StoreProvider, build_event_store, secrets_vault_from_env
+from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build_event_store
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
-from agent_alpha.security.secrets import LogScrubber
+from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
 
 _log = logging.getLogger(__name__)
 
@@ -41,7 +41,8 @@ event_store = build_event_store()
 store_provider = StoreProvider()
 
 policy = PolicyEnforcer()
-secrets_mgr = secrets_vault_from_env()
+secrets_mgr = SecretsManager()  # module default for the no-tenant path (in-memory, no key)
+secrets_provider = SecretsVaultProvider()  # per-tenant, lazy — mirrors store_provider
 log_scrubber = LogScrubber()
 log_scrubber.install_logging_filter()
 
@@ -199,8 +200,20 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         # C6a (Shape B): run the real Alpha→Omega recon pipeline for this engagement.
         # Heavy deps are built inside the seam (json-only Celery args, C1.7). Per-unit
         # fan-out execution + live-fire FP gate are C6b.
+        task_secrets: SecretsVault = secrets_mgr
+        if tenant_id is not None:
+            try:
+                task_secrets = secrets_provider.for_tenant(tenant_id)
+            except Exception:  # noqa: BLE001 — vault failure must not crash the task
+                _log.exception("Failed to resolve tenant vault for tenant_id=%s", tenant_id)
+
         run_result = recon_runner.run_recon_for_engagement(
-            engagement_id, tenant_id, worker_auth, target_store, record, secrets_manager=secrets_mgr
+            engagement_id,
+            tenant_id,
+            worker_auth,
+            target_store,
+            record,
+            secrets_manager=task_secrets,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report

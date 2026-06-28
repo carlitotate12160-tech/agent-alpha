@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Test Laravel detection for client-target.com
+"""Test Laravel detection for a generic target (Target B) and its IP addresses.
 
 Run this on the Oracle ARM64 box:
-    python3 test_client-target.py
+    python3 test_laravel_target_b.py
 """
 
 import sys
@@ -12,24 +12,15 @@ from agent_alpha.agents.http_client import HttpClient
 import re
 
 def check_laravel_signatures(body: str) -> tuple[bool, list[str]]:
-    """Check if body contains Laravel signatures (debug or normal)."""
+    """Check if body contains Laravel debug signatures."""
     signals = []
     
-    # Debug mode signatures
     if "Whoops" in body:
-        signals.append("Whoops (debug)")
+        signals.append("Whoops")
     if "Illuminate\\" in body:
-        signals.append("Illuminate\\ (debug)")
+        signals.append("Illuminate\\")
     if re.search(r"Laravel v[0-9]", body):
-        signals.append("Laravel version pattern (debug)")
-    
-    # Normal Laravel signatures
-    if 'name="csrf-token"' in body:
-        signals.append("csrf-token meta (Laravel CSRF protection)")
-    if "/storage/" in body:
-        signals.append("/storage/ path (Laravel storage)")
-    if "laravel" in body.lower():
-        signals.append("laravel string (case-insensitive)")
+        signals.append("Laravel version pattern")
     
     return len(signals) > 0, signals
 
@@ -70,9 +61,16 @@ def test_target(url: str) -> None:
 
 if __name__ == "__main__":
     targets = [
-        "http://client-target.com",
-        "https://client-target.com",
-        "https://www.client-target.com",
+        "http://target-b.example.com",
+        "http://10.0.0.25",
+        "http://10.0.0.69",
+        "http://10.0.0.83",
+        "http://10.0.0.52",
+        "https://target-b.example.com",
+        "https://10.0.0.25",
+        "https://10.0.0.69",
+        "https://10.0.0.83",
+        "https://10.0.0.52",
     ]
     
     for target in targets:
