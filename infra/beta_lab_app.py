@@ -13,6 +13,11 @@ sessions = {}
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # Check session cookie on GET — if valid, show dashboard (confirm-with-cookie)
+    session_cookie = request.cookies.get('session')
+    if session_cookie and session_cookie in sessions:
+        return "<html>admin dashboard, welcome administrator</html>"
+
     if request.method == 'GET':
         # Return login form with password input
         return '''
@@ -28,7 +33,7 @@ def login():
 </body>
 </html>
 '''
-    
+
     # POST: check credentials
     username = request.form.get('username', '')
     password = request.form.get('password', '')
