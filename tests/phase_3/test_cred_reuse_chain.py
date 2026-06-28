@@ -273,3 +273,37 @@ def test_secret_value_not_in_events_after_chain() -> None:
         default=str,
     )
     assert LEAKED_VALUE not in blob, "Secret value leaked into events after chain"
+
+
+def test_chain_edge_source_is_alphas_harvested_credential() -> None:
+    """Tighten: the ENABLES edge must originate from ALPHA'S harvested credential
+    (its secret_ref resolves from the vault to the leaked value), NOT a Beta-minted
+    default_creds node — else the 'chain' is two silos faking a connection."""
+    secrets_manager = SecretsManager()
+    graph_store = NetworkXGraphStore()
+    event_store = InMemoryEventStore()
+    http_client = _ChainHttpClient()
+    auth, engagement_id = _run_alpha_recon(secrets_manager, graph_store, event_store, http_client)
+    auth.enable_active(engagement_id)
+    Beta(
+        authorization=auth, graph_store=graph_store, event_store=event_store,
+        orchestrator=_login_orchestrator(), http_client=http_client,
+        secrets_manager=secrets_manager,
+    ).run_strike(engagement_id, LOGIN_URL)
+
+    edges = graph_store.edges_by_relationship(RelationshipType.ENABLES)
+    access_ids = {n.id for n in graph_store.nodes_by_type(NodeType.ACCESS_LEVEL)}
+    cred_by_id = {n.id: n for n in graph_store.nodes_by_type(NodeType.CREDENTIAL)}
+    chain_edges = [e for e in edges if e.target_id in access_ids and e.source_id in cred_by_id]
+    assert chain_edges, "no credential->access ENABLES edge"
+
+    def _is_alpha_harvested(node: object) -> bool:
+        ref = getattr(node.properties, "secret_ref", "")
+        try:
+            return secrets_manager.retrieve(ref) == LEAKED_VALUE
+        except Exception:
+            return False
+
+    assert any(_is_alpha_harvested(cred_by_id[e.source_id]) for e in chain_edges), (
+        "chain edge does not originate from Alpha's harvested credential — fake chain"
+    )
