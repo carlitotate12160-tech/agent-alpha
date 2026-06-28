@@ -14,7 +14,7 @@ import pathlib
 from dataclasses import dataclass
 
 from agent_alpha.config import constants
-from agent_alpha.graph.narrative import to_narrative
+from agent_alpha.graph.narrative import ChainFinding, summarize_chain_finding, to_narrative
 from agent_alpha.graph.store import GraphStore
 
 
@@ -25,6 +25,7 @@ class Report:
     narrative: str
     mitre_techniques: list[str]
     mitre_attack_version: str
+    chain_finding: ChainFinding | None = None
 
     def export_pdf(self, path: str | pathlib.Path) -> pathlib.Path:
         """Render :attr:`narrative` to a PDF at *path* and return the path.
@@ -67,6 +68,17 @@ class Report:
             )
             story.append(Spacer(1, 4 * mm))
 
+        # ── Key finding (cred-reuse chain) ──────────────────────
+        if self.chain_finding is not None:
+            cf = self.chain_finding
+            story.append(
+                Paragraph(
+                    f"Key finding — severity: {cf.severity.upper()}", styles["Heading2"]
+                )
+            )
+            story.append(Paragraph(cf.rationale, styles["Normal"]))
+            story.append(Spacer(1, 4 * mm))
+
         # ── Narrative body ──────────────────────────────────────
         for line in self.narrative.splitlines():
             if line.strip():
@@ -104,4 +116,5 @@ class Omega:
             narrative=narrative,
             mitre_techniques=mitre_techniques,
             mitre_attack_version=constants.MITRE_ATTACK_VERSION,
+            chain_finding=summarize_chain_finding(self.graph_store),
         )

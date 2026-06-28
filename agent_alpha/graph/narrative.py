@@ -188,6 +188,88 @@ def highest_impact_chain(store: GraphStore) -> AttackChain | None:
     return max(chains, key=lambda c: c.impact_score)
 
 
+_CRITICAL_ACCESS_LEVELS: set[str] = {"root", "domain_admin", "db_root"}
+
+
+@dataclasses.dataclass(frozen=True)
+class ChainFinding:
+    """A reportable cred-reuse finding derived from a verified chain.
+
+    Severity is grounded in the *act of authentication* (a verified
+    CREDENTIAL -> ACCESS_LEVEL ENABLES edge), not forward reachability —
+    the chain endpoint is a leaf until post-exploitation (Delta, Phase 5)
+    maps downstream. ``downstream_mapped`` reports that honestly.
+    """
+
+    chain: AttackChain
+    severity: str  # "critical" | "high" | "medium" | "low"
+    credential_id: str
+    access_id: str
+    access_level: str
+    downstream_mapped: bool
+    rationale: str
+
+
+def _chain_severity(access_level: str, *, verified: bool) -> str:
+    if not verified:
+        return "low"
+    if access_level in _CRITICAL_ACCESS_LEVELS:
+        return "critical"
+    if access_level == "admin":
+        return "high"
+    if access_level in {"user", "authenticated"}:
+        return "medium"
+    return "low"
+
+
+def summarize_chain_finding(store: GraphStore) -> ChainFinding | None:
+    """Summarise the highest-impact cred-reuse chain as a reportable finding.
+
+    Returns ``None`` when no chain ends in a verified ACCESS_LEVEL reached
+    via a CREDENTIAL (i.e. no proven authentication occurred).
+    """
+    chain = highest_impact_chain(store)
+    if chain is None or len(chain.nodes) < 2:
+        return None
+
+    access_node = chain.nodes[-1]
+    cred_node = chain.nodes[-2]
+    if access_node.type != NodeType.ACCESS_LEVEL or cred_node.type != NodeType.CREDENTIAL:
+        return None
+
+    terminal_edge = store.get_edge(cred_node.id, access_node.id)
+    if terminal_edge is None or terminal_edge.relationship != RelationshipType.ENABLES:
+        return None
+
+    if not isinstance(access_node.properties, AccessLevelProperties):
+        return None
+    access_level = access_node.properties.level
+
+    severity = _chain_severity(access_level, verified=access_node.verified)
+    downstream_mapped = len(store.neighbors(access_node.id)) > 0
+
+    rationale = (
+        f"Reused credential {cred_node.id} authenticated as '{access_level}' "
+        f"({'verified' if access_node.verified else 'unverified'}). "
+        + (
+            "Downstream impact not yet mapped — post-exploitation (Delta/Phase 5) "
+            "not in scope of this engagement."
+            if not downstream_mapped
+            else "Downstream reachable nodes present; see blast radius."
+        )
+    )
+
+    return ChainFinding(
+        chain=chain,
+        severity=severity,
+        credential_id=cred_node.id,
+        access_id=access_node.id,
+        access_level=access_level,
+        downstream_mapped=downstream_mapped,
+        rationale=rationale,
+    )
+
+
 def to_narrative(
     store: GraphStore,
     style: typing.Literal["executive", "technical", "remediation"],
