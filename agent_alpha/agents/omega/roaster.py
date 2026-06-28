@@ -72,9 +72,7 @@ class Report:
         if self.chain_finding is not None:
             cf = self.chain_finding
             story.append(
-                Paragraph(
-                    f"Key finding — severity: {cf.severity.upper()}", styles["Heading2"]
-                )
+                Paragraph(f"Key finding — severity: {cf.severity.upper()}", styles["Heading2"])
             )
             story.append(Paragraph(cf.rationale, styles["Normal"]))
             story.append(Spacer(1, 4 * mm))
