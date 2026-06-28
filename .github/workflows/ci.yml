@@ -80,7 +80,7 @@ jobs:
           python3.12 -m venv .venv
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e .
-          .venv/bin/pip install ruff mypy pytest grpcio-tools
+          .venv/bin/pip install ruff mypy pytest grpcio-tools bandit
 
       - name: Generate A2A protobuf stubs (a2a_pb2 is generated, not committed)
         run: make proto
@@ -93,6 +93,11 @@ jobs:
         # Without --strict: warnings about editable installs don't cause failure.
         # pip-audit still exits non-zero if actual CVEs are found in dependencies.
         run: .venv/bin/pip-audit --skip-editable
+
+      - name: Security scan (bandit — SAST for Python code)
+        # Fail on MEDIUM and HIGH severity findings. LOW severity is reported
+        # but does not block merge (e.g. assert statements in non-test code).
+        run: .venv/bin/bandit -r agent_alpha/ -ll -ii -x agent_alpha/a2a
 
       - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
         # Fresh container: tables don't exist yet. The app, connecting as

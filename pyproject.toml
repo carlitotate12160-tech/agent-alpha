@@ -21,7 +21,9 @@ dependencies = [
     "pytest",
     "pytest-timeout",
     "pytest-cov",
+    "pytest-randomly",
     "pip-audit",
+    "bandit",
     "protobuf",
     "grpcio",
     "pyjwt",
@@ -50,10 +52,19 @@ select = [
   "B",    # flake8-bugbear
   "UP",   # pyupgrade
   "N",    # pep8-naming
+  "T20",  # flake8-print: no print() in production code (anti-verbose)
+  "C90",  # mccabe: complexity gate (max-complexity below)
 ]
 ignore = [
   "E501",  # line too long (handled by formatter)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# live_fire scripts are CLI entry points — print() is the intended output mechanism.
+"agent_alpha/live_fire/*.py" = ["T201"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 20  # gate god-functions; Celery task entry points are inherently branchy
 
 [tool.ruff.format]
 quote-style = "double"
