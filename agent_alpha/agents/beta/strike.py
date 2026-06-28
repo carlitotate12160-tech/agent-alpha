@@ -251,7 +251,7 @@ class Beta:
             ),
             DefaultCredsTool(http_client=self.http_client),
         ]
-        
+
         result = None
         for tool in sorted(candidates, key=lambda t: t.applies_to(ctx), reverse=True):
             try:

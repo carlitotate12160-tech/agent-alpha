@@ -47,7 +47,6 @@ from agent_alpha.graph.nodes import NodeType
 from agent_alpha.security.secrets import SecretNotFoundError
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
 from agent_alpha.tools.internal.access.default_creds import (
-    _has_login_form,
     _has_positive_auth_signal,
     _parse_set_cookie,
 )
