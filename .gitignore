@@ -31,3 +31,6 @@ audit_*.jsonl
 actions-runner/
 report.pdf
 targets/
+
+# Cowork-mounted working folder — never commit the duplicate tree
+/Projects/
