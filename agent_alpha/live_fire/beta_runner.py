@@ -29,6 +29,7 @@ from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.runner import EngagementConfig, load_engagement_config
 from agent_alpha.llm.orchestrator import LLMOrchestrator
+from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
 
 # Belt-and-suspenders leak heuristic for a REAL run (the unit test
@@ -85,6 +86,7 @@ def run_beta_live_fire(
     orchestrator: Any,
     graph_store: Any,
     event_store: Any,
+    secrets_manager: Any = None,
 ) -> list[BetaResult]:
     """Authorize each target to ACTIVE_APPROVED and run Beta.run_strike; score it."""
     results: list[BetaResult] = []
@@ -102,6 +104,7 @@ def run_beta_live_fire(
             event_store=event_store,
             orchestrator=orchestrator,
             http_client=http_client,
+            secrets_manager=secrets_manager,
         )
         msg = beta.run_strike(rec.engagement_id, target.url)
         payload = a2a_pb2.HandoffPayload()
@@ -135,6 +138,7 @@ def main(argv: list[str] | None = None) -> int:
     playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
     graph_store = NetworkXGraphStore()
+    secrets_manager = SecretsManager()
 
     results = run_beta_live_fire(
         config,
@@ -143,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
         orchestrator=orchestrator,
         graph_store=graph_store,
         event_store=event_store,
+        secrets_manager=secrets_manager,
     )
 
     passed = all(r.correct for r in results)
