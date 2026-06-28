@@ -46,9 +46,10 @@ from typing import Any
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.security.secrets import SecretNotFoundError
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
-from agent_alpha.tools.internal.access.default_creds import (
-    _has_positive_auth_signal,
-    _parse_set_cookie,
+from agent_alpha.tools.internal.access.applicator import (
+    CredentialApplicator,
+    HttpFormApplicator,
+    select_applicator,
 )
 
 
@@ -83,9 +84,9 @@ class CredReuseTool:
 
     def run(self, ctx: TargetContext, budget: ResourceBudget) -> ToolResult:
         """Reuse Alpha-harvested credentials: resolve each CREDENTIAL node's
-        secret_ref via the vault, apply (username + secret) via POST, VERIFY with
-        a positive auth signal, return CONTENT (no raw secret). success=True only
-        on verified access. Beta.step persists + redacts + mints refs."""
+        secret_ref via the vault, delegate to a CredentialApplicator that handles
+        the credential's service, and return CONTENT (no raw secret). success=True
+        only on verified access. Beta.step persists + redacts + mints refs."""
         if self._http_client is None:
             raise ValueError("CredReuseTool.run requires an injected http_client")
         if self._graph_store is None:
@@ -112,19 +113,13 @@ class CredReuseTool:
                 error="no harvested credentials in graph",
             )
 
-        # ── Baseline (unauthenticated GET) ──────────────────────────
-        try:
-            baseline = self._http_client.get(ctx.target)
-        except Exception:
-            return ToolResult(
-                tool=self.name,
-                success=False,
-                confidence=0.0,
-                error="baseline request failed",
-            )
+        # Applicators this tool can use. HTTP today; DB applicators (GLM/Kimi)
+        # register here as they land — select_applicator picks one by service.
+        applicators: list[CredentialApplicator] = [
+            HttpFormApplicator(http_client=self._http_client),
+        ]
 
-        requests_used = 1  # baseline counted
-
+        requests_used = 0
         for node in cred_nodes:
             if requests_used >= budget.max_requests:
                 break
@@ -133,7 +128,7 @@ class CredReuseTool:
             if not hasattr(props, "secret_ref"):
                 continue
 
-            # Resolve the vaulted secret — skip non-vaulted pointers
+            # Resolve the vaulted secret — skip non-vaulted pointers.
             try:
                 secret = self._secrets_manager.retrieve(props.secret_ref)
             except SecretNotFoundError:
@@ -141,81 +136,42 @@ class CredReuseTool:
             except Exception:
                 continue
 
-            username = props.username or ""
-
-            # APPLY the credential via POST (form login) — the credential
-            # MUST reach the wire (anti-Lyndon #3: no proof-theatre).
-            try:
-                auth_resp = self._http_client.post(
-                    ctx.target,
-                    data={"username": username, "password": secret},
-                )
-                requests_used += 1
-            except Exception:
-                continue
-
-            # VERIFY: positive auth signal required
-            if not _has_positive_auth_signal(auth_resp, baseline):
-                continue
-
-            # ── Confirm via session cookie ──────────────────────────
-            set_cookie = auth_resp.headers.get("set-cookie", "")
-            cookies = _parse_set_cookie(set_cookie)
-            confirm_resp = auth_resp  # fallback for redirect/form-gone
-
-            if cookies:
-                try:
-                    confirm_resp = self._http_client.get(
-                        ctx.target,
-                        cookies=cookies,
-                    )
-                    requests_used += 1
-                except Exception:
-                    continue
-                if confirm_resp.text == baseline.text:
-                    continue
-
-            # ── Access verified — determine access level ────────────
-            body_lower = (confirm_resp.text or "").lower()
-            access_level: str = (
-                "admin" if ("admin" in body_lower or "administrator" in body_lower) else "user"
+            credential_service = getattr(props, "service", "") or ""
+            applicator = select_applicator(
+                applicators, credential_service=credential_service, target=ctx.target
             )
+            if applicator is None:
+                continue
 
-            # ── Extract session cookie name (no value — safe) ───────
-            session_cookie_name: str | None = None
-            if set_cookie:
-                first_part = set_cookie.split(";", 1)[0].strip()
-                if "=" in first_part:
-                    session_cookie_name = first_part.split("=", 1)[0].strip()
+            result = applicator.apply(
+                username=props.username or "",
+                secret=secret,
+                target=ctx.target,
+                budget=budget,
+            )
+            requests_used += 3  # baseline + auth + confirm (upper bound)
 
-            # ── Build finding with safe fields only (NO raw secret) ──
+            if not result.success:
+                continue
+
+            # Build the finding from the AuthResult (no raw secret — applicator
+            # already returns safe fields only; credential_node_id ties the chain
+            # edge to Alpha's harvested node).
             finding: dict[str, Any] = {
-                "username": username,
-                "access_level": access_level,
+                "username": props.username or "",
+                "access_level": result.access_level,
                 "credential_node_id": node.id,
-                "proof_request": {
-                    "method": "POST",
-                    "url": ctx.target,
-                    "data_keys": ["username", "password"],
-                },
-                "proof_response": {
-                    "status_code": auth_resp.status_code,
-                    "header_names": list(auth_resp.headers.keys()),
-                    "body_excerpt": (auth_resp.text or "")[:500],
-                    "confirm_status_code": confirm_resp.status_code,
-                    "confirm_body_excerpt": (confirm_resp.text or "")[:500],
-                },
-                "session_cookie_name": session_cookie_name,
+                "proof_request": result.proof_request,
+                "proof_response": result.proof_response,
+                "session_cookie_name": result.session_cookie_name,
             }
-
             return ToolResult(
                 tool=self.name,
                 success=True,
-                confidence=0.9,
+                confidence=result.confidence,
                 findings=(finding,),
             )
 
-        # ── No harvested credential produced a positive auth signal ───
         return ToolResult(
             tool=self.name,
             success=False,
