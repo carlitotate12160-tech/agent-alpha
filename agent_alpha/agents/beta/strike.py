@@ -45,7 +45,8 @@ from agent_alpha.graph.nodes import (
 )
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.llm.redaction import redact_secrets
-from agent_alpha.tools.contracts import ResourceBudget, TargetContext
+from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
+from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 
 # Budget for the default-creds tool — generous enough for the full dictionary
@@ -229,8 +230,8 @@ class Beta:
 
         cost_usd = decision.cost_usd
 
-        # ── ACT: delegate to DefaultCredsTool (one credential-attack
-        #    body, one place — anti-Lyndon #6) ──────────────────────
+        # ── ACT: ranked tool selection (seed of ToolRegistry — inline for 2
+        #    tools, extract to registry.py when a 3rd tool/Gamma needs it) ──
         ctx = TargetContext(
             engagement_id=self._engagement_id,
             tenant_id=None,
@@ -241,11 +242,27 @@ class Beta:
             max_seconds=_DEFAULT_CREDS_MAX_SECONDS,
             max_cost_usd=0.0,  # no LLM cost for default-cred check
         )
-        tool = DefaultCredsTool(http_client=self.http_client)
-        result = tool.run(ctx, budget)
+
+        candidates: list[Tool] = [
+            CredReuseTool(
+                http_client=self.http_client,
+                graph_store=self.graph_store,
+                secrets_manager=self._secrets_manager,
+            ),
+            DefaultCredsTool(http_client=self.http_client),
+        ]
+
+        result = None
+        for tool in sorted(candidates, key=lambda t: t.applies_to(ctx), reverse=True):
+            try:
+                result = tool.run(ctx, budget)
+            except NotImplementedError:
+                continue
+            if result.success:
+                break
 
         # ── VERIFY: ToolResult.success (type forbids empty success — #3) ──
-        if not result.success:
+        if result is None or not result.success:
             return {"discovered_nodes": 0, "cost_usd": cost_usd}
 
         # ── PERSIST (single persistence owner — Beta.step mints refs
@@ -275,20 +292,24 @@ class Beta:
         proof_ref = proof_event.event_id
 
         # MINT credential_ref: event_store.append → event_id.
-        # Default password is public knowledge, not a harvested secret — no vault.
-        cred_event = self.event_store.append(
-            EventType.PROOF_ARTIFACT_RECORDED,
-            self._engagement_id,
-            "beta",
-            {
-                "type": "default_credential_validated",
-                "username": finding["username"],
-                "target": self._entry_point,
-                "access_level": access_level,
-                "captured_at": now_utc,
-            },
-        )
-        credential_ref = cred_event.event_id
+        # Only mint if we harvested a NEW credential (default_creds). If cred_reuse
+        # succeeded, the credential was already harvested by Alpha and we don't
+        # mint a new credential proof.
+        credential_ref: str | None = None
+        if "credential_node_id" not in finding:
+            cred_event = self.event_store.append(
+                EventType.PROOF_ARTIFACT_RECORDED,
+                self._engagement_id,
+                "beta",
+                {
+                    "type": "default_credential_validated",
+                    "username": finding["username"],
+                    "target": self._entry_point,
+                    "access_level": access_level,
+                    "captured_at": now_utc,
+                },
+            )
+            credential_ref = cred_event.event_id
 
         # MINT session_token_ref if a session cookie was issued.
         session_token_ref: str | None = None
@@ -308,7 +329,12 @@ class Beta:
 
         # Update per-run state with minted refs.
         self._access_level = access_level
-        self._credential_refs.append(credential_ref)
+        if credential_ref:
+            self._credential_refs.append(credential_ref)
+        elif "credential_node_id" in finding:
+            # For cred_reuse, Beta.step's false-success guard expects self._credential_refs
+            # to be non-empty. We'll store a placeholder or the reused node ID to signal success.
+            self._credential_refs.append(finding["credential_node_id"])
         if session_token_ref:
             self._session_token_refs.append(session_token_ref)
         self._proof_artifacts.append(proof_ref)
@@ -316,23 +342,27 @@ class Beta:
         nodes_added = 0
 
         # CREDENTIAL node.
-        cred_node_id = f"cred:{host}:{finding['username']}"
-        cred_node = AttackNode(
-            id=cred_node_id,
-            type=NodeType.CREDENTIAL,
-            properties=CredentialProperties(
-                username=finding["username"],
-                secret_ref=credential_ref,
-                service="http",
-                access_level=access_level,
-            ),
-            confidence=result.confidence,
-            agent="beta",
-            timestamp_utc=now_utc,
-            verified=True,
-        )
-        self._persist_node(cred_node)
-        nodes_added += 1
+        # If finding has credential_node_id (cred_reuse), use the existing Alpha node.
+        # Otherwise, mint a new CREDENTIAL node for default_creds.
+        cred_node_id = finding.get("credential_node_id")
+        if not cred_node_id:
+            cred_node_id = f"cred:{host}:{finding['username']}"
+            cred_node = AttackNode(
+                id=cred_node_id,
+                type=NodeType.CREDENTIAL,
+                properties=CredentialProperties(
+                    username=finding["username"],
+                    secret_ref=credential_ref or "",
+                    service="http",
+                    access_level=access_level,
+                ),
+                confidence=result.confidence,
+                agent="beta",
+                timestamp_utc=now_utc,
+                verified=True,
+            )
+            self._persist_node(cred_node)
+            nodes_added += 1
 
         # ACCESS_LEVEL node (verified).
         access_node = AttackNode(

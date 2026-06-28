@@ -31,6 +31,7 @@ from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.scoring import TargetResult, score_findings
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
 
 # ── Data classes ──────────────────────────────────────────────────────
@@ -128,6 +129,7 @@ def run_live_fire(
     orchestrator: Any,
     graph_store: Any,
     event_store: Any,
+    secrets_manager: Any = None,
 ) -> list[TargetResult]:
     """Run the live-fire pipeline: authorize → recon each target → predict.
 
@@ -157,6 +159,7 @@ def run_live_fire(
         event_store=event_store,
         orchestrator=orchestrator,
         http_client=http_client,
+        secrets_manager=secrets_manager,
     )
 
     # ── Run recon per target and derive predictions ──────────────
@@ -201,6 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     orchestrator = LLMOrchestrator(playbook_engine, provider)
 
     graph_store = NetworkXGraphStore()
+    secrets_manager = SecretsManager()
 
     # ── Run pipeline ─────────────────────────────────────────────
     results = run_live_fire(
@@ -210,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
         orchestrator=orchestrator,
         graph_store=graph_store,
         event_store=event_store,
+        secrets_manager=secrets_manager,
     )
 
     # ── Score findings ───────────────────────────────────────────

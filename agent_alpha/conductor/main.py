@@ -199,7 +199,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         # Heavy deps are built inside the seam (json-only Celery args, C1.7). Per-unit
         # fan-out execution + live-fire FP gate are C6b.
         run_result = recon_runner.run_recon_for_engagement(
-            engagement_id, tenant_id, worker_auth, target_store, record
+            engagement_id, tenant_id, worker_auth, target_store, record, secrets_manager=secrets_mgr
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report
