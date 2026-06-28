@@ -253,12 +253,14 @@ class Beta:
         ]
 
         result = None
+        winning_tool: Tool | None = None
         for tool in sorted(candidates, key=lambda t: t.applies_to(ctx), reverse=True):
             try:
                 result = tool.run(ctx, budget)
             except NotImplementedError:
                 continue
             if result.success:
+                winning_tool = tool
                 break
 
         # ── VERIFY: ToolResult.success (type forbids empty success — #3) ──
@@ -390,13 +392,16 @@ class Beta:
         self._persist_node(access_node)
         nodes_added += 1
 
-        # CREDENTIAL → ACCESS_LEVEL edge (ENABLES).
+        # CREDENTIAL → ACCESS_LEVEL edge (ENABLES). Attribution follows the TOOL that
+        # actually executed, NOT the planning decision/playbook (anti-Lyndon #6).
         cred_edge = AttackEdge(
             source_id=cred_node_id,
             target_id=access_node.id,
             relationship=RelationshipType.ENABLES,
             confidence=result.confidence,
-            technique_id=decision.technique_id,
+            technique_id=(
+                winning_tool.mitre_technique if winning_tool is not None else decision.technique_id
+            ),
         )
         self._persist_edge(cred_edge)
 
