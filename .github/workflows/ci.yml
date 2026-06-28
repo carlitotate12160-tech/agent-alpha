@@ -88,6 +88,12 @@ jobs:
       - name: Lint + typecheck (make check = ruff + ruff format --check + mypy)
         run: make check
 
+      - name: Dependency audit (pip-audit — CVE check on installed packages)
+        # --skip-editable: skip agent-alpha itself (installed from source, not on PyPI).
+        # Without --strict: warnings about editable installs don't cause failure.
+        # pip-audit still exits non-zero if actual CVEs are found in dependencies.
+        run: .venv/bin/pip-audit --skip-editable
+
       - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
         # Fresh container: tables don't exist yet. The app, connecting as
         # agent_alpha_app, will CREATE and therefore OWN them, so FORCE ROW LEVEL
@@ -118,4 +124,4 @@ jobs:
           AGENT_ALPHA_REDIS_URL: "redis://localhost:6380/0"
           # If set, the 2 live DeepSeek tests run; else they SKIP (acceptable).
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: .venv/bin/pytest tests/ -q
+        run: .venv/bin/pytest tests/ -q --cov=agent_alpha --cov-report=term-missing --cov-fail-under=80
