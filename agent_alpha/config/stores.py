@@ -17,7 +17,7 @@ import os
 import threading
 
 from agent_alpha.events.store import EventStore, InMemoryEventStore
-from agent_alpha.security.secrets import SecretsVault
+from agent_alpha.security.secrets import SecretsManager, SecretsVault
 
 PG_DSN_ENV = "AGENT_ALPHA_PG_DSN"
 TENANT_ENV = "AGENT_ALPHA_TENANT_ID"
@@ -95,17 +95,35 @@ def load_vault_key() -> bytes:
     return raw.encode()
 
 
-def secrets_vault_from_env(dsn: str | None = None, tenant_id: str | None = None) -> SecretsVault:
-    """Postgres vault when a DSN is set (multi-worker), else in-memory (single-process).
+class SecretsVaultProvider:
+    """Per-tenant SecretsVault provider (mirrors StoreProvider).
 
-    Same selection shape as the event store: no DSN -> InMemory; DSN -> Postgres + RLS.
+    Lazily creates and caches one vault per tenant. No DSN -> per-tenant in-memory
+    SecretsManager. DSN set -> PostgresSecretsVault scoped by RLS, using the shared key
+    from load_vault_key(). The key is loaded lazily on FIRST for_tenant use, so importing
+    the app never requires it (the eager-construction bug this replaces).
     """
-    from agent_alpha.security.secrets import SecretsManager
 
-    dsn = dsn or os.environ.get(PG_DSN_ENV)
-    if not dsn:
-        return SecretsManager()
-    from agent_alpha.security.postgres_secrets_vault import PostgresSecretsVault
+    def __init__(self, dsn: str | None = None) -> None:
+        self._dsn = dsn or os.environ.get(PG_DSN_ENV)
+        self._vaults: dict[str, SecretsVault] = {}
+        self._lock = threading.Lock()
+        self._key: bytes | None = None
 
-    tenant = tenant_id or os.environ.get(TENANT_ENV, "default")
-    return PostgresSecretsVault(dsn, tenant, load_vault_key())
+    def for_tenant(self, tenant_id: str) -> SecretsVault:
+        if not tenant_id:
+            raise ValueError("tenant_id must be non-empty")
+        with self._lock:
+            existing = self._vaults.get(tenant_id)
+            if existing is not None:
+                return existing
+            if not self._dsn:
+                vault: SecretsVault = SecretsManager()
+            else:
+                from agent_alpha.security.postgres_secrets_vault import PostgresSecretsVault
+
+                if self._key is None:
+                    self._key = load_vault_key()  # lazy: only when a DSN-backed tenant runs
+                vault = PostgresSecretsVault(self._dsn, tenant_id, self._key)
+            self._vaults[tenant_id] = vault
+            return vault
