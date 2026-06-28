@@ -17,6 +17,7 @@ import os
 import threading
 
 from agent_alpha.events.store import EventStore, InMemoryEventStore
+from agent_alpha.security.secrets import SecretsVault
 
 PG_DSN_ENV = "AGENT_ALPHA_PG_DSN"
 TENANT_ENV = "AGENT_ALPHA_TENANT_ID"
@@ -73,3 +74,38 @@ class StoreProvider:
 
             self._stores[tenant_id] = store
             return store
+
+
+# ── Secrets Vault Selection ───────────────────────────────────
+
+VAULT_KEY_ENV = "AGENT_ALPHA_VAULT_KEY"  # base64 Fernet key — ONE source of truth (#7)
+
+
+def load_vault_key() -> bytes:
+    """Load the shared Fernet key from the single external source. Fail closed."""
+    raw = os.environ.get(VAULT_KEY_ENV)
+    if not raw:
+        from agent_alpha.security.secrets import SecretsError
+
+        raise SecretsError(
+            f"{VAULT_KEY_ENV} not set — a shared vault key is required for the Postgres "
+            f'vault. Generate once: python -c "from cryptography.fernet import Fernet; '
+            f'print(Fernet.generate_key().decode())" and set it in the worker environment.'
+        )
+    return raw.encode()
+
+
+def secrets_vault_from_env(dsn: str | None = None, tenant_id: str | None = None) -> SecretsVault:
+    """Postgres vault when a DSN is set (multi-worker), else in-memory (single-process).
+
+    Same selection shape as the event store: no DSN -> InMemory; DSN -> Postgres + RLS.
+    """
+    from agent_alpha.security.secrets import SecretsManager
+
+    dsn = dsn or os.environ.get(PG_DSN_ENV)
+    if not dsn:
+        return SecretsManager()
+    from agent_alpha.security.postgres_secrets_vault import PostgresSecretsVault
+
+    tenant = tenant_id or os.environ.get(TENANT_ENV, "default")
+    return PostgresSecretsVault(dsn, tenant, load_vault_key())

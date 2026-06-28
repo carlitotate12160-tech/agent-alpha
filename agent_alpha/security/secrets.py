@@ -10,6 +10,7 @@ import datetime
 import logging
 import os
 import re
+from typing import Protocol, runtime_checkable
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -31,6 +32,18 @@ class SecretNotFoundError(SecretsError):
 
 class DecryptionError(SecretsError):
     pass
+
+
+@runtime_checkable
+class SecretsVault(Protocol):
+    """Encrypted secrets vault contract. In-memory (SecretsManager) for single-process
+    tests/live-fire; Postgres (PostgresSecretsVault) for multi-worker production."""
+
+    def store(self, label: str, value: str, engagement_id: str) -> "SecretRecord": ...
+    def retrieve(self, secret_id: str) -> str: ...
+    def delete(self, secret_id: str) -> bool: ...
+    def delete_engagement(self, engagement_id: str) -> int: ...
+    def list_labels(self, engagement_id: str) -> list[str]: ...
 
 
 def _utcnow() -> str:
@@ -99,6 +112,13 @@ class SecretsManager:
             for record in self._secrets.values()
             if record.engagement_id == engagement_id
         ]
+
+    def delete_engagement(self, engagement_id: str) -> int:
+        """Purge every secret for an engagement (call on engagement end)."""
+        ids = [sid for sid, rec in self._secrets.items() if rec.engagement_id == engagement_id]
+        for sid in ids:
+            del self._secrets[sid]
+        return len(ids)
 
     def export_key(self) -> bytes:
         return self._key
