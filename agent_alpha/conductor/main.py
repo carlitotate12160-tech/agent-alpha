@@ -93,7 +93,8 @@ engagements = APIRouter(
     dependencies=[Depends(require_principal)],
 )
 
-# ── Celery task (Phase 3 placeholder: gate + status only) ────────────
+# ── Celery task: auth gate + status, then runs the real Alpha→Omega recon ──
+# pipeline in-worker (recon_runner.run_recon_for_engagement). Non-blocking.
 
 
 @celery_app.task(
