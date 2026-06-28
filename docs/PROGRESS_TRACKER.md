@@ -11,14 +11,14 @@
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
 | Phase 2 | ✅ COMPLETED | 12/12 komponen selesai | 12 komponen |
-| Phase 3 | 🟦 IN PROGRESS | C1–C6a of C1–C8 done (Oracle-green) | C1–C8 |
+| Phase 3 | 🟦 IN PROGRESS | C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening done | C1–C8 |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
 | Phase 6 | ⬜ NOT STARTED | 0% | - |
 
 ---
 
-> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Next: C6b (fan-out execution + live-fire FP<20%).
+> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Cred-Reuse Chain live-fire CHAIN PROVEN on Oracle. CredentialApplicator seam extracted (PR #63). CI hardened dengan 7 gate (PR #64, #65). Next: C6b (fan-out execution + live-fire FP<20%).
 
 ---
 
@@ -55,13 +55,18 @@
 - **RLS Isolation Tests** — Integration tests dengan raw SQL verification
 - **Python 3.12 + Dependencies** — Upgrade Python dan tambah pytest/protobuf
 
-### Phase 3 — Orchestrator Hardening (C1–C6a selesai)
+### Phase 3 — Orchestrator Hardening + Cred-Reuse Chain + CI Hardening (C1–C6a + Chain + Seam + CI done)
 - **C1** — Event-sourced auth state reconstruction (Oracle-green)
 - **C2** — Emergency revoker ≤5s (Oracle-green)
 - **C3** — Fan-out interface (Oracle-green)
 - **C4** — Real emergency revoker (Oracle-green)
 - **C5** — Async kill chain Shape B + SSRF guard (Oracle-green)
 - **C6a** — Phase 0 test stubs (Oracle-green)
+- **Cred-Reuse Chain** — Alpha harvest+vault → Beta cred_reuse → access → ENABLES edge (CHAIN PROVEN on Oracle, PR #57)
+- **Header Case Fix** — Normalize HttpClient response headers to lowercase (PR #58, bug fix)
+- **CredentialApplicator Seam** — Extract HTTP form login dari cred_reuse.run ke HttpFormApplicator (PR #63)
+- **CI: Coverage + Audit** — pytest-cov 80% threshold + pip-audit + fix make test target (PR #64)
+- **CI: SAST + Lint + Random** — bandit SAST + T20 no-print + C90 complexity + pytest-randomly (PR #65)
 - **C6b** — Per-unit fan-out execution + live-fire FP<20% (PENDING)
 - **C7** — No regression + CI (PENDING)
 - **C8** — Anti-Lyndon gates (PENDING)
@@ -71,6 +76,19 @@
 - **RateLimiter + HttpClient RoE Enforcement** — Rate limiting dan RoE enforcement (MERGED)
 - **Laravel Finding Template** — Template untuk Laravel debug exposure detection (MERGED)
 - **Laravel Template Wiring** — Integration template ke scout.py dengan Laravel-specific redaction (MERGED)
+- **CredReuseTool** — Tool untuk reuse vaulted credentials dari Alpha recon (MERGED, PR #55)
+- **Alpha Vaulting** — Alpha harvest leaked credentials → SecretsManager vault (MERGED, PR #55)
+- **Beta Ranked Tool Selection** — Beta memilih CredReuseTool/DefaultCredsTool via applies_to() ranking (MERGED, PR #55)
+- **Chain Runner** — Single-process Alpha→Beta chain live-fire runner dengan shared SecretsManager (MERGED, PR #57)
+- **Chain Edge Verification** — Test memastikan ENABLES edge berasal dari Alpha's vaulted credential, bukan Beta-minted default (MERGED, PR #57)
+- **Header Case Normalization** — Fix HttpClient response headers ke lowercase untuk match real httpx behavior (MERGED, PR #58)
+- **CredentialApplicator Seam** — Protocol + HttpFormApplicator + select_applicator() untuk service-agnostic credential application (MERGED, PR #63)
+- **CI Coverage Gate** — pytest-cov dengan 80% threshold, coverage 84% (MERGED, PR #64)
+- **CI Dependency Audit** — pip-audit untuk CVE check pada installed packages (MERGED, PR #64)
+- **CI SAST Scan** — bandit -ll -ii untuk security scan medium+ severity (MERGED, PR #65)
+- **CI T20 No-Print** — ruff T20 mencegah print() di production code, live_fire CLI exempt (MERGED, PR #65)
+- **CI C90 Complexity** — ruff mccabe max-complexity=20 untuk gate god-function (MERGED, PR #65)
+- **CI Random Test Order** — pytest-randomly untuk tangkap test order-dependency bug (MERGED, PR #65)
 
 ---
 
@@ -127,6 +145,33 @@ Template untuk Laravel debug exposure detection. RECON_ONLY probing dengan proof
 ### Laravel Env Redaction (`agent_alpha/security/laravel_env.py`)
 Single source of truth untuk parsing + redacting Laravel debug-page env leaks. Regex untuk <td>KEY</td><td>VALUE</td> table form.
 
+### CredentialApplicator Seam (`agent_alpha/tools/internal/access/applicator.py`)
+**Bahasa sederhana:** Ini adalah "colokan universal" untuk pakai kredensial ke berbagai jenis service.
+
+Bayangkan cred_reuse.run sebelumnya seperti orang yang hanya tahu cara login ke website (HTTP form). Kalau mau login ke database (MySQL), harus nambah kode baru di tempat yang sama — bikin function jadi rumit dan gede (god-function).
+
+CredentialApplicator memisahkan "kredensial mana yang mau dipakai" (tugas cred_reuse) dari "cara pakai kredensial ke service tertentu" (tugas applicator). Jadi:
+- `HttpFormApplicator` — tahu cara login ke website (POST username+password)
+- Nanti `MySqlApplicator` — tahu cara login ke database
+- `select_applicator()` — milih applicator yang cocok berdasarkan jenis service
+
+`AuthResult` menyimpan hasil login tanpa menyimpan password asli (anti-leak).
+
+### CI Quality Gates (7 total)
+**Bahasa sederhana:** Ini adalah "penjaga gerbang" sebelum kode boleh masuk ke main branch.
+
+| Gate | Bahasa sederhana |
+|---|---|
+| **ruff check** | Cek kode tidak ada typo, import yang nggak dipakai, `print()` yang nyangkut di production, dan function yang terlalu rumit (god-function) |
+| **ruff format** | Cek indentasi dan style konsisten |
+| **mypy strict** | Cek tipe data benar (misal: tidak kirim string ke function yang butuh integer) |
+| **pip-audit** | Cek apakah dependency (library pihak ketiga) punya celah keamanan (CVE) |
+| **bandit** | Scan kode untuk pola berbahaya (hardcoded password, SQL injection, weak crypto) |
+| **pytest --cov** | Jalankan semua test + cek minimal 80% kode tercakup test |
+| **GitGuardian** | Scan apakah ada secret (password, API key) yang tidak sengaja di-commit |
+
+**pytest-randomly**: Test dijalankan dengan urutan acak setiap kali — kalau ada test yang hanya pass karena "kebetulan urutannya pas", akan ketahuan.
+
 ---
 
 ## Flow Sistem Lengkap
@@ -159,7 +204,7 @@ Single source of truth untuk parsing + redacting Laravel debug-page env leaks. R
 - Phase 0: Authorization, EventStore, SecretsVault, PolicyEnforcer, EmergencyStop
 - Phase 1: GraphStore, EngagementMemory, SessionMemory, IntelligenceBase
 - Phase 2: DeepSeekProvider, PlaybookEngine, LLMOrchestrator, Alpha SCOUT
-- Phase 3: Laravel template, Laravel redaction, Template wiring
+- Phase 3: Laravel template, Laravel redaction, Template wiring, CredReuseTool, Alpha vaulting, Beta ranked tool selection, Chain runner, Header case fix
 
 ### Integration Tests
 - Redis SessionStore (skip jika Redis tidak tersedia)
@@ -271,7 +316,8 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 - **Phase 0 tests** (159 test) — uji semua komponen Phase 0 + C1 run status & idempotency
 - **Phase 1 tests** (85 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory, IntelligenceBase
 - **Phase 2 tests** (13 test) — uji DeepSeekProvider, PlaybookEngine, LLMOrchestrator, ToolRegistry, Alpha SCOUT, Omega ROASTER, HttpClient, Inner Monologue
-- Total: 263 test, semua passing
+- Phase 3 tests (36 test) — uji CredReuseTool, Alpha vaulting, Beta strike, chain runner, default creds, session token redaction
+- Total: 434 passed, 29 skipped (semua passing)
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -282,13 +328,30 @@ Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Window
 ssh -i "<path-to-ssh-key>" ubuntu@<oracle-arm-host>
 cd ~/agent-alpha
 git pull origin main
-make quality
+.venv/bin/pip install -e .
+.venv/bin/pip install pytest-cov pytest-randomly bandit
+
+# Full regression + coverage
+.venv/bin/pytest tests/ -q --cov=agent_alpha --cov-fail-under=80
+
+# Lint + typecheck
+make check
+
+# SAST security scan
+.venv/bin/bandit -r agent_alpha/ -ll -ii -x agent_alpha/a2a
+
+# Live-fire chain runner
+.venv/bin/python3 -m agent_alpha.live_fire.chain_runner engagements/chain_lab.yaml
 ```
 
-`make quality` menjalankan:
-- `ruff` (linting + formatting)
-- `mypy` (type checking strict)
-- `pytest` (semua test)
+**CI gates (7 total):**
+- `ruff check` — linting + T20 no-print + C90 complexity
+- `ruff format --check` — style consistency
+- `mypy strict` — type safety
+- `pip-audit` — dependency CVE check
+- `bandit -ll -ii` — SAST security scan (medium+ fail)
+- `pytest --cov` — tests + coverage 80% threshold
+- `GitGuardian` — secret scanning
 
 ---
 
@@ -552,7 +615,7 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-06-22
-**Phase saat ini:** Phase 2 (COMPLETED)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), C1 completed (9/9)
-**Total tests:** 263 passing
+**Dokumen ini diperbarui terakhir:** 2026-06-28
+**Phase saat ini:** Phase 3 (IN PROGRESS — Cred-Reuse Chain CHAIN PROVEN + Applicator Seam + CI 7-gate)
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening done
+**Total tests:** 437 passed, 2 skipped (random order, coverage 84%)
