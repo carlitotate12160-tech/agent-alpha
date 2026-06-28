@@ -95,6 +95,8 @@ class Tool(Protocol):
     name: str
     phase: str  # recon | access | exploit | post | lateral
     required_auth: str
+    mitre_technique: str  # MITRE ATT&CK id the tool EXECUTES (attribution follows the
+    #                       tool that ran, not the planning playbook). e.g. "T1078.003".
 
     def applies_to(self, ctx: TargetContext) -> float:
         """Relevance 0..1 from tech_stack/context — NOT a hardcoded if-ladder (K11).

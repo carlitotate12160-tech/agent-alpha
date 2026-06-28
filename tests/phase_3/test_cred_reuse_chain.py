@@ -326,3 +326,37 @@ def test_chain_edge_source_is_alphas_harvested_credential() -> None:
     assert any(_is_alpha_harvested(cred_by_id[e.source_id]) for e in chain_edges), (
         "chain edge does not originate from Alpha's harvested credential — fake chain"
     )
+
+
+def test_chain_edge_technique_attributes_to_cred_reuse_not_planning_playbook() -> None:
+    """MITRE attribution follows the TOOL that executed (cred_reuse → T1078.003),
+    NOT the planning playbook that matched the login form (default_credentials_login
+    → T1078.001). Pins the Lyndon-#6 reporting-layer conflation fix."""
+    secrets_manager = SecretsManager()
+    graph_store = NetworkXGraphStore()
+    event_store = InMemoryEventStore()
+    http_client = _ChainHttpClient()
+
+    auth, engagement_id = _run_alpha_recon(secrets_manager, graph_store, event_store, http_client)
+    auth.enable_active(engagement_id)
+
+    beta = Beta(
+        authorization=auth,
+        graph_store=graph_store,
+        event_store=event_store,
+        orchestrator=_login_orchestrator(),  # decision.technique_id == "T1078.001"
+        http_client=http_client,
+        secrets_manager=secrets_manager,
+    )
+    beta.run_strike(engagement_id, LOGIN_URL)
+
+    access_ids = {n.id for n in graph_store.nodes_by_type(NodeType.ACCESS_LEVEL)}
+    chain_edges = [
+        e
+        for e in graph_store.edges_by_relationship(RelationshipType.ENABLES)
+        if e.target_id in access_ids
+    ]
+
+    assert chain_edges, "expected a credential->access ENABLES edge"
+    assert all(e.technique_id == "T1078.003" for e in chain_edges)
+    assert all(e.technique_id != "T1078.001" for e in chain_edges)

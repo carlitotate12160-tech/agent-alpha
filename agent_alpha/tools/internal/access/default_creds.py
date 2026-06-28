@@ -146,6 +146,7 @@ class DefaultCredsTool:
     name = "default_creds"
     phase = "access"
     required_auth = "ACTIVE_APPROVED"
+    mitre_technique = "T1078.001"  # Valid Accounts: Default Accounts (built-in admin/admin)
 
     def __init__(self, *, http_client: Any = None) -> None:
         # Injected so run() can reach the wire (Tool.run(ctx, budget) carries no

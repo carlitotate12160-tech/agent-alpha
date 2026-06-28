@@ -96,6 +96,7 @@ class _FakeTool:
     name = "laravel_finder"
     phase = "recon"
     required_auth = "RECON_ONLY"
+    mitre_technique = "T1592.002"
 
     def applies_to(self, ctx: TargetContext) -> float:
         return 1.0 if ctx.tech_stack.get("framework") == "laravel" else 0.0
