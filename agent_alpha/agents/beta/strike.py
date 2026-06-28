@@ -45,7 +45,7 @@ from agent_alpha.graph.nodes import (
 )
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.llm.redaction import redact_secrets
-from agent_alpha.tools.contracts import ResourceBudget, TargetContext
+from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 
@@ -243,7 +243,7 @@ class Beta:
             max_cost_usd=0.0,  # no LLM cost for default-cred check
         )
 
-        candidates = [
+        candidates: list[Tool] = [
             CredReuseTool(
                 http_client=self.http_client,
                 graph_store=self.graph_store,
