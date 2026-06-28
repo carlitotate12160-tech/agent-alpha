@@ -20,6 +20,8 @@ dependencies = [
     "psycopg[binary]",
     "pytest",
     "pytest-timeout",
+    "pytest-cov",
+    "pip-audit",
     "protobuf",
     "grpcio",
     "pyjwt",
