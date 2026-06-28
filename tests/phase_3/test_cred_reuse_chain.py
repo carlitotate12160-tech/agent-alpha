@@ -14,8 +14,6 @@ from __future__ import annotations
 import json
 import pathlib
 
-import pytest
-
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.beta.strike import Beta
@@ -68,7 +66,9 @@ class _NoLLMProvider:
 
 
 class _FakeResponse:
-    def __init__(self, status_code: int, text: str, headers: dict[str, str] | None = None, url: str = "") -> None:
+    def __init__(
+        self, status_code: int, text: str, headers: dict[str, str] | None = None, url: str = ""
+    ) -> None:
         self.status_code = status_code
         self.text = text
         self.headers = headers or {}
@@ -89,20 +89,34 @@ class _ChainHttpClient:
             return _FakeResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, url)
         if LOGIN_URL in url:
             if cookies or headers:
-                return _FakeResponse(200, "<html>admin dashboard, welcome administrator</html>",
-                                     {"set-cookie": f"{SESSION_COOKIE}; Path=/; HttpOnly"}, url)
-            return _FakeResponse(200, '<html><form><input type="password"></form> login</html>', {}, url)
+                return _FakeResponse(
+                    200,
+                    "<html>admin dashboard, welcome administrator</html>",
+                    {"set-cookie": f"{SESSION_COOKIE}; Path=/; HttpOnly"},
+                    url,
+                )
+            return _FakeResponse(
+                200, '<html><form><input type="password"></form> login</html>', {}, url
+            )
         return _FakeResponse(404, "", {}, url)
 
-    def post(self, url: str, *, data=None, json_body=None, headers=None, cookies=None) -> _FakeResponse:
+    def post(
+        self, url: str, *, data=None, json_body=None, headers=None, cookies=None
+    ) -> _FakeResponse:
         self.calls.append(url)
         self._applied_data = data
         if LOGIN_URL in url:
             # Grant access only if the correct secret was applied
             if data and data.get("password") == LEAKED_VALUE:
-                return _FakeResponse(200, "<html>admin dashboard, welcome administrator</html>",
-                                     {"set-cookie": f"{SESSION_COOKIE}; Path=/; HttpOnly"}, url)
-            return _FakeResponse(401, '<html><form><input type="password"></form> Invalid</html>', {}, url)
+                return _FakeResponse(
+                    200,
+                    "<html>admin dashboard, welcome administrator</html>",
+                    {"set-cookie": f"{SESSION_COOKIE}; Path=/; HttpOnly"},
+                    url,
+                )
+            return _FakeResponse(
+                401, '<html><form><input type="password"></form> Invalid</html>', {}, url
+            )
         return _FakeResponse(404, "", {}, url)
 
 
@@ -244,7 +258,9 @@ def test_chain_edge_exists_from_alpha_credential_to_access() -> None:
     cred_ids = {n.id for n in cred_nodes}
     access_ids = {n.id for n in access_nodes}
     chain_edges = [e for e in edges if e.source_id in cred_ids and e.target_id in access_ids]
-    assert len(chain_edges) >= 1, "Expected at least one ENABLES edge from a CREDENTIAL to an ACCESS_LEVEL node"
+    assert len(chain_edges) >= 1, (
+        "Expected at least one ENABLES edge from a CREDENTIAL to an ACCESS_LEVEL node"
+    )
 
 
 def test_secret_value_not_in_events_after_chain() -> None:
@@ -286,8 +302,11 @@ def test_chain_edge_source_is_alphas_harvested_credential() -> None:
     auth, engagement_id = _run_alpha_recon(secrets_manager, graph_store, event_store, http_client)
     auth.enable_active(engagement_id)
     Beta(
-        authorization=auth, graph_store=graph_store, event_store=event_store,
-        orchestrator=_login_orchestrator(), http_client=http_client,
+        authorization=auth,
+        graph_store=graph_store,
+        event_store=event_store,
+        orchestrator=_login_orchestrator(),
+        http_client=http_client,
         secrets_manager=secrets_manager,
     ).run_strike(engagement_id, LOGIN_URL)
 

@@ -56,8 +56,15 @@ class _ChainFake:
             return _R(200, DASHBOARD, {}, url)
         return _R(200, LOGIN_PAGE, {}, url)
 
-    def post(self, url: str, *, data: Any = None, json_body: Any = None,
-             headers: Any = None, cookies: Any = None) -> _R:
+    def post(
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+    ) -> _R:
         password = (data or {}).get("password")
         if password == LEAKED:
             return _R(200, DASHBOARD, {"set-cookie": "session=abc123def456; Path=/; HttpOnly"}, url)
@@ -92,7 +99,9 @@ def test_chain_runner_proves_real_chain() -> None:
         secrets_manager=secrets_manager,
     )
 
-    assert result.gained_access is True               # Beta reused the leaked password
-    assert result.edge_from_harvested_cred is True    # edge source = Alpha's vaulted node (REAL chain)
-    assert result.leak_suspected is False             # no session value persisted
+    assert result.gained_access is True  # Beta reused the leaked password
+    assert (
+        result.edge_from_harvested_cred is True
+    )  # edge source = Alpha's vaulted node (REAL chain)
+    assert result.leak_suspected is False  # no session value persisted
     assert result.chain_proven is True

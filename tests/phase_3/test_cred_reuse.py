@@ -19,7 +19,9 @@ from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 
 
 def _ctx() -> TargetContext:
-    return TargetContext(engagement_id="e", tenant_id=None, target="http://lab-target.invalid/login")
+    return TargetContext(
+        engagement_id="e", tenant_id=None, target="http://lab-target.invalid/login"
+    )
 
 
 def _graph_with_credential() -> NetworkXGraphStore:
