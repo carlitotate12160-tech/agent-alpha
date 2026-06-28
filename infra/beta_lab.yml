@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  # Vuln login lab: admin/admin works
+  vuln_login:
+    image: python:3.12-slim
+    container_name: beta_vuln_login
+    ports:
+      - "9101:80"
+    volumes:
+      - ./beta_lab_app.py:/app/app.py:ro
+    environment:
+      - VULN=true
+    command: sh -c "pip install flask && python -c 'from flask import Flask; import sys; sys.path.insert(0, \"/app\"); from app import app; app.run(host=\"0.0.0.0\", port=80)'"
+    restart: unless-stopped
+
+  # Hardened login lab: default creds rejected
+  hardened_login:
+    image: python:3.12-slim
+    container_name: beta_hardened_login
+    ports:
+      - "9102:80"
+    volumes:
+      - ./beta_lab_app.py:/app/app.py:ro
+    environment:
+      - VULN=false
+    command: sh -c "pip install flask && python -c 'from flask import Flask; import sys; sys.path.insert(0, \"/app\"); from app import app; app.run(host=\"0.0.0.0\", port=80)'"
+    restart: unless-stopped
