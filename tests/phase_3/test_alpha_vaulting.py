@@ -13,9 +13,6 @@ from __future__ import annotations
 import json
 import pathlib
 
-import pytest
-
-from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
@@ -77,7 +74,9 @@ class _FakeHttpClient:
             return _FakeResponse(404, "", {}, url)
 
 
-def _make_alpha(secrets_manager: SecretsManager) -> tuple[Alpha, AuthorizationStateMachine, str, NetworkXGraphStore, InMemoryEventStore]:
+def _make_alpha(
+    secrets_manager: SecretsManager,
+) -> tuple[Alpha, AuthorizationStateMachine, str, NetworkXGraphStore, InMemoryEventStore]:
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
     rec = auth.create_engagement(client_id="c", target="lab-target.invalid")
@@ -90,9 +89,11 @@ def _make_alpha(secrets_manager: SecretsManager) -> tuple[Alpha, AuthorizationSt
         playbook=PlaybookEngine.from_directory(PLAYBOOK_DIR),
         provider=_StubProvider(),
     )
-    http_client = _FakeHttpClient({
-        TARGET_URL: _FakeResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, TARGET_URL),
-    })
+    http_client = _FakeHttpClient(
+        {
+            TARGET_URL: _FakeResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, TARGET_URL),
+        }
+    )
     alpha = Alpha(
         authorization=auth,
         graph_store=graph_store,
@@ -163,9 +164,11 @@ def test_alpha_without_secrets_manager_falls_back_to_pointer() -> None:
         playbook=PlaybookEngine.from_directory(PLAYBOOK_DIR),
         provider=_StubProvider(),
     )
-    http_client = _FakeHttpClient({
-        TARGET_URL: _FakeResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, TARGET_URL),
-    })
+    http_client = _FakeHttpClient(
+        {
+            TARGET_URL: _FakeResponse(500, LARAVEL_DEBUG_BODY, {"server": "nginx"}, TARGET_URL),
+        }
+    )
     alpha_no_vault = Alpha(
         authorization=auth2,
         graph_store=graph_store2,
@@ -179,5 +182,6 @@ def test_alpha_without_secrets_manager_falls_back_to_pointer() -> None:
     cred_nodes = graph_store2.nodes_by_type(NodeType.CREDENTIAL)
     assert len(cred_nodes) >= 1
     for node in cred_nodes:
-        assert not node.properties.secret_ref.startswith("secret_"), \
+        assert not node.properties.secret_ref.startswith("secret_"), (
             "Without vault, secret_ref should be a proof-path pointer, not a vault id"
+        )

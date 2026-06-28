@@ -47,15 +47,26 @@ class _Fake:
         if not authed:
             return _R(200, LOGIN_BODY, {}, url)
         if VULN in url:
-            return _R(200, "<html>admin dashboard, welcome administrator</html>",
-                      {"set-cookie": f"session={LONG_SESSION}; Path=/; HttpOnly"}, url)
+            return _R(
+                200,
+                "<html>admin dashboard, welcome administrator</html>",
+                {"set-cookie": f"session={LONG_SESSION}; Path=/; HttpOnly"},
+                url,
+            )
         return _R(401, LOGIN_BODY, {}, url)  # hardened: default creds rejected
 
     def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _R:
         return self._resp(url, bool(headers or cookies))
 
-    def post(self, url: str, *, data: Any = None, json_body: Any = None,
-             headers: Any = None, cookies: Any = None) -> _R:
+    def post(
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+    ) -> _R:
         return self._resp(url, bool(data or json_body or headers or cookies))
 
 
@@ -95,13 +106,13 @@ def test_beta_live_fire_scores_against_ground_truth_leak_free() -> None:
     by_url = {r.url: r for r in results}
 
     vuln = by_url[VULN]
-    assert vuln.gained_access is True          # default creds work -> access
-    assert vuln.proof_count >= 1               # proof-bearing
-    assert vuln.leak_suspected is False        # redaction fix holds through the runner
+    assert vuln.gained_access is True  # default creds work -> access
+    assert vuln.proof_count >= 1  # proof-bearing
+    assert vuln.leak_suspected is False  # redaction fix holds through the runner
     assert vuln.correct is True
 
     hardened = by_url[HARDENED]
-    assert hardened.gained_access is False      # rejected -> no access
+    assert hardened.gained_access is False  # rejected -> no access
     assert hardened.correct is True
 
-    assert all(r.correct for r in results)      # overall PASS
+    assert all(r.correct for r in results)  # overall PASS
