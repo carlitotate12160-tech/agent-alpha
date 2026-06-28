@@ -318,7 +318,7 @@ class PostgresEventStore:
                 (f"{self._tenant_id}:{engagement_id}",),
             )
             cur.execute(
-                f"SELECT COUNT(*) FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
+                f"SELECT COUNT(*) FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",  # nosec B608 — table is a class constant, params are parameterized
                 (self._tenant_id, engagement_id),
             )
             count_row = cur.fetchone()
@@ -330,7 +330,7 @@ class PostgresEventStore:
                 )
 
             cur.execute(
-                f"SELECT COALESCE(MAX(sequence_number), 0) FROM {self._table} "
+                f"SELECT COALESCE(MAX(sequence_number), 0) FROM {self._table} "  # nosec B608 — table is a class constant
                 "WHERE tenant_id = %s AND engagement_id = %s",
                 (self._tenant_id, engagement_id),
             )
@@ -347,7 +347,7 @@ class PostgresEventStore:
                 sequence_number=next_sequence,
             )
             cur.execute(
-                f"INSERT INTO {self._table} (tenant_id, event_id, event_type, "
+                f"INSERT INTO {self._table} (tenant_id, event_id, event_type, "  # nosec B608 — table is a class constant
                 "engagement_id, agent, timestamp_utc, payload, sequence_number) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
                 (
@@ -367,7 +367,7 @@ class PostgresEventStore:
     def get_events(self, engagement_id: str, after_sequence: int = 0) -> list[AgentEvent]:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT {self._SELECT_COLS} FROM {self._table} "
+                f"SELECT {self._SELECT_COLS} FROM {self._table} "  # nosec B608 — table/cols are class constants
                 "WHERE tenant_id = %s AND engagement_id = %s AND sequence_number > %s "
                 "ORDER BY sequence_number",
                 (self._tenant_id, engagement_id, after_sequence),
@@ -377,7 +377,7 @@ class PostgresEventStore:
     def get_event(self, engagement_id: str, sequence_number: int) -> AgentEvent | None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT {self._SELECT_COLS} FROM {self._table} "
+                f"SELECT {self._SELECT_COLS} FROM {self._table} "  # nosec B608 — table/cols are class constants
                 "WHERE tenant_id = %s AND engagement_id = %s AND sequence_number = %s",
                 (self._tenant_id, engagement_id, sequence_number),
             )
@@ -400,7 +400,7 @@ class PostgresEventStore:
     def count(self, engagement_id: str) -> int:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT COUNT(*) FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
+                f"SELECT COUNT(*) FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",  # nosec B608 — table is a class constant
                 (self._tenant_id, engagement_id),
             )
             row = cur.fetchone()

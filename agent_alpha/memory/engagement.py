@@ -275,7 +275,7 @@ class PostgresEngagementMemoryStore:
 
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"INSERT INTO {self._table} (tenant_id, engagement_id, record) "
+                f"INSERT INTO {self._table} (tenant_id, engagement_id, record) "  # nosec B608 — table is a class constant
                 "VALUES (%s, %s, %s) "
                 "ON CONFLICT (tenant_id, engagement_id) "
                 "DO UPDATE SET record = EXCLUDED.record",
@@ -286,7 +286,7 @@ class PostgresEngagementMemoryStore:
     def get(self, engagement_id: str) -> EngagementMemoryRecord | None:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                f"SELECT record FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",
+                f"SELECT record FROM {self._table} WHERE tenant_id = %s AND engagement_id = %s",  # nosec B608 — table is a class constant
                 (self._tenant_id, engagement_id),
             )
             row = cur.fetchone()
