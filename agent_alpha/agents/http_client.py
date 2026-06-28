@@ -120,7 +120,7 @@ class HttpClient:
                 return HttpResponse(
                     status_code=response.status_code,
                     text=response.text,
-                    headers=dict(response.headers),
+                    headers={k.lower(): v for k, v in response.headers.items()},
                     url=str(response.url),
                 )
         except httpx.TransportError as exc:
