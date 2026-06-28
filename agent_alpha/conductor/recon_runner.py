@@ -114,6 +114,7 @@ def build_recon_pipeline(
     tenant_id: str | None,
     auth: AuthorizationStateMachine,
     store: EventStore,
+    secrets_manager: Any = None,
     publisher: Any = None,
 ) -> ReconPipeline:
     """Construct a real recon pipeline (Alpha + its own graph) for one worker run.
@@ -139,6 +140,7 @@ def build_recon_pipeline(
         event_store=store,
         orchestrator=orchestrator,
         http_client=http_client,
+        secrets_manager=secrets_manager,
         monologue=monologue_sink,
     )
     return ReconPipeline(alpha=alpha, graph_store=graph_store)
@@ -172,6 +174,7 @@ def run_recon_for_engagement(
     auth: AuthorizationStateMachine,
     store: EventStore,
     record: Any,
+    secrets_manager: Any = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -180,7 +183,9 @@ def run_recon_for_engagement(
     metadata only; the worker keeps findings/report OUT of the Celery result
     backend (C1.8).
     """
-    pipeline = build_recon_pipeline(engagement_id, tenant_id, auth, store)
+    pipeline = build_recon_pipeline(
+        engagement_id, tenant_id, auth, store, secrets_manager=secrets_manager
+    )
     targets = resolve_recon_targets(record)
     for url in targets:
         pipeline.alpha.run_recon(engagement_id, url)

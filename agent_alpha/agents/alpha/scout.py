@@ -53,6 +53,7 @@ class Alpha:
         event_store: Any,
         orchestrator: Any,
         http_client: Any,
+        secrets_manager: Any = None,
         monologue: MonologueSink | None = None,
     ) -> None:
         self.authorization = authorization
@@ -60,6 +61,7 @@ class Alpha:
         self.event_store = event_store
         self.orchestrator = orchestrator
         self.http_client = http_client
+        self._secrets_manager = secrets_manager
         self.monologue: MonologueSink = monologue or NullMonologueSink()
 
         # Per-run state, initialised in run_recon().
@@ -335,8 +337,19 @@ class Alpha:
             # Username field → populate username, else leave empty.
             username = _raw_value if key in constants.LARAVEL_CREDENTIAL_USERNAME_KEYS else ""
 
-            # secret_ref: pointer to proof artifact + key — NEVER the value.
-            secret_ref = f"engagements/{self._engagement_id}/proofs/laravel_debug_{host}#{key}"
+            # VAULT the leaked secret (encrypted) so cred_reuse can retrieve it.
+            # secret_ref becomes the vault id — never the value, never a proof path.
+            if self._secrets_manager is not None:
+                record = self._secrets_manager.store(
+                    label=f"{service}:{key}",
+                    value=_raw_value,
+                    engagement_id=self._engagement_id,
+                )
+                secret_ref = record.secret_id
+            else:
+                # No vault wired -> non-retrievable pointer (recon still records the
+                # finding; cred_reuse simply can't reuse it). Fail-open for recon.
+                secret_ref = f"engagements/{self._engagement_id}/proofs/laravel_debug_{host}#{key}"
 
             cred_node = AttackNode(
                 id=f"cred:{host}:{key.lower()}",
