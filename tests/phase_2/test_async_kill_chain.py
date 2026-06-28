@@ -145,7 +145,12 @@ def test_async_worker_runs_real_recon_pipeline(
     )
 
     def fake_build(
-        engagement_id: str, tenant_id: str | None, auth_: object, store_: object
+        engagement_id: str,
+        tenant_id: str | None,
+        auth_: object,
+        store_: object,
+        secrets_manager: object = None,
+        publisher: object = None,
     ) -> recon_runner.ReconPipeline:
         alpha = Alpha(
             authorization=auth_,
