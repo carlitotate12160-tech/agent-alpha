@@ -30,10 +30,10 @@ from agent_alpha.config.constants import (
     CELERY_TASK_SOFT_LIMIT_SEC,
     SOW_MAX_FILE_SIZE_MB,
 )
-from agent_alpha.config.stores import StoreProvider, build_event_store
+from agent_alpha.config.stores import StoreProvider, build_event_store, secrets_vault_from_env
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
-from agent_alpha.security.secrets import LogScrubber, SecretsManager
+from agent_alpha.security.secrets import LogScrubber
 
 _log = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ event_store = build_event_store()
 store_provider = StoreProvider()
 
 policy = PolicyEnforcer()
-secrets_mgr = SecretsManager()
+secrets_mgr = secrets_vault_from_env()
 log_scrubber = LogScrubber()
 log_scrubber.install_logging_filter()
 
