@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Test Laravel detection for baraya-travel.com
+"""Test Laravel detection for a generic target (Target A).
 
 Run this on the Oracle ARM64 box:
-    python3 test_baraya_travel.py
+    python3 test_laravel_target_a.py
 """
 
 import sys
@@ -70,9 +70,9 @@ def test_target(url: str) -> None:
 
 if __name__ == "__main__":
     targets = [
-        "http://baraya-travel.com",
-        "https://baraya-travel.com",
-        "https://www.baraya-travel.com",
+        "http://target-a.example.com",
+        "https://target-a.example.com",
+        "https://www.target-a.example.com",
     ]
     
     for target in targets:
