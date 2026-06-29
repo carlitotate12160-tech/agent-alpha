@@ -8,6 +8,7 @@
 import hashlib
 import logging
 import os
+import pathlib
 from typing import Annotated, Any
 
 from celery import Celery
@@ -15,8 +16,13 @@ from celery.exceptions import SoftTimeLimitExceeded
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, UploadFile
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.agents.beta.strike import Beta
+from agent_alpha.agents.http_client import HttpClient
+from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor import recon_runner, routes_monologue
+from agent_alpha.conductor.advance import Dispatcher, advance_engagement
 from agent_alpha.conductor.api_auth import Principal, require_principal
+from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.policy import PolicyEnforcer
@@ -33,18 +39,12 @@ from agent_alpha.config.constants import (
 from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build_event_store
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
-from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
-from agent_alpha.conductor.advance import advance_engagement, Dispatcher
-from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
-from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
-from agent_alpha.agents.beta.strike import Beta
-from agent_alpha.agents.omega.roaster import Omega
-from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
-import pathlib
 
 _log = logging.getLogger(__name__)
 
@@ -317,15 +317,15 @@ def run_agent_task(self: Any, engagement_id: str, tenant_id: str | None, agent_r
         target_store = store_provider.for_tenant(tenant_id) if tenant_id else event_store
         auth = AuthorizationStateMachine(event_store=target_store)
         record = auth.get_record(engagement_id)
-        
+
         task_secrets: SecretsVault = secrets_mgr
         if tenant_id is not None:
             task_secrets = secrets_provider.for_tenant(tenant_id)
 
-        _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
+        playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
         http_client = HttpClient(engagement_id=engagement_id)
         provider = resolve_reasoning_provider(api_key=os.environ.get("DEEPSEEK_API_KEY", "dummy"))
-        orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(_PLAYBOOK_DIR), provider)
+        orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), provider)
         graph_store = NetworkXGraphStore()
 
         if agent_role == a2a_pb2.BETA:
