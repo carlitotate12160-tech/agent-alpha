@@ -366,8 +366,8 @@ def run_agent_task(
             advance_engagement_task.delay(engagement_id, tenant_id)
 
         elif agent_role == a2a_pb2.OMEGA:
-            omega = Omega(graph_store, target_store)
-            omega.generate_report(engagement_id, record.target)
+            omega = Omega(graph_store)
+            omega.generate_report("technical")
             target_store.append(
                 event_type=EventType.HANDOFF_READY,
                 engagement_id=engagement_id,
