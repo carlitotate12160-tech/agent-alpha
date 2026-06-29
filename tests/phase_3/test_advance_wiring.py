@@ -3,25 +3,21 @@
 from __future__ import annotations
 
 import ast
-import os
 import pathlib
-import pytest
-from typing import Any
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from agent_alpha.a2a import a2a_pb2
-from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import InMemoryEventStore
-from agent_alpha.graph.networkx_store import NetworkXGraphStore
+import pytest
 
 import agent_alpha.conductor.main as main
+from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.main import (
-    run_engagement_task,
     advance_engagement_task,
     run_agent_task,
-    event_store,
+    run_engagement_task,
 )
+from agent_alpha.events.event_types import EventType
+from agent_alpha.events.store import InMemoryEventStore
 
 
 @pytest.fixture(autouse=True)
@@ -102,7 +98,7 @@ def test_t2b_run_agent_task_calls_factory(mock_beta_run_strike):
     eng_id = record.engagement_id
     auth.enable_recon(eng_id, Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[]))
     auth.enable_active(eng_id)
-    
+
     # Fake an ASSET in the graph so we have something in scope
     def mock_build_applicators(*args, **kwargs):
         from agent_alpha.tools.internal.access.applicator import CredentialApplicator
@@ -176,13 +172,13 @@ def test_t5_no_agent_enqueues_agent():
     """T5: AST guard to assert NO agent task enqueues another agent directly."""
     project_root = pathlib.Path(__file__).resolve().parent.parent.parent
     agent_dir = project_root / "agent_alpha" / "agents"
-    
+
     for py_file in agent_dir.rglob("*.py"):
         code = py_file.read_text(encoding="utf-8")
         tree = ast.parse(code, filename=str(py_file))
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 attr = node.func
                 if attr.attr == "delay":
-                    assert False, f"Agent module {py_file} enqueues a Celery task directly via .delay(): {ast.unparse(node)}"
+                    raise AssertionError(f"Agent module {py_file} enqueues a Celery task directly via .delay(): {ast.unparse(node)}")
