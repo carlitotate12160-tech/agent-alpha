@@ -860,3 +860,223 @@ stale CVE DB = false confidence, worse than none).
 - The differentiator is now concretely located: ToolComposer + `verify()`-gated templates +
   reliability ranking + (Phase 6) RAG — NOT breadth of external-tool wrappers.
 - A clear DeepSeek/Claude contract boundary for every future tool.
+
+### 12.17 Secrets Vault — Postgres backend + lazy per-tenant provider — LOCKED
+
+**Status:** LOCKED (2026-06-28). **Relates to:** §8l (platform security), §12.14
+(tenant binding), §12.13 (RLS isolation), §1 (auth gate).
+
+**Decision.** Harvested credentials and API keys are stored in a Postgres-backed,
+tenant-isolated, Fernet-encrypted vault — NOT plaintext in log/graph. The vault
+mirrors the event store's laziness: import-safe, Postgres/key touched only at
+`for_tenant()` during a real tenant task.
+
+**Components:**
+- `SecretsVault` Protocol (`security/secrets.py`) — `store`, `retrieve`, `delete`,
+  `delete_engagement`, `list_labels`. Multi-backend contract.
+- `SecretsManager` — in-memory default (single-process, no key needed).
+- `PostgresSecretsVault` (`security/postgres_secrets_vault.py`) — Fernet encryption
+  at rest, RLS-scoped per tenant, shared key from `AGENT_ALPHA_VAULT_KEY` env.
+- `SecretsVaultProvider` (`config/stores.py`) — lazy per-tenant provider mirroring
+  `StoreProvider`. Key loaded on FIRST `for_tenant()` call, never at import.
+- `load_vault_key()` — fail-closed: raises if `AGENT_ALPHA_VAULT_KEY` not set.
+
+**Key fix (eager→lazy):** Initial wiring called `secrets_vault_from_env()` eagerly
+at `main.py:44`. On Oracle (DSN set), this called `load_vault_key()` at import time
+→ 7 collection errors. Replaced with `SecretsVaultProvider` (lazy, per-tenant),
+matching `StoreProvider`'s proven pattern.
+
+**Test contract:** `tests/phase_3/test_postgres_secrets_vault.py` — 4 integration
+tests (skip if no DSN): cross-instance retrieval, encryption at rest, tenant
+isolation, engagement-based purge. 9 unit tests for the Protocol + manager.
+
+### 12.18 Scope.db_endpoints + Applicator Factory — Gate-enforced DB access — LOCKED
+
+**Status:** LOCKED (2026-06-29). **Relates to:** §1 (auth gate), §12.14 (tenant
+binding), §12.16 (tool layer), §8l (platform security).
+
+**Problem.** Direct-DB credential application is the most invasive action. Three
+flaws needed convergence:
+
+| Flaw | Risk | Root cause |
+|------|------|------------|
+| **FLAW 1** (auth-gate softening) | `cred_reuse` holds `auth` handle → can bypass tier | No separation between gate logic and tool |
+| **FLAW 2** (out-of-scope DB host trap) | Leaked `DB_HOST` from .env (localhost/internal) used as target | No scope check on DB endpoints |
+| **FLAW 3** (ServiceProperties has no host) | DB port assumed co-located with asset host | No host⊕port join via `open_ports` |
+
+**Decision.**
+
+1. **`Scope.db_endpoints`** (`conductor/models.py`) — explicit `host:port` list in
+   the signed SOW scope. Validated at scope creation. Gate enforces exact match.
+
+2. **`is_db_endpoint_in_scope()`** (`conductor/authorization.py`) — gate method that
+   checks `host:port` against `scope.db_endpoints`. Never raises (fail-closed
+   return `False`). Read-only query on the event-sourced state.
+
+3. **`applicator_factory.py`** (`conductor/`) — the ONLY place where authorization
+   state and scope are read to decide WHICH credential applicators `cred_reuse` may
+   use, and AGAINST WHICH in-scope target each is bound.
+
+   - **Tier gate (FLAW 1):** `required_auth` vs engagement state. `cred_reuse`
+     receives `BoundApplicator` list and iterates — it holds NO `auth`/`scope`
+     handle. Stop-signal guard test enforces this.
+   - **Scope gate (FLAW 2):** DB applicators bind ONLY to ASSET `host:port`
+     validated by `is_db_endpoint_in_scope()`. Leaked `DB_HOST` rejected.
+   - **Host⊕port join (FLAW 3):** host from `AssetProperties.host`, port from
+     `open_ports`. ServiceProperties has no host — port joined via asset, never
+     assumed.
+   - **`BoundApplicator(applicator, target)`** — cred_reuse calls
+     `apply(target=...)` verbatim, never chooses a target.
+   - **`AuthScopeView` Protocol** — read-only slice of AuthorizationStateMachine;
+     no transition methods exposed to the factory.
+
+**Single source of truth (#7):** the `required_auth → state` ladder is defined once
+in the factory, mirroring `AuthorizationStateMachine.can_agent_proceed`.
+
+**Test contract:** `tests/phase_3/test_applicator_factory.py` — 9 tests covering
+all three flaws + cred_reuse blindness guard. `tests/phase_0/test_db_endpoint_scope.py`
+— gate-level scope validation tests.
+
+### 12.19 External Benchmark Gate — Proof of value-add before GA — PROPOSED
+
+**Status:** PROPOSED → LOCK on merge. Adds a NEW exit gate; does not change any
+existing phase. **Relates to:** §12.2 (differential test), §12.3 (real-target gate),
+§8m (reliability/validation), §8o-6 (adaptive learning).
+
+#### Context
+
+Agent-Alpha's success bar is internal ("find what a scanner missed, prove it, produce
+a payable report"), proven once on lab container 9201. Competitors publish **external,
+comparable numbers**: XBOW (#1 HackerOne US), CAI (HTB CTFs, bug bounties). We have
+zero external numbers → "value-add vs competitors" is currently an architectural claim,
+not a measured fact. This gate makes the claim falsifiable.
+
+#### Flaw considered first (why a naive benchmark gate is a trap)
+
+- **CTF benchmarks are saturating and flatter.** Frontier models hit ~93% on Cybench;
+  InterCode-CTF is effectively solved. A high Cybench score would prove we're *not
+  behind*, not that we're *differentiated*. CTFs lack the noise, state, and validation
+  gap of real engagements.
+- **Benchmark-chasing risks Lyndon #1/#5** — optimizing for a leaderboard instead of
+  the payable-report bar. The gate must therefore be *secondary* to the internal bar,
+  and must weight **autonomy + real-world** benchmarks above saturated CTF.
+- The literature is explicit that fully-autonomous pentest "remains distant" and all
+  serious players keep a human in the loop. So the gate measures **autonomous
+  capability as a yardstick**, not as a claim that the product runs unsupervised.
+
+#### Decision
+
+Adopt a **three-tier external benchmark gate**, run on **Oracle ARM64** (anti-#9), as
+part of **Phase 6 / pre-GA** exit criteria. Targets are CALIBRATION targets — set the
+floor from a first baseline run, then ratchet. Do not invent a pass number before the
+baseline.
+
+```
+Tier A — AUTONOMY (primary, weighted highest):
+  AutoPenBench, fully-autonomous mode (NO human hints).
+  Why: directly measures the scripted-vs-autonomous gap (chain_runner → Conductor).
+  Gate: Agent-Alpha autonomous score ≥ the published autonomous baseline (~21% solved
+        at publication) AND beats our own previous run (monotonic ratchet).
+
+Tier B — REAL-WORLD CHAINING (primary):
+  CyberGym (real CVE-derived, multi-step) and/or a multi-step-scenario benchmark
+  (arXiv 2603.11214 family).
+  Why: measures state tracking + error recovery + the validation gap — our thesis.
+  Gate: report solved-rate + a VALIDATION metric (fraction of claimed successes that
+        are VERIFIED true, i.e. no false-success #3). Target: false-success rate <
+        internal Phase-2 bar (<20% FP) on the benchmark too.
+
+Tier C — COMPARABILITY (secondary, sanity floor):
+  Cybench (40 pro CTF) — for an apples-to-apples public number only.
+  Gate: report the score; NOT a blocker (saturated). Used to detect regressions.
+```
+
+#### The internal bar still dominates
+
+A passing external score does **not** by itself clear Phase 6. The payable-report bar
+(§success condition) remains the primary gate; benchmarks are the *external
+corroboration*. If they ever conflict, the payable-report bar wins.
+
+#### Test contract
+
+```
+T1  Benchmark harness runs Agent-Alpha through the REAL autonomous live path (Conductor
+    auto-advance + Celery), NOT chain_runner. (If it can only run via chain_runner, the
+    autonomy gap from §autonomy-audit is unresolved — gate cannot be claimed.)
+T2  Each run emits: solved-rate, VERIFIED-success rate (false-success guard), wall-clock,
+    LLM cost. All four logged to the event store (auditable, reproducible).
+T3  Scores recorded per ADR version + git SHA → ratchet enforced (a release may not ship
+    a LOWER Tier-A/B score than the previous release without a written waiver).
+T4  Baseline run completed and its numbers written back into THIS ADR as the initial
+    floor before the gate is declared active.
+```
+
+#### Integration point
+
+The benchmark harness is an **external driver** that creates an engagement via the
+normal Conductor API (SOW/auth gated like any engagement — benchmarks run as
+authorized self-owned targets), then reads results from the event store + Omega
+report. It adds **no** new code path inside the agents — it exercises the existing
+autonomous path. This is also a forcing function: the gate is unrunnable until the
+autonomy wiring (§autonomy-audit, Tier 2) exists, so it pulls that work forward
+honestly.
+
+#### Sequencing
+
+- **Now:** record the gate (this ADR). Do NOT build the harness yet (Phase 6 —
+  building it before the autonomous path exists = dead code #2).
+- **Trigger to build the harness:** the autonomy grep/trace audit is green (Conductor
+  auto-advance + bounded Beta loop + fallback) AND the cred-reuse moat is on the
+  Celery path. Until then the gate is a recorded target, not active work.
+
+**Confidence ~75%** — benchmark landscape moves fast; specific published baselines
+(AutoPenBench ~21% autonomous, Cybench ~93% frontier) should be re-confirmed at
+baseline time, not trusted from this doc.
+
+### 12.20 Conductor Handoff-Consumer — Autonomous spine on Celery path — LOCKED
+
+**Status:** LOCKED (2026-06-29). **Relates to:** §12.13 (agent scaling, Celery), §12.14
+(tenant binding), §12.18 (applicator factory), §1 (auth gate), §8o-1 (event-sourcing).
+
+**Closes audit gap A1.** Conductor previously never consumed handoffs; the payable chain
+only ran via `live_fire/chain_runner.py` (single-process script). This module makes the
+Conductor advance Alpha→Beta on the Celery path, gate-validated, and is the call-site
+where the applicator factory (§12.18) feeds Beta's cred_reuse task.
+
+**Components:**
+- `conductor/advance.py` — handoff-consumer with pure decision logic (`decide_advance`)
+  and effectful orchestration (`advance_engagement`). Proto enum semantics (PhaseStatus,
+  AgentRole) with CONDUCTOR/0 = unset guard (anti false-default #3).
+- `tests/phase_3/test_conductor_advance.py` — RED tests: pure decision (forward transition,
+  tier gate, emergency stop, idempotency) + effectful (dispatch with factory applicators,
+  park across tier, idempotent under retry).
+- `docs/conductor_advance_handoff.md` — integration spec: wiring to `main.py`, new event
+  types (HANDOFF_READY, AGENT_DISPATCHED, AWAITING_APPROVAL, CHAIN_COMPLETE), Celery
+  dispatcher injection, Step 3c cred_reuse applicator injection.
+
+**Key invariants:**
+- **Agent never calls agent.** Agent task signals Conductor to advance via
+  `advance_engagement_task.delay()`. Conductor's `advance_engagement()` is the SINGLE
+  place that reads handoff, validates contract, checks auth gate, and dispatches next
+  agent.
+- **Auth gate not softened.** Alpha (RECON_ONLY) → Beta (ACTIVE_APPROVED) is a tier
+  boundary. Conductor auto-advances ONLY to an agent whose required tier is ALREADY
+  granted. If next agent needs higher tier → engagement PARKS (AWAITING_APPROVAL),
+  requires human approval. Autonomy WITHIN a tier, human gate BETWEEN tiers.
+- **Idempotent under Celery retry.** `AGENT_DISPATCHED` event with `after_handoff_seq`
+  prevents double-dispatch.
+- **Applicator factory call-site.** `advance_engagement()` calls `applicator_builder`
+  for credential-consuming agents (Beta) only; passes `BoundApplicator` list to
+  dispatcher → cred_reuse receives injected applicators, no auth/scope handle
+  (stop-signal guard).
+
+**Sequencing (anti-#10):**
+1. Mount `advance.py` + `test_conductor_advance.py` to Oracle #61 → run tests → must
+   GREEN (pure + effectful with fakes).
+2. Wiring per `conductor_advance_handoff.md`: add event types, `advance_engagement_task`
+   Celery task, `Dispatcher` impl, `ApplicatorBuilder` wrapper, agent task tail.
+3. Integration test: create engagement → enable_active → run recon → assert Beta task
+   enqueued, NO agent-to-agent dispatch.
+
+**Decommission script path.** Once Celery path runs green, `chain_runner.py` becomes
+dev/live-fire harness only — NOT a second production orchestrator (anti-#6).
