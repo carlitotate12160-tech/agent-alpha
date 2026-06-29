@@ -61,3 +61,16 @@ class EventType(enum.StrEnum):
     # for an engagement. Aggregating these into the single append-only stream is
     # the deterministic-aggregation invariant (§12.13 #3): all units of a fanned-
     # out phase land in ONE monotonic, gapless engagement sequence.
+
+    # ── Phase 3 (Conductor handoff-consumer, audit A1) ───────────
+    HANDOFF_READY = "HandoffReady"
+    # ^ Agent task completion: signals Conductor to advance the kill chain.
+    # Carries {from_agent, status, next_recommended, seq}.
+    AGENT_DISPATCHED = "AgentDispatched"
+    # ^ Conductor advance_engagement: enqueued the next agent task. Carries
+    # {dispatched_agent, after_handoff_seq} for idempotency.
+    AWAITING_APPROVAL = "AwaitingApproval"
+    # ^ Conductor parked the engagement: auth gate not satisfied. Carries
+    # {blocked_next_agent, reason, requires_human_approval}.
+    CHAIN_COMPLETE = "ChainComplete"
+    # ^ Conductor halted: no next agent recommended. Carries {reason}.
