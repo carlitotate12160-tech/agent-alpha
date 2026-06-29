@@ -88,7 +88,7 @@ def select_applicator(
     return None
 
 
-class HttpFormApplicator:
+class HttpFormApplicator(CredentialApplicator):
     """Reuse a credential against an HTTP form login.
 
     Behaviour-preserving extraction of the proven cred_reuse form-login path:

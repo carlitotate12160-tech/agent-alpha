@@ -75,6 +75,17 @@ class BoundApplicator:
     applicator: Any  # CredentialApplicator (full protocol)
     target: str  # in-scope "host:port" (DB) or the web login URL (HTTP)
 
+    def applies_to(self, credential_service: str, target: str) -> bool:
+        return self.applicator.applies_to(credential_service, self.target)
+
+    def apply(self, username: str, secret: str, target: str, budget: Any) -> Any:
+        return self.applicator.apply(
+            username=username,
+            secret=secret,
+            target=self.target,
+            budget=budget,
+        )
+
 
 class AuthScopeView(Protocol):
     """Read-only slice of AuthorizationStateMachine the factory consumes. The factory

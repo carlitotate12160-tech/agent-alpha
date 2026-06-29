@@ -28,6 +28,8 @@ from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType
@@ -129,6 +131,14 @@ def run_chain_live_fire(
 
     # ── Escalate, then Beta reuses the vaulted credential ──
     auth.enable_active(rec.engagement_id)
+    candidates = [HttpFormApplicator(http_client=http_client)]
+    applicators = build_applicators_for_engagement(
+        engagement_id=rec.engagement_id,
+        auth=auth,
+        graph_store=graph_store,
+        web_target=config.login_url,
+        candidates=candidates,
+    )
     beta = Beta(
         authorization=auth,
         graph_store=graph_store,
@@ -136,6 +146,7 @@ def run_chain_live_fire(
         orchestrator=orchestrator,
         http_client=http_client,
         secrets_manager=secrets_manager,
+        cred_applicators=applicators,
     )
     msg = beta.run_strike(rec.engagement_id, config.login_url)
     payload = a2a_pb2.HandoffPayload()

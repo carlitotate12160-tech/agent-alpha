@@ -17,6 +17,7 @@ import pathlib
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.beta.strike import Beta
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -213,6 +214,7 @@ def test_beta_reuses_vaulted_secret_and_gains_access() -> None:
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[HttpFormApplicator(http_client=http_client)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -239,6 +241,7 @@ def test_chain_edge_exists_from_alpha_credential_to_access() -> None:
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[HttpFormApplicator(http_client=http_client)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -275,6 +278,7 @@ def test_secret_value_not_in_events_after_chain() -> None:
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[HttpFormApplicator(http_client=http_client)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -302,6 +306,7 @@ def test_chain_edge_source_is_alphas_harvested_credential() -> None:
     auth, engagement_id = _run_alpha_recon(secrets_manager, graph_store, event_store, http_client)
     auth.enable_active(engagement_id)
     Beta(
+        cred_applicators=[HttpFormApplicator(http_client=http_client)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -341,6 +346,7 @@ def test_chain_edge_technique_attributes_to_cred_reuse_not_planning_playbook() -
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[HttpFormApplicator(http_client=http_client)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,

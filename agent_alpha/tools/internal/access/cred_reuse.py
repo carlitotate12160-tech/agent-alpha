@@ -65,10 +65,12 @@ class CredReuseTool:
     def __init__(
         self,
         *,
+        applicators: list[CredentialApplicator] | None = None,
         http_client: Any = None,
         graph_store: Any = None,
         secrets_manager: Any = None,
     ) -> None:
+        self._applicators = applicators or []
         self._http_client = http_client
         self._graph_store = graph_store
         self._secrets_manager = secrets_manager
@@ -86,7 +88,9 @@ class CredReuseTool:
         """Reuse Alpha-harvested credentials: resolve each CREDENTIAL node's
         secret_ref via the vault, delegate to a CredentialApplicator that handles
         the credential's service, and return CONTENT (no raw secret). success=True
-        only on verified access. Beta.step persists + redacts + mints refs."""
+        only on verified access. Beta.step persists + redacts + mints refs.
+        
+        Iterates through `self._applicators` to apply the credential."""
         if self._http_client is None:
             raise ValueError("CredReuseTool.run requires an injected http_client")
         if self._graph_store is None:
@@ -113,11 +117,8 @@ class CredReuseTool:
                 error="no harvested credentials in graph",
             )
 
-        # Applicators this tool can use. HTTP today; DB applicators (GLM/Kimi)
-        # register here as they land — select_applicator picks one by service.
-        applicators: list[CredentialApplicator] = [
-            HttpFormApplicator(http_client=self._http_client),
-        ]
+        # Applicators this tool can use are injected via __init__.
+        applicators: list[CredentialApplicator] = self._applicators
 
         requests_used = 0
         for node in cred_nodes:

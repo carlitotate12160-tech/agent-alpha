@@ -34,6 +34,17 @@ from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
+from agent_alpha.conductor.advance import advance_engagement, Dispatcher
+from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
+from agent_alpha.agents.beta.strike import Beta
+from agent_alpha.agents.omega.roaster import Omega
+from agent_alpha.agents.http_client import HttpClient
+from agent_alpha.graph.networkx_store import NetworkXGraphStore
+from agent_alpha.llm.orchestrator import LLMOrchestrator
+from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.tools.playbook import PlaybookEngine
+import pathlib
 
 _log = logging.getLogger(__name__)
 
@@ -230,8 +241,19 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
                     "report_generated": True,
                 },
             )
+            target_store.append(
+                event_type=EventType.HANDOFF_READY,
+                engagement_id=engagement_id,
+                agent="ALPHA",
+                payload={
+                    "from_agent": a2a_pb2.ALPHA,
+                    "status": a2a_pb2.COMPLETE,
+                    "next_recommended": a2a_pb2.BETA,
+                },
+            )
+            advance_engagement_task.delay(engagement_id, tenant_id)
         except Exception:  # noqa: BLE001 — failure to audit must not crash the task
-            _log.exception("Failed to append EngagementRunCompleted event for %s", engagement_id)
+            _log.exception("Failed to append EngagementRunCompleted/HandoffReady event for %s", engagement_id)
 
         return {"engagement_id": engagement_id, "status": "completed"}
 
@@ -242,6 +264,122 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         _log.exception("Unexpected exception during offensive run")
         _record_failure(str(exc))
         return {"engagement_id": engagement_id, "status": "failed"}
+
+
+class CeleryDispatcher(Dispatcher):
+    def __init__(self, tenant_id: str | None) -> None:
+        self.tenant_id = tenant_id
+
+    def dispatch(self, *, engagement_id: str, agent: int) -> None:
+        run_agent_task.delay(engagement_id, self.tenant_id, agent)
+
+
+@celery_app.task(
+    bind=True,
+    acks_late=True,
+    task_reject_on_worker_lost=True,
+    autoretry_for=(TransientStoreError,),
+    retry_backoff=True,
+    max_retries=CELERY_TASK_MAX_RETRIES,
+)  # type: ignore[untyped-decorator]
+def advance_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) -> dict[str, Any]:
+    try:
+        target_store = store_provider.for_tenant(tenant_id) if tenant_id else event_store
+        auth = AuthorizationStateMachine(event_store=target_store)
+        dispatcher = CeleryDispatcher(tenant_id=tenant_id)
+        decision = advance_engagement(
+            engagement_id=engagement_id,
+            auth=auth,
+            event_store=target_store,
+            dispatcher=dispatcher,
+        )
+        return {
+            "engagement_id": engagement_id,
+            "action": decision.action,
+            "next_agent": decision.next_agent,
+            "reason": decision.reason,
+        }
+    except Exception:
+        _log.exception("Failed to advance engagement %s", engagement_id)
+        raise
+
+
+@celery_app.task(
+    bind=True,
+    acks_late=True,
+    task_reject_on_worker_lost=True,
+    autoretry_for=(TransientStoreError,),
+    retry_backoff=True,
+    max_retries=CELERY_TASK_MAX_RETRIES,
+)  # type: ignore[untyped-decorator]
+def run_agent_task(self: Any, engagement_id: str, tenant_id: str | None, agent_role: int) -> dict[str, Any]:
+    try:
+        target_store = store_provider.for_tenant(tenant_id) if tenant_id else event_store
+        auth = AuthorizationStateMachine(event_store=target_store)
+        record = auth.get_record(engagement_id)
+        
+        task_secrets: SecretsVault = secrets_mgr
+        if tenant_id is not None:
+            task_secrets = secrets_provider.for_tenant(tenant_id)
+
+        _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
+        http_client = HttpClient(engagement_id=engagement_id)
+        provider = resolve_reasoning_provider(api_key=os.environ.get("DEEPSEEK_API_KEY", "dummy"))
+        orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(_PLAYBOOK_DIR), provider)
+        graph_store = NetworkXGraphStore()
+
+        if agent_role == a2a_pb2.BETA:
+            candidates = [
+                HttpFormApplicator(http_client=http_client),
+            ]
+            applicators = build_applicators_for_engagement(
+                engagement_id=engagement_id,
+                auth=auth,
+                graph_store=graph_store,
+                web_target=record.target,
+                candidates=candidates,
+            )
+            beta = Beta(
+                authorization=auth,
+                graph_store=graph_store,
+                event_store=target_store,
+                orchestrator=orchestrator,
+                http_client=http_client,
+                secrets_manager=task_secrets,
+                cred_applicators=applicators,
+            )
+            beta.run_strike(engagement_id, record.target)
+            target_store.append(
+                event_type=EventType.HANDOFF_READY,
+                engagement_id=engagement_id,
+                agent="BETA",
+                payload={
+                    "from_agent": a2a_pb2.BETA,
+                    "status": a2a_pb2.COMPLETE,
+                    "next_recommended": a2a_pb2.OMEGA,
+                },
+            )
+            advance_engagement_task.delay(engagement_id, tenant_id)
+
+        elif agent_role == a2a_pb2.OMEGA:
+            omega = Omega(graph_store, target_store)
+            omega.generate_report(engagement_id, record.target)
+            target_store.append(
+                event_type=EventType.HANDOFF_READY,
+                engagement_id=engagement_id,
+                agent="OMEGA",
+                payload={
+                    "from_agent": a2a_pb2.OMEGA,
+                    "status": a2a_pb2.COMPLETE,
+                    "next_recommended": a2a_pb2.CONDUCTOR,
+                },
+            )
+            advance_engagement_task.delay(engagement_id, tenant_id)
+
+        return {"engagement_id": engagement_id, "status": "completed"}
+    except Exception:
+        _log.exception("Failed to run agent task %s for agent_role %s", engagement_id, agent_role)
+        raise
 
 
 # ── Endpoints ────────────────────────────────────────────────────────
