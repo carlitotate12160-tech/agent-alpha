@@ -3,8 +3,9 @@ the Celery path, WITHOUT any agent ever calling another agent (non-negotiable).
 
 Closes audit gap A1 (Conductor does not consume handoffs; the payable chain only runs via
 live_fire/chain_runner.py). This module IS the autonomous spine: it moves the chain off
-the single-process script onto the Conductor/Celery path, and it is the call-site where
-the applicator factory (Step 3c) feeds Beta's cred_reuse task.
+the single-process script onto the Conductor/Celery path. It is the path on which Beta's
+cred_reuse runs; the applicator factory (Step 3c) is called in run_agent_task — the worker
+that constructs CredReuseTool — not here (live applicators are not Celery-serializable).
 
 THE SEAM (why it's non-bypassable):
   An agent task, on completion, appends a HANDOFF_READY event and signals the Conductor to
@@ -12,9 +13,10 @@ THE SEAM (why it's non-bypassable):
   Conductor's advance_engagement() is the SINGLE place that:
     1. reads the latest handoff from the event stream (event-sourced, replay-safe),
     2. validates the handoff contract (status + a forward, non-replay transition),
-    3. checks the authorization gate permits the recommended next agent,
-    4. builds the applicators (factory) for the next agent, and
-    5. enqueues the next agent's task via an injected dispatcher.
+    3. checks the authorization gate permits the recommended next agent, and
+    4. enqueues the next agent's task via an injected dispatcher (serializable args only;
+       the applicator factory is called in run_agent_task, not here — live applicators are
+       not Celery-serializable, and building them at execution re-reads auth+scope fresh).
 
 CRITICAL — auto-advance RESPECTS the auth gate, never softens it (anti "auth-gate
 softening"):
@@ -48,11 +50,6 @@ KILL_CHAIN_ORDER: tuple[int, ...] = (
     a2a_pb2.OMEGA,
 )
 
-# Agents that consume harvested credentials → the factory must build their applicators at
-# dispatch time. Other agents get an empty list (no applicator wiring needed).
-_APPLICATOR_CONSUMERS: frozenset[int] = frozenset({a2a_pb2.BETA})
-
-
 @dataclasses.dataclass(frozen=True)
 class Handoff:
     """Read-model of the latest handoff (A2AMessage envelope + HandoffPayload).
@@ -82,18 +79,17 @@ class AdvanceDecision:
 
 class Dispatcher(Protocol):
     """Injected Celery enqueuer (mirrors the CeleryRevoker injection pattern). In prod it
-    calls run_agent_task.delay(...); in tests it's a spy. Advancement NEVER imports Celery
-    directly — keeps advance_engagement testable without a broker."""
+    calls run_agent_task.delay(engagement_id, tenant_id, agent); in tests it's a spy.
+    Advancement NEVER imports Celery directly — keeps advance_engagement testable without
+    a broker.
 
-    def dispatch(self, *, engagement_id: str, agent: int, applicators: list[Any]) -> None: ...
+    NOTE — applicators are NOT passed through here: live CredentialApplicator objects are
+    not Celery-serializable. The factory (build_applicators_for_engagement) is therefore
+    called in run_agent_task — the worker that constructs CredReuseTool — ONCE, at
+    execution time, which also re-reads auth+scope fresh at the moment of use. advance only
+    DECIDES and DISPATCHES; it never builds applicators (single factory call-site, #6/#7)."""
 
-
-class ApplicatorBuilder(Protocol):
-    """Conductor-side factory wrapper. Returns the BoundApplicator list for an agent that
-    consumes credentials (Beta), or [] otherwise. Wraps
-    build_applicators_for_engagement so advance stays decoupled from factory internals."""
-
-    def __call__(self, engagement_id: str, agent: int) -> list[Any]: ...
+    def dispatch(self, *, engagement_id: str, agent: int) -> None: ...
 
 
 # ── Pure decision ──────────────────────────────────────────────────────────────
@@ -166,8 +162,10 @@ def latest_handoff(events: list[Any]) -> Handoff | None:
 
     The reads below use proto SEMANTICS (enum ints + the CONDUCTOR/0 = unset rule); adapt
     only the payload KEY NAMES to the chosen event shape, never the types."""
+    from agent_alpha.events.event_types import EventType
+
     for event in reversed(events):
-        if getattr(event, "event_type", None) == "HANDOFF_READY":
+        if getattr(event, "event_type", None) == EventType.HANDOFF_READY:
             payload = getattr(event, "payload", {}) or {}
             next_role = int(payload.get("next_recommended", a2a_pb2.CONDUCTOR))
             return Handoff(
@@ -182,8 +180,10 @@ def latest_handoff(events: list[Any]) -> Handoff | None:
 def _already_dispatched(events: list[Any], handoff: Handoff) -> bool:
     """True iff an AGENT_DISPATCHED event exists that was appended AFTER this handoff —
     makes advance_engagement idempotent under Celery retries (no double-dispatch)."""
+    from agent_alpha.events.event_types import EventType
+
     for event in reversed(events):
-        if getattr(event, "event_type", None) == "AGENT_DISPATCHED":
+        if getattr(event, "event_type", None) == EventType.AGENT_DISPATCHED:
             payload = getattr(event, "payload", {}) or {}
             if int(payload.get("after_handoff_seq", -1)) == handoff.seq:
                 return True
@@ -199,7 +199,6 @@ def advance_engagement(
     auth: Any,  # AuthorizationStateMachine — Conductor owns it; read-only here
     event_store: Any,
     dispatcher: Dispatcher,
-    applicator_builder: ApplicatorBuilder,
 ) -> AdvanceDecision:
     """Consume the latest handoff and advance the chain by ONE validated step.
 
@@ -228,14 +227,10 @@ def advance_engagement(
     )
 
     if decision.action == "dispatch" and decision.next_agent is not None:
-        applicators = (
-            applicator_builder(engagement_id, decision.next_agent)
-            if decision.next_agent in _APPLICATOR_CONSUMERS
-            else []
-        )
-        dispatcher.dispatch(
-            engagement_id=engagement_id, agent=decision.next_agent, applicators=applicators
-        )
+        # Only enqueue (serializable args). run_agent_task builds the applicators via the
+        # factory at execution time — they are not Celery-serializable, and re-reading
+        # auth+scope then is safer than at decision time.
+        dispatcher.dispatch(engagement_id=engagement_id, agent=decision.next_agent)
         _append(
             event_store,
             "AGENT_DISPATCHED",
@@ -259,11 +254,11 @@ def advance_engagement(
     return decision
 
 
-def _append(
-    event_store: Any, event_type_name: str, engagement_id: str, payload: dict[str, object]
-) -> None:
+def _append(event_store: Any, event_type_name: str, engagement_id: str, payload: dict) -> None:
+    from agent_alpha.events.event_types import EventType
+
     event_store.append(
-        event_type=event_type_name,
+        event_type=EventType[event_type_name],
         engagement_id=engagement_id,
         agent="CONDUCTOR",
         payload=payload,
