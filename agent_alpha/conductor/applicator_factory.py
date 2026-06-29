@@ -29,7 +29,8 @@ mirroring AuthorizationStateMachine.can_agent_proceed's tier ladder.
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, Protocol, Sequence, runtime_checkable
+from collections.abc import Sequence
+from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
