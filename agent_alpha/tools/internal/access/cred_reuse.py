@@ -48,7 +48,6 @@ from agent_alpha.security.secrets import SecretNotFoundError
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
 from agent_alpha.tools.internal.access.applicator import (
     CredentialApplicator,
-    HttpFormApplicator,
     select_applicator,
 )
 
@@ -89,7 +88,7 @@ class CredReuseTool:
         secret_ref via the vault, delegate to a CredentialApplicator that handles
         the credential's service, and return CONTENT (no raw secret). success=True
         only on verified access. Beta.step persists + redacts + mints refs.
-        
+
         Iterates through `self._applicators` to apply the credential."""
         if self._http_client is None:
             raise ValueError("CredReuseTool.run requires an injected http_client")
