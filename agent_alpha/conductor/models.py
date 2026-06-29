@@ -7,7 +7,7 @@
 # continues to work unchanged.
 
 import ipaddress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from agent_alpha.config.constants import MAX_SCOPE_IPS
 
@@ -67,27 +67,41 @@ class Scope:
     domains: list[str]
     exclusions: list[str]  # IPs/domains explicitly out of scope
     verified: bool = False
+    db_endpoints: list[str] = field(default_factory=list)
 
     def validate(self) -> None:
         """Validate the scope. Raises ValueError on any problem."""
         if not self.ip_ranges:
-            raise ValueError("scope.ip_ranges must not be empty")
+            raise InvalidScopeError("scope.ip_ranges must not be empty")
 
         total_ips = 0
         for cidr in self.ip_ranges:
             try:
                 network = ipaddress.ip_network(cidr, strict=False)
             except ValueError as exc:
-                raise ValueError(f"invalid CIDR in ip_ranges: {cidr!r}") from exc
+                raise InvalidScopeError(f"invalid CIDR in ip_ranges: {cidr!r}") from exc
             total_ips += network.num_addresses
 
         if total_ips > MAX_SCOPE_IPS:
-            raise ValueError(f"scope spans {total_ips} IPs, exceeds MAX_SCOPE_IPS={MAX_SCOPE_IPS}")
+            raise InvalidScopeError(
+                f"scope spans {total_ips} IPs, exceeds MAX_SCOPE_IPS={MAX_SCOPE_IPS}"
+            )
 
         for exclusion in self.exclusions:
             parsed = _coerce_address(exclusion)
             if parsed.kind == "domain" and not exclusion.strip():
-                raise ValueError(f"unparseable exclusion: {exclusion!r}")
+                raise InvalidScopeError(f"unparseable exclusion: {exclusion!r}")
+
+        for endpoint in self.db_endpoints:
+            host, sep, port_str = endpoint.rpartition(":")
+            if sep == "" or not host:
+                raise InvalidScopeError(f"invalid db_endpoint: {endpoint!r}")
+            try:
+                port = int(port_str)
+            except ValueError as exc:
+                raise InvalidScopeError(f"invalid db_endpoint: {endpoint!r}") from exc
+            if port < 1 or port > 65535:
+                raise InvalidScopeError(f"invalid db_endpoint port: {endpoint!r}")
 
 
 @dataclass

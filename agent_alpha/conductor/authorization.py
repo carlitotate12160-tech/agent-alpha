@@ -167,6 +167,7 @@ class AuthorizationStateMachine:
                     "domains": scope.domains,
                     "exclusions": scope.exclusions,
                     "verified": scope.verified,
+                    "db_endpoints": scope.db_endpoints,
                 },
             },
         )
@@ -332,6 +333,18 @@ class AuthorizationStateMachine:
                     ):
                         return parsed.value.subnet_of(network)
         return False
+
+    def is_db_endpoint_in_scope(self, engagement_id: str, host: str, port: int) -> bool:
+        """True iff "host:port" is an explicit db_endpoints entry in the verified SOW
+        scope. Exact host match + exact port. Never raises (gate query)."""
+        try:
+            self._rebuild(engagement_id)
+        except Exception:  # noqa: BLE001 — scope query must never crash
+            return False
+        record = self._cache.get(engagement_id)
+        if record is None or record.scope is None:
+            return False
+        return f"{host}:{port}" in set(record.scope.db_endpoints)
 
     @staticmethod
     def _matches(parsed: _ParsedAddress, candidate: str) -> bool:

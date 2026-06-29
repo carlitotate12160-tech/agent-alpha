@@ -85,6 +85,7 @@ def apply_event(
                 ip_ranges=_str_list(scope_data, "ip_ranges"),
                 domains=_str_list(scope_data, "domains"),
                 exclusions=_str_list(scope_data, "exclusions"),
+                db_endpoints=_str_list(scope_data, "db_endpoints"),
             )
             sc.verified = bool(scope_data.get("verified", False))
             record.scope = sc
