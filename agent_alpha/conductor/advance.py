@@ -50,6 +50,7 @@ KILL_CHAIN_ORDER: tuple[int, ...] = (
     a2a_pb2.OMEGA,
 )
 
+
 @dataclasses.dataclass(frozen=True)
 class Handoff:
     """Read-model of the latest handoff (A2AMessage envelope + HandoffPayload).
