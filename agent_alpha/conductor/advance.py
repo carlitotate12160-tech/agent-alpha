@@ -255,7 +255,9 @@ def advance_engagement(
     return decision
 
 
-def _append(event_store: Any, event_type_name: str, engagement_id: str, payload: dict) -> None:
+def _append(
+    event_store: Any, event_type_name: str, engagement_id: str, payload: dict[str, object]
+) -> None:
     from agent_alpha.events.event_types import EventType
 
     event_store.append(
