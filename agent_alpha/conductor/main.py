@@ -253,7 +253,9 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             )
             advance_engagement_task.delay(engagement_id, tenant_id)
         except Exception:  # noqa: BLE001 — failure to audit must not crash the task
-            _log.exception("Failed to append EngagementRunCompleted/HandoffReady event for %s", engagement_id)
+            _log.exception(
+                "Failed to append EngagementRunCompleted/HandoffReady event for %s", engagement_id
+            )
 
         return {"engagement_id": engagement_id, "status": "completed"}
 
@@ -312,7 +314,9 @@ def advance_engagement_task(self: Any, engagement_id: str, tenant_id: str | None
     retry_backoff=True,
     max_retries=CELERY_TASK_MAX_RETRIES,
 )  # type: ignore[untyped-decorator]
-def run_agent_task(self: Any, engagement_id: str, tenant_id: str | None, agent_role: int) -> dict[str, Any]:
+def run_agent_task(
+    self: Any, engagement_id: str, tenant_id: str | None, agent_role: int
+) -> dict[str, Any]:
     try:
         target_store = store_provider.for_tenant(tenant_id) if tenant_id else event_store
         auth = AuthorizationStateMachine(event_store=target_store)
