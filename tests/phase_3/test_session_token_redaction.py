@@ -19,6 +19,7 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 
 ENTRY = "http://lab-target.invalid/login"
 HOST = "lab-target.invalid"
@@ -91,6 +92,7 @@ def test_session_token_value_never_persisted_to_event_store() -> None:
 
     beta_events = InMemoryEventStore()
     beta = Beta(
+        cred_applicators=[HttpFormApplicator(http_client=None)],
         authorization=auth,
         graph_store=NetworkXGraphStore(),
         event_store=beta_events,

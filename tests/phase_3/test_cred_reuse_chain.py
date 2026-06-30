@@ -17,12 +17,14 @@ import pathlib
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.beta.strike import Beta
+from agent_alpha.conductor.applicator_factory import BoundApplicator
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.security.secrets import SecretsManager
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine, PlaybookRule
 
 PLAYBOOK_DIR = pathlib.Path(__file__).parent.parent / "phase_2" / "fixtures" / "playbooks"
@@ -213,6 +215,7 @@ def test_beta_reuses_vaulted_secret_and_gains_access() -> None:
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http_client), LOGIN_URL)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -239,6 +242,7 @@ def test_chain_edge_exists_from_alpha_credential_to_access() -> None:
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http_client), LOGIN_URL)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -275,6 +279,7 @@ def test_secret_value_not_in_events_after_chain() -> None:
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http_client), LOGIN_URL)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -302,6 +307,7 @@ def test_chain_edge_source_is_alphas_harvested_credential() -> None:
     auth, engagement_id = _run_alpha_recon(secrets_manager, graph_store, event_store, http_client)
     auth.enable_active(engagement_id)
     Beta(
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http_client), LOGIN_URL)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,
@@ -341,6 +347,7 @@ def test_chain_edge_technique_attributes_to_cred_reuse_not_planning_playbook() -
     auth.enable_active(engagement_id)
 
     beta = Beta(
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http_client), LOGIN_URL)],
         authorization=auth,
         graph_store=graph_store,
         event_store=event_store,

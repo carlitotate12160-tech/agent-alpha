@@ -129,7 +129,7 @@ def test_run_success_returns_finding_with_content() -> None:
     assert finding["access_level"] == "admin"
     assert "proof_request" in finding
     assert "proof_response" in finding
-    assert finding["session_cookie"] is not None
+    assert finding["session_cookie_name"] is not None
 
 
 # ── D. run() returns failure when all defaults rejected ──────────
