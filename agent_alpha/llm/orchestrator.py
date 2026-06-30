@@ -5,7 +5,7 @@ Escalation ladder:
      Hit → return immediately; the LLM provider is **never** invoked.
   2. Miss → escalate to SINGLE_LLM: one provider.complete() call,
      parse JSON, return PlaybookDecision.
-  3. CONSENSUS tier (parallel MiMo) is deferred to Phase 3.
+  3. CONSENSUS tier (parallel MiMo) is deferred to Phase 4 (Gamma).
 """
 
 from __future__ import annotations

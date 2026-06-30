@@ -16,9 +16,11 @@
 tenant propagation through Celery (front-door 2b); real emergency revoker;
 fan-out interface (§12.13).
 
-**DEFERRED → P3b (do NOT build now = avoid dead code #2):** CONSENSUS_LLM tier +
+**DEFERRED → Phase 4 (Gamma) (§12.20; do NOT build now = avoid dead code #2):** CONSENSUS_LLM tier +
 `MiMoProvider`; step-level resume (§12.11); inner-monologue WebSocket/Redis
 pub-sub **delivery** (emission core already done in P2).
+
+**Phase-3 hard-stop (§12.20):** NO consensus / MiMoProvider on any Phase-3 live path.
 
 ---
 
