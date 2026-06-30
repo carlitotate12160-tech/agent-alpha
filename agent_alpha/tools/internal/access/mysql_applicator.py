@@ -15,31 +15,56 @@ from typing import Any
 from agent_alpha.tools.contracts import ResourceBudget
 from agent_alpha.tools.internal.access.applicator import AuthResult
 
+_MAX_SCHEMA_NAMES = 10
+
+
+class _RealConn:
+    """Wrapper around a raw pymysql connection — exposes the connector contract."""
+
+    def __init__(self, raw: Any) -> None:
+        self._raw = raw
+
+    def databases(self) -> list[str]:
+        with self._raw.cursor() as cur:
+            cur.execute("SHOW DATABASES")
+            return [row[0] for row in cur.fetchall()]
+
+    def has_superuser_grant(self) -> bool:
+        with self._raw.cursor() as cur:
+            cur.execute("SHOW GRANTS")
+            grants_text = " ".join(str(row[0]) for row in cur.fetchall())
+        return "ALL PRIVILEGES" in grants_text.upper() or "SUPER" in grants_text.upper()
+
+    def server_version(self) -> str:
+        return str(self._raw.get_server_info())
+
+    def close(self) -> None:
+        try:
+            self._raw.close()
+        except Exception:
+            pass
+
 
 class _RealConnector:
     """Lazy real-driver connector — constructed inside apply(), never at module load.
 
     Mirrors the repo's lazy ``import psycopg`` pattern. The real driver
-    (mysql.connector / pymysql / mysqlclient) is imported INSIDE the methods,
-    not at module level.
+    (pymysql) is imported INSIDE connect(), not at module level.
     """
 
     def connect(
         self, *, host: str, port: int, username: str, secret: str, timeout_s: float
-    ) -> Any:
-        raise NotImplementedError
+    ) -> _RealConn:
+        import pymysql
 
-    def databases(self, conn: Any) -> list[str]:
-        raise NotImplementedError
-
-    def has_superuser_grant(self, conn: Any) -> bool:
-        raise NotImplementedError
-
-    def server_version(self, conn: Any) -> str:
-        raise NotImplementedError
-
-    def close(self, conn: Any) -> None:
-        raise NotImplementedError
+        raw = pymysql.connect(
+            host=host,
+            port=port,
+            user=username,
+            password=secret,
+            connect_timeout=int(timeout_s),
+        )
+        return _RealConn(raw)
 
 
 class MySqlApplicator:
@@ -61,4 +86,79 @@ class MySqlApplicator:
     def apply(
         self, *, username: str, secret: str, target: str, budget: ResourceBudget
     ) -> AuthResult:
-        raise NotImplementedError("MySqlApplicator.apply body — GLM/Kimi lane (K21)")
+        def _scrub(text: str) -> str:
+            return text.replace(secret, "***") if secret else text
+
+        def _fail(error: str) -> AuthResult:
+            return AuthResult(
+                success=False,
+                access_level="",
+                service="mysql",
+                confidence=0.0,
+                proof_request={},
+                proof_response={},
+                error=_scrub(error),
+            )
+
+        host, port_str = target.rsplit(":", 1)
+        port = int(port_str)
+
+        connector = self._connector
+        if connector is None:
+            connector = _RealConnector()
+
+        conn: Any = None
+        try:
+            try:
+                conn = connector.connect(
+                    host=host,
+                    port=port,
+                    username=username,
+                    secret=secret,
+                    timeout_s=budget.max_seconds,
+                )
+            except Exception as exc:
+                return _fail(str(exc))
+
+            try:
+                dbs = conn.databases()
+            except Exception as exc:
+                return _fail(str(exc))
+
+            if not dbs:
+                return _fail("empty schema read — no databases accessible")
+
+            try:
+                is_superuser = conn.has_superuser_grant()
+            except Exception:
+                is_superuser = False
+
+            try:
+                version = conn.server_version()
+            except Exception:
+                version = "unknown"
+
+            access_level = "db_root" if is_superuser else "db_user"
+
+            return AuthResult(
+                success=True,
+                access_level=access_level,
+                service="mysql",
+                confidence=0.85,
+                proof_request={
+                    "host": host,
+                    "port": port,
+                    "username": username,
+                },
+                proof_response={
+                    "server_version": version,
+                    "schema_count": len(dbs),
+                    "schemas": dbs[:_MAX_SCHEMA_NAMES],
+                },
+            )
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
