@@ -29,6 +29,7 @@ mirroring AuthorizationStateMachine.can_agent_proceed's tier ladder.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
@@ -75,6 +76,17 @@ class BoundApplicator:
     applicator: Any  # CredentialApplicator (full protocol)
     target: str  # in-scope "host:port" (DB) or the web login URL (HTTP)
 
+    def applies_to(self, credential_service: str, target: str) -> Any:
+        return self.applicator.applies_to(credential_service, self.target)
+
+    def apply(self, username: str, secret: str, target: str, budget: Any) -> Any:
+        return self.applicator.apply(
+            username=username,
+            secret=secret,
+            target=self.target,
+            budget=budget,
+        )
+
 
 class AuthScopeView(Protocol):
     """Read-only slice of AuthorizationStateMachine the factory consumes. The factory
@@ -91,8 +103,8 @@ def build_applicators_for_engagement(
     engagement_id: str,
     auth: AuthScopeView,
     graph_store: Any,
-    web_target: str,
-    candidates: list[_Applicator],
+    web_target: str | None = None,
+    candidates: Sequence[_Applicator],
 ) -> list[BoundApplicator]:
     """Select and bind the applicators cred_reuse is permitted to use this engagement.
 
@@ -142,7 +154,7 @@ def _resolve_in_scope_targets(
     engagement_id: str,
     auth: AuthScopeView,
     graph_store: Any,
-    web_target: str,
+    web_target: str | None = None,
 ) -> list[str]:
     """Resolve the in-scope target(s) this applicator may run against.
 
@@ -152,7 +164,7 @@ def _resolve_in_scope_targets(
     the signed SOW scope (is_db_endpoint_in_scope — FLAW 2).
     """
     if applicator.service not in _DB_SERVICES:
-        return [web_target]
+        return [web_target] if web_target is not None else []
 
     asset_nodes = graph_store.nodes_by_type(NodeType.ASSET)
     service_nodes = graph_store.nodes_by_type(NodeType.SERVICE)

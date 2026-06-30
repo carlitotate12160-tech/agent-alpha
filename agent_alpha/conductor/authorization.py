@@ -280,6 +280,20 @@ class AuthorizationStateMachine:
 
         return False
 
+    def owns(self, engagement_id: str, tenant_id: str | None) -> bool:
+        """Return whether the engagement is owned by the tenant."""
+        try:
+            self._rebuild(engagement_id)
+        except Exception:  # noqa: BLE001
+            return False
+        record = self._cache.get(engagement_id)
+        if record is None:
+            return False
+        # None tenant_id means bypassing tenant checks for tests or legacy paths
+        if tenant_id is None:
+            return True
+        return record.tenant_id == tenant_id
+
     def get_state(self, engagement_id: str) -> int:
         return self._get(engagement_id).state
 

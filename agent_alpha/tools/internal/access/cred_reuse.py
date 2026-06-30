@@ -46,11 +46,6 @@ from typing import Any
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.security.secrets import SecretNotFoundError
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
-from agent_alpha.tools.internal.access.applicator import (
-    CredentialApplicator,
-    HttpFormApplicator,
-    select_applicator,
-)
 
 
 class CredReuseTool:
@@ -65,10 +60,12 @@ class CredReuseTool:
     def __init__(
         self,
         *,
+        applicators: list[Any] | None = None,
         http_client: Any = None,
         graph_store: Any = None,
         secrets_manager: Any = None,
     ) -> None:
+        self._applicators = applicators or []
         self._http_client = http_client
         self._graph_store = graph_store
         self._secrets_manager = secrets_manager
@@ -86,7 +83,9 @@ class CredReuseTool:
         """Reuse Alpha-harvested credentials: resolve each CREDENTIAL node's
         secret_ref via the vault, delegate to a CredentialApplicator that handles
         the credential's service, and return CONTENT (no raw secret). success=True
-        only on verified access. Beta.step persists + redacts + mints refs."""
+        only on verified access. Beta.step persists + redacts + mints refs.
+
+        Iterates through `self._applicators` to apply the credential."""
         if self._http_client is None:
             raise ValueError("CredReuseTool.run requires an injected http_client")
         if self._graph_store is None:
@@ -113,11 +112,8 @@ class CredReuseTool:
                 error="no harvested credentials in graph",
             )
 
-        # Applicators this tool can use. HTTP today; DB applicators (GLM/Kimi)
-        # register here as they land — select_applicator picks one by service.
-        applicators: list[CredentialApplicator] = [
-            HttpFormApplicator(http_client=self._http_client),
-        ]
+        # Applicators this tool can use are injected via __init__ as BoundApplicators.
+        bound_applicators = self._applicators
 
         requests_used = 0
         for node in cred_nodes:
@@ -137,21 +133,25 @@ class CredReuseTool:
                 continue
 
             credential_service = getattr(props, "service", "") or ""
-            applicator = select_applicator(
-                applicators, credential_service=credential_service, target=ctx.target
-            )
-            if applicator is None:
-                continue
 
-            result = applicator.apply(
-                username=props.username or "",
-                secret=secret,
-                target=ctx.target,
-                budget=budget,
-            )
-            requests_used += 3  # baseline + auth + confirm (upper bound)
+            result = None
+            for bound in bound_applicators:
+                # We skip applicators that don't match the credential_service
+                if not bound.applicator.applies_to(credential_service, bound.target):
+                    continue
 
-            if not result.success:
+                result = bound.applicator.apply(
+                    username=props.username or "",
+                    secret=secret,
+                    target=bound.target,
+                    budget=budget,
+                )
+                requests_used += 3  # baseline + auth + confirm (upper bound)
+
+                if result.success:
+                    break
+
+            if result is None or not result.success:
                 continue
 
             # Build the finding from the AuthResult (no raw secret — applicator

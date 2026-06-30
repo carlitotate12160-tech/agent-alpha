@@ -106,6 +106,7 @@ class Beta:
         orchestrator: Any = None,
         http_client: Any = None,
         secrets_manager: Any = None,
+        cred_applicators: list[Any] | None = None,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
@@ -113,6 +114,7 @@ class Beta:
         self.orchestrator = orchestrator
         self.http_client = http_client
         self._secrets_manager = secrets_manager
+        self._cred_applicators = cred_applicators or []
 
         # Per-run state (initialised in run_strike).
         self._engagement_id: str = ""
@@ -245,6 +247,7 @@ class Beta:
 
         candidates: list[Tool] = [
             CredReuseTool(
+                applicators=self._cred_applicators,
                 http_client=self.http_client,
                 graph_store=self.graph_store,
                 secrets_manager=self._secrets_manager,
@@ -315,7 +318,7 @@ class Beta:
 
         # MINT session_token_ref if a session cookie was issued.
         session_token_ref: str | None = None
-        if finding.get("session_cookie"):
+        if finding.get("session_cookie_name"):
             session_event = self.event_store.append(
                 EventType.PROOF_ARTIFACT_RECORDED,
                 self._engagement_id,
@@ -323,7 +326,7 @@ class Beta:
                 {
                     "type": "session_token",
                     "target": self._entry_point,
-                    "session_cookie_name": _cookie_name_only(finding["session_cookie"]),
+                    "session_cookie_name": finding["session_cookie_name"],
                     "captured_at": now_utc,
                 },
             )

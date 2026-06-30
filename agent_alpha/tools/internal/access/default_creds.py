@@ -29,7 +29,7 @@ Beta.step() to persist + mint refs:
       "access_level": "user" | "admin",
       "proof_request": dict,               # raw POST request metadata
       "proof_response": dict,              # raw authed response metadata
-      "session_cookie": str | None,        # raw Set-Cookie header if issued
+      "session_cookie_name": str | None,   # the name of the session cookie if issued
     }
 The tool never writes to any store. Beta.step() redacts + persists.
 """
@@ -39,6 +39,16 @@ from __future__ import annotations
 from typing import Any
 
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
+
+
+def _cookie_name_only(set_cookie: str) -> str:
+    if not set_cookie:
+        return ""
+    first_part = set_cookie.split(";", 1)[0].strip()
+    if "=" not in first_part:
+        return first_part or ""
+    return first_part.split("=", 1)[0].strip()
+
 
 # Signals that an authenticated surface worth a default-cred check exists.
 _AUTH_PORTS = frozenset({21, 22, 3306, 3389, 5432, 5900})
@@ -261,7 +271,7 @@ class DefaultCredsTool:
                     "confirm_status_code": confirm_resp.status_code,
                     "confirm_body_excerpt": (confirm_resp.text or "")[:500],
                 },
-                "session_cookie": set_cookie or None,
+                "session_cookie_name": _cookie_name_only(set_cookie) if set_cookie else None,
             }
 
             return ToolResult(

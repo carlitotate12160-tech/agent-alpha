@@ -24,12 +24,14 @@ from typing import Any
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
+from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.runner import EngagementConfig, load_engagement_config
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.security.secrets import SecretsManager
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
 
 # Belt-and-suspenders leak heuristic for a REAL run (the unit test
@@ -98,6 +100,15 @@ def run_beta_live_fire(
         )
         auth.enable_active(rec.engagement_id)
 
+        candidates = [HttpFormApplicator(http_client=http_client)]
+        applicators = build_applicators_for_engagement(
+            engagement_id=rec.engagement_id,
+            auth=auth,
+            graph_store=graph_store,
+            web_target=target.host,
+            candidates=candidates,
+        )
+
         beta = Beta(
             authorization=auth,
             graph_store=graph_store,
@@ -105,6 +116,7 @@ def run_beta_live_fire(
             orchestrator=orchestrator,
             http_client=http_client,
             secrets_manager=secrets_manager,
+            cred_applicators=applicators,
         )
         msg = beta.run_strike(rec.engagement_id, target.url)
         payload = a2a_pb2.HandoffPayload()
