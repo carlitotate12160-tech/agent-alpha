@@ -168,9 +168,7 @@ def execute_agent(
 
     # ── Step 6: Emit handoff + advance (#4/#15: never swallow dispatch) ───
     next_rec = (
-        outcome.next_recommended
-        if outcome.next_recommended is not None
-        else a2a_pb2.CONDUCTOR
+        outcome.next_recommended if outcome.next_recommended is not None else a2a_pb2.CONDUCTOR
     )
 
     if advance_fn is not None and outcome.status != a2a_pb2.BLOCKED:

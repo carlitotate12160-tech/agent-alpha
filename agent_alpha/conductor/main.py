@@ -248,9 +248,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
                 },
             )
         except Exception:  # noqa: BLE001 — failure to audit must not crash the task
-            _log.exception(
-                "Failed to append EngagementRunCompleted event for %s", engagement_id
-            )
+            _log.exception("Failed to append EngagementRunCompleted event for %s", engagement_id)
 
         # Emit handoff + advance — NOT swallowed (#4/#15)
         emit_handoff_and_advance(
