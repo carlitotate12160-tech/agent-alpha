@@ -137,37 +137,30 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 2 — CODE SEALED (2026-06-19)
-ADR Version    : 1.0 (co-authored Opus 4.8 + Natanael)
-Code Written   : Phase 0 + Phase 1 + Phase 2 all implemented & green on Oracle ARM64
+Project Phase  : Phase 3 — Beta/STRIKE + autonomous Celery chain (PR #69 MERGED 2026-06-29)
+Last Decision  : ADR §12.20 (consensus->Gamma), §12.21 (benchmark gate), §12.22 (tool moat
+                 + scope-safety + CF discriminator) — APPLIED to docs/ADR.md on #61.
+Next Action    : 3d MySqlApplicator body (GLM) green on tests/phase_3/test_mysql_applicator.py
+                 -> field-prove leak->reuse->DIRECT-DB on real in-scope DB -> tool track
+                 (Registry+Composer, audit A4) + cohost_pivot default-DENY safety gate.
+
 Test env       : Oracle ARM64, Python 3.12.13, .venv — ALWAYS `.venv/bin/python3 -m pytest`
                  or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum)
 
 Phase status (verified on Oracle, not claimed):
-  Phase 0 : DONE (7 components) — 186 + Phase1 tests pass
+  Phase 0 : DONE (7 components)
   Phase 1 : DONE (5 components)
-  Phase 2 : CODE SEALED — 24 tests green + make check clean (ruff+format+mypy)
-            Components: DeepSeekProvider, PlaybookEngine, LLMOrchestrator,
-            BoundedAutonomy+cognitive loop, Alpha(SCOUT), Omega(ROASTER),
-            HttpClient(httpx), live_fire scoring+runner. Scope gate enforced.
+  Phase 2 : DONE (12 components) — CODE SEALED 2026-06-19
+  Phase 3 : IN PROGRESS — C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening done.
+            PR #69 merged (auto-advance + Celery wiring). 3d MySqlApplicator shell + body
+            pushed (commit 183ef47). CI green on main.
 
 LLM roles (testing phase): DeepSeek-v4-pro = reasoning PRIMARY + payload/exec;
-  Kimi-2.6 = payload fallback; MiMo-v2.5-pro = reasoning CONSENSUS only (Phase 3,
-  NOT built — wiring now = dead code). Revisit Claude/GPT for reasoning when stable.
+  Kimi-2.6 = payload fallback; MiMo-v2.5-pro = reasoning CONSENSUS only — DEFERRED to
+  Phase 4 (Gamma) per ADR §12.20. NO consensus / MiMoProvider on any Phase-3 live path.
 
-Phase 2 exit criteria STILL OPEN (non-unit):
-  - inner-monologue streaming (DeepSeek reasoning_content) — not built
-  - live-fire 3 REAL targets <20% FP — not run
-
-Deferred (not debt): PARTIAL status, ToolDecision rename, ToolRegistry, consensus tier.
-
-Next Action (next session, Opus 4.8 high effort):
-1. NETWORK RESILIENCE (test-first): HttpClient/Alpha must handle unreachable/timeout
-   → FAILED, not crash (httpx raises ConnectError; Alpha doesn't catch it — untested).
-2. Natanael stands up 3 SELF-OWNED Laravel targets (resolvable, known ground truth),
-   fills engagement YAML (scope from signed SOW), runs live_fire/runner main().
-   Scope is ALWAYS explicit from SOW — never auto-filled. Never scan example.com.
-3. Then Phase 3 (Beta/STRIKE, consensus tier + MiMo).
+ADR §12.22 tool strategy: wrap commodity, build the moat (DIRECT-DB access), gate the
+  dangerous (OFFENSIVE_APPROVED + SOW scope). MySqlApplicator = moat going live.
 ```
 
 ---
