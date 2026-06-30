@@ -387,7 +387,7 @@ def run_agent_task(
             else:
                 raise ValueError(f"Unknown agent role: {agent_role}")
 
-        outcome = execute_agent(
+        execute_agent(
             engagement_id=engagement_id,
             tenant_id=tenant_id,
             agent_role=agent_role,
