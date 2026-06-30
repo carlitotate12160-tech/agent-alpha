@@ -608,3 +608,104 @@ never stored only in volatile memory.
 - Phase 0–3: NetworkX (in-memory, simple, sufficient). Phase 4+: evaluate Memgraph
   (Cypher, in-memory) or Neo4j if cross-engagement/large-graph queries prove necessary
   — still rebuilt from events, never the source of truth.
+
+### 12.22 Tool strategy: wrap commodity, build the moat, gate the dangerous — PROPOSED
+
+**Status:** PROPOSED → LOCK on merge. Extends §12.16 (tool layer) and the §5–§7 differentiators.
+
+Decides what Agent-Alpha builds internally vs wraps, the safety-critical revisions to
+OPERATIONAL_REFERENCE.md tools, and Cloudflare/WAF handling.
+
+#### Context
+
+OPERATIONAL_REFERENCE.md lists ~40 tools across the kill chain. A review found: most are
+COMMODITY (nmap/nuclei/sqlmap/feroxbuster/proxy/captcha/GSocket) — rebuilding them internally
+is Lyndon #1/#4 at scale (breadth-chasing). Competitors (XBOW web-app autonomy; CAI generic
+multi-agent + 300+ LLM) already out-breadth us on commodity tooling. We cannot win on
+breadth. We win on the graph × cross-engagement-memory × proof triad they structurally lack.
+
+Separately, the review found four tools that are not "build vs wrap" questions but
+LEGAL/SAFETY landmines that must be gated before any further offensive work.
+
+#### Decision 1 — The litmus rule (wrap vs build)
+
+> Build a tool INTERNALLY only if it uses the attack graph, cross-engagement memory, or
+> proof-composition in a way a standalone tool cannot. Otherwise WRAP the external tool
+> behind the `ToolResult` contract (§12.16).
+
+- **WRAP (commodity):** recon (nmap, httpx, subfinder, nuclei, feroxbuster/ffuf, whatweb,
+  wafw00f), sqlmap, proxy infra (BrightData/residential/SOCKS5), captcha (2Captcha),
+  GSocket, john. No unique value in reimplementing these.
+- **BUILD INTERNAL (the moat — these are the "Agent-Alpha-only" tools):**
+  1. **ToolComposer** (§5, §12.16) — runtime exploit-chain composition from graph context;
+     `compose()` = plan-not-execute; `Template.verify()` mandatory (proof, not assumption).
+  2. **IntelligenceBase** (§4, pgvector) — cross-engagement learning: rank the chain most
+     likely to work on THIS fingerprint from what worked on similar past engagements.
+  3. **Attack-graph narrative + payable report** (Omega) — the deliverable clients pay for;
+     MITRE + PCI/NIS2 + SARIF. The report is the product.
+  4. **Regional verified templates** (banking_portal, his_sqli, egov, ERP/Laravel) — proof-
+     carrying, SE-Asia stacks global tools de-prioritize.
+  The triad (1×2×proof) is the durable moat — no competitor has graph+memory+proof together.
+
+#### Decision 2 — Safety/scope revisions (NON-NEGOTIABLE, gate before more offense)
+
+These OPERATIONAL_REFERENCE.md tools are revised to default-DENY without explicit, per-action
+SOW authorization, enforced by the Conductor scope gate:
+
+1. **`cohost_pivot.py` / `symlink.py` (Epsilon) — HIGHEST RISK.** Co-hosted domains have
+   DIFFERENT owners = almost always OUT of SOW. Each co-host target MUST pass a per-target
+   scope check; default DENY. Touching a co-host not in SOW is an unauthorized-access
+   offense against a third party. This gate is non-bypassable.
+2. **Credential spray (Beta)** — add a lockout-safety governor: spraying real accounts can
+   lock out the client's users (a DoS). Bounded attempts/account, SOW-scoped account lists,
+   honor lockout thresholds. Rate-limit alone is insufficient.
+3. **Persistence + `cleanup_scan` + anti-forensics (Delta)** — require an explicit SOW
+   clause per action, a GUARANTEED teardown/restore at engagement end, and full audit for
+   client handback. Never leave real persistence; never destroy client evidence.
+4. **`db_dump` exfil (Delta)** — proof-of-access, not bulk theft: minimize + redact +
+   encrypt; the report proves access with a bounded sample, not a full dump.
+
+These four are also a SELLING POINT when surfaced as the **scope-aware blast-radius governor
+tool** (see Decision 3) — "provably stays in scope" is a compliance differentiator.
+
+#### Decision 3 — New internal tools (born from the safety review = nilai jual)
+
+1. **Scope/blast-radius governor (tool, not just gate):** pre-execution, every action's
+   target is checked against SOW; co-host/out-of-scope flagged and DENIED. Compliance moat.
+2. **TransportResilience capability (§12.16 capability, NOT an agent) — Cloudflare/WAF:**
+   - Reaching origin (if origin IP in SOW) is scoping, not evasion.
+   - Passing anti-bot to TEST the authorized app: wrap `curl_cffi` (TLS/JA3 impersonation) +
+     Playwright (Turnstile) — commodity, gated to in-scope targets only.
+   - **The unique value = the WAF/CF-block DISCRIMINATOR:** classify a CF-RAY/challenge/403
+     as WAF-BLOCKED — NOT a vulnerability verdict. This kills false-negatives ("blocked" ≠
+     "safe") and false-success, feeding the proof/verify moat. On block: adapt transport /
+     lower rate / hand to the payload lane, OR honestly report "unverifiable behind WAF".
+   - Payload-level evasion bodies remain the DeepSeek lane (K21); Claude owns the
+     discriminator interface + the gate, never the evasion payload.
+   - Respects existing OPSEC profiles (§8n) + RateLimiter — never trip CF rate limits and
+     burn the engagement.
+3. **Engagement teardown/restore tool:** proves the platform leaves the client system clean
+   (reverses uploads/persistence). Trust/selling point for a compliance-focused SaaS.
+
+#### Build order (per-phase, not up front — §12.16)
+
+Registry + Composer (the moat enabler, audit gap A4) → scope/blast-radius governor →
+external-tool wrap adapters (recon trio) → TransportResilience discriminator →
+IntelligenceBase (Phase 6) → teardown/restore. Each independently testable; offensive
+bodies (templates/*) are DeepSeek's, behind `Template.verify()`.
+
+#### Test contract (gates these decisions)
+
+```
+- Litmus: any NEW tool PR states wrap-or-build + the graph/memory/proof justification.
+- cohost/symlink: a co-host target NOT in SOW → DENIED (RED test, default-deny).
+- spray: attempts/account bounded; a lockout-threshold breach → halt that account.
+- persistence/exfil: blocked without the explicit SOW clause; teardown verified at end.
+- WAF discriminator: a CF-RAY/challenge response is classified WAF-BLOCKED, never
+  "not vulnerable" and never COMPLETE/success (anti false-negative + anti-#3).
+```
+
+**Confidence ~85%** — the wrap-vs-build litmus + the safety revisions are well-grounded
+(competitor research + the OPERATIONAL_REFERENCE review). Residual: the exact scope-gate
+API on #61 (reuse `is_in_scope` / `is_db_endpoint_in_scope` patterns) and where the
+TransportResilience capability plugs into the HttpClient — confirm on #61 before building.
