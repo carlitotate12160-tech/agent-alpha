@@ -709,3 +709,92 @@ bodies (templates/*) are DeepSeek's, behind `Template.verify()`.
 (competitor research + the OPERATIONAL_REFERENCE review). Residual: the exact scope-gate
 API on #61 (reuse `is_in_scope` / `is_db_endpoint_in_scope` patterns) and where the
 TransportResilience capability plugs into the HttpClient — confirm on #61 before building.
+
+### 12.20 Conductor Handoff-Consumer — Autonomous spine on Celery path — LOCKED
+
+**Status:** LOCKED (implemented + merged as PR #69 on Oracle #61, 2026-06-29). This is the
+written ADR body for the decision that shipped. **Relates to:** §12.13 (agent scaling,
+Celery), §12.14 (tenant binding), §12.18 (applicator factory), §1 (auth gate), §8o-1
+(event-sourcing).
+
+#### Context
+
+Through Phase 2 the kill chain was driven by a single-process script
+(`live_fire/chain_runner.py`): a human ran it, and it orchestrated Alpha→Beta→Omega in one
+process. The autonomy audit (A1) confirmed the Conductor did NOT consume agent handoffs —
+the payable cred-reuse chain only existed on the script path, not on the Celery path. That
+is not an autonomous platform; it is a script with agents. The handoff-consumer makes the
+**Conductor** advance the chain itself, on the durable Celery path, without ever letting one
+agent call another.
+
+#### Decision
+
+The Conductor owns a handoff-consumer (`conductor/advance.py::advance_engagement`) that,
+triggered as the tail of each agent's Conductor-owned Celery task, advances the chain by ONE
+validated step:
+
+1. **Event-sourced trigger.** An agent task, on completion, appends a `HANDOFF_READY` event
+   (carrying the `HandoffPayload` per `proto/a2a.proto`: `status` PhaseStatus, `from_agent`
+   AgentRole, `next_recommended` AgentRole) and signals the Conductor to advance. An agent
+   **never** enqueues the next agent. `advance_engagement` reads the latest handoff from the
+   event stream (replay-safe).
+2. **Pure decision** (`decide_advance`): `dispatch | park_awaiting_approval | halt_complete |
+   noop`, computed from the handoff status, a forward-only transition check
+   (`KILL_CHAIN_ORDER`, single source #7), the auth verdict (passed as a value), and an
+   idempotency flag. proto3 zero-value traps are guarded: advance only on `COMPLETE`
+   (`PENDING`=0 default never mistaken for done); `next_recommended`==`CONDUCTOR`(0)=unset →
+   no auto-dispatch to the Conductor.
+3. **Auth gate RESPECTED, never softened.** Alpha (RECON_ONLY) → Beta (ACTIVE_APPROVED) is a
+   tier boundary. The Conductor does NOT auto-promote authorization state. It auto-advances
+   ONLY to an agent whose required tier is already granted (a human ran
+   `enable_active`/`enable_offensive`). If the next agent needs a higher tier → the
+   engagement PARKS (`AWAITING_APPROVAL`, `requires_human_approval=True`). Autonomy WITHIN a
+   tier; human gate BETWEEN tiers.
+4. **Idempotent under Celery retries.** An `AGENT_DISPATCHED` event keyed by the handoff
+   sequence makes re-dispatch a no-op. Separately, the agent-execution helper
+   (`execute_agent`) is idempotent on the agent BODY: it will not re-run an OFFENSIVE agent
+   on retry if a terminal handoff for (engagement, agent_role) already exists (re-running
+   Beta = repeated attack).
+5. **No agent-to-agent dispatch (non-negotiable §12.13).** Only the Conductor dispatches,
+   via an injected `Dispatcher` carrying serializable args only (`engagement_id`,
+   `tenant_id`, `agent`). Live applicators are NOT Celery-serializable; the applicator
+   factory is therefore called in `run_agent_task` (the worker), the single §3c call-site.
+6. **Shared, safe execution** (`execute_agent`): both `run_engagement_task` (Alpha) and
+   `run_agent_task` (Beta/Omega) route through one helper that does, in order — tenant
+   ownership, auth re-check at execution (TOCTOU), graph replay from events (never a fresh
+   empty graph), run under timeout, **status from the REAL agent outcome** (never hardcoded
+   COMPLETE — anti-Lyndon #3), failure event, then `emit_handoff_and_advance` (persist
+   handoff BEFORE enqueue; never swallow a dispatch failure).
+
+#### Why (non-negotiables it encodes)
+
+- Auth gate single + non-bypassable (§5) — re-asserted at execution, not just dispatch.
+- Event-sourced state (§8o-1) — handoffs are events; the graph is a replay projection.
+- No agent-to-agent (§12.13) — Conductor is the only dispatcher.
+- No false-success (#3) — status comes from the verified outcome; WAF/empty/exception ≠ done.
+
+#### Test contract (shipped green on Oracle ARM64)
+
+```
+tests/phase_3/test_conductor_advance.py  — decide_advance: dispatch/park/backward/emergency/
+   non-complete/idempotent/halt/omega; advance_engagement dispatch + park + idempotency.
+tests/phase_3/test_execute_agent.py      — false-success (FAILED→FAILED), auth re-check
+   (blocked→not run), graph replay (Beta sees Alpha CREDENTIAL), tenant ownership, body
+   idempotency on retry.
+tests/phase_3/test_emit_handoff_and_advance.py — dispatch failure not swallowed; handoff
+   persisted before advance.
+```
+
+#### Integration point
+
+`Conductor → run_engagement_task (Alpha) → HANDOFF_READY → advance_engagement_task →
+advance_engagement → (dispatch) run_agent_task(Beta) → factory builds applicators →
+CredReuseTool → HANDOFF_READY(next=OMEGA) → advance → run_agent_task(Omega/ROASTER) →
+CHAIN_COMPLETE`. `chain_runner.py` is demoted to a dev/live-fire harness — NOT a second
+production orchestrator (#6).
+
+#### Follow-ups (tracked, not blockers)
+
+- `run_engagement_task` (Alpha) fully unified onto `execute_agent` — its gates must MATCH,
+  no second gate semantics (#6/#7).
+- `CHAIN_COMPLETE` idempotency on the OMEGA terminal (advance re-emits on re-run; minor).
