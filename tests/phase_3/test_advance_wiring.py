@@ -81,7 +81,7 @@ def test_t2a_active_approved_dispatches_beta():
             "from_agent": a2a_pb2.ALPHA,
             "status": a2a_pb2.COMPLETE,
             "next_recommended": a2a_pb2.BETA,
-        }
+        },
     )
 
     with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
@@ -96,15 +96,21 @@ def test_t2b_run_agent_task_calls_factory(mock_beta_run_strike):
     auth = AuthorizationStateMachine(event_store=main.event_store)
     record = auth.create_engagement("client_1", "example.com")
     eng_id = record.engagement_id
-    auth.enable_recon(eng_id, Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[]))
+    auth.enable_recon(
+        eng_id, Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[])
+    )
     auth.enable_active(eng_id)
 
     # Fake an ASSET in the graph so we have something in scope
     def mock_build_applicators(*args, **kwargs):
         from agent_alpha.tools.internal.access.applicator import CredentialApplicator
+
         return [MagicMock(spec=CredentialApplicator)]
 
-    with patch("agent_alpha.conductor.main.build_applicators_for_engagement", side_effect=mock_build_applicators) as m_build:
+    with patch(
+        "agent_alpha.conductor.main.build_applicators_for_engagement",
+        side_effect=mock_build_applicators,
+    ) as m_build:
         with patch("agent_alpha.conductor.main.Beta.__init__", return_value=None) as m_beta:
             with patch("agent_alpha.conductor.main.advance_engagement_task.delay"):
                 with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "dummy"}):
@@ -131,7 +137,7 @@ def test_t3_recon_only_parks():
             "from_agent": a2a_pb2.ALPHA,
             "status": a2a_pb2.COMPLETE,
             "next_recommended": a2a_pb2.BETA,
-        }
+        },
     )
 
     with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
@@ -160,7 +166,7 @@ def test_t4_idempotent_dispatch():
             "from_agent": a2a_pb2.ALPHA,
             "status": a2a_pb2.COMPLETE,
             "next_recommended": a2a_pb2.BETA,
-        }
+        },
     )
 
     with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
@@ -182,4 +188,6 @@ def test_t5_no_agent_enqueues_agent():
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
                 attr = node.func
                 if attr.attr == "delay":
-                    raise AssertionError(f"Agent module {py_file} enqueues a Celery task directly via .delay(): {ast.unparse(node)}")
+                    raise AssertionError(
+                        f"Agent module {py_file} enqueues a Celery task directly via .delay(): {ast.unparse(node)}"
+                    )

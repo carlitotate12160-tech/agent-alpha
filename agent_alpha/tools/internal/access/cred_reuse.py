@@ -46,7 +46,6 @@ from typing import Any
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.security.secrets import SecretNotFoundError
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
-from agent_alpha.tools.internal.access.applicator import CredentialApplicator
 
 
 class CredReuseTool:

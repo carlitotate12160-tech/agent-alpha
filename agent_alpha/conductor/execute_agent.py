@@ -128,9 +128,7 @@ def execute_agent(
         runner = agent_factory(graph_store)
         outcome: ExecOutcome = runner()
     except Exception as exc:
-        _log.exception(
-            "Agent %s failed for engagement %s", agent_role, engagement_id
-        )
+        _log.exception("Agent %s failed for engagement %s", agent_role, engagement_id)
         _record_failure(event_store, engagement_id, str(exc), tenant_id)
         outcome = ExecOutcome(
             status=a2a_pb2.FAILED,
@@ -155,9 +153,7 @@ def execute_agent(
     )
 
     if outcome.status != a2a_pb2.COMPLETE:
-        _record_failure(
-            event_store, engagement_id, outcome.reason, tenant_id
-        )
+        _record_failure(event_store, engagement_id, outcome.reason, tenant_id)
 
     return outcome
 
@@ -179,9 +175,7 @@ def _record_refused(
             payload={"reason": reason, "tenant_id": tenant_id},
         )
     except Exception:  # noqa: BLE001 — refusal audit must not crash the task
-        _log.exception(
-            "Failed to append EngagementRunRefused event for %s", engagement_id
-        )
+        _log.exception("Failed to append EngagementRunRefused event for %s", engagement_id)
 
 
 def _record_failure(
@@ -198,6 +192,4 @@ def _record_failure(
             payload={"reason": reason, "tenant_id": tenant_id},
         )
     except Exception:  # noqa: BLE001 — failure audit must not crash the task
-        _log.exception(
-            "Failed to append EngagementRunFailed event for %s", engagement_id
-        )
+        _log.exception("Failed to append EngagementRunFailed event for %s", engagement_id)

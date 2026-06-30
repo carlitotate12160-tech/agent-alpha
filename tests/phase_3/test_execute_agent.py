@@ -100,8 +100,10 @@ def _graph_with_cred() -> object:
                     id="cred_alpha_1",
                     type=NodeType.CREDENTIAL,
                     properties=CredentialProperties(
-                        username="svc", secret_ref="vault://x",
-                        service="database", access_level="db_user",
+                        username="svc",
+                        secret_ref="vault://x",
+                        service="database",
+                        access_level="db_user",
                     ),
                     confidence=0.9,
                 )
@@ -138,9 +140,14 @@ def _run(*, permitted=True, owner=TENANT, succeed=True, rebuilder=_rebuilder_wit
         return agent.run  # zero-arg callable -> ExecOutcome (Q2 option A)
 
     outcome = execute_agent(
-        engagement_id=ENG, tenant_id=TENANT, agent_role=a2a_pb2.BETA,
-        auth=auth, event_store=store, graph_rebuilder=rebuilder,
-        agent_factory=agent_factory, timeout_s=30.0,
+        engagement_id=ENG,
+        tenant_id=TENANT,
+        agent_role=a2a_pb2.BETA,
+        auth=auth,
+        event_store=store,
+        graph_rebuilder=rebuilder,
+        agent_factory=agent_factory,
+        timeout_s=30.0,
     )
     return auth, store, captured.get("agent"), outcome
 

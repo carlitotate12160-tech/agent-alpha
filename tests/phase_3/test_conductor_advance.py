@@ -158,7 +158,10 @@ def test_advance_dispatches_beta() -> None:
     dispatcher = SpyDispatcher()
 
     decision = advance_engagement(
-        engagement_id=ENG, auth=auth, event_store=store, dispatcher=dispatcher,
+        engagement_id=ENG,
+        auth=auth,
+        event_store=store,
+        dispatcher=dispatcher,
     )
 
     assert decision.action == "dispatch"
@@ -172,7 +175,10 @@ def test_advance_parks_and_does_not_dispatch_across_tier() -> None:
     dispatcher = SpyDispatcher()
 
     decision = advance_engagement(
-        engagement_id=ENG, auth=auth, event_store=store, dispatcher=dispatcher,
+        engagement_id=ENG,
+        auth=auth,
+        event_store=store,
+        dispatcher=dispatcher,
     )
 
     assert decision.action == "park_awaiting_approval"

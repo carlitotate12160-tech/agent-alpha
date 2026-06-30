@@ -49,6 +49,7 @@ def _cookie_name_only(set_cookie: str) -> str:
         return first_part or ""
     return first_part.split("=", 1)[0].strip()
 
+
 # Signals that an authenticated surface worth a default-cred check exists.
 _AUTH_PORTS = frozenset({21, 22, 3306, 3389, 5432, 5900})
 _AUTH_TECH_HINTS = ("wordpress", "joomla", "phpmyadmin", "tomcat", "jenkins", "grafana")

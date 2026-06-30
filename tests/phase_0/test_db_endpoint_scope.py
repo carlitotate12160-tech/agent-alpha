@@ -62,10 +62,7 @@ def test_scope_validate_invalid_db_endpoint_raises() -> None:
 
 def test_is_db_endpoint_in_scope_unknown_engagement_returns_false() -> None:
     sm = AuthorizationStateMachine(event_store=_store())
-    assert (
-        sm.is_db_endpoint_in_scope("eng_unknown", "db.client.example", 3306)
-        is False
-    )
+    assert sm.is_db_endpoint_in_scope("eng_unknown", "db.client.example", 3306) is False
 
 
 def test_pre_db_endpoints_event_replays_with_empty_db_endpoints() -> None:

@@ -357,6 +357,7 @@ def run_agent_task(
                     secrets_manager=task_secrets,
                     cred_applicators=applicators,
                 )
+
                 def run_beta() -> ExecOutcome:
                     handoff_msg = beta.run_strike(engagement_id, record.target)
                     handoff_payload = a2a_pb2.HandoffPayload()
@@ -364,18 +365,23 @@ def run_agent_task(
                     return ExecOutcome(
                         status=handoff_payload.status,
                         next_recommended=handoff_payload.next_recommended,
-                        reason="ok" if handoff_payload.status == a2a_pb2.COMPLETE else "beta_failed"
+                        reason="ok"
+                        if handoff_payload.status == a2a_pb2.COMPLETE
+                        else "beta_failed",
                     )
+
                 return run_beta
             elif agent_role == a2a_pb2.OMEGA:
                 omega = Omega(graph_store)
+
                 def run_omega() -> ExecOutcome:
                     omega.generate_report("technical")
                     return ExecOutcome(
                         status=a2a_pb2.COMPLETE,
                         next_recommended=a2a_pb2.CONDUCTOR,
-                        reason="report_generated"
+                        reason="report_generated",
                     )
+
                 return run_omega
             else:
                 raise ValueError(f"Unknown agent role: {agent_role}")
