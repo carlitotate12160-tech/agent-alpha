@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import pathlib
+from collections.abc import Callable
 from typing import Annotated, Any
 
 from celery import Celery
@@ -25,6 +26,11 @@ from agent_alpha.conductor.api_auth import Principal, require_principal
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
+from agent_alpha.conductor.execute_agent import (
+    ExecOutcome,
+    execute_agent,
+    rebuild_graph_from_events,
+)
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.revoker import CeleryTaskRevoker
 from agent_alpha.conductor.run_status import project_run_status
@@ -39,7 +45,6 @@ from agent_alpha.config.constants import (
 from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build_event_store
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
-from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
@@ -328,56 +333,66 @@ def run_agent_task(
 
         playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
         http_client = HttpClient(engagement_id=engagement_id)
-        provider = resolve_reasoning_provider(api_key=os.environ.get("DEEPSEEK_API_KEY", "dummy"))
+        provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
         orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), provider)
-        graph_store = NetworkXGraphStore()
 
-        if agent_role == a2a_pb2.BETA:
-            candidates = [
-                HttpFormApplicator(http_client=http_client),
-            ]
-            applicators = build_applicators_for_engagement(
-                engagement_id=engagement_id,
-                auth=auth,
-                graph_store=graph_store,
-                web_target=record.target,
-                candidates=candidates,
-            )
-            beta = Beta(
-                authorization=auth,
-                graph_store=graph_store,
-                event_store=target_store,
-                orchestrator=orchestrator,
-                http_client=http_client,
-                secrets_manager=task_secrets,
-                cred_applicators=applicators,
-            )
-            beta.run_strike(engagement_id, record.target)
-            target_store.append(
-                event_type=EventType.HANDOFF_READY,
-                engagement_id=engagement_id,
-                agent="BETA",
-                payload={
-                    "from_agent": a2a_pb2.BETA,
-                    "status": a2a_pb2.COMPLETE,
-                    "next_recommended": a2a_pb2.OMEGA,
-                },
-            )
-            advance_engagement_task.delay(engagement_id, tenant_id)
+        def agent_factory(graph_store: Any) -> Callable[[], ExecOutcome]:
+            if agent_role == a2a_pb2.BETA:
+                candidates = [
+                    HttpFormApplicator(http_client=http_client),
+                ]
+                applicators = build_applicators_for_engagement(
+                    engagement_id=engagement_id,
+                    auth=auth,
+                    graph_store=graph_store,
+                    web_target=record.target,
+                    candidates=candidates,
+                )
+                beta = Beta(
+                    authorization=auth,
+                    graph_store=graph_store,
+                    event_store=target_store,
+                    orchestrator=orchestrator,
+                    http_client=http_client,
+                    secrets_manager=task_secrets,
+                    cred_applicators=applicators,
+                )
+                def run_beta() -> ExecOutcome:
+                    handoff_msg = beta.run_strike(engagement_id, record.target)
+                    handoff_payload = a2a_pb2.HandoffPayload()
+                    handoff_payload.ParseFromString(handoff_msg.payload)
+                    return ExecOutcome(
+                        status=handoff_payload.status,
+                        next_recommended=handoff_payload.next_recommended,
+                        reason="ok" if handoff_payload.status == a2a_pb2.COMPLETE else "beta_failed"
+                    )
+                return run_beta
+            elif agent_role == a2a_pb2.OMEGA:
+                omega = Omega(graph_store)
+                def run_omega() -> ExecOutcome:
+                    omega.generate_report("technical")
+                    return ExecOutcome(
+                        status=a2a_pb2.COMPLETE,
+                        next_recommended=a2a_pb2.CONDUCTOR,
+                        reason="report_generated"
+                    )
+                return run_omega
+            else:
+                raise ValueError(f"Unknown agent role: {agent_role}")
 
-        elif agent_role == a2a_pb2.OMEGA:
-            omega = Omega(graph_store)
-            omega.generate_report("technical")
-            target_store.append(
-                event_type=EventType.HANDOFF_READY,
-                engagement_id=engagement_id,
-                agent="OMEGA",
-                payload={
-                    "from_agent": a2a_pb2.OMEGA,
-                    "status": a2a_pb2.COMPLETE,
-                    "next_recommended": a2a_pb2.CONDUCTOR,
-                },
-            )
+        outcome = execute_agent(
+            engagement_id=engagement_id,
+            tenant_id=tenant_id,
+            agent_role=agent_role,
+            auth=auth,
+            event_store=target_store,
+            graph_rebuilder=rebuild_graph_from_events,
+            agent_factory=agent_factory,
+            timeout_s=300.0,
+        )
+
+        # advance_engagement_task enqueues the next phase. Never swallow broker failures here.
+        if outcome.status != a2a_pb2.BLOCKED:
             advance_engagement_task.delay(engagement_id, tenant_id)
 
         return {"engagement_id": engagement_id, "status": "completed"}

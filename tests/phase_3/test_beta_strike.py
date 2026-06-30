@@ -23,10 +23,10 @@ from typing import Any
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
-from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
+from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 
 IN_SCOPE_ENTRY = "http://lab-target.invalid/login"
 OUT_OF_SCOPE_ENTRY = "http://not-authorized.invalid/login"

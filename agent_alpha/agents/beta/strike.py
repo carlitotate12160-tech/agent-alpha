@@ -318,7 +318,7 @@ class Beta:
 
         # MINT session_token_ref if a session cookie was issued.
         session_token_ref: str | None = None
-        if finding.get("session_cookie"):
+        if finding.get("session_cookie_name"):
             session_event = self.event_store.append(
                 EventType.PROOF_ARTIFACT_RECORDED,
                 self._engagement_id,
@@ -326,7 +326,7 @@ class Beta:
                 {
                     "type": "session_token",
                     "target": self._entry_point,
-                    "session_cookie_name": _cookie_name_only(finding["session_cookie"]),
+                    "session_cookie_name": finding["session_cookie_name"],
                     "captured_at": now_utc,
                 },
             )

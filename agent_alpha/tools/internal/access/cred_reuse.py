@@ -46,10 +46,7 @@ from typing import Any
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.security.secrets import SecretNotFoundError
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
-from agent_alpha.tools.internal.access.applicator import (
-    CredentialApplicator,
-    select_applicator,
-)
+from agent_alpha.tools.internal.access.applicator import CredentialApplicator
 
 
 class CredReuseTool:
@@ -64,7 +61,7 @@ class CredReuseTool:
     def __init__(
         self,
         *,
-        applicators: list[CredentialApplicator] | None = None,
+        applicators: list[Any] | None = None,
         http_client: Any = None,
         graph_store: Any = None,
         secrets_manager: Any = None,
@@ -116,8 +113,8 @@ class CredReuseTool:
                 error="no harvested credentials in graph",
             )
 
-        # Applicators this tool can use are injected via __init__.
-        applicators: list[CredentialApplicator] = self._applicators
+        # Applicators this tool can use are injected via __init__ as BoundApplicators.
+        bound_applicators = self._applicators
 
         requests_used = 0
         for node in cred_nodes:
@@ -137,21 +134,25 @@ class CredReuseTool:
                 continue
 
             credential_service = getattr(props, "service", "") or ""
-            applicator = select_applicator(
-                applicators, credential_service=credential_service, target=ctx.target
-            )
-            if applicator is None:
-                continue
 
-            result = applicator.apply(
-                username=props.username or "",
-                secret=secret,
-                target=ctx.target,
-                budget=budget,
-            )
-            requests_used += 3  # baseline + auth + confirm (upper bound)
+            result = None
+            for bound in bound_applicators:
+                # We skip applicators that don't match the credential_service
+                if not bound.applicator.applies_to(credential_service, bound.target):
+                    continue
 
-            if not result.success:
+                result = bound.applicator.apply(
+                    username=props.username or "",
+                    secret=secret,
+                    target=bound.target,
+                    budget=budget,
+                )
+                requests_used += 3  # baseline + auth + confirm (upper bound)
+
+                if result.success:
+                    break
+
+            if result is None or not result.success:
                 continue
 
             # Build the finding from the AuthResult (no raw secret — applicator

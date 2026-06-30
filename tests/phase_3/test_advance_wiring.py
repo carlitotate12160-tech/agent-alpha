@@ -107,7 +107,8 @@ def test_t2b_run_agent_task_calls_factory(mock_beta_run_strike):
     with patch("agent_alpha.conductor.main.build_applicators_for_engagement", side_effect=mock_build_applicators) as m_build:
         with patch("agent_alpha.conductor.main.Beta.__init__", return_value=None) as m_beta:
             with patch("agent_alpha.conductor.main.advance_engagement_task.delay"):
-                run_agent_task(eng_id, None, a2a_pb2.BETA)
+                with patch.dict("os.environ", {"DEEPSEEK_API_KEY": "dummy"}):
+                    run_agent_task(eng_id, None, a2a_pb2.BETA)
 
             m_build.assert_called_once()
             _, kwargs = m_beta.call_args
