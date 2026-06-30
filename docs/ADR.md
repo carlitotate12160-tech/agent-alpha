@@ -798,3 +798,97 @@ production orchestrator (#6).
 - `run_engagement_task` (Alpha) fully unified onto `execute_agent` — its gates must MATCH,
   no second gate semantics (#6/#7).
 - `CHAIN_COMPLETE` idempotency on the OMEGA terminal (advance re-emits on re-run; minor).
+
+### 12.21 External Benchmark Gate — Proof of value-add before GA — PROPOSED
+
+**Status:** PROPOSED → LOCK on merge. Adds a NEW exit gate; does not change any existing
+phase. **Relates to:** §12.2 (differential test), §12.3 (real-target gate), §8m
+(reliability/validation), §8o-6 (adaptive learning).
+
+#### Context
+
+Agent-Alpha's success bar is internal ("find what a scanner missed, prove it, produce a
+payable report"), proven once on lab container 9201. Competitors publish **external,
+comparable numbers**: XBOW (#1 HackerOne US), CAI (HTB CTFs, bug bounties). We have zero
+external numbers → "value-add vs competitors" is currently an architectural claim, not a
+measured fact. This gate makes the claim falsifiable.
+
+#### Flaw considered first (why a naive benchmark gate is a trap)
+
+- **CTF benchmarks are saturating and flatter.** Frontier models hit ~93% on Cybench;
+  InterCode-CTF is effectively solved. A high Cybench score would prove we're *not behind*,
+  not that we're *differentiated*. CTFs lack the noise, state, and validation gap of real
+  engagements.
+- **Benchmark-chasing risks Lyndon #1/#5** — optimizing for a leaderboard instead of the
+  payable-report bar. The gate must therefore be *secondary* to the internal bar, and must
+  weight **autonomy + real-world** benchmarks above saturated CTF.
+- The literature is explicit that fully-autonomous pentest "remains distant" and all
+  serious players keep a human in the loop. So the gate measures **autonomous capability
+  as a yardstick**, not as a claim that the product runs unsupervised.
+
+#### Decision
+
+Adopt a **three-tier external benchmark gate**, run on **Oracle ARM64** (anti-#9), as part
+of **Phase 6 / pre-GA** exit criteria. Targets are CALIBRATION targets — set the floor from
+a first baseline run, then ratchet. Do not invent a pass number before the baseline.
+
+```
+Tier A — AUTONOMY (primary, weighted highest):
+  AutoPenBench, fully-autonomous mode (NO human hints).
+  Why: directly measures the scripted-vs-autonomous gap (chain_runner → Conductor).
+  Gate: Agent-Alpha autonomous score ≥ the published autonomous baseline (~21% solved
+        at publication) AND beats our own previous run (monotonic ratchet).
+
+Tier B — REAL-WORLD CHAINING (primary):
+  CyberGym (real CVE-derived, multi-step) and/or a multi-step-scenario benchmark
+  (arXiv 2603.11214 family).
+  Why: measures state tracking + error recovery + the validation gap — our thesis.
+  Gate: report solved-rate + a VALIDATION metric (fraction of claimed successes that are
+        VERIFIED true, i.e. no false-success #3). Target: false-success rate < internal
+        Phase-2 bar (<20% FP) on the benchmark too.
+
+Tier C — COMPARABILITY (secondary, sanity floor):
+  Cybench (40 pro CTF) — for an apples-to-apples public number only.
+  Gate: report the score; NOT a blocker (saturated). Used to detect regressions.
+```
+
+##### The internal bar still dominates
+
+A passing external score does **not** by itself clear Phase 6. The payable-report bar
+(§success condition) remains the primary gate; benchmarks are the *external corroboration*.
+If they ever conflict, the payable-report bar wins.
+
+#### Test contract
+
+```
+T1  Benchmark harness runs Agent-Alpha through the REAL autonomous live path (Conductor
+    auto-advance + Celery), NOT chain_runner. (If it can only run via chain_runner, the
+    autonomy gap from §autonomy-audit is unresolved — gate cannot be claimed.)
+T2  Each run emits: solved-rate, VERIFIED-success rate (false-success guard), wall-clock,
+    LLM cost. All four logged to the event store (auditable, reproducible).
+T3  Scores recorded per ADR version + git SHA → ratchet enforced (a release may not ship a
+    LOWER Tier-A/B score than the previous release without a written waiver).
+T4  Baseline run completed and its numbers written back into THIS ADR as the initial floor
+    before the gate is declared active.
+```
+
+#### Integration point
+
+The benchmark harness is an **external driver** that creates an engagement via the normal
+Conductor API (SOW/auth gated like any engagement — benchmarks run as authorized
+self-owned targets), then reads results from the event store + Omega report. It adds **no**
+new code path inside the agents — it exercises the existing autonomous path. This is also a
+forcing function: the gate is unrunnable until the autonomy wiring (§autonomy-audit, Tier
+2) exists, so it pulls that work forward honestly.
+
+#### Sequencing
+
+- **Now:** record the gate (this ADR). Do NOT build the harness yet (Phase 6 — building it
+  before the autonomous path exists = dead code #2).
+- **Trigger to build the harness:** the autonomy grep/trace audit is green (Conductor
+  auto-advance + bounded Beta loop + fallback) AND the cred-reuse moat is on the Celery
+  path. Until then the gate is a recorded target, not active work.
+
+**Confidence ~75%** — benchmark landscape moves fast; specific published baselines
+(AutoPenBench ~21% autonomous, Cybench ~93% frontier) should be re-confirmed at baseline
+time, not trusted from this doc.
