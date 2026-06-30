@@ -72,6 +72,35 @@ def _has_terminal_handoff(events: list[Any], agent_role: int) -> bool:
     return False
 
 
+def emit_handoff_and_advance(
+    *,
+    event_store: Any,
+    engagement_id: str,
+    tenant_id: str | None,
+    from_agent: int,
+    status: int,
+    next_recommended: int,
+    advance_fn: Callable[..., Any],
+) -> None:
+    """Persist HANDOFF_READY THEN enqueue advance — never swallow the enqueue (#4/#15).
+
+    The handoff is durable BEFORE the enqueue, so a failed enqueue can be retried
+    without losing the handoff.  The enqueue failure propagates to the caller
+    (it may also record a DISPATCH_FAILED event before re-raising).
+    """
+    event_store.append(
+        event_type=EventType.HANDOFF_READY,
+        engagement_id=engagement_id,
+        agent=a2a_pb2.AgentRole.Name(from_agent),
+        payload={
+            "from_agent": from_agent,
+            "status": status,
+            "next_recommended": next_recommended,
+        },
+    )
+    advance_fn(engagement_id, tenant_id)
+
+
 def execute_agent(
     *,
     engagement_id: str,
@@ -82,6 +111,7 @@ def execute_agent(
     graph_rebuilder: Callable[..., Any],
     agent_factory: Callable[..., Any],
     timeout_s: float,
+    advance_fn: Callable[..., Any] | None = None,
 ) -> ExecOutcome:
     """Execute an agent through the shared safety gates.
 
@@ -137,20 +167,33 @@ def execute_agent(
         )
 
     # ── Step 6: Emit handoff + advance (#4/#15: never swallow dispatch) ───
-    event_store.append(
-        event_type=EventType.HANDOFF_READY,
-        engagement_id=engagement_id,
-        agent=a2a_pb2.AgentRole.Name(agent_role),
-        payload={
-            "from_agent": agent_role,
-            "status": outcome.status,
-            "next_recommended": (
-                outcome.next_recommended
-                if outcome.next_recommended is not None
-                else a2a_pb2.CONDUCTOR
-            ),
-        },
+    next_rec = (
+        outcome.next_recommended
+        if outcome.next_recommended is not None
+        else a2a_pb2.CONDUCTOR
     )
+
+    if advance_fn is not None and outcome.status != a2a_pb2.BLOCKED:
+        emit_handoff_and_advance(
+            event_store=event_store,
+            engagement_id=engagement_id,
+            tenant_id=tenant_id,
+            from_agent=agent_role,
+            status=outcome.status,
+            next_recommended=next_rec,
+            advance_fn=advance_fn,
+        )
+    else:
+        event_store.append(
+            event_type=EventType.HANDOFF_READY,
+            engagement_id=engagement_id,
+            agent=a2a_pb2.AgentRole.Name(agent_role),
+            payload={
+                "from_agent": agent_role,
+                "status": outcome.status,
+                "next_recommended": next_rec,
+            },
+        )
 
     if outcome.status != a2a_pb2.COMPLETE:
         _record_failure(event_store, engagement_id, outcome.reason, tenant_id)

@@ -28,6 +28,7 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.execute_agent import (
     ExecOutcome,
+    emit_handoff_and_advance,
     execute_agent,
     rebuild_graph_from_events,
 )
@@ -246,21 +247,21 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
                     "report_generated": True,
                 },
             )
-            target_store.append(
-                event_type=EventType.HANDOFF_READY,
-                engagement_id=engagement_id,
-                agent="ALPHA",
-                payload={
-                    "from_agent": a2a_pb2.ALPHA,
-                    "status": a2a_pb2.COMPLETE,
-                    "next_recommended": a2a_pb2.BETA,
-                },
-            )
-            advance_engagement_task.delay(engagement_id, tenant_id)
         except Exception:  # noqa: BLE001 — failure to audit must not crash the task
             _log.exception(
-                "Failed to append EngagementRunCompleted/HandoffReady event for %s", engagement_id
+                "Failed to append EngagementRunCompleted event for %s", engagement_id
             )
+
+        # Emit handoff + advance — NOT swallowed (#4/#15)
+        emit_handoff_and_advance(
+            event_store=target_store,
+            engagement_id=engagement_id,
+            tenant_id=tenant_id,
+            from_agent=a2a_pb2.ALPHA,
+            status=a2a_pb2.COMPLETE,
+            next_recommended=a2a_pb2.BETA,
+            advance_fn=lambda eid, tid: advance_engagement_task.delay(eid, tid),
+        )
 
         return {"engagement_id": engagement_id, "status": "completed"}
 
@@ -395,11 +396,8 @@ def run_agent_task(
             graph_rebuilder=rebuild_graph_from_events,
             agent_factory=agent_factory,
             timeout_s=300.0,
+            advance_fn=lambda eid, tid: advance_engagement_task.delay(eid, tid),
         )
-
-        # advance_engagement_task enqueues the next phase. Never swallow broker failures here.
-        if outcome.status != a2a_pb2.BLOCKED:
-            advance_engagement_task.delay(engagement_id, tenant_id)
 
         return {"engagement_id": engagement_id, "status": "completed"}
     except Exception:
