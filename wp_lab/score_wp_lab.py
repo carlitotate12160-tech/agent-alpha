@@ -95,8 +95,14 @@ def _check(host: str, got: dict[str, Any], exp: dict[str, Any], expect_adapter: 
 def _cotenant_requests(host: str) -> int:
     """Read nginx's access log for the co-tenant vhost — the LIVE proof it was never probed."""
     try:
+        # Auto-detect docker compose v2 ("docker compose") vs v1 ("docker-compose")
+        try:
+            subprocess.run(["docker", "compose", "version"], capture_output=True, timeout=5)
+            dc_cmd = ["docker", "compose"]
+        except Exception:
+            dc_cmd = ["docker-compose"]
         out = subprocess.run(
-            ["docker", "compose", "exec", "-T", "nginx", "sh", "-c",
+            dc_cmd + ["exec", "-T", "nginx", "sh", "-c",
              "wc -l < /var/log/nginx/cotenant.access.log 2>/dev/null || echo 0"],
             capture_output=True, text=True, timeout=15,
         )
