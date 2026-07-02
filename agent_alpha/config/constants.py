@@ -274,3 +274,43 @@ DEEPSEEK_PRICING_USD_PER_1K = {
 # Phase 2 exit criterion: "<20% FP rate in findings"
 # FP rate in findings = FP / (TP + FP) — fraction of REPORTED findings that are false
 MAX_FP_RATE = 0.20
+
+# ── JS Secret Detection Patterns (Phase 3, js_secret_probe) ──
+# High-confidence, provider-agnostic starter set. Extend via config, never
+# inline per-client (#7). Each entry: (name, compiled_regex, service_label).
+# The generic_assign pattern captures a value that MUST pass _looks_like_secret().
+JS_SECRET_PATTERNS: tuple[tuple[str, str, str], ...] = (
+    ("aws_access_key", r"\bAKIA[0-9A-Z]{16}\b", "aws"),
+    ("google_api_key", r"\bAIza[0-9A-Za-z\-_]{35}\b", "google_api"),
+    ("stripe_live", r"\bsk_live_[0-9A-Za-z]{24,}\b", "stripe"),
+    ("slack_token", r"\bxox[baprs]-[0-9A-Za-z-]{10,}\b", "slack"),
+    ("github_pat", r"\bghp_[0-9A-Za-z]{36}\b", "github"),
+    ("jwt", r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b", "jwt"),
+    (
+        "generic_assign",
+        r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*[\"']([^\"']{16,})[\"']",
+        "generic",
+    ),
+)
+
+# Placeholder denylist for _looks_like_secret() — anti-#3 discriminator.
+JS_SECRET_PLACEHOLDER_DENYLIST: frozenset[str] = frozenset(
+    {
+        "your_api_key",
+        "your_api_key_here",
+        "example",
+        "changeme",
+        "placeholder",
+        "xxxx",
+        "xxxxxxxxxxxxxxxx",
+        "<",
+        "test",
+        "dummy",
+    }
+)
+
+# Minimum Shannon entropy for generic_assign captured values (anti-#3).
+JS_SECRET_MIN_ENTROPY = 3.5
+
+# Minimum length for generic_assign captured values.
+JS_SECRET_MIN_LENGTH = 16
