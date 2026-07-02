@@ -229,7 +229,7 @@ Mechanism that makes agent smarter with usage.
 
 ### 8d. Multi-LLM Orchestration — Parallel Consensus (answer Q4)
 
-Support 2+ LLM (DeepSeek V4 Pro + Xiaomi). Selected mode: parallel consensus.
+Support 2+ LLM (DeepSeek V4 Pro + Xiaomi). Selected mode: parallel consensus. (§12.23: consensus tier deferred to Gamma/Phase 4)
 
 - Critical decisions (next-best-step "Try Harder", exploit-chain selection, blast-radius judgment) → both LLMs inferred in parallel, results compared/voted.
   - Agree → high confidence, proceed.
@@ -293,7 +293,7 @@ Plan has agent + handoff, but not yet defined internal reasoning loop. This is c
 ```
 OBSERVE  → read relevant graph facts (node/edge) + outcome history
 ORIENT   → classify situation, hypothesis (LLM, structured prompt §7)
-PLAN     → choose next action + alternative (consensus §8d for critical decisions)
+PLAN     → choose next action + alternative (critical-decision consensus DEFERRED to Gamma/Phase 4 — see §12.23)
 ACT      → execute via single-contract tool (gRPC to Go)
 VERIFY   → confirm result + tag outcome (§8c), save proof artifact
 PERSIST  → write new node/edge to graph (durable state, not hidden)
@@ -312,20 +312,20 @@ Volatile layer bridging Cognitive Loop (§8j) and durable AttackGraph. Selected 
 - **Promotion rule** (anti-contamination): only facts passing VERIFY phase (§8j) promoted from scratchpad → AttackGraph node/edge. Speculation/hallucination stays in scratchpad, doesn't pollute graph (durable single source of truth).
 - **Storage:** active scratchpad in Redis SessionMemory (live, low-latency); snapshot flushed to EngagementMemory (PostgreSQL) at checkpoint/end of task.
 - **Security** (mandatory): scratchpad & monologue can contain untrusted content from target (prompt injection risk §8l) + sensitive data → redaction before stream/persist, and monologue content never executed as instruction (data, not command).
-- **Consensus trace:** during critical decision (§8d), each LLM vote + reason recorded in scratchpad → supports audit & tie-break by graph facts.
+- **Consensus trace:** during critical decision (§8d), each LLM vote + reason recorded in scratchpad → supports audit & tie-break by graph facts. (§12.23: consensus tier deferred to Gamma/Phase 4)
 - **Feed to report:** monologue/scratchpad becomes material for to_narrative() (§6) — story of "how we thought & got in", not just finding list.
 - **Implementation (Phase 2, 2026-06-19 — amends framing):** the monologue is **loop-driven** — one `ThoughtFrame` emitted per cognitive-loop phase (OBSERVE/ORIENT/ACT/PERSIST), NOT `reasoning_content`-only. Rationale: under Opsi-B playbook-first the RULE tier makes zero LLM calls, so `reasoning_content` is empty on the headline path. Reasoning is sourced per tier — **RULE → playbook `rationale`**, **SINGLE_LLM → DeepSeek `reasoning_content`** (captured in `CompletionResult.reasoning`). The monologue is a **USER channel via an injected `MonologueSink`**, strictly separate from A2A (A2A stays structured JSON). Emission core implemented + tested (`agent_alpha/agents/monologue.py`, `tests/phase_2/test_monologue.py`); real-time **user-delivery transport (Redis pub/sub → WebSocket) is deferred to Phase 3**, since a connected user requires the Celery non-blocking execution path built there.
 
 ### 8k. LLM Model Strategy — Role Split & Policy (Opus/Claude vs DeepSeek)
 
-Extending parallel-consensus (§8d) with policy-based + data sensitivity separation.
+Extending parallel-consensus (§8d) with policy-based + data sensitivity separation. (§12.23: consensus tier deferred to Gamma/Phase 4)
 
 - Reasoning / planning / attack-graph analysis / report narrative → strong reasoning model (e.g., Claude Opus/Sonnet). Excels here, content not raw weaponization.
 - Payload / raw exploit generation → less-restricted model (e.g., DeepSeek) to avoid refusal/usage-policy block.
 - **Refusal risk as design constraint:** don't depend on offensive generation from model that can refuse mid-engagement.
 - **Redaction layer** — sensitive client data (creds, PII, harvested data) redacted/anonymized before sending to LLM cloud (NDA/data sovereignty compliance); self-hosted option for most sensitive data.
 - **Budget cap per engagement** — token cost limited (especially Opus) + alert when approaching limit (related to stop conditions §8j).
-- **Provider abstraction** — all models behind single interface; role-based routing + consensus + failover managed by LLM Orchestration layer.
+- **Provider abstraction** — all models behind single interface; role-based routing + consensus + failover managed by LLM Orchestration layer. (§12.23: consensus tier deferred to Gamma/Phase 4)
 
 ### 8l. Platform Security & Data Lifecycle (securing the tool itself)
 
@@ -422,7 +422,7 @@ Smallest demoable loop: recon → graph → report. Formal Agent Cognitive Loop 
 
 ### Phase 3 — Beta (STRIKE) + Celery non-blocking + LLM strategy
 
-Initial access (ACTIVE_APPROVED), credential spray, chat-while-task-runs (§8a), multi-tenant queue, LLM Orchestration parallel consensus + role split (Claude reasoning / DeepSeek payload) + redaction + budget cap (§8d, §8k), prompt-injection defense (§8l), loop/budget guardrail + checkpoint/resume (§8m), time-window & OPSEC profile (§8n).
+Initial access (ACTIVE_APPROVED), credential spray, chat-while-task-runs (§8a), multi-tenant queue, LLM Orchestration parallel consensus (§12.23: Gamma/P4, not Phase 3) + role split (Claude reasoning / DeepSeek payload) + redaction + budget cap (§8d, §8k), prompt-injection defense (§8l), loop/budget guardrail + checkpoint/resume (§8m), time-window & OPSEC profile (§8n).
 
 ### Phase 4 — Gamma (ANCHOR) + ToolComposer + proof artifacts
 
@@ -456,7 +456,7 @@ Port network-heavy agents (Alpha/Beta/Delta/Epsilon) + custom tools to Go single
 - Multi-tenancy depth: per-tenant isolation to what level (queue only vs separate DB schema vs network isolation)?
 - Engagement profiles priority: besides WebApp (Phase 2), which profile prioritized (Cloud / AD / Phishing Impact / Endpoint)?
 
-**Already decided:** Multi-LLM = parallel consensus (DeepSeek V4 Pro + Xiaomi) for critical decisions, single-LLM for light tasks (§8d).
+**Already decided:** Multi-LLM = parallel consensus (DeepSeek V4 Pro + Xiaomi) for critical decisions, single-LLM for light tasks (§8d). SUPERSEDED by §12.23 — consensus tier + MiMoProvider move to Gamma (Phase 4); Phase 3 runs single reasoning provider. No consensus on any Phase-3 live path.
 
 ## 11. Risks & Mitigations
 
@@ -497,7 +497,7 @@ Agent-Alpha = **2-layer hybrid**, mirroring NodeZero (deterministic orchestratio
 |------|------|-----|
 | `RULE` | Routine, high confidence, playbook match, next step clear from graph | None |
 | `SINGLE_LLM` | Ambiguous, no playbook match, low confidence, new hypothesis | 1 model |
-| `CONSENSUS_LLM` | Critical: exploit-chain, blast-radius, "Try Harder", actions changing auth tier/blast radius | 2 models (§8d) |
+| `CONSENSUS_LLM` | Critical: exploit-chain, blast-radius, "Try Harder", actions changing auth tier/blast radius | 2 models (§8d) (§12.23: deferred to Gamma/Phase 4) |
 
 Tier-up trigger = f(rule confidence, action criticality, novelty/playbook-miss). Thresholds → `config/constants.py`.
 
@@ -608,107 +608,6 @@ never stored only in volatile memory.
 - Phase 0–3: NetworkX (in-memory, simple, sufficient). Phase 4+: evaluate Memgraph
   (Cypher, in-memory) or Neo4j if cross-engagement/large-graph queries prove necessary
   — still rebuilt from events, never the source of truth.
-
-### 12.22 Tool strategy: wrap commodity, build the moat, gate the dangerous — PROPOSED
-
-**Status:** PROPOSED → LOCK on merge. Extends §12.16 (tool layer) and the §5–§7 differentiators.
-
-Decides what Agent-Alpha builds internally vs wraps, the safety-critical revisions to
-OPERATIONAL_REFERENCE.md tools, and Cloudflare/WAF handling.
-
-#### Context
-
-OPERATIONAL_REFERENCE.md lists ~40 tools across the kill chain. A review found: most are
-COMMODITY (nmap/nuclei/sqlmap/feroxbuster/proxy/captcha/GSocket) — rebuilding them internally
-is Lyndon #1/#4 at scale (breadth-chasing). Competitors (XBOW web-app autonomy; CAI generic
-multi-agent + 300+ LLM) already out-breadth us on commodity tooling. We cannot win on
-breadth. We win on the graph × cross-engagement-memory × proof triad they structurally lack.
-
-Separately, the review found four tools that are not "build vs wrap" questions but
-LEGAL/SAFETY landmines that must be gated before any further offensive work.
-
-#### Decision 1 — The litmus rule (wrap vs build)
-
-> Build a tool INTERNALLY only if it uses the attack graph, cross-engagement memory, or
-> proof-composition in a way a standalone tool cannot. Otherwise WRAP the external tool
-> behind the `ToolResult` contract (§12.16).
-
-- **WRAP (commodity):** recon (nmap, httpx, subfinder, nuclei, feroxbuster/ffuf, whatweb,
-  wafw00f), sqlmap, proxy infra (BrightData/residential/SOCKS5), captcha (2Captcha),
-  GSocket, john. No unique value in reimplementing these.
-- **BUILD INTERNAL (the moat — these are the "Agent-Alpha-only" tools):**
-  1. **ToolComposer** (§5, §12.16) — runtime exploit-chain composition from graph context;
-     `compose()` = plan-not-execute; `Template.verify()` mandatory (proof, not assumption).
-  2. **IntelligenceBase** (§4, pgvector) — cross-engagement learning: rank the chain most
-     likely to work on THIS fingerprint from what worked on similar past engagements.
-  3. **Attack-graph narrative + payable report** (Omega) — the deliverable clients pay for;
-     MITRE + PCI/NIS2 + SARIF. The report is the product.
-  4. **Regional verified templates** (banking_portal, his_sqli, egov, ERP/Laravel) — proof-
-     carrying, SE-Asia stacks global tools de-prioritize.
-  The triad (1×2×proof) is the durable moat — no competitor has graph+memory+proof together.
-
-#### Decision 2 — Safety/scope revisions (NON-NEGOTIABLE, gate before more offense)
-
-These OPERATIONAL_REFERENCE.md tools are revised to default-DENY without explicit, per-action
-SOW authorization, enforced by the Conductor scope gate:
-
-1. **`cohost_pivot.py` / `symlink.py` (Epsilon) — HIGHEST RISK.** Co-hosted domains have
-   DIFFERENT owners = almost always OUT of SOW. Each co-host target MUST pass a per-target
-   scope check; default DENY. Touching a co-host not in SOW is an unauthorized-access
-   offense against a third party. This gate is non-bypassable.
-2. **Credential spray (Beta)** — add a lockout-safety governor: spraying real accounts can
-   lock out the client's users (a DoS). Bounded attempts/account, SOW-scoped account lists,
-   honor lockout thresholds. Rate-limit alone is insufficient.
-3. **Persistence + `cleanup_scan` + anti-forensics (Delta)** — require an explicit SOW
-   clause per action, a GUARANTEED teardown/restore at engagement end, and full audit for
-   client handback. Never leave real persistence; never destroy client evidence.
-4. **`db_dump` exfil (Delta)** — proof-of-access, not bulk theft: minimize + redact +
-   encrypt; the report proves access with a bounded sample, not a full dump.
-
-These four are also a SELLING POINT when surfaced as the **scope-aware blast-radius governor
-tool** (see Decision 3) — "provably stays in scope" is a compliance differentiator.
-
-#### Decision 3 — New internal tools (born from the safety review = nilai jual)
-
-1. **Scope/blast-radius governor (tool, not just gate):** pre-execution, every action's
-   target is checked against SOW; co-host/out-of-scope flagged and DENIED. Compliance moat.
-2. **TransportResilience capability (§12.16 capability, NOT an agent) — Cloudflare/WAF:**
-   - Reaching origin (if origin IP in SOW) is scoping, not evasion.
-   - Passing anti-bot to TEST the authorized app: wrap `curl_cffi` (TLS/JA3 impersonation) +
-     Playwright (Turnstile) — commodity, gated to in-scope targets only.
-   - **The unique value = the WAF/CF-block DISCRIMINATOR:** classify a CF-RAY/challenge/403
-     as WAF-BLOCKED — NOT a vulnerability verdict. This kills false-negatives ("blocked" ≠
-     "safe") and false-success, feeding the proof/verify moat. On block: adapt transport /
-     lower rate / hand to the payload lane, OR honestly report "unverifiable behind WAF".
-   - Payload-level evasion bodies remain the DeepSeek lane (K21); Claude owns the
-     discriminator interface + the gate, never the evasion payload.
-   - Respects existing OPSEC profiles (§8n) + RateLimiter — never trip CF rate limits and
-     burn the engagement.
-3. **Engagement teardown/restore tool:** proves the platform leaves the client system clean
-   (reverses uploads/persistence). Trust/selling point for a compliance-focused SaaS.
-
-#### Build order (per-phase, not up front — §12.16)
-
-Registry + Composer (the moat enabler, audit gap A4) → scope/blast-radius governor →
-external-tool wrap adapters (recon trio) → TransportResilience discriminator →
-IntelligenceBase (Phase 6) → teardown/restore. Each independently testable; offensive
-bodies (templates/*) are DeepSeek's, behind `Template.verify()`.
-
-#### Test contract (gates these decisions)
-
-```
-- Litmus: any NEW tool PR states wrap-or-build + the graph/memory/proof justification.
-- cohost/symlink: a co-host target NOT in SOW → DENIED (RED test, default-deny).
-- spray: attempts/account bounded; a lockout-threshold breach → halt that account.
-- persistence/exfil: blocked without the explicit SOW clause; teardown verified at end.
-- WAF discriminator: a CF-RAY/challenge response is classified WAF-BLOCKED, never
-  "not vulnerable" and never COMPLETE/success (anti false-negative + anti-#3).
-```
-
-**Confidence ~85%** — the wrap-vs-build litmus + the safety revisions are well-grounded
-(competitor research + the OPERATIONAL_REFERENCE review). Residual: the exact scope-gate
-API on #61 (reuse `is_in_scope` / `is_db_endpoint_in_scope` patterns) and where the
-TransportResilience capability plugs into the HttpClient — confirm on #61 before building.
 
 ### 12.20 Conductor Handoff-Consumer — Autonomous spine on Celery path — LOCKED
 
@@ -892,3 +791,208 @@ forcing function: the gate is unrunnable until the autonomy wiring (§autonomy-a
 **Confidence ~75%** — benchmark landscape moves fast; specific published baselines
 (AutoPenBench ~21% autonomous, Cybench ~93% frontier) should be re-confirmed at baseline
 time, not trusted from this doc.
+
+### 12.22 Tool strategy: wrap commodity, build the moat, gate the dangerous — PROPOSED
+
+**Status:** PROPOSED → LOCK on merge. Extends §12.16 (tool layer) and the §5–§7 differentiators.
+
+Decides what Agent-Alpha builds internally vs wraps, the safety-critical revisions to
+OPERATIONAL_REFERENCE.md tools, and Cloudflare/WAF handling.
+
+#### Context
+
+OPERATIONAL_REFERENCE.md lists ~40 tools across the kill chain. A review found: most are
+COMMODITY (nmap/nuclei/sqlmap/feroxbuster/proxy/captcha/GSocket) — rebuilding them internally
+is Lyndon #1/#4 at scale (breadth-chasing). Competitors (XBOW web-app autonomy; CAI generic
+multi-agent + 300+ LLM) already out-breadth us on commodity tooling. We cannot win on
+breadth. We win on the graph × cross-engagement-memory × proof triad they structurally lack.
+
+Separately, the review found four tools that are not "build vs wrap" questions but
+LEGAL/SAFETY landmines that must be gated before any further offensive work.
+
+#### Decision 1 — The litmus rule (wrap vs build)
+
+> Build a tool INTERNALLY only if it uses the attack graph, cross-engagement memory, or
+> proof-composition in a way a standalone tool cannot. Otherwise WRAP the external tool
+> behind the `ToolResult` contract (§12.16).
+
+- **WRAP (commodity):** recon (nmap, httpx, subfinder, nuclei, feroxbuster/ffuf, whatweb,
+  wafw00f), sqlmap, proxy infra (BrightData/residential/SOCKS5), captcha (2Captcha),
+  GSocket, john. No unique value in reimplementing these.
+- **BUILD INTERNAL (the moat — these are the "Agent-Alpha-only" tools):**
+  1. **ToolComposer** (§5, §12.16) — runtime exploit-chain composition from graph context;
+     `compose()` = plan-not-execute; `Template.verify()` mandatory (proof, not assumption).
+  2. **IntelligenceBase** (§4, pgvector) — cross-engagement learning: rank the chain most
+     likely to work on THIS fingerprint from what worked on similar past engagements.
+  3. **Attack-graph narrative + payable report** (Omega) — the deliverable clients pay for;
+     MITRE + PCI/NIS2 + SARIF. The report is the product.
+  4. **Regional verified templates** (banking_portal, his_sqli, egov, ERP/Laravel) — proof-
+     carrying, SE-Asia stacks global tools de-prioritize.
+  The triad (1×2×proof) is the durable moat — no competitor has graph+memory+proof together.
+
+#### Decision 2 — Safety/scope revisions (NON-NEGOTIABLE, gate before more offense)
+
+These OPERATIONAL_REFERENCE.md tools are revised to default-DENY without explicit, per-action
+SOW authorization, enforced by the Conductor scope gate:
+
+1. **`cohost_pivot.py` / `symlink.py` (Epsilon) — HIGHEST RISK.** Co-hosted domains have
+   DIFFERENT owners = almost always OUT of SOW. Each co-host target MUST pass a per-target
+   scope check; default DENY. Touching a co-host not in SOW is an unauthorized-access
+   offense against a third party. This gate is non-bypassable.
+2. **Credential spray (Beta)** — add a lockout-safety governor: spraying real accounts can
+   lock out the client's users (a DoS). Bounded attempts/account, SOW-scoped account lists,
+   honor lockout thresholds. Rate-limit alone is insufficient.
+3. **Persistence + `cleanup_scan` + anti-forensics (Delta)** — require an explicit SOW
+   clause per action, a GUARANTEED teardown/restore at engagement end, and full audit for
+   client handback. Never leave real persistence; never destroy client evidence.
+4. **`db_dump` exfil (Delta)** — proof-of-access, not bulk theft: minimize + redact +
+  encrypt; the report proves access with a bounded sample, not a full dump.
+
+These four are also a SELLING POINT when surfaced as the **scope-aware blast-radius governor
+tool** (see Decision 3) — "provably stays in scope" is a compliance differentiator.
+
+#### Decision 3 — New internal tools (born from the safety review = nilai jual)
+
+1. **Scope/blast-radius governor (tool, not just gate):** pre-execution, every action's
+   target is checked against SOW; co-host/out-of-scope flagged and DENIED. Compliance moat.
+2. **TransportResilience capability (§12.16 capability, NOT an agent) — Cloudflare/WAF:**
+   - Reaching origin (if origin IP in SOW) is scoping, not evasion.
+   - Passing anti-bot to TEST the authorized app: wrap `curl_cffi` (TLS/JA3 impersonation) +
+     Playwright (Turnstile) — commodity, gated to in-scope targets only.
+   - **The unique value = the WAF/CF-block DISCRIMINATOR:** classify a CF-RAY/challenge/403
+     as WAF-BLOCKED — NOT a vulnerability verdict. This kills false-negatives ("blocked" ≠
+     "safe") and false-success, feeding the proof/verify moat. On block: adapt transport /
+     lower rate / hand to the payload lane, OR honestly report "unverifiable behind WAF".
+   - Payload-level evasion bodies remain the DeepSeek lane (K21); Claude owns the
+     discriminator interface + the gate, never the evasion payload.
+   - Respects existing OPSEC profiles (§8n) + RateLimiter — never trip CF rate limits and
+     burn the engagement.
+3. **Engagement teardown/restore tool:** proves the platform leaves the client system clean
+   (reverses uploads/persistence). Trust/selling point for a compliance-focused SaaS.
+
+#### Build order (per-phase, not up front — §12.16)
+
+Registry + Composer (the moat enabler, audit gap A4) → scope/blast-radius governor →
+external-tool wrap adapters (recon trio) → TransportResilience discriminator →
+IntelligenceBase (Phase 6) → teardown/restore. Each independently testable; offensive
+bodies (templates/*) are DeepSeek's, behind `Template.verify()`.
+
+#### Test contract (gates these decisions)
+
+```
+- Litmus: any NEW tool PR states wrap-or-build + the graph/memory/proof justification.
+- cohost/symlink: a co-host target NOT in SOW → DENIED (RED test, default-deny).
+- spray: attempts/account bounded; a lockout-threshold breach → halt that account.
+- persistence/exfil: blocked without the explicit SOW clause; teardown verified at end.
+- WAF discriminator: a CF-RAY/challenge response is classified WAF-BLOCKED, never
+  "not vulnerable" and never COMPLETE/success (anti false-negative + anti-#3).
+```
+
+**Confidence ~85%** — the wrap-vs-build litmus + the safety revisions are well-grounded
+(competitor research + the OPERATIONAL_REFERENCE review). Residual: the exact scope-gate
+API on #61 (reuse `is_in_scope` / `is_db_endpoint_in_scope` patterns) and where the
+TransportResilience capability plugs into the HttpClient — confirm on #61 before building.
+
+### 12.23 Consensus-LLM tier — deferral from Phase 3 to Phase 4 (Gamma) — LOCKED
+
+**Status:** LOCKED (2026-07-02). Appended after §12.22. Supersedes the "multi-LLM
+consensus" item in the canonical **Phase 3 exit criteria** and aligns the ADR with
+`docs/PHASE_3_TEST_CONTRACT.md`. The doc-integrity sweep this decision requires
+(repoint §12.20→§12.23 citations; supersede the stale consensus prose at §8-era lines)
+is COMPLETE.
+
+#### Context
+
+The old Phase-3 exit criteria listed four gates: Beta (STRIKE) + Celery non-blocking +
+**multi-LLM consensus** + prompt-injection defense. But:
+
+1. `PHASE_3_TEST_CONTRACT.md` already defers the `CONSENSUS_LLM` tier + `MiMoProvider`
+   to Phase 4 ("do NOT build now = avoid dead code #2"). The ADR and the test contract
+   therefore disagreed — a doc-integrity defect, not a settled decision.
+2. Consensus (§8d) was designed for one class of decision: *exploit-chain selection,
+   blast-radius assessment, "Try Harder", and any action that changes auth tier or blast
+   radius* (§12.1 routing table, `CONSENSUS_LLM` row). **None of those occur in Phase 3.**
+   Phase 3 = Beta/STRIKE: default-creds, credential spray, credential reuse — all
+   `ACTIVE_APPROVED`-tier, bounded, verifiable, reversible. The irreversible
+   high-blast-radius decisions land in **Gamma (Phase 4, `OFFENSIVE_APPROVED` +
+   blast-radius gate).**
+3. Building the consensus tier in Phase 3 would wire `MiMoProvider` onto a path that
+   never triggers `CONSENSUS_LLM` = **dead code (Lyndon #2)** — the exact failure this
+   project exists to avoid.
+
+#### Flaw considered first (the real risk of deferring)
+
+The objection: *"an autonomous agent making critical calls with a single LLM is less
+safe."* Addressed explicitly, not buried:
+
+- The only Phase-3 action that changes authorization tier is the **CREATED → … →
+  OFFENSIVE_APPROVED** transition, which is **human-gated** (`enable_offensive` requires
+  a human-uploaded SOW). Consensus is not the guard there — the **gate** is. Deferring
+  consensus removes **zero** Phase-3 tier-change safety.
+- Beta's autonomous decisions are bounded (Bounded Autonomy stop conditions), verified
+  (no false-success, #3), and reversible. A wrong single-LLM PLAN in Phase 3 wastes
+  budget; it does not cross an irreversible blast-radius line.
+
+Therefore the deferral does **not** reduce Phase-3 safety. It moves consensus to where
+its triggering decisions actually live.
+
+#### Decision
+
+1. **Remove "multi-LLM consensus" from Phase 3 exit criteria.** Phase 3 runs the single
+   reasoning provider (§12.15 — DeepSeek-v4-pro reasoning PRIMARY) for ORIENT/PLAN.
+2. **Move the `CONSENSUS_LLM` tier + `MiMoProvider` + parallel-consensus tie-break (§8d)
+   into Phase 4 (Gamma) exit criteria**, where exploit-chain selection and blast-radius
+   assessment occur under `OFFENSIVE_APPROVED`.
+3. **Consensus has NO code representation today — verified on #61:** no `decide_tier`, no
+   `CONSENSUS_LLM` enum, no `MiMoProvider` on any live path (grep-clean). The deferral is
+   therefore **doc-only**. When Phase 4 builds Gamma it ADDS the consensus tier + its
+   routing as greenfield work (no existing enum to preserve).
+
+#### Revised Phase 3 exit criteria (the clean hard-stop)
+
+```
+Phase 3 is "done" only when ALL pass on Oracle ARM64 CI:
+[ ] Beta (STRIKE) — default_creds + cred_reuse, verified non-empty findings (#3)
+[ ] Celery non-blocking execution + tenant propagation through Celery
+[ ] Real emergency revoker (≤5s) under Celery
+[ ] Conductor fan-out interface (§12.13) + auto-advance on the Celery path
+[ ] Prompt-injection defense (redaction + structured A2A)
+[ ] Service-aware cred-reuse moat (DB path) wired on the Conductor/Celery path
+    — NOT chain_runner single-process
+[ ] NO consensus / MiMoProvider on any Phase-3 live path  ← deferred, asserted absent
+```
+
+(Struck from the prior list: "multi-LLM consensus".)
+
+#### Phase 4 (Gamma) gains
+
+```
+[ ] CONSENSUS_LLM tier built: 2 providers in parallel, votes + reasons audited
+[ ] MiMoProvider wired as the consensus second seat
+[ ] Tie-break by graph facts; disagreement → human gate (§8d)
+[ ] Consensus REQUIRED for: exploit-chain selection, blast-radius assessment,
+    any action changing auth tier or blast radius
+```
+
+#### Test contract for this amendment
+
+```
+T1 doc-integrity: no Phase-3 exit-criteria checklist (ADR, skill, PROGRESS_TRACKER,
+   PHASE_3_TEST_CONTRACT) still lists consensus as a Phase-3 gate.        [DONE — sweep]
+T2 anti-dead-code guard: no live path imports/constructs MiMoProvider or runs a vote
+   (grep-clean at #61). When Phase 4 adds consensus it must be reachable on a Gamma
+   critical-decision path, else dead code.
+T3 Phase-4 exit-criteria doc lists consensus as a Gamma gate (the deferral has a
+   destination, not a void).
+```
+
+#### Integration point
+
+At #61 the orchestrator has NO tier-routing enum and consensus has no representation
+(consensus is grep-clean on all live paths). There is no Phase-3 interface to preserve —
+the "consensus-ready interface" is a **Phase-4 greenfield design task**, not a Phase-3
+invariant. Phase 4 introduces both the consensus tier and the routing that reaches it, on
+Gamma's exploit-chain / blast-radius decisions.
+
+**Confidence ~95%** — verified against #61: consensus is grep-clean on all live paths.
+The deferral is doc-only; the residual is the sweep landing on every checklist (done).
