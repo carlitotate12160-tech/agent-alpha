@@ -11,11 +11,12 @@ whose host:port is in the signed SOW (scope.db_endpoints). NEVER localhost.
 
 SINGLE-PROCESS (one SecretsManager shared by Alpha + Beta), mirrors chain_runner.
 
-KNOWN GAP THIS HARNESS SURFACES (flaw-first): Alpha writes ONE credential node per
-leaked env key, so DB_USERNAME and DB_PASSWORD become SEPARATE nodes — neither holds
-BOTH the DB user AND its password. MySqlApplicator.apply needs both. Until a
-credential-pairing fix lands, the DB auth will fail. This runner DETECTS and reports
-that precondition explicitly (it does not fake success).
+CREDENTIAL PAIRING (landed): Alpha now assembles ONE paired login credential node
+when both DB_USERNAME + DB_PASSWORD are co-located on the debug page. The paired
+node carries username=<DB_USERNAME> and secret_ref=vault(<DB_PASSWORD>). A safety
+guard in MySqlApplicator refuses empty-username auth (fragment nodes never reach
+the wire). If only one key is present, no paired node is emitted and
+db_credential_usable reports False honestly.
 """
 
 from __future__ import annotations
@@ -110,10 +111,10 @@ def load_db_chain_config(path: str | pathlib.Path) -> DbChainConfig:
 
 
 def _db_credential_is_usable(graph_store: Any) -> bool:
-    """True iff some CREDENTIAL node carries BOTH a non-empty username AND a resolvable
-    secret_ref for a DB service — the precondition MySqlApplicator needs. The known gap:
-    Alpha splits DB_USERNAME / DB_PASSWORD into separate nodes, so this is usually False
-    until a pairing fix lands. Reported honestly, never faked."""
+    """True iff some CREDENTIAL node carries BOTH a non-empty username AND a
+    DB service label — the precondition MySqlApplicator needs. With the credential
+    pairing fix landed, Alpha emits one paired login node when DB_USERNAME +
+    DB_PASSWORD are co-located. Reported honestly, never faked."""
     for node in graph_store.nodes_by_type(NodeType.CREDENTIAL):
         props = node.properties
         service = getattr(props, "service", "")
@@ -264,9 +265,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  MySqlApplicator bound to in-scope endpoint: {result.mysql_bound}")
     print(f"  DB credential usable (user+secret paired) : {result.db_credential_usable}")
     if not result.db_credential_usable:
-        print("    ^ KNOWN GAP: DB_USERNAME / DB_PASSWORD are separate cred nodes; the")
-        print("      mysql applicator needs both. A credential-pairing fix is required")
-        print("      before the DB auth can succeed. (Not faked — reported honestly.)")
+        print("    ^ No paired DB login credential found (DB_USERNAME + DB_PASSWORD")
+        print("      not co-located on the debug page, or no vault wired). The mysql")
+        print("      applicator needs both. (Not faked — reported honestly.)")
     print(f"  DB access level proven                    : {result.db_access_level or '(none)'}")
     print(f"  Chain edge from Alpha's vaulted credential : {result.edge_from_harvested_cred}")
     print(f"  Omega chain-finding severity               : {result.report_severity or '(none)'}")
