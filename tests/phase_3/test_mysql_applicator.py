@@ -94,6 +94,17 @@ class _RejectingConnector:
         raise self._exc
 
 
+class _SpyConnector:
+    """Counts connect() calls — proves the guard fires BEFORE any wire packet."""
+
+    def __init__(self) -> None:
+        self.connect_calls = 0
+
+    def connect(self, **_kwargs):
+        self.connect_calls += 1
+        raise AssertionError("guard failed: connect() reached the wire")
+
+
 def _flatten(result: AuthResult) -> str:
     """Every stringifiable field of the result, joined — used by the no-leak assertion."""
     return repr(result)
@@ -210,3 +221,19 @@ def test_select_applicator_routes_database_credential_to_mysql():
     mysql = MySqlApplicator()
     chosen = select_applicator([mysql], credential_service="database", target=_TARGET)
     assert chosen is mysql
+
+
+# ── T7: safety guard — empty-username fragment never reaches the wire (anti-#10) ────
+
+
+def test_empty_username_never_connects() -> None:
+    """A fragment node (username="") must NOT send any auth packet to the DB.
+    Anonymous-MySQL is a separate capability that must be gated deliberately —
+    never an accidental side-effect of the web chain's db_password fragment."""
+    spy = _SpyConnector()
+    res = MySqlApplicator(connector=spy).apply(
+        username="", secret=_SECRET, target=_TARGET, budget=_BUDGET
+    )
+    assert res.success is False
+    assert spy.connect_calls == 0  # zero auth packets to the DB server
+    assert "fragment" in res.error.lower()
