@@ -34,6 +34,11 @@ services:
   wpcli:
     image: wordpress:cli
     entrypoint: ["sleep", "infinity"]
+    environment:
+      WORDPRESS_DB_HOST: mariadb
+      WORDPRESS_DB_NAME: ${MARIADB_DATABASE}
+      WORDPRESS_DB_USER: ${MARIADB_USER}
+      WORDPRESS_DB_PASSWORD: ${MARIADB_PASSWORD}
     volumes:
       - wp_html:/var/www/html
     depends_on:
