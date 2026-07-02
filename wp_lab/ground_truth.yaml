@@ -1,0 +1,46 @@
+# WP Lab ground truth — expected agent results per vhost
+# score_wp_lab.py checks each row against this file.
+#
+# leak_creds_added_min/max: expected range of CREDENTIAL nodes from the leak.
+# chain_proven_pre_adapter: expected BEFORE WpLoginApplicator (recon only, login fails).
+# chain_proven_post_adapter: expected AFTER WpLoginApplicator (full chain).
+# waf_blocked: whether a WAF_BLOCKED event is expected.
+
+cotenant_host: "cotenant.wp.lab"
+cotenant_max_requests: 0
+
+hosts:
+  vuln.wp.lab:
+    leak_creds_added_min: 1
+    leak_creds_added_max: 2
+    chain_proven_pre_adapter: false
+    chain_proven_post_adapter: true
+    waf_blocked: false
+
+  rotated.wp.lab:
+    leak_creds_added_min: 1
+    leak_creds_added_max: 2
+    chain_proven_pre_adapter: false
+    chain_proven_post_adapter: false
+    waf_blocked: false
+
+  decoy.wp.lab:
+    leak_creds_added_min: 0
+    leak_creds_added_max: 0
+    chain_proven_pre_adapter: false
+    chain_proven_post_adapter: false
+    waf_blocked: false
+
+  waf.wp.lab:
+    leak_creds_added_min: 0
+    leak_creds_added_max: 0
+    chain_proven_pre_adapter: false
+    chain_proven_post_adapter: false
+    waf_blocked: true
+
+  hardened.wp.lab:
+    leak_creds_added_min: 0
+    leak_creds_added_max: 0
+    chain_proven_pre_adapter: false
+    chain_proven_post_adapter: false
+    waf_blocked: false
