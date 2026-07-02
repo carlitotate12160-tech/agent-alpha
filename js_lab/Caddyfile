@@ -1,0 +1,32 @@
+# Agent-Alpha SPA field-prove lab — HTTPS serve.
+#
+# WHY HTTPS IS MANDATORY: verify_js_secret_leak() builds page_url as
+#   f"https://{target}/"  (hardcoded scheme). HttpClient is httpx with TLS
+#   verification ON by default. A plain http://localhost lab is never reached.
+#
+# Caddy gives automatic, real Let's Encrypt TLS on a resolvable domain you OWN.
+# Replace lab.example-you-own.dev with a subdomain that resolves to this box.
+# DO NOT use a domain you do not own. Self-owned target only.
+#
+# Run:  caddy run --config ./Caddyfile
+# (or)  caddy file-server is not enough — we want the auto-HTTPS block below.
+
+lab.example-you-own.dev {
+	root * /path/to/labs/spa_js_secret
+	file_server
+	# Ensure the generated bundle is served with a JS content-type.
+	@js path *.js
+	header @js Content-Type "application/javascript; charset=utf-8"
+
+	# Optional: log so you can eyeball that the probe GETs / and /assets/app.lab001.js
+	log {
+		output stdout
+		format console
+	}
+}
+
+# ── Local alternative (only if you cannot expose a public domain) ─────────────
+# Caddy can issue an INTERNAL CA cert for a .localhost/.internal name, but then
+# the probe's httpx client must trust that CA (verify=<ca_bundle>). That is a
+# harness override, documented in GROUND_TRUTH.md → "TLS trust" note. Prefer a
+# real resolvable self-owned domain to keep the field-prove faithful to prod.

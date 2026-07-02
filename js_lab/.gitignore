@@ -1,0 +1,3 @@
+# JS Secret Lab — gitignore (generated files only)
+assets/
+expected.local.json
