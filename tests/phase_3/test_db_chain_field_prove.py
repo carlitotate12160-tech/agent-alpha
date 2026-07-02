@@ -41,7 +41,6 @@ from __future__ import annotations
 import datetime
 
 from agent_alpha.conductor.applicator_factory import (
-    BoundApplicator,
     build_applicators_for_engagement,
 )
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
