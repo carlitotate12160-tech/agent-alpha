@@ -121,12 +121,12 @@ def verify_wp_config_leak(
 
             # ── GET the candidate backup path ──────────────────────────────
             try:
-                resp = http_client.get(url, timeout=timeout_s)
+                resp = http_client.get(url)
             except Exception:
                 continue  # network error → skip, not a finding
 
             status = getattr(resp, "status_code", 0)
-            body = getattr(resp, "body", "") or getattr(resp, "text", "")
+            body = getattr(resp, "text", "")
 
             # ── WAF discriminator: 403 / challenge / block ─────────────────
             if status in (403, 429, 503):
