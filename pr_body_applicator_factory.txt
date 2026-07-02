@@ -1,0 +1,39 @@
+## Summary
+
+Conductor-side applicator factory that converges three security flaws into one auditable seam.
+
+## What this adds
+
+**`agent_alpha/conductor/applicator_factory.py`** — the ONLY place where authorization state and scope are read to decide:
+1. WHICH credential applicators `cred_reuse` may use (tier gate)
+2. AGAINST WHICH in-scope target each one is bound (scope gate)
+
+## Three flaws solved
+
+| Flaw | Problem | Solution |
+|---|---|---|
+| **FLAW 1** (auth-gate softening) | If `cred_reuse` holds an `auth` handle, it can bypass tier checks | Factory reads `auth.get_state()`, `cred_reuse` only iterates `BoundApplicator` list (auth/scope-blind) |
+| **FLAW 2** (out-of-scope DB host trap) | Leaked `DB_HOST` from .env (localhost/internal IP) could be used as MySQL target | Factory binds MySQL only to ASSET host:port validated by `is_db_endpoint_in_scope()` |
+| **FLAW 3** (ServiceProperties has no host) | Can't assume DB port co-located with asset host | Factory joins `AssetProperties.host` + `open_ports` — port must be in the asset's open_ports |
+
+## Key design decisions
+
+- `BoundApplicator(applicator, target)` — cred_reuse calls `apply(target=...)` verbatim, never chooses a target
+- `AuthScopeView` Protocol — read-only slice of AuthorizationStateMachine, no transition methods
+- `_tier_satisfied()` — fail-closed: unknown `required_auth` label is DENIED
+- Stop-signal guard test: asserts `CredReuseTool.__init__` has no `auth`/`scope`/`policy` parameter
+
+## Tests
+
+`tests/phase_3/test_applicator_factory.py` — 9 tests:
+- Tier gate: ACTIVE_APPROVED admits HTTP not MySQL, RECON_ONLY admits nothing, unknown auth denied
+- Scope: in-scope DB endpoint bound, out-of-scope rejected, gate consulted
+- Host⊕port join: port bound only to asset that exposes it, no service = no target
+- BoundApplicator instances returned correctly
+- cred_reuse blindness guard (stop signal)
+
+## Verification
+
+- 463 passed, 33 skipped
+- ruff: clean
+- mypy: clean

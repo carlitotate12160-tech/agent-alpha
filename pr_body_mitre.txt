@@ -1,0 +1,26 @@
+## Summary
+
+Root cause: `strike.py` built the `CREDENTIAL->ACCESS_LEVEL` ENABLES edge with `technique_id=decision.technique_id` (from the planning playbook), but the executed tool was `CredReuseTool`. A cred-reuse finding was mislabeled T1078.001 (Default Accounts) instead of T1078.003 (Local Accounts) — Lyndon #6 at the reporting layer.
+
+## Changes
+
+- **contracts.py**: Add `mitre_technique` field to `Tool` protocol (mirrors `Template.mitre_technique`)
+- **default_creds.py**: Declare `mitre_technique = "T1078.001"` (Default Accounts)
+- **cred_reuse.py**: Declare `mitre_technique = "T1078.003"` (Local Accounts)
+- **strike.py**: Capture `winning_tool`, attribute edge `technique_id` to the tool that actually executed (fallback to `decision.technique_id` for mypy/future safety)
+- **test_cred_reuse_chain.py**: New test pins T1078.003 attribution on cred-reuse edges
+- **test_tool_contracts.py**: Add `mitre_technique` to `_FakeTool` for protocol conformance
+
+## Verification
+
+- 433 passed, 2 skipped
+- ruff check: All checks passed
+- ruff format: 139 files already formatted
+- mypy: Success, 66 source files
+
+## Raw-review checklist
+
+- [x] `winning_tool` is the tool whose `result.success` was True (not the last attempted)
+- [x] default_creds path still emits T1078.001 (its own `mitre_technique`)
+- [x] No new mypy error from the protocol field (`_FakeTool` updated)
+- [ ] Live re-run MITRE line = `T1078.003, T1592.002` (verify on Oracle)

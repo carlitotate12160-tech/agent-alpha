@@ -1,0 +1,30 @@
+## Summary
+
+Tambah 4 gate kualitas baru ke CI untuk produksi: SAST security scan, no-print linting, complexity gate, dan random test ordering.
+
+## Changes
+
+- **ruff T20**: `print()` dilarang di production code (anti-verbose). `live_fire/*.py` di-exclude (CLI entry points yang sah menggunakan print).
+- **ruff C90**: mccabe complexity gate `max-complexity=20` — mencegah god-function. Threshold 20 akomodasi Celery task entry points.
+- **bandit SAST**: `bandit -r agent_alpha/ -ll -ii -x agent_alpha/a2a` — fail pada MEDIUM+ severity. Tangkap hardcoded passwords, SQL injection, weak crypto, dll.
+- **pytest-randomly**: test dijalankan dengan urutan acak setiap run — tangkap test order-dependency bug.
+- **nosec B608**: 8 f-string SQL di `events/store.py` dan `memory/engagement.py` ditandai `# nosec B608` (table names adalah class constants, values parameterized — false positive).
+
+## CI gates sekarang (7 total)
+
+| Gate | Fungsi |
+|---|---|
+| ruff check + format | Linting, style, no-print (T20), complexity (C90) |
+| mypy | Type safety |
+| pip-audit | CVE check dependencies |
+| bandit | SAST security scan |
+| pytest --cov | Tests + coverage 80% |
+| GitGuardian | Secret scanning |
+
+## Verification
+
+- 437 passed, 2 skipped (random order — no brittle tests found)
+- Coverage: 84.06%
+- ruff: All checks passed
+- mypy: Success, 67 source files
+- bandit: No issues identified (0 medium, 0 high)

@@ -61,6 +61,17 @@ class FakeAuth:
         self.calls.append("is_db_endpoint_in_scope")
         return (host, port) in self._in_scope
 
+    def assert_offensive_web_target(self, engagement_id: str, target: str) -> bool:
+        self.calls.append("assert_offensive_web_target")
+        # Reject bare IPs (shared-hosting safety), accept domains
+        try:
+            import ipaddress
+
+            ipaddress.ip_address(target)
+            return False  # bare IP
+        except ValueError:
+            return True  # domain — assume in scope for test
+
 
 class FakeGraph:
     def __init__(self, nodes: list[AttackNode]) -> None:

@@ -91,6 +91,8 @@ class AuthScopeView(Protocol):
 
     def is_db_endpoint_in_scope(self, engagement_id: str, host: str, port: int) -> bool: ...
 
+    def assert_offensive_web_target(self, engagement_id: str, target: str) -> bool: ...
+
 
 def build_applicators_for_engagement(
     *,
@@ -158,7 +160,13 @@ def _resolve_in_scope_targets(
     the signed SOW scope (is_db_endpoint_in_scope — FLAW 2).
     """
     if applicator.service not in _DB_SERVICES:
-        return [web_target] if web_target is not None else []
+        # HTTP applicators bind to the web target ONLY when it passes the
+        # offensive web target gate (domain, not bare IP — shared-hosting safety).
+        if web_target is None:
+            return []
+        if not auth.assert_offensive_web_target(engagement_id, web_target):
+            return []  # bare IP or out-of-scope domain — do NOT bind
+        return [web_target]
 
     asset_nodes = graph_store.nodes_by_type(NodeType.ASSET)
     service_nodes = graph_store.nodes_by_type(NodeType.SERVICE)

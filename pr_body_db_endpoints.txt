@@ -1,0 +1,27 @@
+## Change set (4 touch points — one coherent concept, each independently tested)
+
+1. **conductor/models.py — Scope**
+   - Add db_endpoints: list[str] = field(default_factory=list) — each entry "host:port".
+   - In Scope.validate(): every db_endpoints entry must parse as host:port with an integer 1..65535; reject otherwise (InvalidScopeError). Host is matched verbatim against the connect host the factory builds from AssetProperties.host.
+
+2. **conductor/authorization.py — enable_recon**
+   - Extend the persisted STATE_TRANSITIONED scope payload with "db_endpoints": scope.db_endpoints (alongside ip_ranges/domains/exclusions/verified).
+   - Without this it vanishes on rebuild — exactly the C1.0 bug the comment at enable_recon already warns about for the rest of the scope.
+
+3. **conductor/engagement_reducer.py — rebuild_engagement**
+   - Reconstruct Scope.db_endpoints from the persisted event (default [] for old events — backward-compatible replay; pre-existing engagements simply have none).
+
+4. **conductor/authorization.py — new query** (mirror is_in_scope, never raises):
+   - is_db_endpoint_in_scope(engagement_id, host, port) returns True iff "host:port" is an explicit db_endpoints entry in the verified SOW scope. Exact host match + exact port. Never raises (gate query).
+
+## Tests
+
+- tests/phase_0/test_db_endpoint_scope.py with 6 tests covering:
+  - T1: enable_recon with db_endpoints survives projection (C1.0)
+  - T2: exact port required
+  - T3: exact host required
+  - T4: invalid db_endpoint shape raises InvalidScopeError
+  - T5: unknown engagement returns False (never raises)
+  - T6: pre-db_endpoints events replay with db_endpoints == []
+
+All 6 tests passing.
