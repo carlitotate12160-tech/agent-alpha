@@ -74,3 +74,9 @@ class EventType(enum.StrEnum):
     # {blocked_next_agent, reason, requires_human_approval}.
     CHAIN_COMPLETE = "ChainComplete"
     # ^ Conductor halted: no next agent recommended. Carries {reason}.
+
+    # ── Phase 3 (recon evidence — WAF discriminator §12.23) ──────
+    WAF_BLOCKED = "WafBlocked"
+    # ^ A recon probe received a 403 / challenge / block response. Recorded as
+    # evidence so a WAF block is NEVER silently treated as "clean / not
+    # vulnerable" (anti-false-negative). Carries {host, path, status_code}.
