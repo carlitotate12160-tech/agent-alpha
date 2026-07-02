@@ -44,9 +44,19 @@ __all__ = [
     "InvalidScopeError",
     "SOWError",
     "Scope",
+    "STATE_RANK",
 ]
 
 _log = logging.getLogger(__name__)
+
+# The single canonical authorization-tier ladder (anti-Lyndon #7). Higher = more authority.
+# Consumers (applicator_factory, recon.db_service_probe) import THIS — never re-declare.
+STATE_RANK: dict[int, int] = {
+    a2a_pb2.CREATED: 0,
+    a2a_pb2.RECON_ONLY: 1,
+    a2a_pb2.ACTIVE_APPROVED: 2,
+    a2a_pb2.OFFENSIVE_APPROVED: 3,
+}
 
 
 # ── State machine ─────────────────────────────────────────────
