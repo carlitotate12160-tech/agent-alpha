@@ -51,6 +51,7 @@ __all__ = [
     "LARAVEL_CREDENTIAL_ENV_KEYS",
     "LARAVEL_CREDENTIAL_SERVICE_MAP",
     "LARAVEL_CREDENTIAL_USERNAME_KEYS",
+    "LARAVEL_CREDENTIAL_LOGIN_PAIRS",
     "MIN_SAMPLES_BEFORE_SKIP",
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
@@ -194,6 +195,14 @@ LARAVEL_CREDENTIAL_USERNAME_KEYS: frozenset[str] = frozenset(
         "DB_USERNAME",
     }
 )
+
+# Per-service (username_key, secret_key): co-located leaked keys that form ONE login
+# credential. The co-location IS the pairing evidence (anti-fragmentation, anti-#3).
+# Only services listed here are assembled into a paired login; everything else stays a
+# standalone secret node. SSOT — the extractor imports this, never re-declares (#7).
+LARAVEL_CREDENTIAL_LOGIN_PAIRS: dict[str, tuple[str, str]] = {
+    "database": ("DB_USERNAME", "DB_PASSWORD"),
+}
 
 # ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
 # Single source of truth for K19 "decision threshold". Score itself
