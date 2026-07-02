@@ -183,3 +183,100 @@ class HttpFormApplicator(CredentialApplicator):
             },
             session_cookie_name=session_cookie_name,
         )
+
+
+class WpLoginApplicator(CredentialApplicator):
+    """WordPress-aware login reuse — POSTs log/pwd (not username/password) to wp-login.php
+    and verifies success via 302→/wp-admin/ redirect or wordpress_logged_in_* cookie.
+
+    Sibling to HttpFormApplicator (same CredentialApplicator seam, same service/tier).
+    Does NOT modify HttpFormApplicator (#6). Success = real WP auth signal, NOT body-diff (#3).
+    """
+
+    service = "http"
+    required_auth = "ACTIVE_APPROVED"
+
+    def __init__(self, *, http_client: Any) -> None:
+        self._http_client = http_client
+
+    def applies_to(self, credential_service: str, target: str) -> bool:
+        return target.rstrip("/").endswith("wp-login.php")
+
+    def apply(
+        self, *, username: str, secret: str, target: str, budget: ResourceBudget
+    ) -> AuthResult:
+        def _fail(error: str) -> AuthResult:
+            return AuthResult(
+                success=False,
+                access_level="",
+                service=self.service,
+                confidence=0.0,
+                proof_request={},
+                proof_response={},
+                error=error,
+            )
+
+        if not username:
+            return _fail("refusing empty-username WP login (fragment node, not a login credential)")
+
+        # ── Baseline GET (capture any Set-Cookie / wordpress_test_cookie flow) ──
+        try:
+            self._http_client.get(target)
+        except Exception:
+            return _fail("baseline request failed")
+
+        # ── POST with WordPress field names (log/pwd, NOT username/password) ────
+        origin = target.rsplit("/", 3)[0]  # https://host from https://host/wp-login.php
+        cookies = {"wordpress_test_cookie": "WP Cookie check"}
+        try:
+            resp = self._http_client.post(
+                target,
+                data={
+                    "log": username,
+                    "pwd": secret,
+                    "wp-submit": "Log In",
+                    "redirect_to": f"{origin}/wp-admin/",
+                    "testcookie": "1",
+                },
+                cookies=cookies,
+            )
+        except Exception:
+            return _fail("auth request failed")
+
+        # ── VERIFY: 302→/wp-admin/ OR wordpress_logged_in cookie (NOT body-diff) ──
+        status = resp.status_code
+        location = resp.headers.get("location", "")
+        set_cookie = resp.headers.get("set-cookie", "")
+
+        is_redirect_to_admin = status in (301, 302, 303) and "/wp-admin" in location
+        has_login_cookie = "wordpress_logged_in" in set_cookie
+
+        if not (is_redirect_to_admin or has_login_cookie):
+            return _fail("no WP auth signal (no wp-admin redirect, no wordpress_logged_in cookie)")
+
+        # ── Session cookie NAME only (never the value) ──────────────────────────
+        session_cookie_name: str | None = None
+        if "wordpress_logged_in" in set_cookie:
+            first_part = set_cookie.split(";", 1)[0].strip()
+            if "=" in first_part:
+                session_cookie_name = first_part.split("=", 1)[0].strip()
+
+        # TODO: refine user-vs-admin via a capability probe (GET /wp-admin/ with session).
+        # For now, wp-login success grants dashboard access → "admin".
+        return AuthResult(
+            success=True,
+            access_level="admin",
+            service=self.service,
+            confidence=0.9,
+            proof_request={
+                "method": "POST",
+                "url": target,
+                "data_keys": ["log", "pwd", "wp-submit", "redirect_to", "testcookie"],
+            },
+            proof_response={
+                "status_code": status,
+                "location_path": location,
+                "header_names": list(resp.headers.keys()),
+            },
+            session_cookie_name=session_cookie_name,
+        )
