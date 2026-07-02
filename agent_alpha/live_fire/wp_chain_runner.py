@@ -31,6 +31,7 @@ from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider, _scan_leak
 from agent_alpha.llm.orchestrator import LLMOrchestrator
+from agent_alpha.recon.js_secret_probe import verify_js_secret_leak
 from agent_alpha.recon.wp_config_probe import verify_wp_config_leak
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.internal.access.applicator import HttpFormApplicator, WpLoginApplicator
@@ -161,6 +162,18 @@ def run_wp_chain_live_fire(
         secrets_manager=secrets_manager,
     )
 
+    # 2b) JS-bundle secret leak recon — generic, works for WP or SPA targets
+    js_creds_added = verify_js_secret_leak(
+        engagement_id=rec.engagement_id,
+        auth=auth,
+        http_client=http_client,
+        scope_targets=config.scope_domains,
+        graph_store=graph_store,
+        event_store=event_store,
+        secrets_manager=secrets_manager,
+    )
+    creds_added += js_creds_added
+
     # 3) Escalate to ACTIVE for web cred-reuse (SOW-gated in real runs)
     auth.enable_active(rec.engagement_id)
 
@@ -274,6 +287,16 @@ def main(argv: list[str] | None = None) -> int:
             event_store=event_store,
             secrets_manager=secrets_manager,
         )
+        js_creds_added = verify_js_secret_leak(
+            engagement_id=rec.engagement_id,
+            auth=auth,
+            http_client=http_client,
+            scope_targets=config.scope_domains,
+            graph_store=graph_store,
+            event_store=event_store,
+            secrets_manager=secrets_manager,
+        )
+        creds_added += js_creds_added
         waf_blocked = any(
             getattr(e, "event_type", None) == EventType.WAF_BLOCKED
             for e in event_store.get_events(rec.engagement_id)
