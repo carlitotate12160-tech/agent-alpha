@@ -317,6 +317,18 @@ class Alpha:
         response body, creates one CREDENTIAL node and a VULNERABILITY →
         CREDENTIAL ``LEADS_TO`` edge.
 
+        PAIRING (anti-fragmentation, anti-#3): when co-located username + secret
+        keys (per ``constants.LARAVEL_CREDENTIAL_LOGIN_PAIRS``) are BOTH present,
+        emits ONE paired login credential node with ``username=<ukey value>`` and
+        ``secret_ref = vault(<skey value>)``. Username keys are NEVER emitted as
+        standalone credential nodes — a username is not a secret, and vaulting it
+        as one creates a false credential (Lyndon #3).
+
+        ADDITIVE variant: the secret key (e.g. DB_PASSWORD) is ALSO emitted as a
+        standalone fragment so the web cred_reuse chain (which depends on it with
+        ``username=""``) continues to work. The paired login node is emitted FIRST
+        so cred_reuse tries it before the fragment.
+
         REDACTION: the plaintext secret value is NEVER stored in any node,
         edge, event, or log. Only the *key name* and a ``secret_ref`` pointer
         to the proof artifact are persisted.
@@ -326,7 +338,57 @@ class Alpha:
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
         nodes_added = 0
 
-        for key, _raw_value in iter_env_leaks(body):
+        leaked: dict[str, str] = dict(iter_env_leaks(body))
+
+        # ── Paired login credentials (emitted first so cred_reuse tries them
+        #    before standalone fragments) ──────────────────────────────────
+        for service, (ukey, skey) in constants.LARAVEL_CREDENTIAL_LOGIN_PAIRS.items():
+            if ukey not in leaked or skey not in leaked:
+                continue
+            uvalue = leaked[ukey]
+            svalue = leaked[skey]
+
+            if self._secrets_manager is not None:
+                record = self._secrets_manager.store(
+                    label=f"{service}:login",
+                    value=svalue,
+                    engagement_id=self._engagement_id,
+                )
+                secret_ref = record.secret_id
+            else:
+                secret_ref = f"engagements/{self._engagement_id}/proofs/laravel_debug_{host}#login"
+
+            cred_node = AttackNode(
+                id=f"cred:{host}:{service}:login",
+                type=NodeType.CREDENTIAL,
+                properties=CredentialProperties(
+                    username=uvalue,
+                    secret_ref=secret_ref,
+                    service=service,
+                    access_level="unverified",
+                ),
+                confidence=0.85,
+                agent="alpha",
+                timestamp_utc=now_utc,
+            )
+            self._persist_node(cred_node)
+            nodes_added += 1
+
+            cred_edge = AttackEdge(
+                source_id=vuln_node_id,
+                target_id=cred_node.id,
+                relationship=RelationshipType.LEADS_TO,
+                confidence=0.85,
+            )
+            self._persist_edge(cred_edge)
+
+        # ── Standalone credential nodes for non-username keys ──────────
+        for key, raw_value in leaked.items():
+            # Skip username keys — they are NOT secrets (anti-#3: a username node
+            # whose secret_ref resolves to the username string is a false credential).
+            if key in constants.LARAVEL_CREDENTIAL_USERNAME_KEYS:
+                continue
+
             # Determine the service label from the key prefix (SSOT).
             service = "unknown"
             for prefix, svc in constants.LARAVEL_CREDENTIAL_SERVICE_MAP.items():
@@ -334,15 +396,12 @@ class Alpha:
                     service = svc
                     break
 
-            # Username field → populate username, else leave empty.
-            username = _raw_value if key in constants.LARAVEL_CREDENTIAL_USERNAME_KEYS else ""
-
             # VAULT the leaked secret (encrypted) so cred_reuse can retrieve it.
             # secret_ref becomes the vault id — never the value, never a proof path.
             if self._secrets_manager is not None:
                 record = self._secrets_manager.store(
                     label=f"{service}:{key}",
-                    value=_raw_value,
+                    value=raw_value,
                     engagement_id=self._engagement_id,
                 )
                 secret_ref = record.secret_id
@@ -355,7 +414,7 @@ class Alpha:
                 id=f"cred:{host}:{key.lower()}",
                 type=NodeType.CREDENTIAL,
                 properties=CredentialProperties(
-                    username=username,
+                    username="",
                     secret_ref=secret_ref,
                     service=service,
                     access_level="unverified",
