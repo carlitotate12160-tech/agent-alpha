@@ -52,6 +52,11 @@ __all__ = [
     "LARAVEL_CREDENTIAL_SERVICE_MAP",
     "LARAVEL_CREDENTIAL_USERNAME_KEYS",
     "LARAVEL_CREDENTIAL_LOGIN_PAIRS",
+    "WP_CREDENTIAL_LOGIN_PAIRS",
+    "WP_CREDENTIAL_USERNAME_KEYS",
+    "WP_CREDENTIAL_SECRET_KEYS",
+    "WP_CREDENTIAL_SERVICE_MAP",
+    "WP_CONFIG_BACKUP_PATHS",
     "MIN_SAMPLES_BEFORE_SKIP",
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
@@ -203,6 +208,35 @@ LARAVEL_CREDENTIAL_USERNAME_KEYS: frozenset[str] = frozenset(
 LARAVEL_CREDENTIAL_LOGIN_PAIRS: dict[str, tuple[str, str]] = {
     "database": ("DB_USERNAME", "DB_PASSWORD"),
 }
+
+# ── WordPress Credential Keys (SSOT — mirrors Laravel pattern for WP) ────
+# WordPress wp-config.php uses define() constants, not .env. Key names differ:
+# DB_USER (not DB_USERNAME), DB_PASSWORD (same). Salts (AUTH_KEY, NONCE_SALT,
+# etc.) are NOT reusable credentials — excluded from all sets.
+
+WP_CREDENTIAL_LOGIN_PAIRS: dict[str, tuple[str, str]] = {
+    "database": ("DB_USER", "DB_PASSWORD"),
+}
+
+WP_CREDENTIAL_USERNAME_KEYS: frozenset[str] = frozenset({"DB_USER"})
+
+# Only DB_PASSWORD is a reusable secret. DB_NAME and DB_HOST are metadata.
+WP_CREDENTIAL_SECRET_KEYS: frozenset[str] = frozenset({"DB_PASSWORD"})
+
+WP_CREDENTIAL_SERVICE_MAP: dict[str, str] = {"DB_": "database"}
+
+# Candidate backup paths for wp-config.php (passive GET, RECON_ONLY).
+WP_CONFIG_BACKUP_PATHS: tuple[str, ...] = (
+    "/wp-config.php.bak",
+    "/wp-config.php~",
+    "/wp-config.php.save",
+    "/wp-config.php.orig",
+    "/wp-config.php.swp",
+    "/.wp-config.php.swp",
+    "/wp-config.php.old",
+    "/wp-config.php.dist",
+    "/wp-config.txt",
+)
 
 # ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
 # Single source of truth for K19 "decision threshold". Score itself
