@@ -27,11 +27,9 @@ from typing import Any
 
 import yaml
 
-from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
-from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
