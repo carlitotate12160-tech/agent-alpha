@@ -24,8 +24,8 @@ from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
 
 PLAYBOOK_DIR = pathlib.Path(agent_alpha.__file__).parent / "tools" / "playbooks"
-RECON_URL = "http://127.0.0.1:9201/trigger-error"
-LOGIN_URL = "http://127.0.0.1:9201/login"
+RECON_URL = "http://localhost:9201/trigger-error"
+LOGIN_URL = "http://localhost:9201/login"
 LEAKED = "s3cr3t-reuse-x9q2"
 
 DEBUG_BODY = (
@@ -81,7 +81,7 @@ def _config() -> ChainConfig:
     return ChainConfig(
         client_id="chain_lab",
         scope_ip_ranges=["127.0.0.1/32"],
-        scope_domains=["127.0.0.1"],
+        scope_domains=["localhost"],
         recon_url=RECON_URL,
         login_url=LOGIN_URL,
     )
