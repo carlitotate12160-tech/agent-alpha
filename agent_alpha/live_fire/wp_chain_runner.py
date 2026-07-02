@@ -205,6 +205,17 @@ def run_wp_chain_live_fire(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Agent-Alpha WP cred-reuse chain live-fire")
     parser.add_argument("config", help="Path to WP chain engagement YAML config")
+    parser.add_argument(
+        "--recon-only",
+        action="store_true",
+        help="Run only the RECON leg (leak discovery). Do NOT escalate to ACTIVE cred-reuse.",
+    )
+    parser.add_argument(
+        "--report-pdf",
+        type=str,
+        default=None,
+        help="Path to export PDF report (default: ./report.pdf)",
+    )
     args = parser.parse_args(argv)
 
     config = load_wp_chain_config(args.config)
@@ -217,27 +228,86 @@ def main(argv: list[str] | None = None) -> int:
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
     graph_store = NetworkXGraphStore()
 
-    result = run_wp_chain_live_fire(
-        config,
-        auth=auth,
-        http_client=http_client,
-        orchestrator=orchestrator,
-        graph_store=graph_store,
-        event_store=event_store,
-        secrets_manager=secrets_manager,
-    )
+    if args.recon_only:
+        # ── RECON-only leg: leak discovery without ACTIVE escalation ────────
+        rec = auth.create_engagement(client_id=config.client_id, target=config.scope_domains[0])
+        auth.enable_recon(
+            rec.engagement_id,
+            Scope(
+                ip_ranges=config.scope_ip_ranges,
+                domains=config.scope_domains,
+                exclusions=config.scope_exclusions,
+            ),
+        )
+        alpha = Alpha(
+            authorization=auth,
+            graph_store=graph_store,
+            event_store=event_store,
+            orchestrator=orchestrator,
+            http_client=http_client,
+            secrets_manager=secrets_manager,
+        )
+        alpha.run_recon(rec.engagement_id, config.recon_url)
+        creds_added = verify_wp_config_leak(
+            engagement_id=rec.engagement_id,
+            auth=auth,
+            http_client=http_client,
+            scope_hosts=config.scope_domains,
+            graph_store=graph_store,
+            event_store=event_store,
+            secrets_manager=secrets_manager,
+        )
+        waf_blocked = any(
+            getattr(e, "event_type", None) == EventType.WAF_BLOCKED
+            for e in event_store.get_events(rec.engagement_id)
+        )
+        result = WpChainResult(
+            leak_creds_added=creds_added,
+            web_access_level="",
+            edge_from_harvested_cred=False,
+            leak_suspected=False,
+            waf_blocked=waf_blocked,
+        )
+    else:
+        result = run_wp_chain_live_fire(
+            config,
+            auth=auth,
+            http_client=http_client,
+            orchestrator=orchestrator,
+            graph_store=graph_store,
+            event_store=event_store,
+            secrets_manager=secrets_manager,
+        )
 
+    mode = "RECON-ONLY" if args.recon_only else "FULL CHAIN"
     print("=" * 64)
-    print("WP CRED-REUSE CHAIN LIVE-FIRE SCORECARD")
+    print(f"WP CRED-REUSE CHAIN LIVE-FIRE  [{mode}]")
     print("=" * 64)
+    print(f"  Client ID             : {config.client_id}")
     print(f"  Recon (root)          : {config.recon_url}")
-    print(f"  WP login (entry_point): {config.entry_point}")
+    if not args.recon_only:
+        print(f"  WP login (entry_point): {config.entry_point}")
     print(f"  Leak creds added      : {result.leak_creds_added}")
-    print(f"  Web access level      : {result.web_access_level or '(none)'}")
-    print(f"  Edge from harvested   : {result.edge_from_harvested_cred}  (real chain, not fake)")
-    print(f"  Leak suspected        : {result.leak_suspected}")
+    if not args.recon_only:
+        print(f"  Web access level      : {result.web_access_level or '(none)'}")
+        print(
+            f"  Edge from harvested   : {result.edge_from_harvested_cred}  (real chain, not fake)"
+        )
+        print(f"  Leak suspected        : {result.leak_suspected}")
+    print(f"  WAF blocked           : {result.waf_blocked}")
+    if result.waf_blocked:
+        print("    ⚠  Recon blocked by WAF — INCONCLUSIVE, not 'clean'.")
+        print("    Recommend retest with authenticated session.")
     print("-" * 64)
-    print(f"  Verdict: {'CHAIN PROVEN' if result.chain_proven else 'FAIL'}")
+    if args.recon_only:
+        if result.leak_creds_added > 0:
+            print("  Verdict: LEAK FOUND — escalate to ACTIVE with SOW tier confirmation.")
+        elif result.waf_blocked:
+            print("  Verdict: WAF BLOCKED — inconclusive, recommend retest.")
+        else:
+            print("  Verdict: NO LEAK — target appears clean (valid result, not failure).")
+    else:
+        print(f"  Verdict: {'CHAIN PROVEN' if result.chain_proven else 'FAIL'}")
     print("=" * 64)
 
     from agent_alpha.agents.omega.roaster import Omega
@@ -256,9 +326,23 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Downstream mapped: {cf.downstream_mapped}")
         print(f"  Rationale       : {cf.rationale}")
         print(f"  MITRE           : {', '.join(report.mitre_techniques)}")
+    if result.waf_blocked:
+        print()
+        print("  WAF NOTE: One or more hosts returned 403 on backup path probes.")
+        print("  These hosts are INCONCLUSIVE — recon was blocked by WAF/bot-protection.")
+        print("  They are NOT reported as 'clean'. Recommend authenticated retest.")
     print("=" * 64)
 
-    return 0 if result.chain_proven else 1
+    # ── PDF export ──────────────────────────────────────────────────────
+    report_path = pathlib.Path(args.report_pdf or "./report.pdf")
+    try:
+        report.export_pdf(report_path)
+        print(f"  PDF report exported: {report_path.resolve()}")
+    except Exception as exc:
+        print(f"  ! PDF export failed ({exc}) — console output above is the report.")
+    print("=" * 64)
+
+    return 0 if (result.chain_proven if not args.recon_only else result.leak_creds_added > 0) else 1
 
 
 if __name__ == "__main__":
