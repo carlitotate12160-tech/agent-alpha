@@ -33,19 +33,13 @@ from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
 
 # required_auth label -> minimum engagement state that satisfies it.
 _REQUIRED_AUTH_TO_STATE: dict[str, int] = {
     "ACTIVE_APPROVED": a2a_pb2.ACTIVE_APPROVED,
     "OFFENSIVE_APPROVED": a2a_pb2.OFFENSIVE_APPROVED,
-}
-
-# Monotonic rank of the engagement authorization ladder. Higher = more authority.
-_STATE_RANK: dict[int, int] = {
-    a2a_pb2.RECON_ONLY: 1,
-    a2a_pb2.ACTIVE_APPROVED: 2,
-    a2a_pb2.OFFENSIVE_APPROVED: 3,
 }
 
 # Services whose applicators bind to a host:port DB endpoint (vs an HTTP web login).
@@ -145,7 +139,7 @@ def _tier_satisfied(required_auth: str, current_state: int) -> bool:
     required_state = _REQUIRED_AUTH_TO_STATE.get(required_auth)
     if required_state is None:
         return False
-    return _STATE_RANK.get(current_state, 0) >= _STATE_RANK[required_state]
+    return STATE_RANK.get(current_state, 0) >= STATE_RANK[required_state]
 
 
 def _resolve_in_scope_targets(

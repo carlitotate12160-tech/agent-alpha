@@ -24,12 +24,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
-from agent_alpha.recon.db_service_probe import verify_in_scope_db_services
+from agent_alpha.graph.nodes import NodeType, ServiceProperties
+from agent_alpha.recon.db_service_probe import parse_db_handshake, verify_in_scope_db_services
 from agent_alpha.tools.internal.access.mysql_applicator import MySqlApplicator
 
 _HOST = "10.0.0.1"
@@ -211,3 +213,34 @@ def test_below_recon_tier_probes_nothing() -> None:
     )
     assert evidence == []
     assert probe.calls == []
+
+
+# ── Adversarial parse_db_handshake tests (anti-#3 hardening) ────────────────────
+
+
+def _greeting(payload: bytes) -> bytes:
+    return len(payload).to_bytes(3, "little") + b"\x00" + payload
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        b"",
+        b"\x00\x00\x00\x00\x0a",
+        b"SSH-2.0-OpenSSH_9.6\r\n",
+        b"HTTP/1.1 400 Bad Request\r\n\r\n",
+        b"+PONG\r\n",
+        b"\x00\x00\x00\x00\x0aX\x00",
+        b"\x05\x00\x00\x00\x0aX\x00",
+        b"\x50\x00\x00\x07\x0a8.4.10\x00",
+    ],
+)
+def test_parse_rejects_non_mysql_bytes(raw: bytes) -> None:
+    assert parse_db_handshake(raw) is None
+
+
+def test_parse_accepts_real_mysql_and_mariadb() -> None:
+    mysql = parse_db_handshake(_greeting(b"\x0a" + b"8.4.10\x00" + b"\x00" * 40))
+    assert mysql is not None and mysql.service == "mysql" and mysql.server_version == "8.4.10"
+    maria = parse_db_handshake(_greeting(b"\x0a" + b"5.5.5-10.11.2-MariaDB\x00" + b"\x00" * 30))
+    assert maria is not None and maria.service == "mariadb"
