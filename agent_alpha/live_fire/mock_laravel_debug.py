@@ -62,7 +62,7 @@ class _Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
-    server = HTTPServer(("0.0.0.0", port), _Handler)
+    server = HTTPServer(("0.0.0.0", port), _Handler)  # nosec B104 — mock debug page, bind-all is intentional for field-prove
     print(f"Mock Laravel debug page on http://0.0.0.0:{port}/trigger-error")
     server.serve_forever()
 
