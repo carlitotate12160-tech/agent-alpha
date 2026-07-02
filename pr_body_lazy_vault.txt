@@ -1,0 +1,28 @@
+## Summary
+
+Two fixes in one PR: (1) lazy vault provider to fix import-time crash on Oracle, (2) scrub real client names from repo.
+
+## Fix 1: Lazy SecretsVaultProvider
+
+**Problem:** `secrets_vault_from_env()` was called eagerly at `main.py:44`. On Oracle where `AGENT_ALPHA_PG_DSN` is set, the selector took the Postgres branch and called `load_vault_key()` (fail-closed) AT IMPORT TIME → 7 collection errors.
+
+**Fix:** Replace with `SecretsVaultProvider` (mirrors `StoreProvider`):
+- `secrets_mgr = SecretsManager()` — module default, in-memory, no key needed
+- `secrets_provider = SecretsVaultProvider()` — per-tenant, lazy
+- Key loaded only on first `for_tenant()` call when a DSN-backed tenant runs
+- `run_engagement_task` resolves `task_secrets` per-tenant via `secrets_provider.for_tenant(tenant_id)`
+
+## Fix 2: Scrub real client names
+
+| Old file | New file | Real domain → Generic |
+|---|---|---|
+| `test_baraya_travel.py` | `test_laravel_target_a.py` | baraya-travel.com → target-a.example.com |
+| `test_ibudanbalita_laravel.py` | `test_laravel_target_b.py` | ibudanbalita.com → target-b.example.com, IPs → 10.0.0.x |
+| `test_satyaperkasasolusi.py` | `test_laravel_target_c.py` | satyaperkasasolusi.co.id → target-c.example.com |
+
+## Verification
+
+- 448 passed, 33 skipped (random order)
+- Coverage: 83%
+- ruff: All checks passed
+- mypy: Success, 68 source files

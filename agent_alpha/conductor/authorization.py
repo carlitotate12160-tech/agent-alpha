@@ -370,6 +370,27 @@ class AuthorizationStateMachine:
             return False
         return f"{host}:{port}" in set(record.scope.db_endpoints)
 
+    def assert_offensive_web_target(self, engagement_id: str, target: str) -> bool:
+        """Default-DENY gate for offensive web actions on shared hosting.
+
+        Returns True ONLY when ``target``'s hostname parses as a **domain** AND
+        ``is_in_scope`` is True. A bare IP literal is always rejected — on
+        shared hosting (Cloudways, cPanel) a bare-IP HTTP request hits the
+        default vhost / an arbitrary co-tenant app, NOT deterministically the
+        owned domain. Bare-IP offensive targeting = out-of-SOW third-party
+        access. Never raises (gate query).
+        """
+        from urllib.parse import urlparse
+
+        # Extract hostname from URL if target is a full URL.
+        parsed_url = urlparse(target)
+        hostname = parsed_url.hostname or target
+
+        parsed = _coerce_address(hostname)
+        if parsed.kind == "address":
+            return False  # bare IP is never a valid offensive web target
+        return self.is_in_scope(engagement_id, hostname)
+
     @staticmethod
     def _matches(parsed: _ParsedAddress, candidate: str) -> bool:
         """Return whether a parsed target matches a candidate exclusion entry."""
