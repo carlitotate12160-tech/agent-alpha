@@ -1,0 +1,4 @@
+# WP Lab — gitignore (secrets + generated files)
+.env
+certs/
+exposed/

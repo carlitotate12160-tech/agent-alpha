@@ -1,0 +1,61 @@
+# WP Field-Prove Lab — docker-compose
+# One IP (127.0.0.1), Host-header vhosts, TLS self-signed lab CA.
+# nginx reverse-proxies to ONE WordPress+MariaDB backend; per-host difference
+# is only the backup-path response (configured in nginx.conf).
+# cotenant.wp.lab is a separate docroot (never proxied — must never be reached).
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./exposed:/etc/nginx/exposed:ro
+    depends_on:
+      - wordpress
+    restart: unless-stopped
+
+  wordpress:
+    image: wordpress:apache
+    environment:
+      WORDPRESS_DB_HOST: mariadb
+      WORDPRESS_DB_NAME: ${MARIADB_DATABASE}
+      WORDPRESS_DB_USER: ${MARIADB_USER}
+      WORDPRESS_DB_PASSWORD: ${MARIADB_PASSWORD}
+    volumes:
+      - wp_html:/var/www/html
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    restart: unless-stopped
+
+  wpcli:
+    image: wordpress:cli
+    entrypoint: ["sleep", "infinity"]
+    volumes:
+      - wp_html:/var/www/html
+    depends_on:
+      - wordpress
+    restart: unless-stopped
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${MARIADB_DATABASE}
+      MARIADB_USER: ${MARIADB_USER}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  wp_html:
+  mariadb_data:
