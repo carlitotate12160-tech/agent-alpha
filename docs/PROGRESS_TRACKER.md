@@ -11,14 +11,14 @@
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
 | Phase 2 | ✅ COMPLETED | 12/12 komponen selesai | 12 komponen |
-| Phase 3 | 🟦 IN PROGRESS | C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening done | C1–C8 |
+| Phase 3 | 🟦 IN PROGRESS | C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven done | C1–C8 |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
 | Phase 6 | ⬜ NOT STARTED | 0% | - |
 
 ---
 
-> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Cred-Reuse Chain live-fire CHAIN PROVEN on Oracle. CredentialApplicator seam extracted (PR #63). CI hardened dengan 7 gate (PR #64, #65). Next: C6b (fan-out execution + live-fire FP<20%).
+> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Cred-Reuse Chain live-fire CHAIN PROVEN on Oracle. CredentialApplicator seam extracted (PR #63). CI hardened dengan 7 gate (PR #64, #65). DB Chain field-proven CHAIN PROVEN on Oracle ARM64 lawan real MySQL 8.4 (commit `73203b6`). Credential-pairing fix + safety guard landed. Next: C6b (fan-out execution + live-fire FP<20%).
 
 ---
 
@@ -55,7 +55,7 @@
 - **RLS Isolation Tests** — Integration tests dengan raw SQL verification
 - **Python 3.12 + Dependencies** — Upgrade Python dan tambah pytest/protobuf
 
-### Phase 3 — Orchestrator Hardening + Cred-Reuse Chain + CI Hardening (C1–C6a + Chain + Seam + CI done)
+### Phase 3 — Orchestrator Hardening + Cred-Reuse Chain + CI Hardening + DB Chain Field-Proven (C1–C6a + Chain + Seam + CI + DB Field-Prove done)
 - **C1** — Event-sourced auth state reconstruction (Oracle-green)
 - **C2** — Emergency revoker ≤5s (Oracle-green)
 - **C3** — Fan-out interface (Oracle-green)
@@ -67,6 +67,10 @@
 - **CredentialApplicator Seam** — Extract HTTP form login dari cred_reuse.run ke HttpFormApplicator (PR #63)
 - **CI: Coverage + Audit** — pytest-cov 80% threshold + pip-audit + fix make test target (PR #64)
 - **CI: SAST + Lint + Random** — bandit SAST + T20 no-print + C90 complexity + pytest-randomly (PR #65)
+- **Credential Pairing Fix** — Alpha assemble satu paired login node dari DB_USERNAME + DB_PASSWORD yang co-located (commit `9bc848d`, additive variant)
+- **Safety Guard (anti-#10)** — MySqlApplicator refuse empty-username DB auth, zero auth packet ke wire (commit `2651e6b`)
+- **DB Chain Field-Prove** — CHAIN PROVEN: True, db_root, critical — lawan real MySQL 8.4 di Oracle ARM64 (commit `73203b6`)
+- **Mock Laravel Debug Page** — HTTP server mock untuk field-prove (commit `b380413`)
 - **C6b** — Per-unit fan-out execution + live-fire FP<20% (PENDING)
 - **C7** — No regression + CI (PENDING)
 - **C8** — Anti-Lyndon gates (PENDING)
@@ -89,6 +93,10 @@
 - **CI T20 No-Print** — ruff T20 mencegah print() di production code, live_fire CLI exempt (MERGED, PR #65)
 - **CI C90 Complexity** — ruff mccabe max-complexity=20 untuk gate god-function (MERGED, PR #65)
 - **CI Random Test Order** — pytest-randomly untuk tangkap test order-dependency bug (MERGED, PR #65)
+- **Credential Pairing Fix** — Alpha assemble paired login node dari co-located DB_USERNAME + DB_PASSWORD; DB_USERNAME tidak di-emit standalone (anti-#3); DB_PASSWORD tetap standalone untuk web chain compat (MERGED, commit `9bc848d`)
+- **Safety Guard (anti-#10)** — MySqlApplicator.apply() refuse empty-username sebelum connect(); _SpyConnector membuktikan zero wire packet (MERGED, commit `2651e6b`)
+- **DB Chain Field-Prove** — Real MySQL 8.4 di Docker Oracle ARM64; mock Laravel debug page leak DB_USERNAME+DB_PASSWORD; CHAIN PROVEN: True, db_root, critical (MERGED, commit `73203b6`)
+- **Mock Laravel Debug Page** — HTTP server mock yang serve /trigger-error (leak env vars) + /login untuk field-prove (MERGED, commit `b380413`)
 
 ---
 
@@ -316,8 +324,8 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 - **Phase 0 tests** (159 test) — uji semua komponen Phase 0 + C1 run status & idempotency
 - **Phase 1 tests** (85 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory, IntelligenceBase
 - **Phase 2 tests** (13 test) — uji DeepSeekProvider, PlaybookEngine, LLMOrchestrator, ToolRegistry, Alpha SCOUT, Omega ROASTER, HttpClient, Inner Monologue
-- Phase 3 tests (36 test) — uji CredReuseTool, Alpha vaulting, Beta strike, chain runner, default creds, session token redaction
-- Total: 434 passed, 29 skipped (semua passing)
+- Phase 3 tests (43 test) — uji CredReuseTool, Alpha vaulting, Beta strike, chain runner, default creds, session token redaction, credential pairing (7 test), mysql safety guard (1 test)
+- Total: 546 passed, 13 skipped di Oracle ARM64 (semua passing, random order)
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -615,7 +623,8 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-06-28
-**Phase saat ini:** Phase 3 (IN PROGRESS — Cred-Reuse Chain CHAIN PROVEN + Applicator Seam + CI 7-gate)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening done
-**Total tests:** 437 passed, 2 skipped (random order, coverage 84%)
+**Dokumen ini diperbarui terakhir:** 2026-07-02
+**Phase saat ini:** Phase 3 (IN PROGRESS — DB Chain Field-Proven + Credential Pairing + Safety Guard + CI 7-gate)
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven done
+**Total tests:** 546 passed, 13 skipped di Oracle ARM64 (random order, coverage 84%)
+**Field-Prove:** DB Chain CHAIN PROVEN: True (db_root, critical) lawan real MySQL 8.4 di Oracle ARM64
