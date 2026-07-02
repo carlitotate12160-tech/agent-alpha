@@ -43,7 +43,7 @@ _WP_CONFIG_BODY = (
 @dataclass
 class FakeResponse:
     status_code: int
-    body: str = ""
+    text: str = ""
 
 
 class FakeHttpClient:
@@ -53,13 +53,13 @@ class FakeHttpClient:
         self._responses = responses or {}
         self.get_calls: list[str] = []
 
-    def get(self, url: str, *, timeout: float = 10.0) -> FakeResponse:
+    def get(self, url: str) -> FakeResponse:
         self.get_calls.append(url)
         r = self._responses.get(url)
         if isinstance(r, Exception):
             raise r
         if r is None:
-            return FakeResponse(status_code=404, body="")
+            return FakeResponse(status_code=404, text="")
         return r
 
 
@@ -170,7 +170,7 @@ def test_parse_returns_empty_when_no_db_creds():
 
 def test_leak_at_in_scope_backup_path_assembles_paired_login(wp_ctx: WpCtx):
     url = f"https://{_HOST}/wp-config.php.bak"
-    wp_ctx.http._responses[url] = FakeResponse(status_code=200, body=_WP_CONFIG_BODY)
+    wp_ctx.http._responses[url] = FakeResponse(status_code=200, text=_WP_CONFIG_BODY)
     verify_wp_config_leak(**wp_ctx.args)
     assert _db_login(wp_ctx.graph, wp_ctx.secrets) == ("wpuser", "s3cret")
 
@@ -180,7 +180,7 @@ def test_leak_at_in_scope_backup_path_assembles_paired_login(wp_ctx: WpCtx):
 
 def test_http_200_but_unparseable_writes_no_credential(wp_ctx: WpCtx):
     url = f"https://{_HOST}/wp-config.php.bak"
-    wp_ctx.http._responses[url] = FakeResponse(status_code=200, body="<html>home page</html>")
+    wp_ctx.http._responses[url] = FakeResponse(status_code=200, text="<html>home page</html>")
     verify_wp_config_leak(**wp_ctx.args)
     assert not wp_ctx.graph.nodes_by_type(NodeType.CREDENTIAL)
 
@@ -190,7 +190,7 @@ def test_http_200_but_unparseable_writes_no_credential(wp_ctx: WpCtx):
 
 def test_waf_block_recorded_not_treated_clean(wp_ctx: WpCtx):
     url = f"https://{_HOST}/wp-config.php.bak"
-    wp_ctx.http._responses[url] = FakeResponse(status_code=403, body="Request blocked")
+    wp_ctx.http._responses[url] = FakeResponse(status_code=403, text="Request blocked")
     verify_wp_config_leak(**wp_ctx.args)
     assert any(
         e.event_type == EventType.WAF_BLOCKED
