@@ -277,6 +277,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to expected.local.json (default: same dir as config)",
     )
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Skip TLS verification (for self-signed Caddy internal CA lab)",
+    )
     args = parser.parse_args(argv)
 
     config = load_spa_config(args.config)
@@ -290,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── Build infrastructure (mirrors wp_chain_runner recon-only leg) ──────────
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
-    http_client = HttpClient(engagement_id=config.client_id)
+    http_client = HttpClient(engagement_id=config.client_id, verify=not args.no_verify)
     secrets_manager = SecretsManager()
     graph_store = NetworkXGraphStore()
 

@@ -50,8 +50,10 @@ class HttpClient:
         rate_limit_rps: float = constants.DEFAULT_RATE_LIMIT_RPS,
         rate_limiter: RateLimiter | None = None,
         opsec: dict[str, Any] | None = None,
+        verify: bool = True,
     ) -> None:
         self.timeout = timeout
+        self._verify = verify
         if opsec is not None:
             ua = opsec.get("user_agent", f"Agent-Alpha-Recon/{engagement_id}")
             self._headers: dict[str, str] = {"User-Agent": ua}
@@ -116,6 +118,7 @@ class HttpClient:
             with httpx.Client(
                 timeout=self.timeout,
                 transport=self._transport,
+                verify=self._verify,
             ) as client:
                 response = client.request(
                     method,
