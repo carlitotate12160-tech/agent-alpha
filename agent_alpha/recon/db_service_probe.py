@@ -29,10 +29,30 @@ No new canonical type — reuse ServiceProperties + AssetProperties.open_ports (
 from __future__ import annotations
 
 import dataclasses
+import datetime
+import socket
 from typing import Any, Protocol, runtime_checkable
+
+from agent_alpha.a2a import a2a_pb2
+from agent_alpha.events.event_types import EventType
+from agent_alpha.graph.nodes import (
+    AssetProperties,
+    AttackNode,
+    NodeType,
+    ServiceProperties,
+    node_to_dict,
+)
 
 # Single source of truth for the DB service labels this verifier recognises (#7).
 _DB_SERVICES: frozenset[str] = frozenset({"mysql", "mariadb"})
+
+# Monotonic rank of the engagement authorization ladder (mirrors applicator_factory).
+_STATE_RANK: dict[int, int] = {
+    a2a_pb2.CREATED: 0,
+    a2a_pb2.RECON_ONLY: 1,
+    a2a_pb2.ACTIVE_APPROVED: 2,
+    a2a_pb2.OFFENSIVE_APPROVED: 3,
+}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -57,18 +77,40 @@ class DbHandshakeProbe(Protocol):
 
 
 def parse_db_handshake(raw: bytes) -> DbServiceEvidence | None:
-    """Decode a MySQL/MariaDB greeting packet → DbServiceEvidence, or None if `raw` 
+    """Decode a MySQL/MariaDB greeting packet → DbServiceEvidence, or None if `raw`
     is not a recognisable MySQL/MariaDB handshake (anti-#3 — a bare open port that
     is not a DB, e.g. an SSH banner, returns None → no SERVICE node written).
 
-    MySQL v10 greeting layout (infra/IDE lane fills this): 4-byte packet header, then
-    protocol_version byte (0x0a for v10), then a NUL-terminated server_version string
-    (MariaDB advertises a version containing 'MariaDB'). host/port are supplied by the
-    caller (the greeting carries neither). Returns service='mariadb' when the version
-    string contains 'MariaDB', else 'mysql'.
+    MySQL v10 greeting layout: 4-byte packet header, then protocol_version byte
+    (0x0a for v10), then a NUL-terminated server_version string (MariaDB advertises
+    a version containing 'MariaDB'). host/port are supplied by the caller (the greeting
+    carries neither). Returns service='mariadb' when the version string contains
+    'MariaDB', else 'mysql'.
     """
-    raise NotImplementedError(
-        "parse_db_handshake body is the infra/IDE lane — see the layout in the docstring."
+    # Minimum: 4-byte header + 1-byte protocol + 1-byte NUL terminator = 6 bytes.
+    if len(raw) < 6:
+        return None
+
+    # MySQL v10 greeting: protocol_version byte at offset 4 must be 0x0a.
+    if raw[4] != 0x0A:
+        return None
+
+    # NUL-terminated server_version string starts at offset 5.
+    version_start = 5
+    nul_pos = raw.find(b"\x00", version_start)
+    if nul_pos == -1:
+        return None
+
+    version_str = raw[version_start:nul_pos].decode("ascii", errors="replace")
+    if not version_str:
+        return None
+
+    service = "mariadb" if "mariadb" in version_str.lower() else "mysql"
+    return DbServiceEvidence(
+        host="",
+        port=0,
+        service=service,
+        server_version=version_str,
     )
 
 
@@ -98,7 +140,119 @@ def verify_in_scope_db_services(
     Returns the confirmed evidence list (possibly empty — a valid outcome, not an error).
     The offensive step (MySqlApplicator.apply) is NOT called here.
     """
-    raise NotImplementedError(
-        "verify_in_scope_db_services gating+writes — IDE lane against the RED test; "
-        "Claude owns this contract, the RED test pins the behaviour."
+    # ── Tier gate: fail-closed below RECON_ONLY ────────────────────────────
+    current_state = auth.get_state(engagement_id)
+    if _STATE_RANK.get(current_state, 0) < _STATE_RANK[a2a_pb2.RECON_ONLY]:
+        return []
+
+    results: list[DbServiceEvidence] = []
+
+    for endpoint in scope_db_endpoints:
+        # ── Parse "host:port" ──────────────────────────────────────────────
+        parts = endpoint.rsplit(":", 1)
+        if len(parts) != 2:
+            continue
+        host, port_str = parts
+        try:
+            port = int(port_str)
+        except ValueError:
+            continue
+
+        # ── Scope gate: never probe an out-of-scope endpoint ───────────────
+        if not auth.is_db_endpoint_in_scope(engagement_id, host, port):
+            continue
+
+        # ── Probe: read the greeting (raise → skip) ────────────────────────
+        try:
+            raw = probe.read_handshake(host=host, port=port, timeout_s=timeout_s)
+        except Exception:
+            continue
+
+        # ── Parse: anti-#3 — an open port is not proof of MySQL ────────────
+        ev = parse_db_handshake(raw)
+        if ev is None:
+            continue
+
+        # ── Complete host/port (greeting carries neither) ──────────────────
+        ev = dataclasses.replace(ev, host=host, port=port)
+
+        # ── Persist SERVICE + ASSET nodes (mirror scout._persist_node) ─────
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+
+        service_node = AttackNode(
+            id=f"service:{host}:{port}",
+            type=NodeType.SERVICE,
+            properties=ServiceProperties(
+                name=ev.service,
+                port=port,
+                protocol="tcp",
+            ),
+            confidence=0.9,
+            agent="alpha",
+            timestamp_utc=now_utc,
+            verified=True,
+        )
+        _persist_node(event_store, graph_store, engagement_id, service_node)
+
+        # ── Ensure the DB host's ASSET node has `port` in open_ports ───────
+        asset_id = f"asset:{host}"
+        existing_asset = graph_store.get_node(asset_id)
+        if existing_asset is not None and isinstance(existing_asset.properties, AssetProperties):
+            current_ports = list(existing_asset.properties.open_ports)
+            if port not in current_ports:
+                current_ports.append(port)
+            rebuilt_asset = AttackNode(
+                id=asset_id,
+                type=NodeType.ASSET,
+                properties=dataclasses.replace(
+                    existing_asset.properties,
+                    open_ports=current_ports,
+                ),
+                confidence=existing_asset.confidence,
+                agent=existing_asset.agent,
+                timestamp_utc=now_utc,
+                verified=existing_asset.verified,
+            )
+        else:
+            rebuilt_asset = AttackNode(
+                id=asset_id,
+                type=NodeType.ASSET,
+                properties=AssetProperties(host=host, open_ports=[port]),
+                confidence=0.9,
+                agent="alpha",
+                timestamp_utc=now_utc,
+            )
+        _persist_node(event_store, graph_store, engagement_id, rebuilt_asset)
+
+        results.append(ev)
+
+    return results
+
+
+def _persist_node(
+    event_store: Any,
+    graph_store: Any,
+    engagement_id: str,
+    node: AttackNode,
+) -> None:
+    """Persist a node through both event_store and graph_store (mirrors scout._persist_node)."""
+    payload = node_to_dict(node)
+    event_store.append(
+        EventType.NODE_DISCOVERED,
+        engagement_id,
+        "alpha",
+        payload,
     )
+    graph_store.apply_event("NodeDiscovered", payload)
+
+
+class SocketDbHandshakeProbe:
+    """Concrete DbHandshakeProbe: opens a TCP socket, reads the server's greeting,
+    closes, returns the raw bytes. Sends NOTHING — read only. Raises on connect/
+    timeout/refused (does not swallow)."""
+
+    def read_handshake(self, *, host: str, port: int, timeout_s: float) -> bytes:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(timeout_s)
+            sock.connect((host, port))
+            return sock.recv(1024)
