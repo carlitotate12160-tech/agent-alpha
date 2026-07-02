@@ -45,6 +45,7 @@ class WpChainConfig:
     scope_exclusions: list[str]
     recon_url: str  # where Alpha does generic recon (root page)
     entry_point: str  # WP login URL (wp-login.php)
+    evasion_authorized: bool = False  # SOW must explicitly authorize WAF-evasion
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,6 +85,7 @@ def load_wp_chain_config(path: str | pathlib.Path) -> WpChainConfig:
         scope_exclusions=list(scope["exclusions"]),
         recon_url=data["recon_url"],
         entry_point=data["entry_point"],
+        evasion_authorized=bool(data.get("evasion_authorized", False)),
     )
 
 
@@ -216,13 +218,28 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Path to export PDF report (default: ./report.pdf)",
     )
+    parser.add_argument(
+        "--opsec-profile",
+        type=str,
+        default=None,
+        help="OPSEC profile name (e.g. 'blend' for covert UA). Evasion gate: falls back to 'announced' without SOW authorization.",
+    )
     args = parser.parse_args(argv)
 
     config = load_wp_chain_config(args.config)
 
+    # ── Resolve OPSEC profile (evasion gate: fail-closed without SOW authorization) ──
+    from agent_alpha.conductor.policy import PolicyEnforcer
+
+    policy_enforcer = PolicyEnforcer()
+    profile_name = args.opsec_profile or "announced"
+    opsec = policy_enforcer.resolve_opsec_profile(
+        profile_name, evasion_authorized=config.evasion_authorized
+    )
+
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
-    http_client = HttpClient(engagement_id=config.client_id)
+    http_client = HttpClient(engagement_id=config.client_id, opsec=opsec)
     secrets_manager = SecretsManager()
     playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
