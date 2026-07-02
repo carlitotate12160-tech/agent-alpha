@@ -12,15 +12,14 @@ client_id: "selfowned-lab-01"
 
 scope:
   ip_ranges:
-    - "10.10.0.0/24"          # the authorized internal range (SOW)
+    - "10.0.0.0/24"            # the authorized internal range (Oracle box is 10.0.0.19)
   domains:
-    - "app.lab.internal"       # the web app host (Alpha recon + Beta entry_point)
+    - "10.0.0.19"              # the Oracle box hosting mock debug page + MySQL
   db_endpoints:
-    - "10.10.0.5:3306"         # the in-scope MySQL host:port (SOW) — NOT localhost
+    - "10.0.0.19:3306"         # Docker MySQL on Oracle — NOT localhost
 
-# Where Alpha harvests the leaked DB credential (e.g. a Laravel debug page that leaks
-# DB_USERNAME + DB_PASSWORD). Must be reachable and in scope.
-recon_url: "http://app.lab.internal/trigger-error"
+# Where Alpha harvests the leaked DB credential (mock Laravel debug page).
+recon_url: "http://10.0.0.19:8080/trigger-error"
 
-# An in-scope web URL Beta observes to trigger cred_reuse (the web app login/base).
-entry_point: "http://app.lab.internal/login"
+# An in-scope web URL Beta observes to trigger cred_reuse (mock login page).
+entry_point: "http://10.0.0.19:8080/login"
