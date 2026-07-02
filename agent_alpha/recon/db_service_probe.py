@@ -34,6 +34,7 @@ import socket
 from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
     AssetProperties,
@@ -45,14 +46,6 @@ from agent_alpha.graph.nodes import (
 
 # Single source of truth for the DB service labels this verifier recognises (#7).
 _DB_SERVICES: frozenset[str] = frozenset({"mysql", "mariadb"})
-
-# Monotonic rank of the engagement authorization ladder (mirrors applicator_factory).
-_STATE_RANK: dict[int, int] = {
-    a2a_pb2.CREATED: 0,
-    a2a_pb2.RECON_ONLY: 1,
-    a2a_pb2.ACTIVE_APPROVED: 2,
-    a2a_pb2.OFFENSIVE_APPROVED: 3,
-}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -77,41 +70,31 @@ class DbHandshakeProbe(Protocol):
 
 
 def parse_db_handshake(raw: bytes) -> DbServiceEvidence | None:
-    """Decode a MySQL/MariaDB greeting packet → DbServiceEvidence, or None if `raw`
-    is not a recognisable MySQL/MariaDB handshake (anti-#3 — a bare open port that
-    is not a DB, e.g. an SSH banner, returns None → no SERVICE node written).
+    """Decode a MySQL/MariaDB v10 greeting → DbServiceEvidence, else None.
 
-    MySQL v10 greeting layout: 4-byte packet header, then protocol_version byte
-    (0x0a for v10), then a NUL-terminated server_version string (MariaDB advertises
-    a version containing 'MariaDB'). host/port are supplied by the caller (the greeting
-    carries neither). Returns service='mariadb' when the version string contains
+    Heuristic discriminator (anti-#3): decides only whether to WRITE a SERVICE node.
+    The AUTHORITATIVE proof of "this is really MySQL" is the OFFENSIVE pymysql handshake
+    performed later by MySqlApplicator — defense in depth. host/port are filled by the
+    caller (the greeting carries neither); returns 'mariadb' when the version contains
     'MariaDB', else 'mysql'.
     """
-    # Minimum: 4-byte header + 1-byte protocol + 1-byte NUL terminator = 6 bytes.
     if len(raw) < 6:
         return None
-
-    # MySQL v10 greeting: protocol_version byte at offset 4 must be 0x0a.
+    payload_len = int.from_bytes(raw[0:3], "little")
+    if payload_len < 5:
+        return None
+    if raw[3] != 0x00:
+        return None
     if raw[4] != 0x0A:
         return None
-
-    # NUL-terminated server_version string starts at offset 5.
-    version_start = 5
-    nul_pos = raw.find(b"\x00", version_start)
+    nul_pos = raw.find(b"\x00", 5)
     if nul_pos == -1:
         return None
-
-    version_str = raw[version_start:nul_pos].decode("ascii", errors="replace")
-    if not version_str:
+    version_str = raw[5:nul_pos].decode("ascii", errors="replace")
+    if not version_str or not any(c.isdigit() for c in version_str):
         return None
-
     service = "mariadb" if "mariadb" in version_str.lower() else "mysql"
-    return DbServiceEvidence(
-        host="",
-        port=0,
-        service=service,
-        server_version=version_str,
-    )
+    return DbServiceEvidence(host="", port=0, service=service, server_version=version_str)
 
 
 def verify_in_scope_db_services(
@@ -142,7 +125,7 @@ def verify_in_scope_db_services(
     """
     # ── Tier gate: fail-closed below RECON_ONLY ────────────────────────────
     current_state = auth.get_state(engagement_id)
-    if _STATE_RANK.get(current_state, 0) < _STATE_RANK[a2a_pb2.RECON_ONLY]:
+    if STATE_RANK.get(current_state, 0) < STATE_RANK[a2a_pb2.RECON_ONLY]:
         return []
 
     results: list[DbServiceEvidence] = []
