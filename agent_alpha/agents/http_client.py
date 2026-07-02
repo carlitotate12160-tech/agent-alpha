@@ -49,15 +49,23 @@ class HttpClient:
         transport: httpx.BaseTransport | None = None,
         rate_limit_rps: float = constants.DEFAULT_RATE_LIMIT_RPS,
         rate_limiter: RateLimiter | None = None,
+        opsec: dict[str, Any] | None = None,
     ) -> None:
         self.timeout = timeout
-        self._headers = {
-            "User-Agent": f"Agent-Alpha-Recon/{engagement_id}",
-        }
+        if opsec is not None:
+            ua = opsec.get("user_agent", f"Agent-Alpha-Recon/{engagement_id}")
+            self._headers: dict[str, str] = {"User-Agent": ua}
+            extra = opsec.get("headers", {})
+            if isinstance(extra, dict):
+                self._headers.update(extra)
+            rps = opsec.get("rate_limit_rps", rate_limit_rps)
+        else:
+            self._headers = {
+                "User-Agent": f"Agent-Alpha-Recon/{engagement_id}",
+            }
+            rps = rate_limit_rps
         self._transport = transport
-        # RoE rate limit at the egress chokepoint. Per-engagement; the OPSEC profile
-        # (policy.yaml) will inject a different rps here once profile-selection lands.
-        self._rate_limiter = rate_limiter or RateLimiter(rate_limit_rps)
+        self._rate_limiter = rate_limiter or RateLimiter(rps)
 
     def get(
         self,

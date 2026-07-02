@@ -106,6 +106,20 @@ class PolicyEnforcer:
             raise PolicyError(f"OPSEC profile '{profile_name}' not found")
         return typing.cast(dict[str, object], profiles[profile_name])
 
+    def resolve_opsec_profile(
+        self, requested: str, *, evasion_authorized: bool
+    ) -> dict[str, object]:
+        """Resolve an OPSEC profile with an evasion authorization gate.
+
+        If the requested profile has ``evasion: true`` but
+        ``evasion_authorized`` is ``False``, fall back to the ``announced``
+        profile (fail-closed — no spoofing without SOW authorization).
+        """
+        profile = self.get_opsec_profile(requested)
+        if typing.cast(bool, profile.get("evasion", False)) and not evasion_authorized:
+            return self.get_opsec_profile("announced")
+        return profile
+
     def is_provider_allowed_for_payload(self, provider: str) -> bool:
         forbidden = typing.cast(
             list[str],
