@@ -100,6 +100,14 @@ class MySqlApplicator:
                 error=_scrub(error),
             )
 
+        # ── Safety guard (anti-#10): refuse empty-username DB auth ──
+        # A fragment node (username="") is NOT a login credential. Anonymous-MySQL
+        # is a separate capability that must be gated deliberately — never an
+        # accidental side-effect of the web chain's db_password fragment reaching
+        # the DB applicator. Single guard point (anti-Lyndon #7).
+        if not username:
+            return _fail("refusing empty-username DB auth (fragment node, not a login credential)")
+
         host, port_str = target.rsplit(":", 1)
         port = int(port_str)
 
