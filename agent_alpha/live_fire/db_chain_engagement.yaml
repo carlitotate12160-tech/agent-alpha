@@ -1,0 +1,26 @@
+# Example engagement config for the DIRECT-DB cred-reuse field-prove.
+# Fill from the SIGNED SOW. Run on Oracle:
+#   .venv/bin/python3 -m agent_alpha.live_fire.db_chain_runner db_chain_engagement.yaml
+#
+# HARD RULES (the runner enforces / relies on):
+#   - db_endpoints host MUST be a real, self-owned, in-scope MySQL — NEVER localhost /
+#     127.0.0.1 (the runner refuses loopback; the factory exists to block DB_HOST traps).
+#   - scope always comes from the signed SOW — never auto-filled, never example.com.
+#   - the DB host:port must be reachable from the Oracle box.
+
+client_id: "selfowned-lab-01"
+
+scope:
+  ip_ranges:
+    - "10.10.0.0/24"          # the authorized internal range (SOW)
+  domains:
+    - "app.lab.internal"       # the web app host (Alpha recon + Beta entry_point)
+  db_endpoints:
+    - "10.10.0.5:3306"         # the in-scope MySQL host:port (SOW) — NOT localhost
+
+# Where Alpha harvests the leaked DB credential (e.g. a Laravel debug page that leaks
+# DB_USERNAME + DB_PASSWORD). Must be reachable and in scope.
+recon_url: "http://app.lab.internal/trigger-error"
+
+# An in-scope web URL Beta observes to trigger cred_reuse (the web app login/base).
+entry_point: "http://app.lab.internal/login"
