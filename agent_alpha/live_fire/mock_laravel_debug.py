@@ -12,8 +12,7 @@ Run on Oracle:
 from __future__ import annotations
 
 import sys
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 _DEBUG_BODY = """<!DOCTYPE html>
 <html>
