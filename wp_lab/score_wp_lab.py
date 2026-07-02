@@ -55,7 +55,7 @@ def _run_host(host: str, in_scope: list[str], exclusions: list[str]) -> dict[str
     config = WpChainConfig(
         client_id=client_id,
         scope_ip_ranges=["127.0.0.1/32"],
-        scope_domains=in_scope,
+        scope_domains=[host],
         scope_exclusions=exclusions,
         recon_url=f"https://{host}/",
         entry_point=f"https://{host}/wp-login.php",
