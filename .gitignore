@@ -34,3 +34,7 @@ targets/
 
 # Cowork-mounted working folder â€” never commit the duplicate tree
 /Projects/
+
+# Engagement configs anywhere (contain SOW scope) — keep ONLY *.example.yaml
+**/*engagement*.yaml
+!**/*engagement*.example.yaml
