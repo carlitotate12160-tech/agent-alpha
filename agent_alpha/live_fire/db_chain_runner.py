@@ -43,7 +43,7 @@ from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.internal.access.mysql_applicator import MySqlApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
 
-_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})  # nosec B104 - detection pattern, not bind address
 
 
 @dataclasses.dataclass(frozen=True)
