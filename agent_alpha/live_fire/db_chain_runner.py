@@ -117,7 +117,7 @@ def _db_credential_is_usable(graph_store: Any) -> bool:
     for node in graph_store.nodes_by_type(NodeType.CREDENTIAL):
         props = node.properties
         service = getattr(props, "service", "")
-        if service in ("mysql", "mariadb", "database") and getattr(props, "username", ""):
+        if service in ("mysql", "mariadb", "database") and getattr(props, "username", "") != "":
             return True
     return False
 
