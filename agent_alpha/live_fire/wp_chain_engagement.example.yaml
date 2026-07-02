@@ -1,0 +1,19 @@
+# WP Chain Engagement — example config for wp_chain_runner.py
+#
+# Consumed by: agent_alpha/live_fire/wp_chain_runner.py -> load_wp_chain_config()
+# Run with:    python -m agent_alpha.live_fire.wp_chain_runner <this-file.yaml>
+#
+# AUTHORIZATION RULE: every host/domain MUST come from a SIGNED SOW for systems
+# YOU control. Do NOT point this at anything you do not own.
+
+client_id: "wp_lab"
+
+scope:
+  ip_ranges:
+    - "127.0.0.1/32"
+  domains:
+    - "localhost"
+  exclusions: []
+
+recon_url: "http://localhost:9201/"
+entry_point: "http://localhost:9201/wp-login.php"
