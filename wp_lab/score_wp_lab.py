@@ -20,7 +20,6 @@ from typing import Any
 
 import yaml
 
-from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.agents.http_client import HttpClient
@@ -31,13 +30,6 @@ from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider
 from agent_alpha.live_fire.wp_chain_runner import WpChainConfig, run_wp_chain_live_fire
 import pathlib
-
-
-def _waf_blocked(event_store: Any, engagement_id: str) -> bool:
-    return any(
-        getattr(e, "event_type", None) == EventType.WAF_BLOCKED
-        for e in event_store.get_events(engagement_id)
-    )
 
 
 def _run_host(host: str, in_scope: list[str], exclusions: list[str]) -> dict[str, Any]:
@@ -72,7 +64,7 @@ def _run_host(host: str, in_scope: list[str], exclusions: list[str]) -> dict[str
     return {
         "leak_creds_added": result.leak_creds_added,
         "chain_proven": result.chain_proven,
-        "waf_blocked": _waf_blocked(event_store, config.client_id),
+        "waf_blocked": result.waf_blocked,
     }
 
 

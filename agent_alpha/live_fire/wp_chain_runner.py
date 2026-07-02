@@ -32,6 +32,7 @@ from agent_alpha.live_fire.beta_runner import _NoLLMProvider, _scan_leak
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.recon.wp_config_probe import verify_wp_config_leak
 from agent_alpha.security.secrets import SecretsManager
+from agent_alpha.events.event_types import EventType
 from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
 
@@ -52,6 +53,7 @@ class WpChainResult:
     web_access_level: str
     edge_from_harvested_cred: bool
     leak_suspected: bool
+    waf_blocked: bool  # recon di-blok WAF di run ini (≠ "clean")
 
     @property
     def chain_proven(self) -> bool:
@@ -184,11 +186,16 @@ def run_wp_chain_live_fire(
     beta.run_strike(rec.engagement_id, config.entry_point)
 
     # 6) Read results → WpChainResult
+    waf_blocked = any(
+        getattr(e, "event_type", None) == EventType.WAF_BLOCKED
+        for e in event_store.get_events(rec.engagement_id)
+    )
     return WpChainResult(
         leak_creds_added=creds_added,
         web_access_level=_web_access_level(graph_store),
         edge_from_harvested_cred=_edge_from_harvested_cred(graph_store, secrets_manager),
         leak_suspected=_scan_leak(event_store, rec.engagement_id),
+        waf_blocked=waf_blocked,
     )
 
 

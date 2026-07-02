@@ -57,8 +57,9 @@ class _R:
 class _WpChainFake:
     """Fake HTTP: serves wp-config.php.bak + WP login that grants access ONLY to leaked password."""
 
-    def __init__(self, *, login_fails: bool = False) -> None:
+    def __init__(self, *, login_fails: bool = False, backup_status: int = 200) -> None:
         self._login_fails = login_fails
+        self._backup_status = backup_status
 
     def get(
         self, url: str, *, headers: Any = None, cookies: Any = None, timeout: float = 10.0
@@ -68,6 +69,8 @@ class _WpChainFake:
             return _R(200, "<html>WordPress site</html>", {"server": "apache"}, url)
         # WP config backup probe (verify_wp_config_leak uses https://host/path)
         if "wp-config.php.bak" in url:
+            if self._backup_status != 200:
+                return _R(self._backup_status, "", {}, url)
             return _R(200, WP_CONFIG_BODY, {}, url)
         # Other backup paths → 404
         if "wp-config" in url:
@@ -193,4 +196,15 @@ def test_chain_not_proven_without_web_access() -> None:
     deps = _deps(http_client=_WpChainFake(login_fails=True))
     res = run_wp_chain_live_fire(_config(), **deps)
     assert res.leak_creds_added > 0
+    assert res.chain_proven is False
+
+
+# ── T5: WAF block (403) surfaces in result, not as "clean" ──────────────────
+
+
+def test_waf_block_surfaces_in_result_not_as_clean() -> None:
+    deps = _deps(http_client=_WpChainFake(backup_status=403))
+    res = run_wp_chain_live_fire(_config(), **deps)
+    assert res.waf_blocked is True
+    assert res.leak_creds_added == 0
     assert res.chain_proven is False
