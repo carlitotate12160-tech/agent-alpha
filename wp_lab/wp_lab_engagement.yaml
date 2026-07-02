@@ -1,0 +1,18 @@
+# WP Lab engagement — scope for field-prove scorer
+# All vhosts resolve to 127.0.0.1 via /etc/hosts (seed.sh).
+# ip_ranges uses 127.0.0.1/32 (lab is localhost; empty would fail Scope.validate).
+# cotenant.wp.lab is NOT in domains (default-DENY) AND explicitly excluded.
+
+client_id: "wp-lab"
+
+scope:
+  ip_ranges:
+    - "127.0.0.1/32"
+  domains:
+    - "vuln.wp.lab"
+    - "rotated.wp.lab"
+    - "decoy.wp.lab"
+    - "waf.wp.lab"
+    - "hardened.wp.lab"
+  exclusions:
+    - "cotenant.wp.lab"
