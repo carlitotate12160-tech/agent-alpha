@@ -38,3 +38,9 @@ targets/
 # Engagement configs anywhere (contain SOW scope) — keep ONLY *.example.yaml
 **/*engagement*.yaml
 !**/*engagement*.example.yaml
+
+# Temporary review/scratch files (never commit)
+fetch_review*.py
+pr_body_*.txt
+pr_body_*.md
+.coverage
