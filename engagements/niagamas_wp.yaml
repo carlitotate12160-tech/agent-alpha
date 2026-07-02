@@ -1,0 +1,28 @@
+# Niagamas WP engagement — SOW-NIAGAMAS-2026-001 / 2026-05-20
+# Scope: all owned subdomains (Cloudways + Linode infra)
+# Co-tenant gate enforced via exclusions (Cloudways shared hosting)
+# Tier: RECON + ACTIVE (direct-DB excluded — Cloudways closes 3306 externally)
+client_id: "client-target-wp-2026-001"
+
+scope:
+  ip_ranges:
+    - "206.189.93.100/32"    # Cloudways (client-target.com + www)
+    - "172.104.57.69/32"     # Linode (hub + notulensi)
+    - "139.162.46.119/32"    # Linode (pos)
+    - "172.104.160.239/32"   # Linode (scraping)
+  domains:
+    - "client-target.com"
+    - "www.client-target.com"
+    - "hub.client-target.com"
+    - "notulensi.client-target.com"
+    - "pos.client-target.com"
+    - "scraping.client-target.com"
+  exclusions:
+    # Co-tenant apps on shared Cloudways IP — NEVER probe
+    - "1382146.cloudwaysapps.com"
+    # Subdomains with no A record
+    - "ainotulensi.client-target.com"
+    - "blog.client-target.com"
+
+recon_url: "https://client-target.com/"
+entry_point: "https://client-target.com/wp-login.php"
