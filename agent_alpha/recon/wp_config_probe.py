@@ -77,7 +77,13 @@ def parse_wp_config(body: str) -> dict[str, str]:
 class HttpClientProtocol(Protocol):
     """Minimal HTTP client interface for recon GET requests."""
 
-    def get(self, url: str, *, timeout: float = 10.0) -> Any: ...
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> Any: ...
 
 
 def verify_wp_config_leak(
