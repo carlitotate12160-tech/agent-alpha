@@ -190,6 +190,13 @@ def main(argv: list[str] | None = None) -> int:
     # ── Load config ──────────────────────────────────────────────
     config = load_engagement_config(args.config)
 
+    # ── Lab-only guard: refuse client/prod domains ─────────────────────────────
+    from agent_alpha.live_fire.lab_guard import assert_lab_only_target
+
+    for target in config.targets:
+        assert_lab_only_target(target.url)
+        assert_lab_only_target(target.host)
+
     # ── Build real dependencies ──────────────────────────────────
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)

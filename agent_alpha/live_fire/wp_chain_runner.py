@@ -241,6 +241,12 @@ def main(argv: list[str] | None = None) -> int:
 
     config = load_wp_chain_config(args.config)
 
+    # ── Lab-only guard: refuse client/prod domains ─────────────────────────────
+    from agent_alpha.live_fire.lab_guard import assert_lab_only_target
+
+    assert_lab_only_target(config.recon_url)
+    assert_lab_only_target(config.entry_point)
+
     # ── Resolve OPSEC profile (evasion gate: fail-closed without SOW authorization) ──
     from agent_alpha.conductor.policy import PolicyEnforcer
 
