@@ -171,16 +171,17 @@ def _check_clause_2(
 def _check_clause_3(
     graph_store: NetworkXGraphStore,
     secrets_manager: SecretsManager,
+    engagement_id: str,
     target: str,
     expected: ExpectedGroundTruth,
 ) -> bool:
     """Vault: retrieve stored secret, mask it, compare to expected preview.
 
     TP: vault has secret, masked preview matches.
-    TN: vault has no secrets for this engagement.
+    TN: the ENGAGEMENT's vault has no secrets (queried by engagement_id, not host).
     """
     if expected.expected_creds_added == 0:
-        return len(secrets_manager.list_labels(target)) == 0
+        return len(secrets_manager.list_labels(engagement_id)) == 0
 
     cred_id = f"cred:{target}:{expected.expected_secret_kind}"
     cred = graph_store.get_node(cred_id)
@@ -353,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── Evaluate all 8 acceptance predicate clauses ────────────────────────────
     clause_1 = creds_added == expected.expected_creds_added
     clause_2 = _check_clause_2(graph_store, target, expected)
-    clause_3 = _check_clause_3(graph_store, secrets_manager, target, expected)
+    clause_3 = _check_clause_3(graph_store, secrets_manager, rec.engagement_id, target, expected)
     clause_4 = _check_clause_4(graph_store, secrets_manager, expected)
     clause_5 = _check_clause_5(event_store, rec.engagement_id, expected)
     clause_6 = _check_clause_6(event_store, rec.engagement_id)

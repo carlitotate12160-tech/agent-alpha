@@ -149,7 +149,9 @@ def test_clause_2_true_positive_missing_edge_fails() -> None:
 
 
 def test_clause_3_true_negative_empty_vault_passes() -> None:
-    assert _check_clause_3(NetworkXGraphStore(), SecretsManager(), TARGET, _expected(0)) is True
+    assert (
+        _check_clause_3(NetworkXGraphStore(), SecretsManager(), ENG, TARGET, _expected(0)) is True
+    )
 
 
 def test_clause_3_true_positive_preview_matches() -> None:
@@ -157,7 +159,7 @@ def test_clause_3_true_positive_preview_matches() -> None:
     raw = "Zx9Qw3TrLm2Vn8Kp4Hd6Bf1Sg5Yc0Ej"
     rec = sm.store(label="generic:generic_assign", value=raw, engagement_id=ENG)
     gs = _tp_graph(rec.secret_id)
-    assert _check_clause_3(gs, sm, TARGET, _expected(1, preview=_mask(raw))) is True
+    assert _check_clause_3(gs, sm, ENG, TARGET, _expected(1, preview=_mask(raw))) is True
 
 
 def test_clause_3_true_positive_wrong_preview_fails() -> None:
@@ -165,22 +167,20 @@ def test_clause_3_true_positive_wrong_preview_fails() -> None:
     raw = "Zx9Qw3TrLm2Vn8Kp4Hd6Bf1Sg5Yc0Ej"
     rec = sm.store(label="generic:generic_assign", value=raw, engagement_id=ENG)
     gs = _tp_graph(rec.secret_id)
-    assert _check_clause_3(gs, sm, TARGET, _expected(1, preview="XXXX****YYYY")) is False
+    assert _check_clause_3(gs, sm, ENG, TARGET, _expected(1, preview="XXXX****YYYY")) is False
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "BUG: clause 3 TN calls list_labels(target-host) but SecretsManager keys by "
-        "engagement_id. A secret vaulted under the engagement is missed -> false 'vault "
-        "clean'. Fix: thread engagement_id into _check_clause_3 and query by it."
-    ),
-)
-def test_clause_3_true_negative_misses_secret_vaulted_under_engagement() -> None:
+def test_clause_3_true_negative_secret_vaulted_under_engagement_fails() -> None:
+    """Zero expected but engagement vault has a secret -> fabricated finding -> FAIL.
+
+    Previously xfail: clause 3 TN called list_labels(target-host) but
+    SecretsManager keys by engagement_id. Now fixed: engagement_id is threaded
+    into _check_clause_3 and the vault is queried correctly.
+    """
     sm = SecretsManager()
     sm.store(label="generic:generic_assign", value="SOMESECRETVALUE1234", engagement_id=ENG)
     # Engagement's vault is NOT empty, so a "zero expected" clean-check must be False.
-    assert _check_clause_3(NetworkXGraphStore(), sm, TARGET, _expected(0)) is False
+    assert _check_clause_3(NetworkXGraphStore(), sm, ENG, TARGET, _expected(0)) is False
 
 
 # ── .proven aggregation ──────────────────────────────────────────────────────
