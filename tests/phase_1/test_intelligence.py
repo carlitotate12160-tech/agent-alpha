@@ -40,6 +40,8 @@ def _blank_record(
         tool_success_rates=tool_success_rates,
         proof_artifacts=[],
         scratchpad_snapshot={},
+        time_to_first_proof_s=None,
+        time_to_first_exploit_s=None,
         event_stream_id=engagement_id,
         last_sequence_number=0,
     )
