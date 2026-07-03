@@ -149,7 +149,8 @@ def _check_clause_2(
 ) -> bool:
     """Graph state matches expected ground truth.
 
-    TP (expected_creds_added > 0): vuln node + exactly one CREDENTIAL node + LEADS_TO edge.
+    TP (expected_creds_added > 0): vuln node + N CREDENTIAL nodes (N = expected) +
+    LEADS_TO edge from vuln to the primary cred.
     TN (expected_creds_added == 0): zero CREDENTIAL nodes, zero vuln nodes.
     """
     if expected.expected_creds_added == 0:
@@ -165,11 +166,12 @@ def _check_clause_2(
         return False
 
     cred_nodes = graph_store.nodes_by_type(NodeType.CREDENTIAL)
-    if len(cred_nodes) != 1:
+    if len(cred_nodes) != expected.expected_creds_added:
         return False
 
-    cred = cred_nodes[0]
-    if cred.id != cred_id:
+    # Verify the primary credential node (the one matching expected kind/service)
+    cred = graph_store.get_node(cred_id)
+    if cred is None:
         return False
 
     props = cred.properties

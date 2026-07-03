@@ -137,6 +137,46 @@ def test_clause_2_true_positive_correct_nodes_passes() -> None:
     assert _check_clause_2(gs, TARGET, _expected(1)) is True
 
 
+def test_clause_2_multi_cred_count_matches_passes() -> None:
+    """Variant B: 3 creds expected, 3 present, primary cred + edge verified."""
+    gs = _tp_graph("engagements/x/proofs/js")
+    extra1 = AttackNode(
+        id=f"cred:{TARGET}:aws_access_key",
+        type=NodeType.CREDENTIAL,
+        properties=CredentialProperties(
+            username="",
+            secret_ref="engagements/x/proofs/aws",
+            service="aws",
+            access_level="unverified",
+        ),
+        confidence=0.90,
+        agent="alpha",
+        timestamp_utc=TS,
+    )
+    extra2 = AttackNode(
+        id=f"cred:{TARGET}:stripe_live",
+        type=NodeType.CREDENTIAL,
+        properties=CredentialProperties(
+            username="",
+            secret_ref="engagements/x/proofs/stripe",
+            service="stripe",
+            access_level="unverified",
+        ),
+        confidence=0.90,
+        agent="alpha",
+        timestamp_utc=TS,
+    )
+    _persist_node(gs, extra1)
+    _persist_node(gs, extra2)
+    assert _check_clause_2(gs, TARGET, _expected(3)) is True
+
+
+def test_clause_2_multi_cred_count_mismatch_fails() -> None:
+    """3 expected but only 1 present -> FAIL."""
+    gs = _tp_graph("engagements/x/proofs/js")
+    assert _check_clause_2(gs, TARGET, _expected(3)) is False
+
+
 def test_clause_2_true_positive_missing_edge_fails() -> None:
     gs = NetworkXGraphStore()
     _persist_node(gs, _vuln_node())
