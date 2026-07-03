@@ -24,11 +24,11 @@ from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega, Report
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.config import constants
+from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
-from agent_alpha.memory.engagement import EngagementMemoryProjector, InMemoryEngagementMemoryStore
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
@@ -169,17 +169,6 @@ def resolve_recon_targets(record: Any) -> list[str]:
     return urls
 
 
-def _project_time_to_first_proof(store: EventStore, engagement_id: str) -> float | None:
-    """Project time_to_first_proof_s from the event stream via the EXISTING projector.
-
-    Returns None when no proof event exists (anti-Lyndon #3: never fabricate).
-    Uses an ephemeral InMemoryEngagementMemoryStore — we need only the returned
-    record, not read-model persistence.
-    """
-    emr = EngagementMemoryProjector(store, InMemoryEngagementMemoryStore()).project(engagement_id)
-    return emr.time_to_first_proof_s
-
-
 def run_recon_for_engagement(
     engagement_id: str,
     tenant_id: str | None,
@@ -202,12 +191,7 @@ def run_recon_for_engagement(
     for url in targets:
         pipeline.alpha.run_recon(engagement_id, url)
 
-    # Flaw-1 close: project time_to_first_proof_s from the event stream and thread
-    # it into Omega so the "proved in X min" headline is populated in production.
-    time_to_proof = _project_time_to_first_proof(store, engagement_id)
-    report = Omega(pipeline.graph_store).generate_report(
-        style="technical", time_to_first_proof_s=time_to_proof
-    )
+    report = build_engagement_report(pipeline.graph_store, store, engagement_id, style="technical")
     return ReconRunResult(
         node_count=pipeline.graph_store.node_count(),
         report=report,
