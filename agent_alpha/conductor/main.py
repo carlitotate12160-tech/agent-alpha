@@ -32,6 +32,7 @@ from agent_alpha.conductor.execute_agent import (
     rebuild_graph_from_events,
 )
 from agent_alpha.conductor.policy import PolicyEnforcer
+from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.conductor.revoker import CeleryTaskRevoker
 from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.config.constants import (
@@ -47,7 +48,6 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
-from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
 from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
@@ -371,8 +371,11 @@ def run_agent_task(
 
                 return run_beta
             elif agent_role == a2a_pb2.OMEGA:
+
                 def run_omega() -> ExecOutcome:
-                    build_engagement_report(graph_store, target_store, engagement_id, style="technical")
+                    build_engagement_report(
+                        graph_store, target_store, engagement_id, style="technical"
+                    )
                     return ExecOutcome(
                         status=a2a_pb2.COMPLETE,
                         next_recommended=a2a_pb2.CONDUCTOR,
