@@ -1,0 +1,17 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# The PlaybookEngine matches an observation against `match` and, on a hit,
+# returns the `action` verbatim. Deterministic by construction.
+name: wp_config_backup_exposure
+version: 1
+phase: recon
+# Any one indicator is sufficient (logical OR).
+match:
+  any_indicator:
+    - body_contains: "wp-content"
+    - body_contains: "wp-includes"
+    - body_regex: 'generator=["'']?WordPress'
+action:
+  tool: wp_config_probe
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
+  rationale: "WordPress detected; probe wp-config backup paths for DB credential leak."
