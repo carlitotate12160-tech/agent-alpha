@@ -1,126 +1,114 @@
-"""RED tests for time_to_first_proof_s and time_to_first_exploit_s metrics.
+"""RED tests for time-to-proof metrics on EngagementMemoryRecord.
 
-These tests verify that the EngagementMemoryProjector correctly derives
-the "proved in X minutes" and "exploited in X minutes" metrics from the
-event stream. 7 tests cover the key scenarios."""
+The sellable metric ("proved exploitability in X minutes" — the report headline a
+client pays for) is a pure PROJECTION over the event stream. Both inputs already
+exist and are timestamped: ENGAGEMENT_CREATED (start) and PROOF_ARTIFACT_RECORDED
+(the "we have proof" moment).
+
+These tests call EngagementMemoryProjector._build_record directly with hand-built
+AgentEvents (so timestamps are controlled, unlike the auto-stamped store) and
+assert the derived scalars. They are RED until the projector is extended.
+
+Anti-#3: absence of a proof/created event yields None, NEVER 0.0 (a fabricated
+"instant proof" would be a silent false success).
+
+Run on Oracle ARM64:
+    .venv/bin/pytest tests/phase_1/test_engagement_time_to_proof.py -v
+"""
 
 from __future__ import annotations
 
-from unittest import mock
-
 from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import InMemoryEventStore
-from agent_alpha.memory.engagement import (
-    EngagementMemoryProjector,
-    InMemoryEngagementMemoryStore,
-)
+from agent_alpha.events.store import AgentEvent
+from agent_alpha.memory.engagement import EngagementMemoryProjector
 
-ENG_ID = "eng-time-metrics-001"
+ENG = "eng_ttp"
 
 
-def test_time_to_first_proof_computed_from_created_to_first_proof() -> None:
-    """ENGAGEMENT_CREATED at T0, PROOF_ARTIFACT_RECORDED at T+60s -> time_to_first_proof_s = 60.0."""
-    es = InMemoryEventStore()
-    ms = InMemoryEngagementMemoryStore()
-    projector = EngagementMemoryProjector(es, ms)
-
-    with mock.patch("agent_alpha.events.store._utcnow") as mock_utcnow:
-        mock_utcnow.side_effect = [
-            "2024-01-01T00:00:00Z",  # ENGAGEMENT_CREATED
-            "2024-01-01T00:01:00Z",  # PROOF_ARTIFACT_RECORDED
-        ]
-        es.append(EventType.ENGAGEMENT_CREATED, ENG_ID, "system", {})
-        es.append(
-            EventType.PROOF_ARTIFACT_RECORDED, ENG_ID, "alpha", {"artifact_type": "screenshot"}
-        )
-
-    record = projector.project(ENG_ID)
-    assert record.time_to_first_proof_s == 60.0
+def _ev(seq: int, etype: str, ts: str, payload: dict[str, object] | None = None) -> AgentEvent:
+    return AgentEvent(
+        event_id=f"e{seq}",
+        event_type=etype,
+        engagement_id=ENG,
+        agent="alpha",
+        timestamp_utc=ts,
+        payload=payload or {},
+        sequence_number=seq,
+    )
 
 
-def test_time_to_first_exploit_computed_from_created_to_first_exploit() -> None:
-    """ENGAGEMENT_CREATED at T0, EXPLOIT_CONFIRMED at T+120s -> time_to_first_exploit_s = 120.0."""
-    es = InMemoryEventStore()
-    ms = InMemoryEngagementMemoryStore()
-    projector = EngagementMemoryProjector(es, ms)
-
-    with mock.patch("agent_alpha.events.store._utcnow") as mock_utcnow:
-        mock_utcnow.side_effect = [
-            "2024-01-01T00:00:00Z",  # ENGAGEMENT_CREATED
-            "2024-01-01T00:02:00Z",  # EXPLOIT_CONFIRMED
-        ]
-        es.append(EventType.ENGAGEMENT_CREATED, ENG_ID, "system", {})
-        es.append(EventType.EXPLOIT_CONFIRMED, ENG_ID, "beta", {"cve": "CVE-2024-0001"})
-
-    record = projector.project(ENG_ID)
-    assert record.time_to_first_exploit_s == 120.0
+def _created(ts: str) -> AgentEvent:
+    return _ev(1, EventType.ENGAGEMENT_CREATED, ts, {"client_id": "c", "target": "t", "state": 0})
 
 
-def test_time_to_first_proof_none_when_created_missing() -> None:
-    """No ENGAGEMENT_CREATED event -> time_to_first_proof_s = None."""
-    es = InMemoryEventStore()
-    ms = InMemoryEngagementMemoryStore()
-    projector = EngagementMemoryProjector(es, ms)
-
-    es.append(EventType.PROOF_ARTIFACT_RECORDED, ENG_ID, "alpha", {"artifact_type": "screenshot"})
-
-    record = projector.project(ENG_ID)
-    assert record.time_to_first_proof_s is None
+# ── time_to_first_proof_s ────────────────────────────────────────────────────
 
 
-def test_time_to_first_proof_none_when_proof_missing() -> None:
-    """ENGAGEMENT_CREATED exists but no PROOF_ARTIFACT_RECORDED -> time_to_first_proof_s = None."""
-    es = InMemoryEventStore()
-    ms = InMemoryEngagementMemoryStore()
-    projector = EngagementMemoryProjector(es, ms)
-
-    es.append(EventType.ENGAGEMENT_CREATED, ENG_ID, "system", {})
-
-    record = projector.project(ENG_ID)
-    assert record.time_to_first_proof_s is None
+def test_time_to_first_proof_is_seconds_between_created_and_first_proof() -> None:
+    events = [
+        _created("2026-07-03T00:00:00Z"),
+        _ev(2, EventType.PROOF_ARTIFACT_RECORDED, "2026-07-03T00:05:00Z", {"ref": "p1"}),
+    ]
+    rec = EngagementMemoryProjector._build_record(ENG, events)
+    assert rec.time_to_first_proof_s == 300.0
 
 
-def test_time_to_first_exploit_none_when_created_missing() -> None:
-    """No ENGAGEMENT_CREATED event -> time_to_first_exploit_s = None."""
-    es = InMemoryEventStore()
-    ms = InMemoryEngagementMemoryStore()
-    projector = EngagementMemoryProjector(es, ms)
-
-    es.append(EventType.EXPLOIT_CONFIRMED, ENG_ID, "beta", {"cve": "CVE-2024-0001"})
-
-    record = projector.project(ENG_ID)
-    assert record.time_to_first_exploit_s is None
+def test_time_to_first_proof_uses_the_earliest_proof_event() -> None:
+    events = [
+        _created("2026-07-03T00:00:00Z"),
+        _ev(2, EventType.PROOF_ARTIFACT_RECORDED, "2026-07-03T00:02:00Z", {"ref": "p1"}),
+        _ev(3, EventType.PROOF_ARTIFACT_RECORDED, "2026-07-03T00:09:00Z", {"ref": "p2"}),
+    ]
+    rec = EngagementMemoryProjector._build_record(ENG, events)
+    assert rec.time_to_first_proof_s == 120.0
 
 
-def test_time_to_first_exploit_none_when_exploit_missing() -> None:
-    """ENGAGEMENT_CREATED exists but no EXPLOIT_CONFIRMED -> time_to_first_exploit_s = None."""
-    es = InMemoryEventStore()
-    ms = InMemoryEngagementMemoryStore()
-    projector = EngagementMemoryProjector(es, ms)
-
-    es.append(EventType.ENGAGEMENT_CREATED, ENG_ID, "system", {})
-
-    record = projector.project(ENG_ID)
-    assert record.time_to_first_exploit_s is None
+def test_time_to_first_proof_is_none_when_no_proof_event() -> None:
+    # Anti-#3: no proof -> None, not 0.0.
+    events = [
+        _created("2026-07-03T00:00:00Z"),
+        _ev(2, EventType.EXPLOIT_FAILED, "2026-07-03T00:03:00Z", {"why": "hardened"}),
+    ]
+    rec = EngagementMemoryProjector._build_record(ENG, events)
+    assert rec.time_to_first_proof_s is None
 
 
-def test_first_timestamp_used_not_subsequent() -> None:
-    """Multiple PROOF_ARTIFACT_RECORDED events -> time_to_first_proof_s uses the FIRST timestamp."""
-    es = InMemoryEventStore()
-    ms = InMemoryEngagementMemoryStore()
-    projector = EngagementMemoryProjector(es, ms)
+def test_time_to_first_proof_is_none_when_no_created_event() -> None:
+    events = [
+        _ev(2, EventType.PROOF_ARTIFACT_RECORDED, "2026-07-03T00:05:00Z", {"ref": "p1"}),
+    ]
+    rec = EngagementMemoryProjector._build_record(ENG, events)
+    assert rec.time_to_first_proof_s is None
 
-    with mock.patch("agent_alpha.events.store._utcnow") as mock_utcnow:
-        mock_utcnow.side_effect = [
-            "2024-01-01T00:00:00Z",  # ENGAGEMENT_CREATED
-            "2024-01-01T00:01:00Z",  # First PROOF_ARTIFACT_RECORDED
-            "2024-01-01T00:05:00Z",  # Second PROOF_ARTIFACT_RECORDED
-        ]
-        es.append(EventType.ENGAGEMENT_CREATED, ENG_ID, "system", {})
-        es.append(
-            EventType.PROOF_ARTIFACT_RECORDED, ENG_ID, "alpha", {"artifact_type": "screenshot"}
-        )
-        es.append(EventType.PROOF_ARTIFACT_RECORDED, ENG_ID, "alpha", {"artifact_type": "log"})
 
-    record = projector.project(ENG_ID)
-    assert record.time_to_first_proof_s == 60.0  # Uses first proof at 60s, not 300s
+# ── time_to_first_exploit_s (same shape, EXPLOIT_CONFIRMED) ───────────────────
+
+
+def test_time_to_first_exploit_is_seconds_between_created_and_first_confirm() -> None:
+    events = [
+        _created("2026-07-03T00:00:00Z"),
+        _ev(2, EventType.EXPLOIT_CONFIRMED, "2026-07-03T00:03:30Z", {"node": "n1"}),
+    ]
+    rec = EngagementMemoryProjector._build_record(ENG, events)
+    assert rec.time_to_first_exploit_s == 210.0
+
+
+def test_time_to_first_exploit_is_none_when_no_confirm() -> None:
+    events = [_created("2026-07-03T00:00:00Z")]
+    rec = EngagementMemoryProjector._build_record(ENG, events)
+    assert rec.time_to_first_exploit_s is None
+
+
+# ── determinism (event-sourced integrity) ────────────────────────────────────
+
+
+def test_time_to_proof_is_deterministic_on_replay() -> None:
+    events = [
+        _created("2026-07-03T00:00:00Z"),
+        _ev(2, EventType.EXPLOIT_CONFIRMED, "2026-07-03T00:04:00Z", {"node": "n1"}),
+        _ev(3, EventType.PROOF_ARTIFACT_RECORDED, "2026-07-03T00:06:00Z", {"ref": "p1"}),
+    ]
+    a = EngagementMemoryProjector._build_record(ENG, events)
+    b = EngagementMemoryProjector._build_record(ENG, events)
+    assert a.time_to_first_proof_s == b.time_to_first_proof_s == 360.0
+    assert a.time_to_first_exploit_s == b.time_to_first_exploit_s == 240.0
