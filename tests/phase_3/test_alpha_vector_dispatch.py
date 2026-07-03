@@ -274,3 +274,47 @@ def test_finding_count_is_one_per_vector_hit_not_per_credential(
     msg = alpha.run_recon(eng_id, _ROOT_URL)
 
     assert _handoff(msg).findings_count == 1
+
+
+# ── Idempotency guard (regression lock) ──────────────────────────────────────────
+# The guard's skip branch is unreachable via the public loop TODAY (the work queue
+# holds a single URL, nothing appends), so it is driven at the handler boundary. This
+# pins the SAFETY control — a campaign must probe a client at most once per engagement.
+# If the early-return is ever removed, redundant client probing returns and this fails.
+# (When endpoint-discovery enqueues multiple URLs, the guard also gains black-box
+# coverage; until then this is the honest pin.)
+
+
+@pytest.mark.parametrize(
+    "handler_attr,vector_name,tool",
+    [
+        ("_handle_wp_config_probe", "verify_wp_config_leak", "wp_config_probe"),
+        ("_handle_js_secret_probe", "verify_js_secret_leak", "js_secret_probe"),
+    ],
+)
+def test_campaign_runs_at_most_once_per_engagement(
+    monkeypatch: pytest.MonkeyPatch, handler_attr: str, vector_name: str, tool: str
+) -> None:
+    spy = _Spy(returns=2)
+    _install(monkeypatch, vector_name, spy)
+    event_store = InMemoryEventStore()
+    auth, eng_id = _recon_engagement(event_store)
+    http = FakeHttpClient({_ROOT_URL: FakeResponse(200, "<html>wp-content</html>")})
+    alpha = _make_alpha(auth, event_store, http, tool)
+
+    # Mirror the per-run state run_recon() sets before the cognitive loop.
+    alpha._engagement_id = eng_id
+    alpha._ran_campaigns = set()
+    alpha._findings = 0
+
+    decision = _StubOrchestrator(tool).decide({})
+    resp = FakeResponse(200, "<html>wp-content</html>")
+    handler = getattr(alpha, handler_attr)
+
+    first = handler(resp, decision, _ROOT_URL)
+    second = handler(resp, decision, _ROOT_URL)
+
+    assert first == 2, "first dispatch should return the vector's credential count"
+    assert second == 0, "second dispatch of the same campaign must be guarded (no re-probe)"
+    assert len(spy.calls) == 1, "the campaign vector must be invoked exactly once per engagement"
+    assert alpha._findings == 1, "findings must increment once, not once per dispatch attempt"
