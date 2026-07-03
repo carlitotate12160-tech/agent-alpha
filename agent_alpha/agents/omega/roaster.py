@@ -18,6 +18,18 @@ from agent_alpha.graph.narrative import ChainFinding, summarize_chain_finding, t
 from agent_alpha.graph.store import GraphStore
 
 
+def format_duration(seconds: float | None) -> str | None:
+    """Human-readable duration for the "proved in X" headline. None-safe."""
+    if seconds is None:
+        return None
+    total = int(round(seconds))
+    hours, rem = divmod(total, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {secs:02d}s"
+    return f"{minutes}m {secs:02d}s"
+
+
 @dataclass(frozen=True)
 class Report:
     """Immutable report produced by :class:`Omega`."""
@@ -26,6 +38,11 @@ class Report:
     mitre_techniques: list[str]
     mitre_attack_version: str
     chain_finding: ChainFinding | None = None
+    time_to_first_proof_s: float | None = None
+
+    def time_to_proof_headline(self) -> str | None:
+        """Sellable headline string, or None when no proof was produced."""
+        return format_duration(self.time_to_first_proof_s)
 
     def export_pdf(self, path: str | pathlib.Path) -> pathlib.Path:
         """Render :attr:`narrative` to a PDF at *path* and return the path.
@@ -56,6 +73,12 @@ class Report:
         # ── Title ───────────────────────────────────────────────
         story.append(Paragraph("Agent-Alpha Report", styles["Title"]))
         story.append(Spacer(1, 6 * mm))
+
+        # ── Time-to-proof headline (sellable metric) ────────────
+        headline = self.time_to_proof_headline()
+        if headline is not None:
+            story.append(Paragraph(f"Time to proof: {headline}", styles["Heading2"]))
+            story.append(Spacer(1, 4 * mm))
 
         # ── MITRE ATT&CK section ───────────────────────────────
         if self.mitre_techniques:
@@ -96,7 +119,7 @@ class Omega:
     def __init__(self, graph_store: GraphStore) -> None:
         self.graph_store = graph_store
 
-    def generate_report(self, style: str) -> Report:
+    def generate_report(self, style: str, *, time_to_first_proof_s: float | None = None) -> Report:
         """Generate a :class:`Report` from the current graph state.
 
         *style* is one of ``"executive"``, ``"technical"``, or
@@ -115,4 +138,5 @@ class Omega:
             mitre_techniques=mitre_techniques,
             mitre_attack_version=constants.MITRE_ATTACK_VERSION,
             chain_finding=summarize_chain_finding(self.graph_store),
+            time_to_first_proof_s=time_to_first_proof_s,
         )
