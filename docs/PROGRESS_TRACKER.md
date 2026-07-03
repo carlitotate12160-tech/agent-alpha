@@ -36,7 +36,7 @@
 ### Phase 1 — Attack Graph & Knowledge Representation (5/5 selesai)
 - **GraphStore Protocol** — Interface abstrak untuk graph engine (NetworkX → Memgraph/Neo4j)
 - **NetworkXGraphStore** — Implementasi NetworkX untuk attack graph
-- **EngagementMemory** — Event-sourced projection untuk post-engagement learning/audit
+- **EngagementMemory** — Event-sourced projection untuk post-engagement learning/audit (dengan time_to_first_proof_s dan time_to_first_exploit_s metrics)
 - **SessionMemory** — Volatile Redis-backed store untuk live state engagement
 - **IntelligenceBase** — Cross-engagement learning queries (tool reliability, FP rates, strategies)
 
@@ -47,7 +47,7 @@
 - **ToolRegistry** — Registry untuk tool yang tersedia
 - **BoundedAutonomy + run_cognitive_loop** — Cognitive loop dengan stop conditions
 - **Alpha SCOUT** — Reconnaissance agent pertama
-- **Omega ROASTER** — Report generation agent
+- **Omega ROASTER** — Report generation agent (dengan time-to-proof headline di PDF)
 - **HttpClient** — Production httpx-backed HTTP client
 - **Inner Monologue** — Real-time reasoning stream ke USER channel
 - **RLS Guard** — Fail-closed guard untuk Postgres RLS enforcement
@@ -97,6 +97,8 @@
 - **Safety Guard (anti-#10)** — MySqlApplicator.apply() refuse empty-username sebelum connect(); _SpyConnector membuktikan zero wire packet (MERGED, commit `2651e6b`)
 - **DB Chain Field-Prove** — Real MySQL 8.4 di Docker Oracle ARM64; mock Laravel debug page leak DB_USERNAME+DB_PASSWORD; CHAIN PROVEN: True, db_root, critical (MERGED, commit `73203b6`)
 - **Mock Laravel Debug Page** — HTTP server mock yang serve /trigger-error (leak env vars) + /login untuk field-prove (MERGED, commit `b380413`)
+- **Time-to-Proof Metrics (Phase 1)** — EngagementMemoryRecord dengan time_to_first_proof_s dan time_to_first_exploit_s; _build_record track first timestamps dari ENGAGEMENT_CREATED, PROOF_ARTIFACT_RECORDED, EXPLOIT_CONFIRMED (MERGED, commit `ae43d8a`)
+- **Time-to-Proof Headline (Phase 2)** — Omega Report dengan format_duration formatter, time_to_proof_headline method, dan PDF headline section (MERGED, commit `19836ed`)
 
 ---
 
@@ -623,8 +625,9 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-07-02
-**Phase saat ini:** Phase 3 (IN PROGRESS — DB Chain Field-Proven + Credential Pairing + Safety Guard + CI 7-gate)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven done
-**Total tests:** 546 passed, 13 skipped di Oracle ARM64 (random order, coverage 84%)
+**Dokumen ini diperbarui terakhir:** 2026-07-03
+**Phase saat ini:** Phase 3 (IN PROGRESS — DB Chain Field-Proven + Credential Pairing + Safety Guard + CI 7-gate + Time-to-Proof Metrics)
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven + Time-to-Proof Metrics done
+**Total tests:** 662 passed, 13 skipped di Oracle ARM64 (random order, coverage 84%)
 **Field-Prove:** DB Chain CHAIN PROVEN: True (db_root, critical) lawan real MySQL 8.4 di Oracle ARM64
+**Time-to-Proof:** EngagementMemory metrics (time_to_first_proof_s, time_to_first_exploit_s) + Omega PDF headline (format_duration) implemented
