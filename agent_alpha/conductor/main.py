@@ -21,7 +21,6 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor import recon_runner, routes_monologue
-from agent_alpha.memory.engagement import EngagementMemoryProjector, InMemoryEngagementMemoryStore
 from agent_alpha.conductor.advance import Dispatcher, advance_engagement
 from agent_alpha.conductor.api_auth import Principal, require_principal
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
@@ -49,6 +48,7 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.memory.engagement import EngagementMemoryProjector, InMemoryEngagementMemoryStore
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
 from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
