@@ -21,6 +21,7 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor import recon_runner, routes_monologue
+from agent_alpha.memory.engagement import EngagementMemoryProjector, InMemoryEngagementMemoryStore
 from agent_alpha.conductor.advance import Dispatcher, advance_engagement
 from agent_alpha.conductor.api_auth import Principal, require_principal
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
@@ -374,7 +375,15 @@ def run_agent_task(
                 omega = Omega(graph_store)
 
                 def run_omega() -> ExecOutcome:
-                    omega.generate_report("technical")
+                    # Flaw-1 close: project time_to_first_proof_s from the event
+                    # stream so the "proved in X min" headline is populated.
+                    emr = EngagementMemoryProjector(
+                        target_store, InMemoryEngagementMemoryStore()
+                    ).project(engagement_id)
+                    omega.generate_report(
+                        "technical",
+                        time_to_first_proof_s=emr.time_to_first_proof_s,
+                    )
                     return ExecOutcome(
                         status=a2a_pb2.COMPLETE,
                         next_recommended=a2a_pb2.CONDUCTOR,
