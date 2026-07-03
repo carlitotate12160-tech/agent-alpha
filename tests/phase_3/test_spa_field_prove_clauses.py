@@ -170,16 +170,15 @@ def test_clause_3_true_positive_wrong_preview_fails() -> None:
     assert _check_clause_3(gs, sm, ENG, TARGET, _expected(1, preview="XXXX****YYYY")) is False
 
 
-def test_clause_3_true_negative_secret_vaulted_under_engagement_fails() -> None:
-    """Zero expected but engagement vault has a secret -> fabricated finding -> FAIL.
+def test_clause_3_true_negative_detects_secret_vaulted_under_engagement() -> None:
+    """Regression guard for the list_labels(engagement_id) fix.
 
-    Previously xfail: clause 3 TN called list_labels(target-host) but
-    SecretsManager keys by engagement_id. Now fixed: engagement_id is threaded
-    into _check_clause_3 and the vault is queried correctly.
+    A secret vaulted under the engagement means the vault is NOT clean, so a
+    "zero expected" check must return False. Before the fix, clause 3 queried
+    list_labels(target-host) and missed it -> false 'vault clean'.
     """
     sm = SecretsManager()
     sm.store(label="generic:generic_assign", value="SOMESECRETVALUE1234", engagement_id=ENG)
-    # Engagement's vault is NOT empty, so a "zero expected" clean-check must be False.
     assert _check_clause_3(NetworkXGraphStore(), sm, ENG, TARGET, _expected(0)) is False
 
 
