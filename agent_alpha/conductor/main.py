@@ -19,7 +19,6 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, Upload
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
-from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor import recon_runner, routes_monologue
 from agent_alpha.conductor.advance import Dispatcher, advance_engagement
 from agent_alpha.conductor.api_auth import Principal, require_principal
@@ -33,6 +32,7 @@ from agent_alpha.conductor.execute_agent import (
     rebuild_graph_from_events,
 )
 from agent_alpha.conductor.policy import PolicyEnforcer
+from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.conductor.revoker import CeleryTaskRevoker
 from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.config.constants import (
@@ -48,7 +48,6 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
-from agent_alpha.memory.engagement import EngagementMemoryProjector, InMemoryEngagementMemoryStore
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
 from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
@@ -372,17 +371,10 @@ def run_agent_task(
 
                 return run_beta
             elif agent_role == a2a_pb2.OMEGA:
-                omega = Omega(graph_store)
 
                 def run_omega() -> ExecOutcome:
-                    # Flaw-1 close: project time_to_first_proof_s from the event
-                    # stream so the "proved in X min" headline is populated.
-                    emr = EngagementMemoryProjector(
-                        target_store, InMemoryEngagementMemoryStore()
-                    ).project(engagement_id)
-                    omega.generate_report(
-                        "technical",
-                        time_to_first_proof_s=emr.time_to_first_proof_s,
+                    build_engagement_report(
+                        graph_store, target_store, engagement_id, style="technical"
                     )
                     return ExecOutcome(
                         status=a2a_pb2.COMPLETE,
