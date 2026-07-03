@@ -130,7 +130,16 @@ def _check_clause_2(
     target: str,
     expected: ExpectedGroundTruth,
 ) -> bool:
-    """Graph contains vuln node, exactly one CREDENTIAL node, and a LEADS_TO edge."""
+    """Graph state matches expected ground truth.
+
+    TP (expected_creds_added > 0): vuln node + exactly one CREDENTIAL node + LEADS_TO edge.
+    TN (expected_creds_added == 0): zero CREDENTIAL nodes, zero vuln nodes.
+    """
+    if expected.expected_creds_added == 0:
+        cred_nodes = graph_store.nodes_by_type(NodeType.CREDENTIAL)
+        vuln_nodes = graph_store.nodes_by_type(NodeType.VULNERABILITY)
+        return len(cred_nodes) == 0 and len(vuln_nodes) == 0
+
     vuln_id = f"vuln:{target}:js_secret_leak"
     cred_id = f"cred:{target}:{expected.expected_secret_kind}"
 
@@ -165,7 +174,14 @@ def _check_clause_3(
     target: str,
     expected: ExpectedGroundTruth,
 ) -> bool:
-    """Vault: retrieve stored secret, mask it, compare to expected preview."""
+    """Vault: retrieve stored secret, mask it, compare to expected preview.
+
+    TP: vault has secret, masked preview matches.
+    TN: vault has no secrets for this engagement.
+    """
+    if expected.expected_creds_added == 0:
+        return len(secrets_manager.list_labels(target)) == 0
+
     cred_id = f"cred:{target}:{expected.expected_secret_kind}"
     cred = graph_store.get_node(cred_id)
     if cred is None:
