@@ -1,146 +1,168 @@
-"""Integration tests: every live-fire harness must call assert_lab_only_target.
+"""RED gate: EVERY attacker field-prove harness must invoke the lab-only guard.
 
-These tests verify that the lab-only guard coverage hole is closed — all 5
-self-authorizing harnesses (+ spa_secret_field_prove, the existing exemplar)
-call ``assert_lab_only_target`` in their ``main()`` before constructing any
-network-touching object (HttpClient, socket probe, DB connector).
+Flaw this closes (Lyndon #10 — tambah sulam tanpa arah):
+    ``lab_guard.assert_lab_only_target`` was imported by ONLY ONE of the seven
+    self-authorizing harnesses in ``agent_alpha/live_fire`` — namely
+    ``spa_secret_field_prove`` (the one that got caught pointing at a real
+    client). The other attacker harnesses (beta / chain / db_chain / runner /
+    wp_chain) still build their own AuthorizationStateMachine from a hand-edited
+    YAML and reach out to a network target with NO lab-only guard. That is the
+    SAME Conductor-bypass hole, left open in six places — including the
+    direct-database one. The guard was patched at the point of incident, not
+    systemically.
 
-Tests are SOURCE-LEVEL (AST inspection), not runtime: they don't need a lab
-server or valid engagement YAML. They pin the structural invariant.
+Why a coverage gate and not another per-harness test:
+    A per-harness test is exactly what let the hole reappear — add harness #8,
+    forget the import, no test complains. This gate is fail-closed at the
+    DISCOVERY level: every ``live_fire/*.py`` that defines a top-level ``main()``
+    must be explicitly classified here as either an ATTACKER harness (chooses a
+    target and hits it -> guard REQUIRED) or an EXEMPT server (only serves, never
+    chooses a target -> guard N/A). A new, unclassified harness FAILS this test
+    and forces a human to make the call — it cannot be silently skipped.
+
+Interface decision this pins:
+    ``assert_lab_only_target`` is THE single canonical lab-only guard (one class
+    per concept — no wrapper, anti-#6). Every attacker harness calls it directly,
+    before any network activity, for every in-scope target.
+
+Honest residual (anti-oversell):
+    This is a STRUCTURAL gate — it proves the guard is *called* in each attacker
+    harness, not that it is called *before* the first network egress or for
+    *every* target variable. Ordering-before-network is enforced by the guard
+    living at the top of ``main()`` plus raw review; the guard's own fail-closed
+    behaviour is pinned by tests/.../test_lab_guard.py (9 tests). Keep both.
+
+Authoritative run: Oracle ARM64 (`.venv/bin/python3 -m pytest`). This file is
+environment-independent (pure AST over source), but Oracle remains the only
+accepted result per project rule #9.
 """
 
 from __future__ import annotations
 
 import ast
-import inspect
-import textwrap
+from pathlib import Path
 
-import pytest
+import agent_alpha.live_fire as live_fire_pkg
 
-from agent_alpha.live_fire import (
-    beta_runner,
-    chain_runner,
-    db_chain_runner,
-    runner,
-    spa_secret_field_prove,
-    wp_chain_runner,
-)
+GUARD_FUNCTION_NAME = "assert_lab_only_target"
 
-# Every module whose main() self-authorizes and reaches a network target.
-_GUARDED_MODULES = [
-    beta_runner,
-    chain_runner,
-    db_chain_runner,
-    runner,
-    spa_secret_field_prove,
-    wp_chain_runner,
-]
+# --- Canonical classification of every self-authorizing live_fire harness. ---
+# A harness is ATTACKER if its main() takes a target (from YAML/argv) and sends
+# traffic to it (HttpClient, socket, DB handshake). It is EXEMPT only if it never
+# chooses a target — e.g. it stands up a mock server and serves. When you add a
+# new harness, add its module stem to exactly ONE set below (fail-closed: an
+# unclassified harness with a main() fails `test_every_harness_is_classified`).
 
-
-def _get_main_source(module: object) -> str:
-    """Return dedented source of the module's ``main`` function."""
-    fn = getattr(module, "main")
-    return textwrap.dedent(inspect.getsource(fn))
-
-
-def _get_main_ast(module: object) -> ast.FunctionDef:
-    """Parse the ``main`` function into an AST node."""
-    tree = ast.parse(_get_main_source(module))
-    for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "main":
-            return node
-    raise AssertionError(f"no main() found in {module}")
-
-
-def _find_call_names(node: ast.FunctionDef) -> list[tuple[int, str]]:
-    """Return (lineno, dotted-name) for every Call node in the function body."""
-    results: list[tuple[int, str]] = []
-    for child in ast.walk(node):
-        if not isinstance(child, ast.Call):
-            continue
-        func = child.func
-        name = ""
-        if isinstance(func, ast.Name):
-            name = func.id
-        elif isinstance(func, ast.Attribute):
-            name = func.attr
-        if name:
-            results.append((getattr(child, "lineno", 0), name))
-    return results
-
-
-# ── Test 1: every harness calls assert_lab_only_target in main() ──────
-
-
-@pytest.mark.parametrize(
-    "module",
-    _GUARDED_MODULES,
-    ids=[m.__name__.rsplit(".", 1)[-1] for m in _GUARDED_MODULES],
-)
-def test_main_calls_assert_lab_only_target(module: object) -> None:
-    """main() must contain at least one call to assert_lab_only_target."""
-    fn_node = _get_main_ast(module)
-    call_names = [name for _, name in _find_call_names(fn_node)]
-    assert "assert_lab_only_target" in call_names, (
-        f"{module.__name__}.main() does not call assert_lab_only_target — "
-        f"the lab-only guard coverage hole is open."
-    )
-
-
-# ── Test 2: the import is present in each module ─────────────────────
-
-
-@pytest.mark.parametrize(
-    "module",
-    _GUARDED_MODULES,
-    ids=[m.__name__.rsplit(".", 1)[-1] for m in _GUARDED_MODULES],
-)
-def test_module_imports_assert_lab_only_target(module: object) -> None:
-    """The module must import assert_lab_only_target (at top-level or in main)."""
-    source = inspect.getsource(module)
-    assert "assert_lab_only_target" in source, (
-        f"{module.__name__} does not reference assert_lab_only_target at all."
-    )
-
-
-# ── Test 3: guard call appears BEFORE network infrastructure ─────────
-
-_NETWORK_CONSTRUCTORS = frozenset(
+ATTACKER_HARNESSES: frozenset[str] = frozenset(
     {
-        "HttpClient",
-        "InMemoryEventStore",
-        "AuthorizationStateMachine",
-        "SecretsManager",
-        "SocketDbHandshakeProbe",
+        "beta_runner",
+        "chain_runner",
+        "db_chain_runner",
+        "runner",
+        "wp_chain_runner",
+        "spa_secret_field_prove",
+    }
+)
+
+EXEMPT_SERVERS: frozenset[str] = frozenset(
+    {
+        # Stands up a mock vulnerable Laravel debug page via HTTPServer and
+        # serve_forever(). It is the TARGET side, not an attacker — it never
+        # chooses or reaches out to a target, so the lab-only guard does not
+        # apply. (It should still only ever be run in a lab, but that is a
+        # deployment concern, not a target-selection one.)
+        "mock_laravel_debug",
     }
 )
 
 
-@pytest.mark.parametrize(
-    "module",
-    _GUARDED_MODULES,
-    ids=[m.__name__.rsplit(".", 1)[-1] for m in _GUARDED_MODULES],
-)
-def test_guard_before_network_construction(module: object) -> None:
-    """assert_lab_only_target must be called BEFORE any network constructor."""
-    fn_node = _get_main_ast(module)
-    calls = _find_call_names(fn_node)
+def _live_fire_dir() -> Path:
+    return Path(live_fire_pkg.__file__).resolve().parent
 
-    guard_line = None
-    first_network_line = None
 
-    for lineno, name in calls:
-        if name == "assert_lab_only_target" and guard_line is None:
-            guard_line = lineno
-        if name in _NETWORK_CONSTRUCTORS and first_network_line is None:
-            first_network_line = lineno
-
-    assert guard_line is not None, (
-        f"{module.__name__}.main() never calls assert_lab_only_target."
+def _module_has_top_level_main(tree: ast.Module) -> bool:
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "main"
+        for node in tree.body
     )
-    if first_network_line is not None:
-        assert guard_line < first_network_line, (
-            f"{module.__name__}.main() calls assert_lab_only_target (line {guard_line}) "
-            f"AFTER a network constructor (line {first_network_line}). "
-            f"The guard must run BEFORE any network activity."
-        )
+
+
+def _module_calls_guard(tree: ast.Module) -> bool:
+    """True if the module body contains a call to ``assert_lab_only_target``.
+
+    Matches both a bare call ``assert_lab_only_target(...)`` and an attribute
+    call ``lab_guard.assert_lab_only_target(...)``.
+    """
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if isinstance(func, ast.Name) and func.id == GUARD_FUNCTION_NAME:
+            return True
+        if isinstance(func, ast.Attribute) and func.attr == GUARD_FUNCTION_NAME:
+            return True
+    return False
+
+
+def _harness_modules_with_main() -> dict[str, ast.Module]:
+    """Map module-stem -> parsed AST for every live_fire/*.py defining main()."""
+    found: dict[str, ast.Module] = {}
+    for path in sorted(_live_fire_dir().glob("*.py")):
+        if path.name == "__init__.py":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if _module_has_top_level_main(tree):
+            found[path.stem] = tree
+    return found
+
+
+def test_every_harness_is_classified() -> None:
+    """Fail-closed discovery: no harness with main() may be unclassified.
+
+    This is the anti-#10 lock: a newly added attacker harness cannot slip in
+    unguarded, because it will be neither ATTACKER nor EXEMPT and this test will
+    fail until a human classifies it.
+    """
+    discovered = set(_harness_modules_with_main())
+    classified = ATTACKER_HARNESSES | EXEMPT_SERVERS
+
+    unclassified = discovered - classified
+    assert not unclassified, (
+        "Unclassified live_fire harness(es) with a main(): "
+        f"{sorted(unclassified)}. Add each to ATTACKER_HARNESSES (if it chooses "
+        "and hits a target -> must call assert_lab_only_target) or EXEMPT_SERVERS "
+        "(if it only serves and never chooses a target)."
+    )
+
+    stale = classified - discovered
+    assert not stale, (
+        "Classified harness(es) no longer present / no longer define main(): "
+        f"{sorted(stale)}. Remove them from the sets so the lists stay honest."
+    )
+
+
+def test_every_attacker_harness_calls_lab_guard() -> None:
+    """Every ATTACKER harness must call assert_lab_only_target.
+
+    RED until beta_runner / chain_runner / db_chain_runner / runner /
+    wp_chain_runner each call the guard in main() before touching the network.
+    """
+    trees = _harness_modules_with_main()
+    unguarded = sorted(
+        name
+        for name in ATTACKER_HARNESSES
+        if name in trees and not _module_calls_guard(trees[name])
+    )
+    assert not unguarded, (
+        "Attacker field-prove harness(es) that self-authorize from hand-YAML but "
+        f"do NOT call {GUARD_FUNCTION_NAME}: {unguarded}. Each bypasses the "
+        "Conductor SOW gate and can reach a network target — add the lab-only "
+        "guard at the top of main(), for every in-scope target, before any "
+        "network activity."
+    )
+
+
+def test_exempt_servers_do_not_falsely_claim_attacker_status() -> None:
+    """Sanity: EXEMPT and ATTACKER sets are disjoint (a harness is one or none)."""
+    overlap = ATTACKER_HARNESSES & EXEMPT_SERVERS
+    assert not overlap, f"Harness classified as both attacker and exempt: {sorted(overlap)}"
