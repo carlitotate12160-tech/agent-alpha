@@ -1,0 +1,19 @@
+<!doctype html>
+<!--
+  Agent-Alpha field-prove lab: SPA HARDENED control (no secret in bundle).
+  Same SPA shell structure (root div + hashed bundle) but the bundle contains
+  NO planted secret. Alpha must fingerprint it as SPA → select js_secret_probe
+  → probe the bundle → find zero credentials → NO finding (true negative).
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Acme Internal Console (lab — hardened)</title>
+    <link rel="modulepreload" href="/assets/app.hardened.js" />
+  </head>
+  <body>
+    <div id="root">Loading…</div>
+    <script type="module" src="/assets/app.hardened.js"></script>
+  </body>
+</html>

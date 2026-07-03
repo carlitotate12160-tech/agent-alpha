@@ -8,17 +8,28 @@
 # Replace lab.example-you-own.dev with a subdomain that resolves to this box.
 # DO NOT use a domain you do not own. Self-owned target only.
 #
+# Two vhosts:
+#   spa-vuln.lab  → serves index.html + assets/app.lab001.js (planted secret)
+#   spa-hardened.lab → serves hardened/index.html + hardened/assets/app.hardened.js (no secret)
+#
 # Run:  caddy run --config ./Caddyfile
-# (or)  caddy file-server is not enough — we want the auto-HTTPS block below.
 
-lab.example-you-own.dev {
-	root * /path/to/labs/spa_js_secret
+spa-vuln.lab.example-you-own.dev {
+	root * /path/to/js_lab
 	file_server
-	# Ensure the generated bundle is served with a JS content-type.
 	@js path *.js
 	header @js Content-Type "application/javascript; charset=utf-8"
+	log {
+		output stdout
+		format console
+	}
+}
 
-	# Optional: log so you can eyeball that the probe GETs / and /assets/app.lab001.js
+spa-hardened.lab.example-you-own.dev {
+	root * /path/to/js_lab/hardened
+	file_server
+	@js path *.js
+	header @js Content-Type "application/javascript; charset=utf-8"
 	log {
 		output stdout
 		format console
