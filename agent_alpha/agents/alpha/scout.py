@@ -64,12 +64,21 @@ class Alpha:
         self._secrets_manager = secrets_manager
         self.monologue: MonologueSink = monologue or NullMonologueSink()
 
+        # Dispatch registry: tool_name -> handler(resp, decision, url) -> int.
+        # Canonical dispatch (anti-Lyndon #8: no growing if-chain).
+        self._dispatch_registry: dict[str, Any] = {
+            "laravel_debug_probe": self._handle_laravel_debug,
+            "wp_config_probe": self._handle_wp_config_probe,
+            "js_secret_probe": self._handle_js_secret_probe,
+        }
+
         # Per-run state, initialised in run_recon().
         self._engagement_id: str = ""
         self._work_queue: list[str] = []
         self._probed: set[str] = set()
         self._findings: int = 0
         self._analyzable_probes: int = 0
+        self._ran_campaigns: set[str] = set()
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -103,6 +112,7 @@ class Alpha:
         self._probed = set()
         self._findings = 0
         self._analyzable_probes = 0
+        self._ran_campaigns = set()
 
         # ── Drive through the cognitive loop ────────────────────
         policy = BoundedAutonomy(
@@ -185,8 +195,9 @@ class Alpha:
         self._emit("ACT", f"Running {decision.tool} against {url}")
         nodes_added = 0
 
-        if decision.tool == "laravel_debug_probe":
-            nodes_added = self._handle_laravel_debug(resp, decision, url)
+        handler = self._dispatch_registry.get(decision.tool)
+        if handler is not None:
+            nodes_added = handler(resp, decision, url)
         else:
             # Generic probe: optionally record an ASSET node from headers,
             # but NEVER with "laravel" in tech_stack, and NEVER increment
@@ -195,6 +206,22 @@ class Alpha:
 
         self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
         return {"discovered_nodes": nodes_added, "cost_usd": decision.cost_usd}
+
+    # ── Private: scope resolution ───────────────────────────────
+
+    def _get_scope_hosts(self) -> list[str]:
+        """Resolve in-scope domains from the engagement's verified scope.
+
+        Source of truth is the auth state machine's persisted scope
+        (event-sourced).  NEVER the probed URL host.  NEVER caller free-form.
+        """
+        try:
+            record = self.authorization.get_record(self._engagement_id)
+        except Exception:  # noqa: BLE001 — scope query must never crash
+            return []
+        if record.scope is None:
+            return []
+        return list(record.scope.domains)
 
     # ── Private: tool handlers ──────────────────────────────────
 
@@ -279,6 +306,57 @@ class Alpha:
 
         self._findings += 1
         return nodes_added
+
+    def _handle_wp_config_probe(self, resp: Any, decision: Any, url: str) -> int:
+        """Dispatch to the proven wp-config backup leak vector.
+
+        Campaign-level: the vector iterates all scope_hosts internally.
+        Idempotency guard prevents re-run if step() fires multiple times
+        (e.g. future endpoint-discovery enqueuing extra URLs).
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        from agent_alpha.recon.wp_config_probe import verify_wp_config_leak
+
+        creds_added = verify_wp_config_leak(
+            engagement_id=self._engagement_id,
+            auth=self.authorization,
+            http_client=self.http_client,
+            scope_hosts=self._get_scope_hosts(),
+            graph_store=self.graph_store,
+            event_store=self.event_store,
+            secrets_manager=self._secrets_manager,
+        )
+        if creds_added > 0:
+            self._findings += 1
+        return creds_added
+
+    def _handle_js_secret_probe(self, resp: Any, decision: Any, url: str) -> int:
+        """Dispatch to the proven JS-bundle secret leak vector.
+
+        Campaign-level: the vector iterates all scope_targets internally.
+        Idempotency guard prevents re-run if step() fires multiple times.
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        from agent_alpha.recon.js_secret_probe import verify_js_secret_leak
+
+        creds_added = verify_js_secret_leak(
+            engagement_id=self._engagement_id,
+            auth=self.authorization,
+            http_client=self.http_client,
+            scope_targets=self._get_scope_hosts(),
+            graph_store=self.graph_store,
+            event_store=self.event_store,
+            secrets_manager=self._secrets_manager,
+        )
+        if creds_added > 0:
+            self._findings += 1
+        return creds_added
 
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""
