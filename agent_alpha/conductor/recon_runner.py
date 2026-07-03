@@ -21,10 +21,10 @@ from typing import Any
 
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
-from agent_alpha.agents.omega.roaster import Omega, Report
+from agent_alpha.agents.omega.roaster import Report
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
-from agent_alpha.config import constants
 from agent_alpha.conductor.reporting import build_engagement_report
+from agent_alpha.config import constants
 from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
