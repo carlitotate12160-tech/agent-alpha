@@ -242,6 +242,11 @@ def _check_clause_7(
             event_name = (
                 "NodeDiscovered" if etype == EventType.NODE_DISCOVERED else "EdgeDiscovered"
             )
+            # Skip intel events (e.g. api_endpoint) that are not valid NodeType
+            if event_name == "NodeDiscovered":
+                raw_type = payload.get("type", "")
+                if raw_type not in {t.value for t in NodeType}:
+                    continue
             fresh.apply_event(event_name, payload)
     original_nodes = len(graph_store.all_nodes())
     original_edges = len(graph_store.all_edges())
