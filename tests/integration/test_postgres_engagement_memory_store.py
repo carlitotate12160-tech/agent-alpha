@@ -47,6 +47,8 @@ def _record(engagement_id: str, last_seq: int = 7) -> EngagementMemoryRecord:
         tool_success_rates={"nmap": 0.9},
         proof_artifacts=[{"ref": "p1"}],
         scratchpad_snapshot={"note": "x"},
+        time_to_first_proof_s=None,
+        time_to_first_exploit_s=None,
         event_stream_id=engagement_id,
         last_sequence_number=last_seq,
     )

@@ -168,6 +168,8 @@ def test_rls_blocks_unfiltered_cross_tenant_read_engagement_memory() -> None:
             tool_success_rates={},
             proof_artifacts=[],
             scratchpad_snapshot={"owner": "a"},
+            time_to_first_proof_s=None,
+            time_to_first_exploit_s=None,
             event_stream_id=eng,
             last_sequence_number=0,
         )
