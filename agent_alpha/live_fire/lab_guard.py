@@ -25,6 +25,19 @@ from __future__ import annotations
 LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
     {
         "agentalpha.duckdns.org",
+        # WP lab (wp_lab/) — 6 vhosts on 127.0.0.1:443 via nginx
+        "vuln.wp.lab",
+        "rotated.wp.lab",
+        "decoy.wp.lab",
+        "waf.wp.lab",
+        "hardened.wp.lab",
+        "cotenant.wp.lab",
+        # Laravel lab (targets/laravel-lab/) — 2 containers on :9090/:9091
+        "laravel-vuln.lab",
+        "laravel-hardened.lab",
+        # SPA lab (js_lab/) — Caddy, 2 vhosts
+        "spa-vuln.lab",
+        "spa-hardened.lab",
     }
 )
 

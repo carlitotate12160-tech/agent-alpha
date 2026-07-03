@@ -1,3 +1,5 @@
-# JS Secret Lab — gitignore (generated files only)
-assets/
+# JS Secret Lab — gitignore (generated secret-bearing files only)
+# The vulnerable bundle is generated locally (contains synthetic secret).
+# The hardened bundle is committed (no secret — benign control).
+/assets/app.lab001.js
 expected.local.json
