@@ -13,12 +13,18 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import re
 import typing
 
 from agent_alpha.config.constants import ENGAGEMENT_MEMORY_TABLE
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import AgentEvent, EventStore
+
+
+def _parse_ts(ts: str) -> datetime.datetime:
+    return datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+
 
 # ── Read-model record ────────────────────────────────────────────────
 
@@ -38,6 +44,8 @@ class EngagementMemoryRecord:
     tool_success_rates: dict[str, float]
     proof_artifacts: list[dict[str, object]]
     scratchpad_snapshot: dict[str, object]
+    time_to_first_proof_s: float | None
+    time_to_first_exploit_s: float | None
     event_stream_id: str
     last_sequence_number: int
 
@@ -179,17 +187,30 @@ class EngagementMemoryProjector:
 
         last_sequence_number: int = 0
 
+        # Capture first timestamps for time-to-metric calculations
+        first_created_ts: str | None = None
+        first_proof_ts: str | None = None
+        first_exploit_ts: str | None = None
+
         for event in events:
             last_sequence_number = max(last_sequence_number, event.sequence_number)
 
-            if event.event_type == EventType.EXPLOIT_CONFIRMED:
+            if event.event_type == EventType.ENGAGEMENT_CREATED:
+                if first_created_ts is None:
+                    first_created_ts = event.timestamp_utc
+
+            elif event.event_type == EventType.EXPLOIT_CONFIRMED:
                 confirmed_exploits.append(dict(event.payload))
+                if first_exploit_ts is None:
+                    first_exploit_ts = event.timestamp_utc
 
             elif event.event_type == EventType.EXPLOIT_FAILED:
                 failed_attempts.append(dict(event.payload))
 
             elif event.event_type == EventType.PROOF_ARTIFACT_RECORDED:
                 proof_artifacts.append(dict(event.payload))
+                if first_proof_ts is None:
+                    first_proof_ts = event.timestamp_utc
 
             elif event.event_type == EventType.SCRATCHPAD_SNAPSHOTTED:
                 if event.sequence_number > scratchpad_max_seq:
@@ -203,6 +224,19 @@ class EngagementMemoryProjector:
             # The iteration above already walks the full event stream; add elif
             # branches for the outcome event types when Phase 3 emits them.
 
+        # Compute time-to-metrics (None if either endpoint is missing)
+        time_to_first_proof_s: float | None = None
+        if first_created_ts and first_proof_ts:
+            time_to_first_proof_s = (
+                _parse_ts(first_proof_ts) - _parse_ts(first_created_ts)
+            ).total_seconds()
+
+        time_to_first_exploit_s: float | None = None
+        if first_created_ts and first_exploit_ts:
+            time_to_first_exploit_s = (
+                _parse_ts(first_exploit_ts) - _parse_ts(first_created_ts)
+            ).total_seconds()
+
         return EngagementMemoryRecord(
             engagement_id=engagement_id,
             confirmed_exploits=confirmed_exploits,
@@ -211,6 +245,8 @@ class EngagementMemoryProjector:
             tool_success_rates=tool_success_rates,
             proof_artifacts=proof_artifacts,
             scratchpad_snapshot=scratchpad_snapshot,
+            time_to_first_proof_s=time_to_first_proof_s,
+            time_to_first_exploit_s=time_to_first_exploit_s,
             event_stream_id=engagement_id,
             last_sequence_number=last_sequence_number,
         )
