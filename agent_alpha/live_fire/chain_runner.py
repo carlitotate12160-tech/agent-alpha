@@ -167,6 +167,13 @@ def main(argv: list[str] | None = None) -> int:
 
     config = load_chain_config(args.config)
 
+    # ── Lab-only guard: refuse client/prod domains ─────────────────────────────
+    from agent_alpha.live_fire.lab_guard import assert_lab_only_target
+
+    assert_lab_only_target(config.recon_url)
+    assert_lab_only_target(config.login_url)
+    assert_lab_only_target(config.scope_domains[0])
+
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
     http_client = HttpClient(engagement_id=config.client_id)
