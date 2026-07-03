@@ -22,7 +22,8 @@ from typing import Any, cast
 import pytest
 
 from agent_alpha.a2a import a2a_pb2
-from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope, SOWError
+from agent_alpha.config.constants import SOW_MAX_FILE_SIZE_MB
 from agent_alpha.events.store import EventStore, InMemoryEventStore
 
 
@@ -150,3 +151,27 @@ _MATRIX: list[tuple[int, int, bool]] = [
 def test_can_agent_proceed_role_state_matrix(role: int, state: int, expected: bool) -> None:
     sm, eid = _sm_in(state)
     assert sm.can_agent_proceed(role, eid) is expected
+
+
+# ── 4. Illegal-order transition guards (state-machine ordering enforcement) ───
+# These enforce that the offensive escalation ladder cannot be skipped or
+# repeated out of order — the core promise of the gate.
+
+
+def test_enable_recon_rejected_when_already_past_created() -> None:
+    sm, eid = _sm_in(a2a_pb2.RECON_ONLY)
+    with pytest.raises(ValueError):
+        sm.enable_recon(eid, _valid_scope())
+
+
+def test_enable_offensive_rejected_before_active_approved() -> None:
+    sm, eid = _sm_in(a2a_pb2.RECON_ONLY)
+    with pytest.raises(ValueError):
+        sm.enable_offensive(eid, b"statement of work content")
+
+
+def test_enable_offensive_rejects_oversized_sow() -> None:
+    sm, eid = _sm_in(a2a_pb2.ACTIVE_APPROVED)
+    oversized = b"x" * (SOW_MAX_FILE_SIZE_MB * 1024 * 1024 + 1)
+    with pytest.raises(SOWError):
+        sm.enable_offensive(eid, oversized)
