@@ -35,23 +35,6 @@ from agent_alpha.security.secrets import SecretsManager
 
 _log = logging.getLogger(__name__)
 
-# Lab-only allowlist: the harness self-authorizes via a hand-written YAML, NOT
-# the Conductor's SOW-verified scope. It must NEVER point at a client/prod
-# domain. Only self-owned lab hosts are permitted. This is a structural safety
-# guard on par with assert_offensive_web_target / cohost_pivot — it prevents
-# the harness from becoming an unauthorized-recon landmine.
-_ALLOWED_LAB_HOSTS: frozenset[str] = frozenset(
-    {
-        "agentalpha.duckdns.org",
-        "localhost",
-        "127.0.0.1",
-    }
-)
-
-
-class LabOnlyGuardError(ValueError):
-    """Raised when the harness is pointed at a non-lab (client/prod) domain."""
-
 
 @dataclasses.dataclass(frozen=True)
 class SpaLabConfig:
@@ -330,13 +313,10 @@ def main(argv: list[str] | None = None) -> int:
     # ── Lab-only guard: refuse client/prod domains ─────────────────────────────
     # The harness self-authorizes from a hand-written YAML, not the Conductor's
     # SOW-verified scope. It must never point at a real client domain.
+    from agent_alpha.live_fire.lab_guard import assert_lab_only_target
+
     for domain in config.scope_domains:
-        if domain not in _ALLOWED_LAB_HOSTS:
-            raise LabOnlyGuardError(
-                f"Refusing to field-prove against '{domain}' — not in lab-only allowlist. "
-                "This harness self-authorizes and must NEVER target client/prod domains. "
-                "Use the Conductor with a verified SOW for real engagements."
-            )
+        assert_lab_only_target(domain)
 
     expected_path = args.expected
     if expected_path is None:

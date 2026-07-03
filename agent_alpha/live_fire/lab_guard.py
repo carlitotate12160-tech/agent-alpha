@@ -1,0 +1,71 @@
+"""Lab-only guard for field-prove harnesses.
+
+PERMANENT safety control — never removed, not even in full production.
+
+A field-prove harness validates a TOOL against KNOWN ground truth (a planted
+synthetic secret in a self-owned lab). It self-authorizes: it builds its own
+AuthorizationStateMachine and takes scope from a hand-edited YAML, bypassing the
+Conductor. That is legitimate ONLY for a self-owned lab and MUST NEVER touch a
+client or production target. Client engagements run exclusively through the
+Conductor's non-bypassable SOW auth gate — a different code path entirely.
+
+This guard makes that rule enforced-by-code, not by discipline: the harness
+refuses any target not in an explicit self-owned lab allowlist. Fail-closed — an
+empty allowlist or an unrecognised target is refused, never allowed.
+
+Why the allowlist is a CODE constant, not engagement config: if it lived in the
+YAML, it could be edited to add a client host — which is exactly the bypass we
+are closing. It must not be overridable from the same file that sets scope.
+"""
+
+from __future__ import annotations
+
+# Self-owned field-prove lab hosts ONLY. Add a lab you own and control.
+# NEVER add a client or production domain here.
+LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        "agentalpha.duckdns.org",
+    }
+)
+
+
+class LabOnlyViolation(RuntimeError):
+    """Raised when a field-prove harness is pointed at a non-lab target."""
+
+
+def _normalise_host(target: str) -> str:
+    """Reduce a target string to a bare, lowercased host for exact comparison.
+
+    Strips scheme, path, credentials, and port so that
+    ``https://user@lab.example:443/path`` compares as ``lab.example``.
+    """
+    host = target.strip().lower()
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/", 1)[0]
+    if "@" in host:
+        host = host.rsplit("@", 1)[1]
+    if ":" in host:
+        host = host.split(":", 1)[0]
+    return host
+
+
+def assert_lab_only_target(
+    target: str,
+    allowlist: frozenset[str] = LAB_TARGET_ALLOWLIST,
+) -> None:
+    """Fail-closed: raise ``LabOnlyViolation`` unless *target* is a self-owned lab.
+
+    Call this before ANY network activity in a field-prove harness, for every
+    target in scope. Exact host match only — a look-alike such as
+    ``lab.example.evil.com`` is refused.
+    """
+    normalised = _normalise_host(target)
+    if not normalised:
+        raise LabOnlyViolation(f"empty/invalid field-prove target: {target!r}")
+    if normalised not in allowlist:
+        raise LabOnlyViolation(
+            f"refusing non-lab target {normalised!r}: the field-prove harness is "
+            f"self-owned-lab ONLY (allowlist={sorted(allowlist)}). Client/prod "
+            f"engagements run through the Conductor SOW gate, never this harness."
+        )
