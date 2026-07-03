@@ -162,6 +162,8 @@ def test_verify_projection_detects_drift() -> None:
         tool_success_rates={},
         proof_artifacts=[],
         scratchpad_snapshot={"notes": "corrupted"},
+        time_to_first_proof_s=None,
+        time_to_first_exploit_s=None,
         event_stream_id=ENG_ID,
         last_sequence_number=999,
     )
