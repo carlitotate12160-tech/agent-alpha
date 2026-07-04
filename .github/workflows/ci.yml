@@ -118,6 +118,63 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "true"
 
+      - name: Container scan (Trivy — CVE scan on Docker images used in CI)
+        # Scan the service container images for OS-level and library CVEs.
+        # continue-on-error: informational for now — review findings before enabling
+        # as a blocking gate. Once baseline CVEs are triaged, remove continue-on-error.
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/trivy-bin
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp/trivy-bin v0.50.0
+          export PATH="/tmp/trivy-bin:$PATH"
+          trivy --version
+          # Scan Postgres image
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16 || true
+          # Scan Redis image
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
+
+      - name: Generate SBOM (Syft — Software Bill of Materials)
+        # Generate an SBOM for the Python project — required for enterprise compliance
+        # (SOC2, ISO27001). Uploaded as a CI artifact for audit trail.
+        run: |
+          mkdir -p /tmp/syft-bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp/syft-bin v1.9.0
+          export PATH="/tmp/syft-bin:$PATH"
+          syft dir:. --output spdx-json=sbom.spdx.json
+          syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+          retention-days: 90
+
+      - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
+        # Start the beta lab app and scan it with Nuclei for common web vulns.
+        # continue-on-error: DAST is informational for now; failures don't block merge
+        # (beta lab app is a test target, not production code).
+        continue-on-error: true
+        run: |
+          # Install Nuclei
+          mkdir -p /tmp/nuclei-bin
+          curl -sSfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
+          unzip -o /tmp/nuclei.zip -d /tmp/nuclei-bin nuclei
+          export PATH="/tmp/nuclei-bin:$PATH"
+          nuclei --version
+          # Start beta lab app in background
+          .venv/bin/python -m infra.beta_lab_app &
+          APP_PID=$!
+          sleep 3
+          # Run Nuclei scan (low-severity templates only for speed)
+          nuclei -u http://localhost:5000 -severity medium,high,critical -o nuclei-results.txt || true
+          # Kill the app
+          kill $APP_PID 2>/dev/null || true
+          # Display results
+          cat nuclei-results.txt 2>/dev/null || echo "No Nuclei findings"
+
       - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
         # Fresh container: tables don't exist yet. The app, connecting as
         # agent_alpha_app, will CREATE and therefore OWN them, so FORCE ROW LEVEL
