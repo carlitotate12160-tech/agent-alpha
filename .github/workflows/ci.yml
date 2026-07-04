@@ -105,14 +105,6 @@ jobs:
         # MEDIUM+ findings always block. LOW findings are auditable in .bandit.
         run: .venv/bin/bandit -r agent_alpha/ -l -ii -c .bandit
 
-      - name: Install gitleaks (secret scanner — Go binary, not pip)
-        run: |
-          GITLEAKS_VERSION=8.21.2
-          wget -q "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_arm64.tar.gz" -O /tmp/gitleaks.tar.gz
-          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
-          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
-          gitleaks version
-
       - name: Secret scanning (gitleaks — detect hardcoded credentials in repo)
         # Scan full git history for hardcoded secrets, API keys, tokens.
         # Any finding blocks merge — a red team agent must not leak its own secrets.
@@ -125,6 +117,55 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "true"
+
+      - name: Container scan (Trivy — CVE scan on Docker images used in CI)
+        # Scan the service container images for OS-level and library CVEs.
+        # Fails on HIGH/CRITICAL — a red team agent must not run on vulnerable infra.
+        run: |
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.50.0
+          trivy --version
+          # Scan Postgres image
+          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed pgvector/pgvector:pg16
+          # Scan Redis image
+          trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed redis:7-alpine
+
+      - name: Generate SBOM (Syft — Software Bill of Materials)
+        # Generate an SBOM for the Python project — required for enterprise compliance
+        # (SOC2, ISO27001). Uploaded as a CI artifact for audit trail.
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.9.0
+          syft dir:. --output spdx-json=sbom.spdx.json
+          syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+          retention-days: 90
+
+      - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
+        # Start the beta lab app and scan it with Nuclei for common web vulns.
+        # continue-on-error: DAST is informational for now; failures don't block merge
+        # (beta lab app is a test target, not production code).
+        continue-on-error: true
+        run: |
+          # Install Nuclei
+          curl -sSfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
+          unzip -o /tmp/nuclei.zip -d /usr/local/bin nuclei
+          nuclei --version
+          # Start beta lab app in background
+          .venv/bin/python -m infra.beta_lab_app &
+          APP_PID=$!
+          sleep 3
+          # Run Nuclei scan (low-severity templates only for speed)
+          nuclei -u http://localhost:5000 -severity medium,high,critical -o nuclei-results.txt || true
+          # Kill the app
+          kill $APP_PID 2>/dev/null || true
+          # Display results
+          cat nuclei-results.txt 2>/dev/null || echo "No Nuclei findings"
 
       - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
         # Fresh container: tables don't exist yet. The app, connecting as
