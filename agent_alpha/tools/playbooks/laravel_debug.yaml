@@ -4,6 +4,7 @@
 name: laravel_debug_exposure
 version: 1
 phase: recon
+priority: 10
 # Any one indicator is sufficient (logical OR).
 match:
   any_indicator:
