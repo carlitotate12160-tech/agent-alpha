@@ -14,6 +14,7 @@ class TargetResult:
 
     url: str
     predicted_vulnerable: bool
+    analyzable: bool = True
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,7 @@ class ScanScore:
     fp: int
     fn: int
     tn: int
+    inconclusive: int
     fp_rate_of_findings: float
     passed: bool
 
@@ -51,9 +53,18 @@ def score_findings(
     fp = 0
     fn = 0
     tn = 0
+    inconclusive = 0
 
     for result in results:
         actual = ground_truth[result.url]  # Raises KeyError if missing (anti-Lyndon #3)
+
+        # A non-analyzable result (e.g. FAILED Alpha run) must NEVER be
+        # bucketed into tp/fp/fn/tn — it is counted as inconclusive so
+        # a broken run cannot silently masquerade as a confident TN.
+        if not result.analyzable:
+            inconclusive += 1
+            continue
+
         if result.predicted_vulnerable:
             if actual:
                 tp += 1
@@ -73,13 +84,20 @@ def score_findings(
 
     # A PASS requires at least one real finding AND an acceptable FP rate.
     # Zero findings is NOT success (anti-Lyndon #3 — that masked failure as "clean").
-    passed = (tp + fp > 0) and (fp_rate_of_findings < fp_threshold)
+    # Any inconclusive result also blocks a PASS — we refuse to certify a run
+    # where some targets could not even be analyzed.
+    passed = (
+        (tp + fp > 0)
+        and (fp_rate_of_findings < fp_threshold)
+        and (inconclusive == 0)
+    )
 
     return ScanScore(
         tp=tp,
         fp=fp,
         fn=fn,
         tn=tn,
+        inconclusive=inconclusive,
         fp_rate_of_findings=fp_rate_of_findings,
         passed=passed,
     )
