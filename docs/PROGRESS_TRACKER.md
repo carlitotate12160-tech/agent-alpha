@@ -77,6 +77,10 @@
 - **Caddyfile.fp** — Caddy reverse proxy dengan DuckDNS DNS-01 ACME untuk 6 lab subdomains. WP proxy ke HTTPS upstream nginx:8443 dengan `tls_insecure_skip_verify`
 - **Engagement YAML** — `fp_validation_engagement.yaml` dengan 6 DuckDNS targets, Laravel vuln+hardened pakai `/trigger-error` untuk TN yang bermakna
 - **Lab Guard Allowlist** — 6 DuckDNS subdomains ditambahkan ke `LAB_TARGET_ALLOWLIST` di `lab_guard.py`
+- **Graph Quality: T1552.001 on credential edges** — `credential_assembly.py` dan `js_secret_probe.py` LEADS_TO edges sekarang carry `technique_id="T1552.001"` (Unsecured Credentials in Files). Omega report menampilkan T1552.001 + T1592.002 (commit `127269f`)
+- **Graph Quality: Asset nodes for WP/JS** — `wp_config_probe.py` dan `js_secret_probe.py` sekarang persist ASSET node + EXPLOITS edge (asset→vuln), mirroring `_handle_laravel_debug`. Graph coherent: 3 asset nodes, 3 exploits edges, chain-finding bisa mulai (commit `127269f`)
+- **Scope.validate() fix** — Allow `ip_ranges=[]` ketika `domains` terisi. Domain-only engagement (DuckDNS lab) valid tanpa hardcode IP (commit `9558d78`)
+- **Graph Quality FROZEN test contract** — 5 tests di `test_alpha_graph_quality.py`: T1552.001 on WP/JS credential edges, Omega report surfaces T1552.001, asset node + asset→vuln edge for WP/JS (commit `9558d78`)
 - **C6b** — Per-unit fan-out execution + live-fire FP<20% (PENDING)
 - **C7** — No regression + CI (PENDING)
 - **C8** — Anti-Lyndon gates (PENDING)
@@ -641,5 +645,5 @@ def task_recon(engagement_id: str, target: str):
 **Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven + Time-to-Proof Metrics + FP-Validation PASS done
 **Total tests:** 587 passed, 23 skipped (random order, coverage 84%)
 **Field-Prove:** DB Chain CHAIN PROVEN: True (db_root, critical) lawan real MySQL 8.4 di Oracle ARM64
-**FP-Validation:** TP=3, FP=0, FN=0, TN=3, FP rate=0.0000, Verdict=PASS — 6 lab targets (WP/Laravel/SPA × vuln/hardened) via DuckDNS + Caddy HTTPS di Oracle ARM64
+**FP-Validation:** TP=3, FP=0, FN=0, TN=3, FP rate=0.0000, Verdict=PASS — 6 lab targets (WP/Laravel/SPA × vuln/hardened) via DuckDNS + Caddy HTTPS di Oracle ARM64. MITRE: T1552.001 + T1592.002. Graph: 3 asset nodes, 3 vuln nodes, 3 credential nodes, 3 EXPLOITS edges, 3 LEADS_TO edges
 **Time-to-Proof:** EngagementMemory metrics (time_to_first_proof_s, time_to_first_exploit_s) + Omega PDF headline (format_duration) implemented
