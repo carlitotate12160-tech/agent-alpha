@@ -1,42 +1,35 @@
 """FROZEN contract (architect-authored — IDE implements Option A; do NOT edit assertions).
 
-Closes the dead-integration gap (Lyndon #2): the proven recon vectors
-(recon.wp_config_probe.verify_wp_config_leak, recon.js_secret_probe.verify_js_secret_leak)
-are invoked ONLY by bespoke live-fire chain runners, never by Alpha's cognitive loop. So
-an autonomous Conductor-driven engagement, Alpha (SCOUT) produces ONLY Laravel-debug
-findings — one stack. The WP/JS capability is real but integration-dead.
+Alpha is a fingerprint-DISPATCHER: step() maps decision.tool to the proven recon
+vectors (verify_wp_config_leak / verify_js_secret_leak), unknown tools fall through
+to the generic asset-only handler.
 
-DESIGN = Option A (chosen 2026-07-03): Alpha is a fingerprint-DISPATCHER that invokes the
-existing standalone vectors INTACT — no rewrite; they keep their own tier/scope/WAF gates
-as defense-in-depth. step() maps decision.tool to the matching vector via a small registry
-{tool_name: handler}; unknown tools fall through to the generic asset-only handler.
+DESIGN CORRECTION 2026-07-03 (found by the live FP-run — the original Option-A framing
+was wrong): the campaign vectors must scan ONLY the CURRENT TARGET HOST, not all
+scope hosts. Rationale: Alpha's caller loop (run_live_fire / recon_runner) ALREADY
+iterates one host per run_recon, so a campaign that sweeps every scope host both (a)
+duplicates work (N× redundant probes) and (b) MISATTRIBUTES findings — probing the
+`spa-hardened` target while the campaign also scans an in-scope `spa-vuln` sibling
+credits the sibling's leak to the hardened target's findings_count → a false positive
+(predicted_vulnerable via `findings_count > 0`). Breadth comes from the caller loop,
+NOT from the campaign. The fix passes `[current_host]` (from the URL under probe, which
+Alpha has already validated in-scope, and which the vector re-checks via is_in_scope).
 
-Contract the IDE implements in agent_alpha/agents/alpha/scout.py:
-  * A dispatch registry (built in __init__): {"laravel_debug_probe": ..., "wp_config_probe":
-    self._handle_wp_config_probe, "js_secret_probe": self._handle_js_secret_probe}.
-  * In-scope hosts come from the ENGAGEMENT SCOPE (self.authorization.get_record(
-    self._engagement_id).scope.domains) — NEVER the probed URL host, NEVER caller free-form.
-    NOTE the vector kwarg names DIFFER: wp uses `scope_hosts=`, js uses `scope_targets=`.
-  * Findings accounting: a campaign that returns creds_added > 0 increments self._findings by
-    EXACTLY 1 (one finding = one exposure), mirroring _handle_laravel_debug — NOT by
-    creds_added (a credential count is not a finding count; += count inflates, anti-#3).
-  * IDEMPOTENCY GUARD (required, even though latent today): the vectors are ENGAGEMENT-level
-    campaigns (they iterate all scope_hosts internally) but step() runs PER-URL. Today the
-    work queue holds a single URL so no re-run happens — but Alpha's own output spec includes
-    api_endpoints; the moment endpoint-discovery enqueues URLs, each same-tool step would
-    re-run the full campaign (redundant probes + duplicate nodes/events). Guard it now:
-    reset `self._ran_campaigns: set[str] = set()` in run_recon; each campaign handler returns
-    0 early if its tool is already in the set, else adds it. (A behavioural test for this is
-    deferred until endpoint-discovery lands — the path that makes it active — rather than
-    contorting a white-box test against a currently-unreachable branch.)
-  * Unknown / greenfield tools STILL route to the generic asset-only handler (no fabricated
-    finding, #3). The vectors' WAF discriminator + scope/tier gates must be PRESERVED.
+Impl this pins:
+  * WP handler -> verify_wp_config_leak(..., scope_hosts=[<current target host>])
+  * JS handler -> verify_js_secret_leak(..., scope_targets=[<current target host>])
+    (note the differing kwarg names: scope_hosts vs scope_targets)
+  * `_get_scope_hosts()` (the old all-scope accessor) becomes unused -> DELETE it (no
+    dead code, anti-#2).
+  * Findings: creds_added > 0 -> self._findings += 1 (one finding = one exposure, not
+    per-credential, anti-#3).
+  * Idempotency guard (self._ran_campaigns) still runs each campaign at most once per
+    run_recon.
+  * Unknown tools -> generic asset-only (no fabricated finding).
 
 Vector internals are pinned by tests/phase_3/test_wp_config_leak.py &
 test_js_secret_probe.py; these tests pin OUTCOMES + wiring at Alpha's boundary only.
-RED until the dispatch exists (today scout.step() handles only "laravel_debug_probe").
-
-Authoritative run: Oracle ARM64 (`.venv/bin/python3 -m pytest`).
+Authoritative run: Oracle ARM64.
 """
 
 from __future__ import annotations
@@ -55,8 +48,8 @@ from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 
-_HOST = "wp-lab.invalid"
-_HOST_B = "wp-lab-b.invalid"
+_HOST = "wp-lab.invalid"           # the host actually probed in each test
+_HOST_B = "sibling-lab.invalid"    # an in-scope SIBLING that must NOT be scanned
 _ROOT_URL = f"https://{_HOST}/"
 _WP_CONFIG_BODY = (
     "<?php\n"
@@ -110,18 +103,13 @@ def _recon_engagement(
     rec = auth.create_engagement(client_id="wp_lab", target=_HOST)
     auth.enable_recon(
         rec.engagement_id,
-        Scope(
-            ip_ranges=["10.0.0.1/32"], domains=domains or [_HOST], exclusions=[], db_endpoints=[]
-        ),
+        Scope(ip_ranges=["10.0.0.1/32"], domains=domains or [_HOST], exclusions=[], db_endpoints=[]),
     )
     return auth, rec.engagement_id
 
 
 def _make_alpha(
-    auth: AuthorizationStateMachine,
-    event_store: InMemoryEventStore,
-    http: FakeHttpClient,
-    tool: str,
+    auth: AuthorizationStateMachine, event_store: InMemoryEventStore, http: FakeHttpClient, tool: str
 ) -> Alpha:
     return Alpha(
         authorization=auth,
@@ -142,11 +130,7 @@ def _handoff(msg: a2a_pb2.A2AMessage) -> a2a_pb2.HandoffPayload:
 
 
 def test_alpha_dispatches_wp_tool_to_real_vector_and_finds_credential() -> None:
-    """decision.tool='wp_config_probe' + a leaking backup path -> a CREDENTIAL finding.
-
-    RED today: Alpha routes any non-laravel tool to the generic asset-only handler,
-    so zero credential nodes are persisted.
-    """
+    """decision.tool='wp_config_probe' + a leaking backup path -> a CREDENTIAL finding."""
     event_store = InMemoryEventStore()
     auth, eng_id = _recon_engagement(event_store)
     http = FakeHttpClient(
@@ -201,9 +185,9 @@ def test_alpha_unknown_tool_stays_generic_asset_only() -> None:
     assert not alpha.graph_store.nodes_by_type(NodeType.VULNERABILITY)
 
 
-# ── Wiring (monkeypatch): scope source + findings accounting ─────────────────────
-# Patched at BOTH the source module and Alpha's namespace so the spy is hit whether
-# the IDE imports the vector at module top-level or lazily inside the handler.
+# ── Wiring: the campaign scans ONLY the current target host (not the whole scope) ──
+# These INVERT the earlier "receives full scope" contract, which the live FP-run proved
+# wrong (it cross-contaminated hardened targets with vulnerable siblings' findings).
 
 
 class _Spy:
@@ -216,19 +200,17 @@ class _Spy:
         return self.returns
 
 
-def _install(monkeypatch: pytest.MonkeyPatch, name: str, spy: _Spy) -> None:
+def _install(monkeypatch: pytest.MonkeyPatch, name: str, spy: Any) -> None:
     monkeypatch.setattr(f"agent_alpha.recon.wp_config_probe.{name}", spy, raising=False)
     monkeypatch.setattr(f"agent_alpha.recon.js_secret_probe.{name}", spy, raising=False)
     monkeypatch.setattr(f"agent_alpha.agents.alpha.scout.{name}", spy, raising=False)
 
 
-def test_wp_vector_receives_scope_hosts_from_scope_not_probed_url(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """scope_hosts must be the engagement's FULL verified scope, not just the probed host.
+def test_wp_vector_receives_only_current_target_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two hosts in scope, one probed -> the WP vector receives ONLY the probed host.
 
-    Two domains in scope, only one probed -> the vector must still receive BOTH (proves the
-    hosts come from auth scope, not from the URL under probe).
+    Passing the full scope makes the campaign scan in-scope siblings and misattribute
+    their leaks to this target's findings_count (the FP the FP-run surfaced).
     """
     spy = _Spy(returns=1)
     _install(monkeypatch, "verify_wp_config_leak", spy)
@@ -240,24 +222,57 @@ def test_wp_vector_receives_scope_hosts_from_scope_not_probed_url(
     alpha.run_recon(eng_id, _ROOT_URL)
 
     assert spy.calls, "wp_config_probe handler did not call verify_wp_config_leak."
-    assert sorted(spy.calls[0]["scope_hosts"]) == sorted([_HOST, _HOST_B])
+    assert spy.calls[0]["scope_hosts"] == [_HOST], (
+        f"WP campaign must scan only the current host {[_HOST]}, got "
+        f"{spy.calls[0]['scope_hosts']} — scanning the in-scope sibling causes FP."
+    )
 
 
-def test_js_vector_receives_scope_targets_kwarg(monkeypatch: pytest.MonkeyPatch) -> None:
-    """js vector uses scope_targets= (NOT scope_hosts=) — pin the correct kwarg name."""
+def test_js_vector_receives_only_current_target_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Same for JS — and pin the differing kwarg name (scope_targets, not scope_hosts)."""
     spy = _Spy(returns=1)
     _install(monkeypatch, "verify_js_secret_leak", spy)
     event_store = InMemoryEventStore()
     auth, eng_id = _recon_engagement(event_store, domains=[_HOST, _HOST_B])
-    http = FakeHttpClient(
-        {_ROOT_URL: FakeResponse(200, "<html><script src=/app.js></script></html>")}
-    )
+    http = FakeHttpClient({_ROOT_URL: FakeResponse(200, '<html><div id="root"></div></html>')})
     alpha = _make_alpha(auth, event_store, http, "js_secret_probe")
 
     alpha.run_recon(eng_id, _ROOT_URL)
 
     assert spy.calls, "js_secret_probe handler did not call verify_js_secret_leak."
-    assert sorted(spy.calls[0]["scope_targets"]) == sorted([_HOST, _HOST_B])
+    assert spy.calls[0]["scope_targets"] == [_HOST], (
+        f"JS campaign must scan only the current host {[_HOST]}, got "
+        f"{spy.calls[0]['scope_targets']}."
+    )
+
+
+def test_hardened_target_not_contaminated_by_vulnerable_sibling_in_scope(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FP LOCK (the exact bug the FP-run hit): probing a hardened host must report NO
+    finding even when a vulnerable sibling is in scope.
+
+    The stub 'finds' a secret only if the vulnerable sibling (_HOST_B) is in the scanned
+    set. With the fix (current-host only) the hardened run never scans _HOST_B, so
+    findings_count stays 0. RED today (full scope includes _HOST_B -> false positive).
+    """
+
+    def fake_verify(**kwargs: Any) -> int:
+        scanned = kwargs.get("scope_targets") or kwargs.get("scope_hosts") or []
+        return 1 if _HOST_B in scanned else 0
+
+    _install(monkeypatch, "verify_js_secret_leak", fake_verify)
+    event_store = InMemoryEventStore()
+    auth, eng_id = _recon_engagement(event_store, domains=[_HOST, _HOST_B])  # _HOST probed, _HOST_B vuln sibling
+    http = FakeHttpClient({_ROOT_URL: FakeResponse(200, '<html><div id="root"></div></html>')})
+    alpha = _make_alpha(auth, event_store, http, "js_secret_probe")
+
+    msg = alpha.run_recon(eng_id, _ROOT_URL)
+
+    assert _handoff(msg).findings_count == 0, (
+        "Probing the hardened target reported a finding because the campaign scanned the "
+        "in-scope vulnerable sibling — the cross-contamination false positive."
+    )
 
 
 def test_finding_count_is_one_per_vector_hit_not_per_credential(
@@ -277,12 +292,6 @@ def test_finding_count_is_one_per_vector_hit_not_per_credential(
 
 
 # ── Idempotency guard (regression lock) ──────────────────────────────────────────
-# The guard's skip branch is unreachable via the public loop TODAY (the work queue
-# holds a single URL, nothing appends), so it is driven at the handler boundary. This
-# pins the SAFETY control — a campaign must probe a client at most once per engagement.
-# If the early-return is ever removed, redundant client probing returns and this fails.
-# (When endpoint-discovery enqueues multiple URLs, the guard also gains black-box
-# coverage; until then this is the honest pin.)
 
 
 @pytest.mark.parametrize(
