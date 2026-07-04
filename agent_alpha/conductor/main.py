@@ -46,6 +46,7 @@ from agent_alpha.config.constants import (
 from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build_event_store
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
+from agent_alpha.events.trace import project_engagement_trace
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
@@ -554,6 +555,49 @@ def get_run_status(
         "status": run_status.status,
         "task_id": run_status.task_id,
         "updated_at": run_status.updated_at,
+    }
+
+
+@engagements.get("/{engagement_id}/trace")
+def get_engagement_trace(
+    engagement_id: str,
+    principal: Annotated[Principal, Depends(require_principal)],
+) -> dict[str, Any]:
+    """A7 observability (slice A7-a): the per-engagement run trace.
+
+    Read-only consumer of ``project_engagement_trace`` — mirrors
+    ``get_run_status`` exactly, including the tenant-isolation 404. Wiring this
+    endpoint is what makes the projection a live read model rather than dead
+    code (anti Lyndon #2). Zero writes.
+    """
+    try:
+        record = auth_for(principal.tenant_id).get_record(engagement_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="engagement not found") from None
+
+    if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="engagement not found")
+
+    target_store = (
+        store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    )
+    trace = project_engagement_trace(engagement_id, target_store.get_events(engagement_id))
+
+    return {
+        "engagement_id": trace.engagement_id,
+        "steps": [
+            {
+                "agent": step.agent,
+                "outcome": step.outcome,
+                "event_type": step.event_type,
+                "sequence_number": step.sequence_number,
+                "timestamp_utc": step.timestamp_utc,
+                "latency_s": step.latency_s,
+            }
+            for step in trace.steps
+        ],
+        "total_latency_s": trace.total_latency_s,
+        "last_sequence_number": trace.last_sequence_number,
     }
 
 
