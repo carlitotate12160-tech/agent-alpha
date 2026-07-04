@@ -86,11 +86,7 @@ def score_findings(
     # Zero findings is NOT success (anti-Lyndon #3 — that masked failure as "clean").
     # Any inconclusive result also blocks a PASS — we refuse to certify a run
     # where some targets could not even be analyzed.
-    passed = (
-        (tp + fp > 0)
-        and (fp_rate_of_findings < fp_threshold)
-        and (inconclusive == 0)
-    )
+    passed = (tp + fp > 0) and (fp_rate_of_findings < fp_threshold) and (inconclusive == 0)
 
     return ScanScore(
         tp=tp,
