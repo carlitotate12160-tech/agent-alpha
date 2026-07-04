@@ -41,7 +41,7 @@ class _RealConn:
     def close(self) -> None:
         try:
             self._raw.close()
-        except Exception:  # nosec B110 — cleanup, ignore close errors
+        except Exception:
             pass
 
 
