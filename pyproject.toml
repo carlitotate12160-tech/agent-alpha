@@ -63,6 +63,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # live_fire scripts are CLI entry points — print() is the intended output mechanism.
 "agent_alpha/live_fire/*.py" = ["T201"]
+# scout uses print() to stderr for real-time monologue output (CLI observable).
+"agent_alpha/agents/alpha/scout.py" = ["T201"]
 # js_lab generators are CLI scripts — print() is the intended output mechanism.
 "js_lab/generate_bundle*.py" = ["T201"]
 # lab_guard uses LabOnlyViolation (not Error suffix) as the canonical name
