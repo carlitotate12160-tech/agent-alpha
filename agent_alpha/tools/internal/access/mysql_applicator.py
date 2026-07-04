@@ -168,5 +168,5 @@ class MySqlApplicator:
             if conn is not None:
                 try:
                     conn.close()
-                except Exception:
+                except Exception:  # nosec B110 — cleanup, ignore close errors
                     pass

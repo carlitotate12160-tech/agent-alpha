@@ -1,0 +1,16 @@
+# Bandit configuration for Agent-Alpha
+# A red team agent intentionally uses patterns that bandit flags as LOW severity.
+# These are suppressed via config (not --skip on CLI) so the suppressions are
+# auditable and version-controlled. MEDIUM+ findings still block CI.
+
+# Skip LOW-severity false positives that are legitimate in offensive tooling:
+#   B101: assert_used — used in RLS guards and invariant checks (compiled away in -O, but
+#         those code paths have explicit test coverage; not security-critical)
+#   B105: hardcoded_password_string — false positive on env var names like
+#         JWT_SECRET_ENV = "AGENT_ALPHA_JWT_SECRET" (string constant, not a password)
+#   B110: try_except_pass — connection cleanup (close() on best-effort basis)
+#   B112: try_except_continue — brute-force/recon loops (continue to next target on error)
+skips: ["B101", "B105", "B110", "B112"]
+
+# Exclude generated protobuf stubs (not our code)
+exclude_dirs: ["agent_alpha/a2a"]
