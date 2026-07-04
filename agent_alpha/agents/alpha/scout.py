@@ -207,22 +207,6 @@ class Alpha:
         self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
         return {"discovered_nodes": nodes_added, "cost_usd": decision.cost_usd}
 
-    # ── Private: scope resolution ───────────────────────────────
-
-    def _get_scope_hosts(self) -> list[str]:
-        """Resolve in-scope domains from the engagement's verified scope.
-
-        Source of truth is the auth state machine's persisted scope
-        (event-sourced).  NEVER the probed URL host.  NEVER caller free-form.
-        """
-        try:
-            record = self.authorization.get_record(self._engagement_id)
-        except Exception:  # noqa: BLE001 — scope query must never crash
-            return []
-        if record.scope is None:
-            return []
-        return list(record.scope.domains)
-
     # ── Private: tool handlers ──────────────────────────────────
 
     def _handle_laravel_debug(self, resp: Any, decision: Any, url: str) -> int:
@@ -310,7 +294,7 @@ class Alpha:
     def _handle_wp_config_probe(self, resp: Any, decision: Any, url: str) -> int:
         """Dispatch to the proven wp-config backup leak vector.
 
-        Campaign-level: the vector iterates all scope_hosts internally.
+        Single-target: the vector probes only the current target host.
         Idempotency guard prevents re-run if step() fires multiple times
         (e.g. future endpoint-discovery enqueuing extra URLs).
         """
@@ -318,13 +302,17 @@ class Alpha:
             return 0
         self._ran_campaigns.add(decision.tool)
 
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
         from agent_alpha.recon.wp_config_probe import verify_wp_config_leak
 
         creds_added = verify_wp_config_leak(
             engagement_id=self._engagement_id,
             auth=self.authorization,
             http_client=self.http_client,
-            scope_hosts=self._get_scope_hosts(),
+            scope_hosts=[host],
             graph_store=self.graph_store,
             event_store=self.event_store,
             secrets_manager=self._secrets_manager,
@@ -336,12 +324,16 @@ class Alpha:
     def _handle_js_secret_probe(self, resp: Any, decision: Any, url: str) -> int:
         """Dispatch to the proven JS-bundle secret leak vector.
 
-        Campaign-level: the vector iterates all scope_targets internally.
+        Single-target: the vector probes only the current target host.
         Idempotency guard prevents re-run if step() fires multiple times.
         """
         if decision.tool in self._ran_campaigns:
             return 0
         self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
 
         from agent_alpha.recon.js_secret_probe import verify_js_secret_leak
 
@@ -349,7 +341,7 @@ class Alpha:
             engagement_id=self._engagement_id,
             auth=self.authorization,
             http_client=self.http_client,
-            scope_targets=self._get_scope_hosts(),
+            scope_targets=[host],
             graph_store=self.graph_store,
             event_store=self.event_store,
             secrets_manager=self._secrets_manager,
