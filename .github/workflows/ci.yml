@@ -102,9 +102,7 @@ jobs:
         # Fail on ALL severity findings (LOW+MEDIUM+HIGH). A red team agent must
         # have zero SAST findings — even LOW severity patterns (assert bypass,
         # try/except:pass) are unacceptable in offensive tooling.
-        # SARIF output uploaded to GitHub Security tab for visibility.
-        run: |
-          .venv/bin/bandit -r agent_alpha/ -l -ii -x agent_alpha/a2a -f sarif -o bandit.sarif || (cat bandit.sarif && exit 1)
+        run: .venv/bin/bandit -r agent_alpha/ -l -ii -x agent_alpha/a2a -f json -o bandit-report.json || (cat bandit-report.json && exit 1)
 
       - name: Install gitleaks (secret scanner — Go binary, not pip)
         run: |
@@ -120,15 +118,12 @@ jobs:
         run: |
           gitleaks detect --source . --report-format sarif --report-path gitleaks.sarif --redact || (cat gitleaks.sarif && exit 1)
 
-      - name: Upload SARIF to GitHub Security tab
-        # Makes bandit + gitleaks findings visible in the GitHub Security tab
-        # for auditors and maintainers.
+      - name: Upload gitleaks SARIF to GitHub Security tab
+        # Makes gitleaks findings visible in the GitHub Security tab.
         if: always()
         uses: github/codeql-action/upload-sarif@v3
         with:
-          sarif_file: |
-            bandit.sarif
-            gitleaks.sarif
+          sarif_file: gitleaks.sarif
 
       - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
         # Fresh container: tables don't exist yet. The app, connecting as
