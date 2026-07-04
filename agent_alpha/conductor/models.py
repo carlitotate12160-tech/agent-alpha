@@ -71,8 +71,8 @@ class Scope:
 
     def validate(self) -> None:
         """Validate the scope. Raises ValueError on any problem."""
-        if not self.ip_ranges:
-            raise InvalidScopeError("scope.ip_ranges must not be empty")
+        if not self.ip_ranges and not self.domains:
+            raise InvalidScopeError("scope must have at least one ip_range or domain")
 
         total_ips = 0
         for cidr in self.ip_ranges:

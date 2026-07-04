@@ -11,14 +11,14 @@
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
 | Phase 2 | ✅ COMPLETED | 12/12 komponen selesai | 12 komponen |
-| Phase 3 | 🟦 IN PROGRESS | C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven done | C1–C8 |
+| Phase 3 | 🟦 IN PROGRESS | C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven + FP-Validation PASS done | C1–C8 |
 | Phase 4 | ⬜ NOT STARTED | 0% | - |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
 | Phase 6 | ⬜ NOT STARTED | 0% | - |
 
 ---
 
-> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Cred-Reuse Chain live-fire CHAIN PROVEN on Oracle. CredentialApplicator seam extracted (PR #63). CI hardened dengan 7 gate (PR #64, #65). DB Chain field-proven CHAIN PROVEN on Oracle ARM64 lawan real MySQL 8.4 (commit `73203b6`). Credential-pairing fix + safety guard landed. Next: C6b (fan-out execution + live-fire FP<20%).
+> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Cred-Reuse Chain live-fire CHAIN PROVEN on Oracle. CredentialApplicator seam extracted (PR #63). CI hardened dengan 7 gate (PR #64, #65). DB Chain field-proven CHAIN PROVEN on Oracle ARM64 lawan real MySQL 8.4 (commit `73203b6`). Credential-pairing fix + safety guard landed. **FP-Validation RUN: TP=3, FP=0, FN=0, TN=3, PASS (FP rate 0.0000 < 0.2000)** on Oracle ARM64 dengan 6 DuckDNS lab targets. Next: C6b (fan-out execution), C7 (no regression + CI), C8 (anti-Lyndon gates).
 
 ---
 
@@ -71,6 +71,12 @@
 - **Safety Guard (anti-#10)** — MySqlApplicator refuse empty-username DB auth, zero auth packet ke wire (commit `2651e6b`)
 - **DB Chain Field-Prove** — CHAIN PROVEN: True, db_root, critical — lawan real MySQL 8.4 di Oracle ARM64 (commit `73203b6`)
 - **Mock Laravel Debug Page** — HTTP server mock untuk field-prove (commit `b380413`)
+- **FP-Validation Run** — Live-fire FP-validation dengan 6 lab targets (3 vuln + 3 hardened) via DuckDNS + Caddy HTTPS. Scorecard: TP=3, FP=0, FN=0, TN=3, FP rate=0.0000, Verdict=PASS (commit `3b025c4`)
+- **Campaign Vector Scope Fix** — `_handle_wp_config_probe` dan `_handle_js_secret_probe` hanya scan current target host (`urlparse(url).hostname`), bukan semua scope hosts. Hapus `_get_scope_hosts()`. Mencegah cross-contamination FP (commit sebelumnya)
+- **Playbook Priority Field** — Tambah `priority` field ke `PlaybookRule` (lower=checked first). `laravel_debug` = priority 10, lainnya default 100. Fix FN: Laravel debug page (1.1MB) mengandung `<div id="app">` yang match `js_secret` playbook sebelum `laravel_debug` (alphabetical sort j < l) (commit `3b025c4`)
+- **Caddyfile.fp** — Caddy reverse proxy dengan DuckDNS DNS-01 ACME untuk 6 lab subdomains. WP proxy ke HTTPS upstream nginx:8443 dengan `tls_insecure_skip_verify`
+- **Engagement YAML** — `fp_validation_engagement.yaml` dengan 6 DuckDNS targets, Laravel vuln+hardened pakai `/trigger-error` untuk TN yang bermakna
+- **Lab Guard Allowlist** — 6 DuckDNS subdomains ditambahkan ke `LAB_TARGET_ALLOWLIST` di `lab_guard.py`
 - **C6b** — Per-unit fan-out execution + live-fire FP<20% (PENDING)
 - **C7** — No regression + CI (PENDING)
 - **C8** — Anti-Lyndon gates (PENDING)
@@ -99,6 +105,11 @@
 - **Mock Laravel Debug Page** — HTTP server mock yang serve /trigger-error (leak env vars) + /login untuk field-prove (MERGED, commit `b380413`)
 - **Time-to-Proof Metrics (Phase 1)** — EngagementMemoryRecord dengan time_to_first_proof_s dan time_to_first_exploit_s; _build_record track first timestamps dari ENGAGEMENT_CREATED, PROOF_ARTIFACT_RECORDED, EXPLOIT_CONFIRMED (MERGED, commit `ae43d8a`)
 - **Time-to-Proof Headline (Phase 2)** — Omega Report dengan format_duration formatter, time_to_proof_headline method, dan PDF headline section (MERGED, commit `19836ed`)
+- **FP-Validation Run** — Live-fire validation dengan 6 lab targets (WP vuln/hardened, Laravel vuln/hardened, SPA vuln/hardened) via DuckDNS + Caddy HTTPS reverse proxy. Scorecard: TP=3, FP=0, FN=0, TN=3, FP rate=0.0000, Verdict=PASS (commit `3b025c4`)
+- **Campaign Vector Scope Fix** — scout.py: `_handle_wp_config_probe` dan `_handle_js_secret_probe` hanya scan `[urlparse(url).hostname]` (current target), bukan `_get_scope_hosts()` (all scope). Mencegah hardened target dapat finding dari vulnerable sibling (cross-contamination FP)
+- **Playbook Priority Field** — `PlaybookRule.priority` (lower=first). `laravel_debug.yaml` priority=10. Fix FN: Laravel debug page berisi `<div id="app">` yang match `js_secret` playbook (alphabetical j < l) sebelum `laravel_debug` bisa match (commit `3b025c4`)
+- **Caddyfile.fp (HTTPS Proxy)** — Caddy dengan DuckDNS DNS-01 ACME plugin untuk 6 subdomains. WP reverse proxy ke nginx:8443 HTTPS dengan `tls_insecure_skip_verify`. SPA serve static files. Laravel reverse proxy ke HTTP backend
+- **Lab Guard DuckDNS Allowlist** — 6 DuckDNS subdomains (wp-vuln, wp-hardened, spa-vuln, spa-hardened, laravel-vuln, laravel-hardened `.agentalpha.duckdns.org`) ditambahkan ke `LAB_TARGET_ALLOWLIST`
 
 ---
 
@@ -326,8 +337,8 @@ Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
 - **Phase 0 tests** (159 test) — uji semua komponen Phase 0 + C1 run status & idempotency
 - **Phase 1 tests** (85 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory, IntelligenceBase
 - **Phase 2 tests** (13 test) — uji DeepSeekProvider, PlaybookEngine, LLMOrchestrator, ToolRegistry, Alpha SCOUT, Omega ROASTER, HttpClient, Inner Monologue
-- Phase 3 tests (43 test) — uji CredReuseTool, Alpha vaulting, Beta strike, chain runner, default creds, session token redaction, credential pairing (7 test), mysql safety guard (1 test)
-- Total: 546 passed, 13 skipped di Oracle ARM64 (semua passing, random order)
+- Phase 3 tests (43+ test) — uji CredReuseTool, Alpha vaulting, Beta strike, chain runner, default creds, session token redaction, credential pairing (7 test), mysql safety guard (1 test), alpha vector dispatch (9 test), playbook vector reachability (4 test)
+- Total: 587 passed, 23 skipped (random order, coverage 84%)
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -625,9 +636,10 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-07-03
-**Phase saat ini:** Phase 3 (IN PROGRESS — DB Chain Field-Proven + Credential Pairing + Safety Guard + CI 7-gate + Time-to-Proof Metrics)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven + Time-to-Proof Metrics done
-**Total tests:** 662 passed, 13 skipped di Oracle ARM64 (random order, coverage 84%)
+**Dokumen ini diperbarui terakhir:** 2026-07-04
+**Phase saat ini:** Phase 3 (IN PROGRESS — FP-Validation PASS + DB Chain Field-Proven + Credential Pairing + Safety Guard + CI 7-gate + Time-to-Proof Metrics)
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven + Time-to-Proof Metrics + FP-Validation PASS done
+**Total tests:** 587 passed, 23 skipped (random order, coverage 84%)
 **Field-Prove:** DB Chain CHAIN PROVEN: True (db_root, critical) lawan real MySQL 8.4 di Oracle ARM64
+**FP-Validation:** TP=3, FP=0, FN=0, TN=3, FP rate=0.0000, Verdict=PASS — 6 lab targets (WP/Laravel/SPA × vuln/hardened) via DuckDNS + Caddy HTTPS di Oracle ARM64
 **Time-to-Proof:** EngagementMemory metrics (time_to_first_proof_s, time_to_first_exploit_s) + Omega PDF headline (format_duration) implemented
