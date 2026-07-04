@@ -60,6 +60,7 @@ __all__ = [
     "MIN_SAMPLES_BEFORE_SKIP",
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
+    "RECON_TOOL_CATALOG",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -268,7 +269,23 @@ MAX_WORKERS_PER_ROLE = {
 DEEPSEEK_PRICING_USD_PER_1K = {
     "deepseek-v4-pro": {"input": 0.001, "output": 0.002},
     "deepseek-v4-flash": {"input": 0.0001, "output": 0.0002},
+    # deepseek-chat is the legacy alias for deepseek-v4-flash (same pricing).
+    # Without this entry the cost_budget stop-condition under-counts when
+    # LLM_REASONING_PROVIDER == "deepseek-chat".
+    "deepseek-chat": {"input": 0.0001, "output": 0.0002},
 }
+
+# ── Recon Tool Catalog (SSOT — anti-Lyndon #6/#7) ────────────
+# Canonical set of valid recon tool names.  The LLM tool-select prompt
+# enumerates this set and _parse_tool_response coerces any out-of-catalog
+# name to "generic_http_probe" (the safe no-op).  Alpha's dispatch
+# registry keys MUST remain a subset of this catalog.
+RECON_TOOL_CATALOG: frozenset[str] = frozenset({
+    "laravel_debug_probe",
+    "wp_config_probe",
+    "js_secret_probe",
+    "generic_http_probe",
+})
 
 # ── Live-Fire Scoring (Phase 2) ───────────────────────────────
 # Phase 2 exit criterion: "<20% FP rate in findings"
