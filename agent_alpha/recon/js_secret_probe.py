@@ -35,6 +35,7 @@ from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
+    AssetProperties,
     AttackEdge,
     AttackNode,
     CredentialProperties,
@@ -337,9 +338,23 @@ def verify_js_secret_leak(
                     )
                 continue
 
-            # ── Persist vulnerability node + credential nodes ────────────────
+            # ── Persist asset + vulnerability + credential nodes ──────────────
             now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
             vuln_node_id = f"vuln:{target}:js_secret_leak"
+
+            # ── ASSET node (graph coherence — matches scout._handle_laravel_debug) ─
+            asset_node = AttackNode(
+                id=f"asset:{target}",
+                type=NodeType.ASSET,
+                properties=AssetProperties(
+                    host=target,
+                    tech_stack=["javascript"],
+                ),
+                confidence=0.85,
+                agent="alpha",
+                timestamp_utc=now_utc,
+            )
+            _persist_node(event_store, graph_store, engagement_id, asset_node)
 
             vuln_node = AttackNode(
                 id=vuln_node_id,
@@ -353,6 +368,15 @@ def verify_js_secret_leak(
                 timestamp_utc=now_utc,
             )
             _persist_node(event_store, graph_store, engagement_id, vuln_node)
+
+            # ── EDGE asset → vulnerability ──────────────────────────────────
+            asset_edge = AttackEdge(
+                source_id=asset_node.id,
+                target_id=vuln_node.id,
+                relationship=RelationshipType.EXPLOITS,
+                confidence=0.85,
+            )
+            _persist_edge(event_store, graph_store, engagement_id, asset_edge)
 
             for hit in hits:
                 # ── Vault the raw secret ────────────────────────────────────
@@ -387,6 +411,7 @@ def verify_js_secret_leak(
                     target_id=cred_node.id,
                     relationship=RelationshipType.LEADS_TO,
                     confidence=hit.confidence,
+                    technique_id="T1552.001",
                 )
                 _persist_edge(event_store, graph_store, engagement_id, edge)
 
