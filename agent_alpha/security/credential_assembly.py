@@ -95,6 +95,7 @@ def assemble_leaked_credentials(
                 target_id=cred_node.id,
                 relationship=RelationshipType.LEADS_TO,
                 confidence=0.85,
+                technique_id="T1552.001",
             )
         )
 
@@ -145,6 +146,7 @@ def assemble_leaked_credentials(
                 target_id=cred_node.id,
                 relationship=RelationshipType.LEADS_TO,
                 confidence=0.85,
+                technique_id="T1552.001",
             )
         )
 

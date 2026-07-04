@@ -32,9 +32,11 @@ from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
+    AssetProperties,
     AttackEdge,
     AttackNode,
     NodeType,
+    RelationshipType,
     VulnerabilityProperties,
     node_to_dict,
 )
@@ -171,6 +173,29 @@ def verify_wp_config_leak(
                 timestamp_utc=now_utc,
             )
             _persist_node(event_store, graph_store, engagement_id, vuln_node)
+
+            # ── ASSET node (graph coherence — matches scout._handle_laravel_debug) ─
+            asset_node = AttackNode(
+                id=f"asset:{host}",
+                type=NodeType.ASSET,
+                properties=AssetProperties(
+                    host=host,
+                    tech_stack=["wordpress"],
+                ),
+                confidence=0.85,
+                agent="alpha",
+                timestamp_utc=now_utc,
+            )
+            _persist_node(event_store, graph_store, engagement_id, asset_node)
+
+            # ── EDGE asset → vulnerability ──────────────────────────────────
+            asset_edge = AttackEdge(
+                source_id=asset_node.id,
+                target_id=vuln_node.id,
+                relationship=RelationshipType.EXPLOITS,
+                confidence=0.85,
+            )
+            _persist_edge(event_store, graph_store, engagement_id, asset_edge)
 
             nodes, edges = assemble_leaked_credentials(
                 leaked,
