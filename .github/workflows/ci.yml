@@ -122,7 +122,9 @@ jobs:
         # Scan the service container images for OS-level and library CVEs.
         # Fails on HIGH/CRITICAL — a red team agent must not run on vulnerable infra.
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin v0.50.0
+          mkdir -p /tmp/trivy-bin
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp/trivy-bin v0.50.0
+          export PATH="/tmp/trivy-bin:$PATH"
           trivy --version
           # Scan Postgres image
           trivy image --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed pgvector/pgvector:pg16
@@ -133,7 +135,9 @@ jobs:
         # Generate an SBOM for the Python project — required for enterprise compliance
         # (SOC2, ISO27001). Uploaded as a CI artifact for audit trail.
         run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin v1.9.0
+          mkdir -p /tmp/syft-bin
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp/syft-bin v1.9.0
+          export PATH="/tmp/syft-bin:$PATH"
           syft dir:. --output spdx-json=sbom.spdx.json
           syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
 
@@ -153,8 +157,10 @@ jobs:
         continue-on-error: true
         run: |
           # Install Nuclei
+          mkdir -p /tmp/nuclei-bin
           curl -sSfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
-          unzip -o /tmp/nuclei.zip -d /usr/local/bin nuclei
+          unzip -o /tmp/nuclei.zip -d /tmp/nuclei-bin nuclei
+          export PATH="/tmp/nuclei-bin:$PATH"
           nuclei --version
           # Start beta lab app in background
           .venv/bin/python -m infra.beta_lab_app &
