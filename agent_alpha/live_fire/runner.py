@@ -168,10 +168,12 @@ def run_live_fire(
         msg = alpha.run_recon(rec.engagement_id, t.url)
         payload = a2a_pb2.HandoffPayload()
         payload.ParseFromString(msg.payload)
+        analyzable = payload.status != a2a_pb2.FAILED
         results.append(
             TargetResult(
                 url=t.url,
                 predicted_vulnerable=payload.findings_count > 0,
+                analyzable=analyzable,
             )
         )
 
@@ -238,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     print("LIVE-FIRE SCORECARD")
     print("=" * 60)
     print(f"  TP: {score.tp}   FP: {score.fp}   FN: {score.fn}   TN: {score.tn}")
+    print(f"  Inconclusive:        {score.inconclusive}")
     print(f"  FP rate of findings: {score.fp_rate_of_findings:.4f}")
     print(f"  MAX_FP_RATE:         {MAX_FP_RATE:.4f}")
     verdict = "PASS" if score.passed else "FAIL"
