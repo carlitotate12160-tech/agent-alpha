@@ -98,7 +98,7 @@ def test_reasoning_default_build_uses_real_backend_hermetically() -> None:
     """With the default builder, the reasoning role yields a real provider whose
     model is the single-source-of-truth constant — constructor is network-free."""
     provider = resolve_reasoning_provider(api_key="unit-test-noop")
-    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-v4-pro"
+    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-chat"
 
 
 # ── payload role: accept path ─────────────────────────────────────────

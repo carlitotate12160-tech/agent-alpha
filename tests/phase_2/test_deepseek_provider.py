@@ -23,7 +23,7 @@ from agent_alpha.llm.providers.deepseek import DeepSeekProvider
 def test_default_model_is_single_source_of_truth() -> None:
     """Model id must come from constants, never hardcoded (anti-Lyndon #7)."""
     provider = DeepSeekProvider(api_key="unit-test-noop")
-    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-v4-pro"
+    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-chat"
 
 
 def test_provider_rejects_forbidden_payload_models() -> None:

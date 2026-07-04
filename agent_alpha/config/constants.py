@@ -69,7 +69,7 @@ __all__ = [
 
 # Reasoning provider (TEMPORARY testing value; production target: Claude / GPT-class)
 # See ADR §12.15 switch gate: must be Claude/GPT-class before first paid client engagement.
-LLM_REASONING_PROVIDER = "deepseek-v4-pro"  # Current testing provider
+LLM_REASONING_PROVIDER = "deepseek-chat"  # Current testing provider
 LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"  # Consensus secondary
 
 # Payload provider (direct open-weight provider ONLY; NEVER aggregator/router, NEVER Claude)
