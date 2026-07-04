@@ -1,0 +1,29 @@
+# Dependabot — automated security updates for dependencies
+# Checks for CVE advisories and opens PRs with patched versions.
+
+version: 2
+updates:
+  # Python dependencies (pip)
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: sunday
+    open-pull-requests-limit: 5
+    labels:
+      - security
+      - dependencies
+    commit-message:
+      prefix: "deps(security)"
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: sunday
+    labels:
+      - security
+      - dependencies
+    commit-message:
+      prefix: "ci(security)"
