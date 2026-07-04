@@ -280,12 +280,14 @@ DEEPSEEK_PRICING_USD_PER_1K = {
 # enumerates this set and _parse_tool_response coerces any out-of-catalog
 # name to "generic_http_probe" (the safe no-op).  Alpha's dispatch
 # registry keys MUST remain a subset of this catalog.
-RECON_TOOL_CATALOG: frozenset[str] = frozenset({
-    "laravel_debug_probe",
-    "wp_config_probe",
-    "js_secret_probe",
-    "generic_http_probe",
-})
+RECON_TOOL_CATALOG: frozenset[str] = frozenset(
+    {
+        "laravel_debug_probe",
+        "wp_config_probe",
+        "js_secret_probe",
+        "generic_http_probe",
+    }
+)
 
 # ── Live-Fire Scoring (Phase 2) ───────────────────────────────
 # Phase 2 exit criterion: "<20% FP rate in findings"
