@@ -27,7 +27,7 @@ dependencies = [
     "protobuf",
     "grpcio",
     "pyjwt",
-    "pymysql>=1.1.0",
+    "pymysql>=1.2.0",
 ]
 
 [tool.setuptools.packages.find]
