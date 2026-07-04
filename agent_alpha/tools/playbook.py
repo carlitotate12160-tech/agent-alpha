@@ -33,6 +33,7 @@ class PlaybookRule:
     technique_id: str
     indicators: list[dict[str, str]]
     rationale: str = ""
+    priority: int = 100
 
     def matches(self, observation: dict[str, Any]) -> bool:
         """Check if this rule matches the observation."""
@@ -53,7 +54,7 @@ class PlaybookEngine:
     """Deterministic rule-based decision engine for known observations."""
 
     def __init__(self, rules: list[PlaybookRule]) -> None:
-        self._rules = sorted(rules, key=lambda r: r.name)
+        self._rules = sorted(rules, key=lambda r: (r.priority, r.name))
 
     @classmethod
     def from_directory(cls, path: pathlib.Path) -> PlaybookEngine:
@@ -99,6 +100,7 @@ class PlaybookEngine:
                 technique_id=action["technique_id"],
                 indicators=match["any_indicator"],
                 rationale=action.get("rationale", ""),
+                priority=data.get("priority", 100),
             )
         ]
 
