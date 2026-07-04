@@ -473,6 +473,9 @@ class Alpha:
 
     def _emit(self, phase: str, message: str, reasoning: str = "") -> None:
         """Emit one inner-monologue frame to the injected sink (real-time)."""
+        import sys
+
+        print(f"  [ALPHA/{phase}] {message}", file=sys.stderr)
         self.monologue.emit(
             ThoughtFrame(
                 engagement_id=self._engagement_id,
