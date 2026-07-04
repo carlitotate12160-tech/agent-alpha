@@ -94,7 +94,11 @@ jobs:
 
       - name: Dependency audit (pip-audit — CVE check, strict mode)
         # --strict: warnings become errors. --skip-editable: skip agent-alpha itself.
+        # PIP_AUDIT_NO_EDITABLE=1: suppress the editable-install warning that --strict
+        # would otherwise turn into a failure (agent-alpha is installed from source).
         # Any CVE in any dependency blocks merge — zero tolerance for supply-chain risk.
+        env:
+          PIP_AUDIT_NO_EDITABLE: "1"
         run: .venv/bin/pip-audit --skip-editable --strict
 
       - name: Security scan (bandit — SAST for Python code, all severity)
