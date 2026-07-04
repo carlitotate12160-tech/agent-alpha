@@ -108,17 +108,13 @@ jobs:
       - name: Secret scanning (gitleaks — detect hardcoded credentials in repo)
         # Scan full git history for hardcoded secrets, API keys, tokens.
         # Any finding blocks merge — a red team agent must not leak its own secrets.
+        # gitleaks-action uploads its own SARIF to the GitHub Security tab.
+        # .gitleaks.toml allowlists CI-only ephemeral DB passwords (not real secrets).
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "true"
-
-      - name: Upload gitleaks SARIF to GitHub Security tab
-        # Makes gitleaks findings visible in the GitHub Security tab.
-        if: always()
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: gitleaks-action.sarif
+          GITLEAKS_CONFIG: .gitleaks.toml
 
       - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
         # Fresh container: tables don't exist yet. The app, connecting as

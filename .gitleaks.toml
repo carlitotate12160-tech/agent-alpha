@@ -1,0 +1,15 @@
+# Gitleaks configuration for Agent-Alpha
+# Extends the default gitleaks config with allowlist for CI-only ephemeral passwords.
+
+title: Agent-Alpha Gitleaks Config
+
+extend:
+  useDefault: true
+
+allowlist:
+  # CI ephemeral DB passwords — localhost-only, fresh per run, not real secrets.
+  # Documented in ci.yml SECURITY comment.
+  - description: "CI ephemeral DB passwords (localhost-only, not real secrets)"
+    regexes:
+      - "test-super-pw"
+      - "test-app-pw"
