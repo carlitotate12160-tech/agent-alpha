@@ -46,9 +46,10 @@ run() finding shape (on success):
 
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.parse import urlparse
+
+from defusedxml import ElementTree as ET
 
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
