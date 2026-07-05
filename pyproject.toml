@@ -28,6 +28,7 @@ dependencies = [
     "grpcio",
     "pyjwt",
     "pymysql>=1.1.0",
+    "defusedxml>=0.7.1",
 ]
 
 [tool.setuptools.packages.find]
