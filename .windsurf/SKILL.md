@@ -243,13 +243,5 @@ Consensus (critical decisions):
 
 ## Current Project Status
 
-**Phase:** Architecture / Planning (no code written yet)  
-**ADR Status:** Complete (v1.0, co-authored with Opus 4.8)  
-**Open Decisions:**
-1. Build sequencing: Go+Python hybrid from start, or Python MVP first?
-2. Approval channel: Telegram only, or web dashboard?
-3. Multi-tenancy depth: queue-only vs separate DB schema?
-4. Engagement profiles priority after WebApp?
-5. VERIFY/re-test mode: Phase 2 or Phase 6?
-
-**First code to write:** Phase 0 — Conductor skeleton + authorization state machine
+Live status lives in the repo `CLAUDE.md` ("Current Project Status") + cross-session
+memory. Do NOT duplicate phase/status here — this skill holds durable doctrine only.
