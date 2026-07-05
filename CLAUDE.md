@@ -137,30 +137,40 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 3 — Beta/STRIKE + autonomous Celery chain (PR #69 MERGED 2026-06-29)
-Last Decision  : ADR §12.20 (consensus->Gamma), §12.21 (benchmark gate), §12.22 (tool moat
-                 + scope-safety + CF discriminator) — APPLIED to docs/ADR.md on #61.
-Next Action    : 3d MySqlApplicator body (GLM) green on tests/phase_3/test_mysql_applicator.py
-                 -> field-prove leak->reuse->DIRECT-DB on real in-scope DB -> tool track
-                 (Registry+Composer, audit A4) + cohost_pivot default-DENY safety gate.
+Project Phase  : Phase 3 — CLOSED on Oracle 2026-07-05 (exit-bar H = 100%)
+Last Decision  : Phase-4 charter LOCKED (pre-P4 discussion 2026-07-05, Natanael defers to
+                 architect rec): XBOW = compose+verify only, NO open-ended tool synthesis
+                 (§8o-6 stands); Gamma = §12.22 wrap-commodity / build-the-moat; stack
+                 coverage = stack-AGNOSTIC vectors > per-framework templates (React/Vue
+                 covered by js_secret; Node-backend gap via agnostic classes); sequencing =
+                 ToolComposer+Registry (audit A4) FIRST, then IntelligenceBase (data-starved).
+Next Action    : STOP at the Phase 3->4 boundary — confirm go + surface the DEFERRED
+                 evasion/WAF/CF-bypass discussion (home: TransportResilience §12.22 Dec.3;
+                 discriminator = Claude lane, evasion payload = DeepSeek K21) if it lands in
+                 the first Phase-4 slice. THEN Phase 4 = Registry+Composer (A4 moat enabler).
 
-Test env       : Oracle ARM64, Python 3.12.13, .venv — ALWAYS `.venv/bin/python3 -m pytest`
+Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest` 
                  or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum)
 
 Phase status (verified on Oracle, not claimed):
   Phase 0 : DONE (7 components)
   Phase 1 : DONE (5 components)
   Phase 2 : DONE (12 components) — CODE SEALED 2026-06-19
-  Phase 3 : IN PROGRESS — C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening done.
-            PR #69 merged (auto-advance + Celery wiring). 3d MySqlApplicator shell + body
-            pushed (commit 183ef47). CI green on main.
+  Phase 3 : CLOSED 2026-07-05. Beta/STRIKE + auto-advance Celery chain; cred-reuse (HIGH)
+            + direct-DB (db_root) payable chains field-proven; WP + JS-secret recon vectors
+            field-proven. Exit-bar H closed: A7-a run-trace projection + GET /trace endpoint
+            SEALED; A7-c queue-health probe + GET /health/queue SEALED; cohost_pivot
+            default-DENY gate (assert_pivot_target) SEALED (co-host trap closed).
+  Open (tracked, NON-blocking): A7-b LLM-cost metric DEFERRED (needs new event, dead-seam
+            risk); time_to_first_proof_s still None in 3 live_fire runners; /health/queue
+            returns GLOBAL depth (per-tenant scoping = later refinement).
 
 LLM roles (testing phase): DeepSeek-v4-pro = reasoning PRIMARY + payload/exec;
   Kimi-2.6 = payload fallback; MiMo-v2.5-pro = reasoning CONSENSUS only — DEFERRED to
   Phase 4 (Gamma) per ADR §12.20. NO consensus / MiMoProvider on any Phase-3 live path.
 
-ADR §12.22 tool strategy: wrap commodity, build the moat (DIRECT-DB access), gate the
-  dangerous (OFFENSIVE_APPROVED + SOW scope). MySqlApplicator = moat going live.
+ADR §12.22 tool strategy: wrap commodity, build the moat, gate the dangerous. Moat = triad
+  graph x cross-engagement-memory x proof. Phase 4 builds ToolComposer + Registry first.
 ```
 
 ---
