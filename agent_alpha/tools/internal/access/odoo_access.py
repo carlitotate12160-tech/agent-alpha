@@ -49,7 +49,7 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from defusedxml import ElementTree as ET
+from defusedxml import ElementTree as DefusedET
 
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
@@ -396,8 +396,8 @@ def _value_to_xml(val: Any) -> str:
 def _parse_xmlrpc_response(body: str) -> Any:
     """Parse an XML-RPC methodResponse body. Returns the value, or None on fault/error."""
     try:
-        root = ET.fromstring(body)
-    except ET.ParseError:
+        root = DefusedET.fromstring(body)
+    except DefusedET.ParseError:
         return None
 
     fault = root.find(".//fault")
@@ -411,7 +411,7 @@ def _parse_xmlrpc_response(body: str) -> Any:
     return _xml_to_value(param)
 
 
-def _xml_to_value(elem: ET.Element) -> Any:
+def _xml_to_value(elem: DefusedET.Element) -> Any:
     """Recursively convert an XML-RPC value element to a Python object."""
     # Check for typed value
     child = elem[0] if len(elem) > 0 else None
