@@ -31,6 +31,7 @@ from agent_alpha.conductor.execute_agent import (
     execute_agent,
     rebuild_graph_from_events,
 )
+from agent_alpha.conductor.health import RedisCeleryProbe, build_queue_health
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.conductor.revoker import CeleryTaskRevoker
@@ -598,6 +599,29 @@ def get_engagement_trace(
         ],
         "total_latency_s": trace.total_latency_s,
         "last_sequence_number": trace.last_sequence_number,
+    }
+
+
+@app.get("/health/queue")
+def get_queue_health(
+    principal: Annotated[Principal, Depends(require_principal)],
+) -> dict[str, Any]:
+    """A7 observability (slice A7-c): live broker queue-depth + worker health.
+
+    System-level operational signal (not per-engagement, not event-sourced) —
+    the read-only consumer that makes the health probe live code (anti Lyndon
+    #2). NOTE: returns GLOBAL queue depth; an authenticated tenant can see
+    aggregate system load. Acceptable for an operator signal at this stage;
+    per-tenant scoping is a later refinement, tracked, not silently ignored.
+    """
+    probe = RedisCeleryProbe.from_url(_redis_url, celery_app, CELERY_QUEUE_PREFIX)
+    health = build_queue_health(probe)
+    return {
+        "broker_reachable": health.broker_reachable,
+        "queue_depth": health.queue_depth,
+        "worker_count": health.worker_count,
+        "degraded": health.degraded,
+        "checked_at_utc": health.checked_at_utc,
     }
 
 
