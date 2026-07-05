@@ -285,6 +285,7 @@ RECON_TOOL_CATALOG: frozenset[str] = frozenset(
         "laravel_debug_probe",
         "wp_config_probe",
         "js_secret_probe",
+        "odoo_dbmanager_probe",
         "generic_http_probe",
     }
 )
