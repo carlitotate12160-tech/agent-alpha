@@ -20,7 +20,6 @@ from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor import main as m
 from agent_alpha.conductor.main import app
 from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import InMemoryEventStore
 
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
 
@@ -70,9 +69,10 @@ def test_trace_endpoint_empty_after_create() -> None:
 def test_trace_endpoint_serializes_outcome_step() -> None:
     """A HANDOFF_READY(COMPLETE) in the engagement's store surfaces as one
     serialized step through the endpoint — proves the projection is wired end
-    to end, not just unit-tested in isolation."""
-    if not isinstance(m.event_store, InMemoryEventStore):
-        pytest.skip("direct store injection requires the in-memory backend")
+    to end, not just unit-tested in isolation. Backend-agnostic: appended
+    through the SAME resolver the endpoint reads (store_provider.for_tenant),
+    so it runs on Postgres (Oracle) too — no isinstance skip that would drop
+    the only non-empty proof on the valid environment (anti Lyndon #9)."""
 
     client = TestClient(app)
     engagement_id = _create(client)
