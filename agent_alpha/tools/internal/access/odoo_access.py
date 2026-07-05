@@ -48,7 +48,9 @@ from __future__ import annotations
 
 import xml.etree.ElementTree as ET
 from typing import Any
+from urllib.parse import urlparse
 
+from agent_alpha.graph.nodes import NodeType
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
 
 # ── Single-source markers for THIS tool (defined once; not a #7 dup) ───────
@@ -59,6 +61,11 @@ _ODOO_TECH_MARKERS: tuple[str, ...] = ("odoo",)
 # XML-RPC surfaces the offensive body speaks to (data, not logic — single source).
 ODOO_XMLRPC_COMMON_PATH = "/xmlrpc/2/common"
 ODOO_XMLRPC_DB_PATH = "/xmlrpc/2/db"
+
+# UIDs that are unconditionally admin on default Odoo installs (non-destructive
+# heuristic; no write or group-read performed — uid integer is the proof ceiling).
+# uid 1 = __import__ / superuser on older installs; uid 2 = canonical admin.
+_ODOO_ADMIN_UIDS: frozenset[int] = frozenset({1, 2})
 
 
 def _is_odoo(ctx: TargetContext) -> bool:
@@ -134,8 +141,6 @@ class OdooAccessTool:
         if self._http_client is None:
             raise ValueError("OdooAccessTool.run requires an injected http_client")
 
-        from urllib.parse import urlparse
-
         host = urlparse(ctx.target).hostname or ctx.target
         base_url = ctx.target.rstrip("/")
 
@@ -146,19 +151,20 @@ class OdooAccessTool:
         db_url = f"{base_url}{ODOO_XMLRPC_DB_PATH}"
         db_names: list[str] = []
         server_version: str | None = None
-        try:
-            db_resp = self._http_client.post(
-                db_url,
-                data=db_list_xml,
-                headers={"Content-Type": "text/xml"},
-            )
-            requests_used += 1
-            if getattr(db_resp, "status_code", 0) == 200:
-                parsed = _parse_xmlrpc_response(getattr(db_resp, "text", ""))
-                if isinstance(parsed, list):
-                    db_names = [str(d) for d in parsed]
-        except Exception:
-            pass
+        if requests_used < budget.max_requests:
+            try:
+                db_resp = self._http_client.post(
+                    db_url,
+                    data=db_list_xml,
+                    headers={"Content-Type": "text/xml"},
+                )
+                requests_used += 1
+                if getattr(db_resp, "status_code", 0) == 200:
+                    parsed = _parse_xmlrpc_response(getattr(db_resp, "text", ""))
+                    if isinstance(parsed, list):
+                        db_names = [str(d) for d in parsed if str(d)]
+            except Exception:
+                pass
 
         # Fall back: derive db name from host label (common Odoo convention)
         if not db_names:
@@ -176,14 +182,11 @@ class OdooAccessTool:
 
         # ── 2. ASSEMBLE candidate credentials ──────────────────────
         candidates: list[tuple[str, str, str, str | None]] = []
-        # Built-in Odoo defaults
         for user, pwd in (("admin", "admin"), ("admin", "password")):
             candidates.append((user, pwd, "default", None))
 
-        # Harvested credentials from the graph
         if self._graph_store is not None and self._secrets_manager is not None:
             try:
-                from agent_alpha.graph.nodes import NodeType
                 cred_nodes = self._graph_store.nodes_by_type(NodeType.CREDENTIAL)
                 for node in cred_nodes:
                     props = node.properties
@@ -193,40 +196,37 @@ class OdooAccessTool:
                         secret = self._secrets_manager.retrieve(props.secret_ref)
                     except Exception:
                         continue
-                    candidates.append(
-                        (props.username, secret, "reused", node.id)
-                    )
+                    candidates.append((props.username, secret, "reused", node.id))
             except Exception:
                 pass
 
         # ── 3. APPLY each credential via XML-RPC authenticate ──────
         auth_url = f"{base_url}{ODOO_XMLRPC_COMMON_PATH}"
 
-        # Get server version once (non-destructive, for proof_response)
-        try:
-            ver_xml = _build_xmlrpc_request("version", [])
-            ver_resp = self._http_client.post(
-                auth_url,
-                data=ver_xml,
-                headers={"Content-Type": "text/xml"},
-            )
-            requests_used += 1
-            if getattr(ver_resp, "status_code", 0) == 200:
-                ver_parsed = _parse_xmlrpc_response(getattr(ver_resp, "text", ""))
-                if isinstance(ver_parsed, dict):
-                    server_version = ver_parsed.get("server_version")
-        except Exception:
-            pass
+        # Reserve 2 slots: 1 for version + at least 1 for authenticate.
+        # If the budget is too tight, skip version so authenticate always runs.
+        if requests_used + 2 <= budget.max_requests:
+            try:
+                ver_xml = _build_xmlrpc_request("version", [])
+                ver_resp = self._http_client.post(
+                    auth_url,
+                    data=ver_xml,
+                    headers={"Content-Type": "text/xml"},
+                )
+                requests_used += 1
+                if getattr(ver_resp, "status_code", 0) == 200:
+                    ver_parsed = _parse_xmlrpc_response(getattr(ver_resp, "text", ""))
+                    if isinstance(ver_parsed, dict):
+                        server_version = ver_parsed.get("server_version")
+            except Exception:
+                pass
 
         for db_name in db_names:
             for username, password, cred_source, cred_node_id in candidates:
                 if requests_used >= budget.max_requests:
-                    break
+                    break  # budget exhausted — fall through to failure return
 
-                auth_xml = _build_xmlrpc_request(
-                    "authenticate",
-                    [db_name, username, password, {}],
-                )
+                auth_xml = _build_xmlrpc_request("authenticate", [db_name, username, password, {}])
                 try:
                     auth_resp = self._http_client.post(
                         auth_url,
@@ -242,15 +242,18 @@ class OdooAccessTool:
 
                 uid = _parse_xmlrpc_response(getattr(auth_resp, "text", ""))
 
-                # ── 4. VERIFY: integer uid > 0 ─────────────────────
+                # ── 4. VERIFY: integer uid > 0 is the ONLY valid proof ────────────────
+                # False, 0, XML-RPC <fault>, or unparseable body all fail here.
                 if not isinstance(uid, int) or uid <= 0:
                     continue
 
-                # Determine access level (non-destructive: uid 2 = admin on
-                # default Odoo installs; no write performed)
-                access_level = "admin" if uid == 2 else "user"
+                # Determine access level — non-destructive uid heuristic only.
+                # uid 1 (__import__ / superuser) and uid 2 (canonical admin) are
+                # both treated as admin on default Odoo installs.  No write or
+                # group-read is performed (tier boundary: uid integer is the ceiling).
+                access_level: str = "admin" if uid in _ODOO_ADMIN_UIDS else "user"
 
-                # ── 5. RETURN CONTENT (no raw password) ────────────
+                # ── 5. RETURN CONTENT — raw password intentionally absent ─────────────
                 finding: dict[str, Any] = {
                     "database": db_name,
                     "username": username,
@@ -263,10 +266,12 @@ class OdooAccessTool:
                         "method": "authenticate",
                         "database": db_name,
                         "login": username,
+                        # password intentionally absent
                     },
                     "proof_response": {
                         "uid": uid,
                         "server_version": server_version,
+                        # no secrets, no session tokens
                     },
                 }
 
@@ -277,7 +282,7 @@ class OdooAccessTool:
                     findings=(finding,),
                 )
 
-        # ── No candidate credential authenticated ──────────────────
+        # ── No candidate credential authenticated ────────────────────────────────
         return ToolResult(
             tool=self.name,
             success=False,
