@@ -70,6 +70,7 @@ class Alpha:
             "laravel_debug_probe": self._handle_laravel_debug,
             "wp_config_probe": self._handle_wp_config_probe,
             "js_secret_probe": self._handle_js_secret_probe,
+            "odoo_dbmanager_probe": self._handle_odoo_dbmanager,
         }
 
         # Per-run state, initialised in run_recon().
@@ -349,6 +350,34 @@ class Alpha:
         if creds_added > 0:
             self._findings += 1
         return creds_added
+
+    def _handle_odoo_dbmanager(self, resp: Any, decision: Any, url: str) -> int:
+        """Dispatch to the Odoo database-manager exposure vector (recon).
+
+        Single-target: probes only the current target host. Idempotency guard
+        prevents re-run if step() fires multiple times.
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        from agent_alpha.recon.odoo_dbmanager_probe import verify_odoo_dbmanager_exposure
+
+        exposures = verify_odoo_dbmanager_exposure(
+            engagement_id=self._engagement_id,
+            auth=self.authorization,
+            http_client=self.http_client,
+            scope_hosts=[host],
+            graph_store=self.graph_store,
+            event_store=self.event_store,
+        )
+        if exposures > 0:
+            self._findings += 1
+        return exposures
 
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""
