@@ -48,6 +48,7 @@ from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
+from agent_alpha.tools.internal.access.odoo_access import OdooAccessTool
 from agent_alpha.tools.registry import ToolRegistry
 
 # Budget for the default-creds tool — generous enough for the full dictionary
@@ -254,6 +255,11 @@ class Beta:
                 secrets_manager=self._secrets_manager,
             ),
             DefaultCredsTool(http_client=self.http_client),
+            OdooAccessTool(
+                http_client=self.http_client,
+                graph_store=self.graph_store,
+                secrets_manager=self._secrets_manager,
+            ),
         ]
 
         result = None
