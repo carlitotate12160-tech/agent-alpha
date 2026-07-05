@@ -44,3 +44,19 @@ fetch_review*.py
 pr_body_*.txt
 pr_body_*.md
 .coverage
+
+# Operational data — client recon reports, never commit (world-readable repo)
+*_recon*.pdf
+*_report.pdf
+*_full_report.pdf
+*_recon_blend.pdf
+kanopi_recon.pdf
+kompresor_recon.pdf
+niagamas_*.pdf
+softwareakuntan_recon.pdf
+
+# Chain lab artifacts (local only)
+infra/chain_lab*
+
+# Pip install artefact (redirect typo)
+=4.0.0
