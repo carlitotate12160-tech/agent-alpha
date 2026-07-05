@@ -391,6 +391,36 @@ class AuthorizationStateMachine:
             return False  # bare IP is never a valid offensive web target
         return self.is_in_scope(engagement_id, hostname)
 
+    def assert_pivot_target(self, engagement_id: str, target: str) -> bool:
+        """Default-DENY gate Epsilon MUST pass before ANY lateral / co-host pivot.
+
+        THE CO-HOST TRAP: on shared hosting, a domain discovered on a compromised
+        host frequently resolves to an IP that is already inside the engagement's
+        ``ip_ranges`` — but that co-hosted domain has a DIFFERENT owner and is
+        almost always OUT of SOW. Touching it is unauthorized third-party access.
+        A DOMAIN pivot target is therefore authorized ONLY by explicit presence in
+        ``scope.domains``; it is NEVER upgraded to allowed because its resolved IP
+        falls in an in-scope range. Bare-IP pivots (internal lateral movement) are
+        allowed only when the IP is explicitly within an in-scope range.
+
+        CALLER CONTRACT (non-bypassable intent): pass the discovered HOSTNAME,
+        never a pre-resolved IP — resolving a co-host domain to its shared IP and
+        passing that IP would defeat the domain rule. This gate is the single
+        sanctioned entry for pivot authorization; Epsilon must not re-derive scope.
+
+        Non-raising (gate query). Fail-closed: unparseable, unscoped, or excluded
+        targets return False. Reuses ``is_in_scope`` as the single source of scope
+        truth (anti-Lyndon #7) — the domain/IP split + exclusions + fail-closed
+        rebuild live there, never duplicated here.
+        """
+        from urllib.parse import urlparse
+
+        parsed_url = urlparse(target)
+        hostname = parsed_url.hostname or target
+        if not hostname:
+            return False
+        return self.is_in_scope(engagement_id, hostname)
+
     @staticmethod
     def _matches(parsed: _ParsedAddress, candidate: str) -> bool:
         """Return whether a parsed target matches a candidate exclusion entry."""
