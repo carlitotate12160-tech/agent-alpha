@@ -145,7 +145,9 @@ class OdooAccessTool:
         requests_used = 0
 
         # ── 1. DISCOVER database via XML-RPC db.list() ─────────────
-        db_names, requests_used = self._discover_databases(base_url, budget.max_requests, requests_used)
+        db_names, requests_used = self._discover_databases(
+            base_url, budget.max_requests, requests_used
+        )
         if not db_names:
             return ToolResult(
                 tool=self.name,
@@ -160,7 +162,9 @@ class OdooAccessTool:
         # ── 3. FETCH server version (non-destructive, for proof) ───
         auth_url = f"{base_url}{ODOO_XMLRPC_COMMON_PATH}"
         server_version, requests_used = self._fetch_server_version(
-            auth_url, budget.max_requests, requests_used,
+            auth_url,
+            budget.max_requests,
+            requests_used,
         )
 
         # ── 4. APPLY each credential via XML-RPC authenticate ──────
@@ -170,7 +174,11 @@ class OdooAccessTool:
                     break
 
                 uid, requests_used = self._try_authenticate(
-                    auth_url, db_name, username, password, requests_used,
+                    auth_url,
+                    db_name,
+                    username,
+                    password,
+                    requests_used,
                 )
                 if uid is None:
                     continue
@@ -180,10 +188,17 @@ class OdooAccessTool:
                     tool=self.name,
                     success=True,
                     confidence=0.9,
-                    findings=(self._build_finding(
-                        db_name, username, uid, access_level,
-                        cred_source, cred_node_id, server_version,
-                    ),),
+                    findings=(
+                        self._build_finding(
+                            db_name,
+                            username,
+                            uid,
+                            access_level,
+                            cred_source,
+                            cred_node_id,
+                            server_version,
+                        ),
+                    ),
                 )
 
         return ToolResult(
@@ -194,7 +209,10 @@ class OdooAccessTool:
         )
 
     def _discover_databases(
-        self, base_url: str, max_reqs: int, requests_used: int,
+        self,
+        base_url: str,
+        max_reqs: int,
+        requests_used: int,
     ) -> tuple[list[str], int]:
         """Discover Odoo database names via XML-RPC db.list(), with host-label fallback."""
         host = urlparse(base_url).hostname or base_url
@@ -248,7 +266,10 @@ class OdooAccessTool:
         return candidates
 
     def _fetch_server_version(
-        self, auth_url: str, max_reqs: int, requests_used: int,
+        self,
+        auth_url: str,
+        max_reqs: int,
+        requests_used: int,
     ) -> tuple[str | None, int]:
         """Fetch Odoo server version via XML-RPC (non-destructive, for proof_response)."""
         if requests_used + 2 > max_reqs:
@@ -271,7 +292,12 @@ class OdooAccessTool:
         return None, requests_used
 
     def _try_authenticate(
-        self, auth_url: str, db: str, login: str, password: str, requests_used: int,
+        self,
+        auth_url: str,
+        db: str,
+        login: str,
+        password: str,
+        requests_used: int,
     ) -> tuple[int | None, int]:
         """Attempt a single XML-RPC authenticate. Returns (uid | None, new_requests_used)."""
         try:
@@ -295,8 +321,13 @@ class OdooAccessTool:
 
     @staticmethod
     def _build_finding(
-        db_name: str, username: str, uid: int, access_level: str,
-        cred_source: str, cred_node_id: str | None, server_version: str | None,
+        db_name: str,
+        username: str,
+        uid: int,
+        access_level: str,
+        cred_source: str,
+        cred_node_id: str | None,
+        server_version: str | None,
     ) -> dict[str, Any]:
         """Build the finding dict — raw password intentionally absent."""
         return {
@@ -355,8 +386,7 @@ def _value_to_xml(val: Any) -> str:
         return f"<value><array><data>{items}</data></array></value>"
     if isinstance(val, dict):
         members = "".join(
-            f"<member><name>{k}</name>{_value_to_xml(v)}</member>"
-            for k, v in val.items()
+            f"<member><name>{k}</name>{_value_to_xml(v)}</member>" for k, v in val.items()
         )
         return f"<value><struct>{members}</struct></value>"
     return "<value><string></string></value>"
