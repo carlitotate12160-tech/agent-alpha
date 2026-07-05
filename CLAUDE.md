@@ -137,17 +137,15 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 3 — CLOSED on Oracle 2026-07-05 (exit-bar H = 100%)
-Last Decision  : Phase-4 charter LOCKED (pre-P4 discussion 2026-07-05, Natanael defers to
-                 architect rec): XBOW = compose+verify only, NO open-ended tool synthesis
-                 (§8o-6 stands); Gamma = §12.22 wrap-commodity / build-the-moat; stack
-                 coverage = stack-AGNOSTIC vectors > per-framework templates (React/Vue
-                 covered by js_secret; Node-backend gap via agnostic classes); sequencing =
-                 ToolComposer+Registry (audit A4) FIRST, then IntelligenceBase (data-starved).
-Next Action    : STOP at the Phase 3->4 boundary — confirm go + surface the DEFERRED
-                 evasion/WAF/CF-bypass discussion (home: TransportResilience §12.22 Dec.3;
-                 discriminator = Claude lane, evasion payload = DeepSeek K21) if it lands in
-                 the first Phase-4 slice. THEN Phase 4 = Registry+Composer (A4 moat enabler).
+Project Phase  : Phase 4 — slice-1 (ToolRegistry.ranked) SEALED 2026-07-05; #99 superseded
+Last Decision  : Phase-4 breadth slice: Odoo DB-manager exposure probe (recon) added —
+                 agent_alpha/recon/odoo_dbmanager_probe.py. Universal Odoo surface detection
+                 (/web/database/manager fingerprint + action markers). 11 tests GREEN.
+                 Next: OdooXmlRpcTool (access phase) or breadth tool for WP/Laravel.
+                 Gamma (OFFENSIVE_APPROVED + blast-radius gate) still parked behind this.
+Next Action    : Continue Phase 4 breadth — add OdooXmlRpcTool (access-phase Tool conforming
+                 to Tool protocol, ranked by ToolRegistry via applies_to). Then ToolComposer
+                 slice when Gamma Template is ready.
 
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest` 
                  or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum)
