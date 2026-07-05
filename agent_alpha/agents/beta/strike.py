@@ -48,6 +48,7 @@ from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
+from agent_alpha.tools.registry import ToolRegistry
 
 # Budget for the default-creds tool — generous enough for the full dictionary
 # but bounded (anti-Lyndon #7: single source, not a magic number in step).
@@ -257,7 +258,7 @@ class Beta:
 
         result = None
         winning_tool: Tool | None = None
-        for tool in sorted(candidates, key=lambda t: t.applies_to(ctx), reverse=True):
+        for tool in ToolRegistry(candidates).ranked(ctx):
             try:
                 result = tool.run(ctx, budget)
             except NotImplementedError:
