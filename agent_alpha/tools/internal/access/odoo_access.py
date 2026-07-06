@@ -39,7 +39,7 @@ run() finding shape (on success):
       "access_level": "user" | "admin",# admin iff uid resolves to an admin group
       "credential_source": "default" | "reused",  # default dict vs Alpha-harvested
       "credential_node_id": str | None,# CREDENTIAL node id when source == "reused" (edge src)
-      "proof_request": dict,           # safe fields only: endpoint + method + db + login
+      "proof_request": dict,           # safe fields only: endpoint + method + db + db_source + login
       "proof_response": dict,          # safe fields only: uid + server_version; NO secrets
     }
 """
@@ -146,7 +146,7 @@ class OdooAccessTool:
         requests_used = 0
 
         # ── 1. DISCOVER database via XML-RPC db.list() ─────────────
-        db_names, requests_used = self._discover_databases(
+        db_names, db_source, requests_used = self._discover_databases(
             base_url, budget.max_requests, requests_used
         )
         if not db_names:
@@ -198,6 +198,7 @@ class OdooAccessTool:
                             cred_source,
                             cred_node_id,
                             server_version,
+                            db_source,
                         ),
                     ),
                 )
@@ -214,10 +215,17 @@ class OdooAccessTool:
         base_url: str,
         max_reqs: int,
         requests_used: int,
-    ) -> tuple[list[str], int]:
-        """Discover Odoo database names via XML-RPC db.list(), with host-label fallback."""
+    ) -> tuple[list[str], str, int]:
+        """Discover Odoo database names via XML-RPC db.list(), with host-label fallback.
+
+        Also reports PROVENANCE (anti-#3 honesty): "enumerated" when db.list() actually
+        returned names, "guessed" when we fell back to the hostname label. A guessed db
+        that authenticates is a WEAKER finding — downstream (Omega down-rank, 1d chain
+        gate) must not treat it like an enumerated one.
+        """
         host = urlparse(base_url).hostname or base_url
         db_names: list[str] = []
+        db_source = "enumerated"
         if requests_used < max_reqs:
             try:
                 resp = self._http_client.post(
@@ -234,11 +242,12 @@ class OdooAccessTool:
                 pass
 
         if not db_names:
+            db_source = "guessed"
             derived = host.split(".")[0] if host else ""
             if derived:
                 db_names = [derived]
 
-        return db_names, requests_used
+        return db_names, db_source, requests_used
 
     def _assemble_candidates(self) -> list[tuple[str, str, str, str | None]]:
         """Build credential candidate list: Odoo defaults + harvested graph creds."""
@@ -329,8 +338,14 @@ class OdooAccessTool:
         cred_source: str,
         cred_node_id: str | None,
         server_version: str | None,
+        db_source: str,
     ) -> dict[str, Any]:
-        """Build the finding dict — raw password intentionally absent."""
+        """Build the finding dict — raw password intentionally absent.
+
+        ``database_source`` ("enumerated" | "guessed") rides INSIDE proof_request so it
+        survives Beta.step persistence (which forwards proof_request verbatim); a
+        top-level finding field would be dropped by the cherry-picking persister (#2).
+        """
         return {
             "database": db_name,
             "username": username,
@@ -342,6 +357,7 @@ class OdooAccessTool:
                 "endpoint": ODOO_XMLRPC_COMMON_PATH,
                 "method": "authenticate",
                 "database": db_name,
+                "database_source": db_source,
                 "login": username,
             },
             "proof_response": {
