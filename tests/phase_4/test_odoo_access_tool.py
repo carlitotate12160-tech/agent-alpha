@@ -19,6 +19,8 @@ default_creds pattern), pinned by deepseek_prompt_odoo_access.md.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -208,19 +210,17 @@ def _budget() -> ResourceBudget:
 def test_run_success_admin_admin_returns_uid_and_access_level() -> None:
     """authenticate(admin/admin) → uid=2 → success, admin, default source, no password in proof."""
     db_resp = _FakeResp(200, _xmlrpc_response_list(["erp"]))
-    ver_resp = _FakeResp(200, _xmlrpc_response_struct({"server_version": "16.0+e"}))
     auth_resp = _FakeResp(200, _xmlrpc_response_int(2))
 
-    http = _FakeHttp({
-        ODOO_XMLRPC_DB_PATH: db_resp,
-        ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_int(2)),
-    })
-    # The version call also hits /xmlrpc/2/common — we need to differentiate
-    # by request body. Simplify: return auth_resp for all common calls.
-    http = _FakeHttp({
-        ODOO_XMLRPC_DB_PATH: db_resp,
-        ODOO_XMLRPC_COMMON_PATH: auth_resp,
-    })
+    # version + authenticate both hit /xmlrpc/2/common; the fake can't split by
+    # body, so it returns the uid response for all common calls (server_version
+    # simply projects through as None — the proof shape stays valid).
+    http = _FakeHttp(
+        {
+            ODOO_XMLRPC_DB_PATH: db_resp,
+            ODOO_XMLRPC_COMMON_PATH: auth_resp,
+        }
+    )
 
     tool = OdooAccessTool(http_client=http)
     result = tool.run(_odoo_ctx(), _budget())
@@ -234,19 +234,25 @@ def test_run_success_admin_admin_returns_uid_and_access_level() -> None:
     assert finding["credential_node_id"] is None
     assert finding["database"] == "erp"
     assert finding["username"] == "admin"
-    # Anti-leak: password must NOT appear in any proof dict
-    proof_str = str(finding["proof_request"]) + str(finding["proof_response"])
-    assert "admin" not in proof_str or "admin" == finding["username"]  # login is ok, password is not
-    assert "password" not in str(finding["proof_request"])
-    assert "password" not in str(finding["proof_response"])
+    # Anti-leak (structural, non-tautological): the proof dicts expose only a safe
+    # allowlist of keys and never a "password" key. NOTE: admin/admin makes a
+    # value-level leak check impossible (password == login), so the RIGOROUS
+    # value-level non-leak proof lives in test_run_reused_credential_when_defaults_fail
+    # where the password ("s3cr3t") is distinct from the login.
+    assert set(finding["proof_request"]) == {"endpoint", "method", "database", "login"}
+    assert set(finding["proof_response"]) == {"uid", "server_version"}
+    assert "password" not in finding["proof_request"]
+    assert "password" not in finding["proof_response"]
 
 
 def test_run_all_false_returns_failure() -> None:
     """authenticate always returns False → success=False, no findings."""
-    http = _FakeHttp({
-        ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_response_list(["erp"])),
-        ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_bool(False)),
-    })
+    http = _FakeHttp(
+        {
+            ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_response_list(["erp"])),
+            ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_bool(False)),
+        }
+    )
     tool = OdooAccessTool(http_client=http)
     result = tool.run(_odoo_ctx(), _budget())
 
@@ -256,32 +262,49 @@ def test_run_all_false_returns_failure() -> None:
 
 
 def test_run_db_list_fault_no_derivable_db_returns_failure() -> None:
-    """db.list() faults AND host label not derivable → success=False (no silent success)."""
-    http = _FakeHttp({
-        ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_fault()),
-        ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_int(2)),
-    })
-    # Use a target with no hostname to prevent fallback derivation
+    """db.list() faults AND no host label is derivable → success=False, no findings.
+
+    Anti-#3 (no-silent-success) guard on the discovery branch. To actually REACH
+    `if not db_names: return failure`, the host must yield an empty first label — a
+    leading-dot host (".invalid" → split('.')[0] == '') does that (verified via
+    urlparse). Even though authenticate WOULD return uid=2, the tool must fail
+    because it never resolved a database to authenticate against.
+    """
+    http = _FakeHttp(
+        {
+            ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_fault()),
+            ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_int(2)),
+        }
+    )
     ctx = TargetContext(
         engagement_id="e",
         tenant_id=None,
-        target="https://odoo.lab-target.invalid",
+        target="https://.invalid",  # host ".invalid" -> first label "" -> no db derivable
         tech_stack={"framework": "Odoo 16.0"},
     )
     tool = OdooAccessTool(http_client=http)
     result = tool.run(ctx, _budget())
 
-    # db.list faulted, but host label "odoo" is derivable from "odoo.lab-target.invalid"
-    # so it falls back — and authenticate should succeed with uid=2
-    assert result.success is True
+    assert result.success is False
+    assert result.findings == ()
+    assert "database" in (result.error or "").lower()
 
 
-def test_run_db_list_fault_no_hostname_returns_failure() -> None:
-    """db.list() faults AND no hostname derivable → success=False."""
-    http = _FakeHttp({
-        ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_fault()),
-        ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_int(2)),
-    })
+def test_run_db_list_fault_falls_back_to_host_label() -> None:
+    """db.list() faults but a host label IS derivable → fall back, authenticate on it.
+
+    Honest counterpart to the failure test above; documents the fallback heuristic
+    `host.split('.')[0]`. Host "lab-target.invalid" -> derived db "lab-target";
+    authenticate returns uid=2 so the tool succeeds against the guessed db.
+    (DESIGN FLAG in delivery notes: this heuristic makes the no-db failure branch
+    reachable only on malformed hosts.)
+    """
+    http = _FakeHttp(
+        {
+            ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_fault()),
+            ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_int(2)),
+        }
+    )
     ctx = TargetContext(
         engagement_id="e",
         tenant_id=None,
@@ -291,50 +314,50 @@ def test_run_db_list_fault_no_hostname_returns_failure() -> None:
     tool = OdooAccessTool(http_client=http)
     result = tool.run(ctx, _budget())
 
-    # "lab" is derivable from "lab-target.invalid" — so it falls back and succeeds
-    # The real test is: can we get a failure when no db is derivable?
-    # With a valid hostname, fallback always works. This test confirms the fallback path works.
     assert result.success is True
+    assert result.findings[0]["database"] == "lab-target"
 
 
-def test_run_reused_credential_authenticates() -> None:
-    """A graph CREDENTIAL node whose vaulted secret authenticates → credential_source=reused."""
+def test_run_defaults_take_precedence_over_reused_creds() -> None:
+    """Graph creds present, but a built-in default authenticates FIRST → source="default".
+
+    Honest rewrite of the old `_reused_credential_authenticates` (which asserted only
+    uid==2 and proved nothing about the source). Documents real precedence: default
+    candidates are tried before harvested creds, so when admin/admin works the source
+    is "default". The genuine reused-cred proof is the next test.
+    """
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
-    from agent_alpha.graph.nodes import AttackNode, CredentialProperties, NodeType
 
     graph = NetworkXGraphStore()
-    cred_node = AttackNode(
-        id="cred:1",
-        type=NodeType.CREDENTIAL,
-        properties=CredentialProperties(
-            username="admin",
-            secret_ref="vault:secret:1",
-            service="odoo",
-            access_level="user",
-        ),
-        confidence=0.8,
-        agent="alpha",
-        timestamp_utc="2026-07-05T00:00:00Z",
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred:1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault:secret:1",
+                "service": "odoo",
+                "access_level": "user",
+            },
+            "confidence": 0.8,
+            "agent": "alpha",
+            "timestamp_utc": "2026-07-05T00:00:00Z",
+        },
     )
-    graph.apply_event("NodeDiscovered", {
-        "id": cred_node.id,
-        "type": "credential",
-        "properties": {"username": "admin", "secret_ref": "vault:secret:1", "service": "odoo", "access_level": "user"},
-        "confidence": 0.8,
-        "agent": "alpha",
-        "timestamp_utc": "2026-07-05T00:00:00Z",
-    })
 
     class _FakeVault:
         def retrieve(self, secret_ref: str) -> str:
             if secret_ref == "vault:secret:1":
-                return "admin"
+                return "unused-because-default-wins"
             raise KeyError(secret_ref)
 
-    http = _FakeHttp({
-        ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_response_list(["erp"])),
-        ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_int(2)),
-    })
+    http = _FakeHttp(
+        {
+            ODOO_XMLRPC_DB_PATH: _FakeResp(200, _xmlrpc_response_list(["erp"])),
+            ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_int(2)),
+        }
+    )
     tool = OdooAccessTool(
         http_client=http,
         graph_store=graph,
@@ -344,33 +367,32 @@ def test_run_reused_credential_authenticates() -> None:
 
     assert result.success is True
     finding = result.findings[0]
-    # The default admin/admin will hit first and succeed, so credential_source="default"
-    # To test reused, we need the default to fail. Let's adjust:
-    # Actually the defaults run first. If admin/admin succeeds, we never reach reused creds.
-    # This is fine — the test proves the tool works with graph creds present.
-    # For a true reused test, defaults must fail:
+    assert finding["credential_source"] == "default"
+    assert finding["credential_node_id"] is None
     assert finding["uid"] == 2
 
 
 def test_run_reused_credential_when_defaults_fail() -> None:
     """Defaults fail, but a harvested credential authenticates → credential_source=reused."""
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
-    from agent_alpha.graph.nodes import NodeType
 
     graph = NetworkXGraphStore()
-    graph.apply_event("NodeDiscovered", {
-        "id": "cred:1",
-        "type": "credential",
-        "properties": {
-            "username": "admin",
-            "secret_ref": "vault:secret:1",
-            "service": "odoo",
-            "access_level": "user",
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred:1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault:secret:1",
+                "service": "odoo",
+                "access_level": "user",
+            },
+            "confidence": 0.8,
+            "agent": "alpha",
+            "timestamp_utc": "2026-07-05T00:00:00Z",
         },
-        "confidence": 0.8,
-        "agent": "alpha",
-        "timestamp_utc": "2026-07-05T00:00:00Z",
-    })
+    )
 
     class _FakeVault:
         def retrieve(self, secret_ref: str) -> str:
@@ -417,3 +439,10 @@ def test_run_reused_credential_when_defaults_fail() -> None:
     assert finding["credential_node_id"] == "cred:1"
     assert finding["uid"] == 2
     assert finding["username"] == "admin"
+    # RIGOROUS anti-leak: the distinct password "s3cr3t" (!= login) must NOT appear
+    # anywhere in the persisted proof dicts. This is the real non-leak proof the
+    # admin/admin success test structurally cannot give (there password == login).
+    proof_blob = str(finding["proof_request"]) + str(finding["proof_response"])
+    assert "s3cr3t" not in proof_blob
+    assert "password" not in finding["proof_request"]
+    assert "password" not in finding["proof_response"]
