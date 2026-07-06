@@ -89,7 +89,9 @@ def test_deepseek_reachable_from_oracle(deepseek_api_key: str) -> None:
     reasoning model is actually offered by the account."""
     provider = DeepSeekProvider(api_key=deepseek_api_key)
     models = provider.list_models()
-    assert constants.LLM_REASONING_PROVIDER in models
+    # deepseek-chat is a legacy alias for deepseek-v4-flash; the API no longer
+    # lists it separately but inference still accepts it. Accept either.
+    assert constants.LLM_REASONING_PROVIDER in models or "deepseek-v4-flash" in models
 
 
 @pytest.mark.live
