@@ -1,0 +1,15 @@
+# CodeQL scope config — analyze ONLY the shipped product.
+# Rationale: the default run scanned the whole repo (security-and-quality, no filter),
+# so ~84% of alerts came from code that never ships:
+#   - tests/            (18k LOC of test scaffolding: unused vars, side-effect-in-assert)
+#   - infra/, wp_lab/, js_lab/  (lab TARGETS — beta_lab_app.py is vulnerable BY DESIGN;
+#                                seeded ground-truth secrets are intentional)
+#   - root scratch scripts (one-off debug leftovers, now deleted)
+# You do not SAST your own victim lab or your test fixtures. The product is agent_alpha/.
+name: "Agent-Alpha CodeQL (product-scoped)"
+
+paths:
+  - agent_alpha
+
+# If you later want a SECURITY-ONLY pass over tests/labs, add a second workflow with
+# queries: security and paths: [tests, infra] — do NOT fold quality rules onto non-ship code.
