@@ -239,10 +239,18 @@ def test_run_success_admin_admin_returns_uid_and_access_level() -> None:
     # value-level leak check impossible (password == login), so the RIGOROUS
     # value-level non-leak proof lives in test_run_reused_credential_when_defaults_fail
     # where the password ("s3cr3t") is distinct from the login.
-    assert set(finding["proof_request"]) == {"endpoint", "method", "database", "login"}
+    assert set(finding["proof_request"]) == {
+        "endpoint",
+        "method",
+        "database",
+        "database_source",
+        "login",
+    }
     assert set(finding["proof_response"]) == {"uid", "server_version"}
     assert "password" not in finding["proof_request"]
     assert "password" not in finding["proof_response"]
+    # db.list() returned ["erp"] -> provenance is honestly "enumerated"
+    assert finding["proof_request"]["database_source"] == "enumerated"
 
 
 def test_run_all_false_returns_failure() -> None:
@@ -316,6 +324,8 @@ def test_run_db_list_fault_falls_back_to_host_label() -> None:
 
     assert result.success is True
     assert result.findings[0]["database"] == "lab-target"
+    # db.list() faulted -> fell back to host label -> provenance is "guessed"
+    assert result.findings[0]["proof_request"]["database_source"] == "guessed"
 
 
 def test_run_defaults_take_precedence_over_reused_creds() -> None:
