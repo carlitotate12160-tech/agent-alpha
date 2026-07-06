@@ -26,6 +26,18 @@ from agent_alpha.events.store import EventStore
 _log = logging.getLogger(__name__)
 
 
+def _scrub_log_id(value: str) -> str:
+    """Strip CR/LF from an externally-supplied identifier before it reaches a log sink.
+
+    ``engagement_id`` arrives from a client-supplied API path param; without this a
+    crafted value could forge or split lines in the audit log (py/log-injection). The
+    kill switch's log output IS part of the legal audit trail, so newlines are
+    neutralised at the sink. The UNSCRUBBED value is still used for all real logic
+    (auth transition, task revocation, event append).
+    """
+    return value.replace("\r", "").replace("\n", "")
+
+
 def _utc_now_iso() -> str:
     """Return the current UTC time as an ISO 8601 string with a 'Z' suffix."""
     return datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
@@ -72,6 +84,8 @@ class EmergencyStopHandler:
         start_ns = time.perf_counter_ns()
         tasks_revoked = 0
         success = True
+        # Newline-safe copy for log sinks only (py/log-injection); logic uses raw id.
+        safe_eid = _scrub_log_id(engagement_id)
 
         try:
             # Step 2: force the authorization gate into EMERGENCY_STOP.
@@ -82,7 +96,7 @@ class EmergencyStopHandler:
                 _log.warning(
                     "No CeleryRevoker injected (Phase 0): skipping task revocation "
                     "for engagement_id=%s",
-                    engagement_id,
+                    safe_eid,
                 )
             else:
                 tasks_revoked = self._celery_revoker.revoke_engagement_tasks(engagement_id)
@@ -108,7 +122,7 @@ class EmergencyStopHandler:
                 },
             )
         except Exception:  # noqa: BLE001 — kill switch must never propagate errors
-            _log.exception("Emergency stop failed for engagement_id=%s", engagement_id)
+            _log.exception("Emergency stop failed for engagement_id=%s", safe_eid)
             success = False
 
         # Step 5: compute elapsed wall-clock time in milliseconds.
@@ -118,7 +132,7 @@ class EmergencyStopHandler:
         if elapsed_ms > EMERGENCY_STOP_TIMEOUT_SEC * 1000:
             _log.warning(
                 "Emergency stop for engagement_id=%s took %.1fms, exceeding budget of %dms",
-                engagement_id,
+                safe_eid,
                 elapsed_ms,
                 EMERGENCY_STOP_TIMEOUT_SEC * 1000,
             )
