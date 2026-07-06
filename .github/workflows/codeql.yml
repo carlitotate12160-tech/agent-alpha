@@ -28,8 +28,11 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: python
-          # Use the 'security-and-quality' query suite for deeper analysis
-          queries: security-and-quality
+          # CodeQL owns SECURITY (taint analysis); ruff (make check) owns QUALITY.
+          # security-and-quality double-counted quality noise CodeQL is bad at
+          # (Protocol `...`, dataclass field-doc strings) — 55 of 68 alerts were
+          # quality FPs. security-extended keeps deep security queries, drops the noise.
+          queries: security-extended
           # Scope analysis to the shipped product only (see config for rationale)
           config-file: ./.github/codeql/codeql-config.yml
 
