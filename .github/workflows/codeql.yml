@@ -30,6 +30,8 @@ jobs:
           languages: python
           # Use the 'security-and-quality' query suite for deeper analysis
           queries: security-and-quality
+          # Scope analysis to the shipped product only (see config for rationale)
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
