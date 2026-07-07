@@ -419,13 +419,30 @@ Redis SessionMemory + conversation cache, PostgreSQL+pgvector schema, AttackGrap
 
 Smallest demoable loop: recon → graph → report. Formal Agent Cognitive Loop (§8j) + Planner/Executor + World Model/belief state (§8o-2) + inner monologue & scratchpad visible+persisted (§8j-2) + stop conditions. Validate handoff contract & adaptive reporting style. First engagement profile: WebApp Pentest (§8e). Report: MITRE ATT&CK mapping + export PDF/JSON (§8n).
 
+**Tool detail:** See `OPERATIONAL_REFERENCE.md` §O1 (Alpha) + §O1 (Omega) for the full kill-chain tool catalog. Per ADR §12.22 Decision 1 (wrap vs build):
+- **Current (sealed):** 4 proven probes — Laravel debug, WP config, JS secret, Odoo DB manager + generic HTTP probe. Single-URL work queue, `ALPHA_RECON_NO_PROGRESS_ITERS=1`.
+- **Target (WRAP, commodity):** subdomain enum (subfinder, crt.sh), port scan (nmap top-30), directory enum (feroxbuster/ffuf), reverse IP lookup (hackertarget), JS bundle crawler, tech detection (whatweb, wafw00f). Wrap behind `ToolResult` contract (§12.16).
+- **BUILD INTERNAL (the moat):** credential harvest from leaked env (Laravel), credential assembly + vault, AttackGraph node/edge persistence — tools that use the graph in a way standalone tools cannot.
+- **Recon breadth expansion:** handlers append discovered URLs/subdomains to `_work_queue`; raise `ALPHA_RECON_NO_PROGRESS_ITERS` from 1 to 3-5 once multi-URL discovery is wired.
+
 ### Phase 3 — Beta (STRIKE) + Celery non-blocking + LLM strategy
 
 Initial access (ACTIVE_APPROVED), credential spray, chat-while-task-runs (§8a), multi-tenant queue, LLM Orchestration parallel consensus + role split (Claude reasoning / DeepSeek payload) + redaction + budget cap (§8d, §8k), prompt-injection defense (§8l), loop/budget guardrail + checkpoint/resume (§8m), time-window & OPSEC profile (§8n).
 
+**Tool detail:** See `OPERATIONAL_REFERENCE.md` §O1 (Beta) for the full strike tool catalog. Per ADR §12.22:
+- **Current (sealed):** CredReuseTool (vaulted credential reuse), DefaultCredsTool (6 platforms), CredentialApplicator seam (HttpFormApplicator + MySqlApplicator). Conductor auto-advance Alpha→Beta via Celery.
+- **Target (WRAP):** browser automation (Playwright + stealth), proxy infrastructure (BrightData Web Unlocker), CAPTCHA bypass (2Captcha), protocol spray (SSH/FTP/IMAP).
+- **BUILD INTERNAL:** credential applicator dispatch, false-success guard, scope-gated DB endpoint check — graph-aware logic standalone tools lack.
+- **Note:** Consensus tier (§8d) deferred to Phase 4 per §12.23.
+
 ### Phase 4 — Gamma (ANCHOR) + ToolComposer + proof artifacts
 
 Exploitation (OFFENSIVE_APPROVED+SOW), runtime tool composition, blast radius gate + Telegram approval.
+
+**Tool detail:** See `OPERATIONAL_REFERENCE.md` §O1 (Gamma) for the full exploit tool catalog. Per ADR §12.22:
+- **WRAP (commodity):** sqlmap, nuclei templates.
+- **BUILD INTERNAL (the moat):** ToolComposer.compose(base_template, context) — runtime exploit composition from AttackGraph facts (§5). CMS-specific exploit templates, CVE matching + exploit execution, webshell deploy + persistence.
+- **Safety gate (§12.22 Decision 2):** blast-radius gate before ANCHOR; co-host pivot / symlink default-DENY.
 
 ### Phase 4b — Advanced Cognition
 
@@ -435,9 +452,16 @@ Simulation/dry-run before risky action → feed blast-radius gate (§8o-2), capa
 
 Post-exploit & lateral movement, pivot-chain state tracking (§8f), OS-as-tools / LOLBin (§8g), parallel attack path execution + blackboard coordination (§8o-5), Kerberoasting/AS-REP for AD (§8i).
 
+**Tool detail:** See `OPERATIONAL_REFERENCE.md` §O1 (Delta + Epsilon) for the full post-exploit and lateral movement tool catalog. Per ADR §12.22:
+- **WRAP (commodity):** GSocket (encrypted shell), john (hash cracking).
+- **BUILD INTERNAL:** pivot-chain state tracking in AttackGraph, OS-as-tools / LOLBin catalog, internal network scanning from compromised host, co-host pivot (default-DENY per §12.22 Decision 2).
+- **Safety-critical:** `cohost_pivot.py` / `symlink.py` — HIGHEST RISK, default-DENY without explicit per-action SOW authorization.
+
 ### Phase 6 — Hardening, learning & differentiators
 
 IntelligenceBase cross-engagement learning + circuit-breaker tool reliability (§8c), Adaptive Learning L1: reflection loop + credit assignment + playbook store + Conductor meta-tuning (§8o-6), knowledge ingestion pipeline (threat-intel RAG, §8o-3), VERIFY/re-test mode, continuous/scheduled engagement, "Try Harder" agent, structured-prompt-from-graph, impact-based prioritization + HVT (§8i), safe-in-production guardrails, Tripwires/canary detection-validation (§8i), additional engagement profiles (Cloud / AD Password Audit / Phishing Impact / Endpoint, §8e).
+
+**Tool detail:** See `OPERATIONAL_REFERENCE.md` §O1 (Omega) for reporting tool targets (JSON, SARIF, compliance mapping PCI/NIS2). IntelligenceBase (pgvector embeddings) + external benchmark gate (ADR §12.21 — AutoPenBench/CyberGym/Cybench).
 
 ### Phase 6b — Optional profiles & advanced standards
 
