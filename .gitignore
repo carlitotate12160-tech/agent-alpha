@@ -60,3 +60,17 @@ infra/chain_lab*
 
 # Pip install artefact (redirect typo)
 =4.0.0
+
+# Operational scripts (contain hardcoded secrets, server IPs, credentials)
+restart_services.sh
+run_ibudanbalita.sh
+run_full_chain.sh
+enable_active.sh
+dispatch_beta.sh
+fix_pg_owner.sh
+check_func.sh
+check_oracle.sh
+test_pg_conn.sh
+test_pg_store.sh
+gen_token.py
+debug_engagement.py
