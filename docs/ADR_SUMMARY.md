@@ -1,11 +1,12 @@
 # Agent-Alpha — ADR Summary (Decision Map)
 
 > **Purpose.** Token-cheap map of every architectural decision for Claude project
-> context. Full rationale + detail lives in `ADR_ROADMAP.md` (repo only). When a
+> context. Full rationale + detail lives in `ADR.md` (repo only). When a
 > section is needed in depth, paste that specific §N from the full ADR into chat.
 > This file is the index; it is intentionally NOT the source of truth.
 
-**Mirrors:** `ADR_ROADMAP.md` v1.1 (LOCKED, append-only). If conflict → full ADR wins.
+**Mirrors:** `ADR.md` v1.1 (LOCKED, append-only). If conflict → `ADR.md` wins.
+`ADR_HISTORY.md` (formerly `ADR_ROADMAP.md`) is deprecated — do not cite.
 
 ---
 

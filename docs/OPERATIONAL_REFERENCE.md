@@ -13,7 +13,7 @@
 > systems with explicit consent. Template names denote system categories, not
 > specific organizations.
 
-**Version:** 2.1 (updated 2026-07-07 — cross-referenced to ADR_ROADMAP §9 phases)
+**Version:** 2.2 (updated 2026-07-08 — cross-referenced to ADR.md §9 phases)
 
 > **NOTE:** This document is a TARGET reference for future implementation.
 > Only Alpha (SCOUT), Beta (STRIKE), and Omega (ROASTER) are currently implemented.
@@ -21,14 +21,14 @@
 > Most tools listed below are placeholders for future DeepSeek implementation.
 >
 > **Phase mapping:** Each agent section below is cross-referenced to the
-> corresponding phase in `ADR_ROADMAP.md` §9. The wrap-vs-build decision for
+> corresponding phase in `ADR.md` §9. The wrap-vs-build decision for
 > each tool is governed by `ADR.md` §12.22 Decision 1.
 
 ---
 
 ## O1. Kill Chain Reference (Agent → Technique → Tool)
 
-### Alpha (SCOUT) — Techniques & Tools ✅ IMPLEMENTED  `→ ADR_ROADMAP Phase 2`
+### Alpha (SCOUT) — Techniques & Tools ✅ IMPLEMENTED  `→ ADR.md Phase 2`
 ```
 Subdomain Enumeration: [NOT IMPLEMENTED] subfinder, crt.sh, dnsenum, DNS brute
 Port Scanning:         [NOT IMPLEMENTED] nmap (top 30 ports, stealth SYN scan)
@@ -43,7 +43,7 @@ Current Output:        {laravel_debug_findings, leaked_credentials, asset_nodes}
 Target Output:         {hosts, ports, services, tech_stack, js_secrets, api_endpoints}
 ```
 
-### Beta (STRIKE) — Techniques & Tools ✅ IMPLEMENTED  `→ ADR_ROADMAP Phase 3`
+### Beta (STRIKE) — Techniques & Tools ✅ IMPLEMENTED  `→ ADR.md Phase 3`
 ```
 Credential Reuse:      [IMPLEMENTED] CredReuseTool (vaulted credential reuse via CredentialApplicator)
 Default Credentials:   [IMPLEMENTED] DefaultCredsTool (generic + 6 platforms: WordPress, Tomcat,
@@ -59,7 +59,7 @@ Protocol Spray:        [NOT IMPLEMENTED] SSH spray, FTP spray, IMAP spray
 Current Output:        {valid_credentials, session_tokens, access_level, entry_point}
 ```
 
-### Gamma (ANCHOR) — Techniques & Tools ⬜ NOT IMPLEMENTED  `→ ADR_ROADMAP Phase 4`
+### Gamma (ANCHOR) — Techniques & Tools ⬜ NOT IMPLEMENTED  `→ ADR.md Phase 4`
 ```
 SQLi:                  [TARGET] Automated SQLi detection + exploitation
 File Upload Bypass:    [TARGET] Double extension, MIME type, path traversal bypass
@@ -70,7 +70,7 @@ Webshell Deploy:       [TARGET] Webshell deployment + persistence
 Target Output:         {shell_access, webshell_path, server_context, writable_paths}
 ```
 
-### Delta (HUNTER) — Techniques & Tools ⬜ NOT IMPLEMENTED  `→ ADR_ROADMAP Phase 5`
+### Delta (HUNTER) — Techniques & Tools ⬜ NOT IMPLEMENTED  `→ ADR.md Phase 5`
 ```
 Shell:                 [TARGET] Interactive encrypted PTY shell
 Persistence:           [TARGET] Deployment + persistence modules
@@ -82,7 +82,7 @@ Hash Cracking:         [TARGET] unshadow + john
 Target Output:         {harvested_creds, db_access, internal_network_map}
 ```
 
-### Epsilon (SCOUT-HUNTER) — Techniques & Tools ⬜ NOT IMPLEMENTED  `→ ADR_ROADMAP Phase 5`
+### Epsilon (SCOUT-HUNTER) — Techniques & Tools ⬜ NOT IMPLEMENTED  `→ ADR.md Phase 5`
 ```
 Access:                [TARGET] PTY shell from compromised host
 Internal Scanning:     [TARGET] Internal network scanning (172.16.x.x, 192.168.x.x, 10.x.x.x)
@@ -94,7 +94,7 @@ AD Techniques:         [TARGET] Kerberoasting, AS-REP Roasting
 Target Output:         {compromised_hosts, pivoted_networks, additional_findings}
 ```
 
-### Omega (ROASTER) — Output ✅ IMPLEMENTED  `→ ADR_ROADMAP Phase 2 + Phase 6`
+### Omega (ROASTER) — Output ✅ IMPLEMENTED  `→ ADR.md Phase 2 + Phase 6`
 ```
 Database:              [TARGET] SQLite findings storage
 Evidence:              [TARGET] Evidence collection module
@@ -192,7 +192,7 @@ Mock Target:           [IMPLEMENTED] Mock Laravel debug page HTTP server
 
 ## Future Implementation Targets
 
-> **Cross-reference:** Phase numbers below match `ADR_ROADMAP.md` §9.
+> **Cross-reference:** Phase numbers below match `ADR.md` §9.
 > Wrap-vs-build decisions per `ADR.md` §12.22 Decision 1.
 
 ### Priority 1 (Phase 2 Completion — Alpha Recon Breadth)

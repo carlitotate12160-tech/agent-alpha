@@ -1,4 +1,9 @@
-# Agent-Alpha — Architecture Decision Record & Phased Roadmap
+# Agent-Alpha — Architecture Decision Record & Phased Roadmap (HISTORICAL)
+
+> **DEPRECATED 2026-07-08.** This file is retained for history only. The canonical
+> ADR is now `docs/ADR.md` (merged §12.13–§12.18 + §12.20–§12.23 into one file).
+> `docs/ADR_SUMMARY.md` is the quick-reference index. Do NOT cite this file for
+> current decisions — use `ADR.md`.
 
 Architecture blueprint for Agent-Alpha: autonomous red-team platform Level 1-6 (SCOUT→STRIKE→ANCHOR→HUNTER→SCOUT-HUNTER→ROASTER) with non-bypassable authorization gate, multi-agent orchestration, and memory that makes it smarter across engagements.
 
