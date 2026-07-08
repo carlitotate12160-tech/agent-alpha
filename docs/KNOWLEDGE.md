@@ -393,7 +393,8 @@ coordination and event emission — idempotent, never raises.
 ```
 Production: Oracle Cloud ARM64
             ubuntu@<oracle-arm-host>   (IP in secrets vault, not in docs)
-            Ubuntu 24.04, 24GB RAM, 4 OCPU
+            Ubuntu 24.04, 12GB RAM, 2 OCPU  (updated 2026-07-08 — capacity
+            reduced from 24GB/4 OCPU; see resource-budget note below)
 Services:   agent-alpha-api (FastAPI + Celery app)
             agent-alpha-worker (Celery workers)
             redis (session + broker)
