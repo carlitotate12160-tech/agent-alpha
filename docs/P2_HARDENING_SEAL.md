@@ -100,7 +100,7 @@ ownership enforced; per-request per-tenant store routing.
 |---------|--------|
 | #2 Dead code / unwired | ✅ CAUGHT & FIXED — `require_principal` shipped unwired; test-first 401 contract turned it red until wired |
 | #3 False success (empty/skip = success) | ✅ CAUGHT & FIXED — flawed RLS test replaced; `AGENT_ALPHA_REQUIRE_DB=1` (`tests/conftest.py`) makes a skipped integration suite a hard error |
-| #6 Duplicate canonical type | ✅ None in code — **but** noted at docs level: `ADR.md` (≤§12.12) vs `ADR_ROADMAP.md` (§12.13) have diverged; designate one canonical |
+| #6 Duplicate canonical type | ✅ None in code — docs-level divergence RESOLVED 2026-07-08: `ADR_ROADMAP.md` retired → `ADR_HISTORY.md`, `ADR.md` is sole canonical source |
 | #7 Single source of truth | ✅ table names + JWT alg/secret env via constants; no literals |
 | #9 Non-Oracle results accepted | ✅ ENFORCED — CI runs on self-hosted Oracle ARM64 |
 
@@ -127,7 +127,7 @@ Integration + RLS + auth + emergency-routing executed, not skipped.
   to pass" is ticked with `quality-gate`, and admins cannot bypass / no direct
   push to `main`.)
 - 🧹 Cosmetic: tidy the stale `config/stores.py` module docstring (Section D).
-- 🧹 Docs hygiene: resolve the `ADR.md` vs `ADR_ROADMAP.md` divergence (§E #6).
+- ✅ Docs hygiene: `ADR.md` vs `ADR_ROADMAP.md` divergence RESOLVED 2026-07-08 — `ADR_ROADMAP.md` retired, `ADR.md` is sole canonical.
 - ➡️ **Hardening-P3 — Orchestrator:** Celery non-blocking execution + LLM
   orchestrator routing/consensus. Gated by the open LLM-routing decision
   (resolve before building). Carries **front-door 2b** (propagate `tenant_id`

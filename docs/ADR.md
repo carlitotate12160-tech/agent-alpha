@@ -609,6 +609,335 @@ never stored only in volatile memory.
   (Cypher, in-memory) or Neo4j if cross-engagement/large-graph queries prove necessary
   — still rebuilt from events, never the source of truth.
 
+### 12.13 Agent scaling model — Hybrid orchestrated fan-out — LOCKED
+
+**Decision.** The six Greek agents (Alpha…Omega) are **ROLES / capabilities, not
+singleton instances**. Within a phase, work is executed by N stateless **workers**
+of that role, running concurrently. This is a **hybrid** model: a centrally
+orchestrated kill-chain pipeline (§3) with **intra-phase horizontal fan-out**.
+It is explicitly **NOT a swarm** (no peer-to-peer agents, no self-spawning, no
+emergent top-level coordination).
+
+**Who fans out.** The **Conductor / planner** partitions a phase's work into
+bounded task units and enqueues them on Celery+Redis (§2). **An agent never spawns
+or commands workers itself** — that would re-introduce agent-to-agent control and
+breach the non-bypassable authorization gate (§1). Workers pull pre-authorized
+units; they do not talk to each other.
+
+Example: a Reconnaissance task over 20 hosts does **not** mean "Alpha spawns 20
+children." It means the Conductor partitions the scope into 20 (or fewer, capped)
+RECON units and enqueues them; up to `MAX_RECON_WORKERS` execute in parallel; every
+result flows back through the Conductor into the event log.
+
+**Two valid fan-out patterns (both gated):**
+- **Data-parallel** — same capability, partitioned target slice (e.g., 200 hosts split across workers).
+- **Functional-parallel** — different techniques in one phase (e.g., DNS enum / port scan / JS-secret extraction concurrently).
+
+**Invariants (non-negotiable):**
+1. **Gate never dilutes.** A unit is enqueued ONLY after the Conductor validates
+   the engagement's authorization state (RECON_ONLY → … per §1). Workers never read
+   or write authorization state; each unit carries its pre-authorized scope.
+2. **Bounded autonomy.** Per-engagement / per-tenant max concurrency is config-driven
+   (single source of truth, no scattered literals — anti-Lyndon #7) and bounded by
+   blast-radius + rate/quota limits. Fan-out degree is never unbounded.
+3. **Deterministic aggregation.** Worker results merge into the append-only event
+   stream (monotonic, gapless sequence) and project into the AttackGraph (§6, §8o-1).
+   Empty/failed results are rejected, never counted as success (anti-Lyndon #3).
+4. **No direct A2A dispatch.** No code path lets one agent enqueue work for another;
+   only the Conductor dispatches (§3 one-way handoff).
+
+**Role extensibility.** The role taxonomy MAY grow (e.g., a cloud-recon or
+AD-specific role) under the SAME gate as engagement profiles expand (§8e). "Six" is
+the current role set, not a hard ceiling — adding a role is an ADR change, not an
+ad-hoc spawn.
+
+**Phasing (anti-Lyndon #1 — foundation before scale):**
+- **Phase 0–2:** single worker per role. Prove the Alpha→Omega pipeline end-to-end first.
+- **Phase 3 (orchestrator):** design the Conductor↔Celery dispatch interface to be
+  fan-out-aware (partition → enqueue → bounded concurrency → aggregate). Build
+  multi-worker scaling incrementally AFTER the single-worker pipeline is proven.
+- Multi-worker scaling is NOT built before the pipeline works (no feature-before-foundation).
+
+**Test contract (what "done" means for the fan-out interface):**
+- Conductor partitions a RECON scope of N hosts into N units; all units enqueue ONLY
+  when state ∈ {RECON_ONLY, ACTIVE_APPROVED, OFFENSIVE_APPROVED} as appropriate; a
+  worker executing a unit without valid auth context is rejected.
+- Concurrency cap honored: with cap = K and N > K units, at most K run at once; the
+  rest queue (assert never > K concurrent for an engagement).
+- Aggregation: results from M workers form ONE engagement event stream with a
+  monotonic, gapless sequence; duplicate or empty unit results are rejected.
+- Negative: no API/code path lets agent X enqueue a task targeted at agent Y
+  directly (only Conductor dispatch).
+
+**Integration points.** Conductor (partition + gate + dispatch + aggregate) · Celery+Redis
+(queue) · EventStore (append-only aggregation, §8o-1) · AttackGraph (projection, §6) ·
+config constants (concurrency caps, §2). Relates to §1, §3, §8e, and the open
+rate-limit/quota item.
+
+### 12.14 Front-door 2a — Authenticated Tenant Binding — LOCKED
+
+**Resolves** the authentication gap in P2: the Conductor API had no authentication
+and `tenant_id` came from a process env var, disconnected from the (unauthenticated)
+`client_id` body field. The RLS backstop (§12.13, P2) had no front door.
+
+**Decision.** Every engagement endpoint requires a verified JWT; `tenant_id` comes
+ONLY from the verified claim; engagement ownership enforced; per-request
+per-tenant store routing.
+
+**Implementation (verified in code):**
+- `conductor/api_auth.py` — PyJWT, algorithm pinned (`algorithms=[JWT_ALGORITHM]`,
+  no `alg=none`/confusion), `exp` checked, **fail-closed** if the secret is missing
+  or < 32 bytes, `tenant_id`/`sub` claims validated.
+- `conductor/main.py` — auth-by-default via `APIRouter(dependencies=[Depends(require_principal)])`;
+  new engagement routes cannot ship unprotected.
+- `config/stores.py` — `StoreProvider.for_tenant()` routes each tenant to its own
+  RLS-scoped store (independent in-memory store per tenant when no DSN).
+- `authorization.py` — `tenant_id` persisted on `EngagementRecord`; `_emit_event`
+  enriches the payload so auth events route to the correct tenant store.
+
+**Gaps found during review & closed (the audit working as intended):**
+- **Unwired auth (Lyndon #2).** `require_principal` existed but was not wired into
+  any route — caught immediately by the test-first 401 contract (CI red). Fixed
+  via router-level dependency.
+- **`/sow` + `/stop` lacked the ownership check (cross-tenant authZ hole).**
+  Authenticated but not authorized — any tenant could SOW-escalate or
+  emergency-stop another tenant's engagement. The original test contract
+  under-specified (only `state`/`recon` were covered); tests for `sow`/`stop`
+  were added, then the ownership check was applied to all four routes.
+  (`test_api_auth.py` 11 green.)
+- **Emergency-stop events routed to the legacy store (audit-isolation gap).**
+  `EmergencyStopHandler` now resolves the engagement's tenant via `StoreProvider`;
+  stop events land in the tenant's own store. (`test_emergency_tenant_routing.py` 2 green.)
+- **Cosmetic (open, non-blocking):** the top-of-file docstring in `config/stores.py`
+  still says "single-tenant operation for now" — contradicts `StoreProvider`; tidy
+  in a follow-up commit.
+
+**Integration points.** `conductor/api_auth.py` (Principal + JWT validation) ·
+`conductor/main.py` (router-level dependency + ownership checks) ·
+`config/stores.py` (StoreProvider per-tenant routing) ·
+`authorization.py` (tenant_id persistence + event enrichment) ·
+`tests/phase_0/test_api_auth.py` (401 + 404 contract tests). Relates to §1
+(auth gate), §12.13 (P2 RLS), and the open tenant-isolation item.
+
+### 12.15 LLM role→provider routing — roles canonical, providers configurable — LOCKED
+
+**Resolves** the OPEN DECISION in `PHASE_2_IMPLEMENTATION_ORDER.md` (constants vs
+ADR role split) and unblocks P3 (orchestrator routing).
+
+**Decision.** Two LLM ROLES, routed separately and NEVER conflated:
+- **REASONING** — ORIENT / PLAN / narrative.
+- **PAYLOAD / EXECUTION** — offensive tool & exploit-body generation.
+
+The **ROLE is the architectural invariant.** The concrete **PROVIDER behind each
+role is configuration**, swappable without any code/architecture change (the
+provider abstraction, §12). Neither option (a) nor (b) from the open decision is
+taken literally: the role split stays canonical (ADR), and
+`LLM_REASONING_PRIMARY="deepseek-v4-pro"` is reinterpreted as the *current
+(testing) reasoning provider* — config, not a permanent architectural commitment.
+
+**Provider policy per role:**
+
+| Role | Allowed transport | Provider (config) | Notes |
+|------|-------------------|-------------------|-------|
+| Reasoning | Direct vendor **or** gateway/aggregator (Bedrock/Vertex in our own cloud, or a public router ONLY with zero-retention) | `LLM_REASONING_PROVIDER` — testing: `deepseek-v4-pro` / `mimo`; production target: Claude / GPT-class | Hybrid/dynamic allowed; swap = change the constant |
+| Payload | **Direct provider API ONLY** | `LLM_PAYLOAD_PROVIDER` — open-weight: DeepSeek / MiMo / equivalent | **NEVER** a public aggregator/router (their ToS forbids offensive content + extra data egress); **NEVER** Claude (§12.10) |
+
+**Data-governance invariant (non-negotiable):**
+- Sensitive data — client vulns, harvested creds, target detail, payload bodies —
+  MUST NOT egress to a public router/aggregator absent a zero-retention,
+  no-training contractual control.
+- **Strongest posture for the payload role (recommended): self-host the
+  open-weight model in our own infra** (Oracle ARM64 / controlled cloud) so
+  payload generation never leaves our environment at all. If a vendor-hosted
+  direct API is used instead, require zero-retention/no-training terms and record
+  the data-processor in the SOW/DPA.
+- `llm/redaction.py` + the authorization gate + audit run IN FRONT of every
+  provider call, regardless of role or transport. Payload generation is gated by
+  authorization state (authorized engagements only).
+- Provider API keys live in the secrets vault — never in code or plaintext env.
+
+**Switch gate (provider maturity):** the production reasoning provider must be
+Claude/GPT-class, validated against real targets, **before the first paid client
+engagement**. Until then DeepSeek-v4-pro / MiMo are acceptable for testing only.
+"Temporary" is bounded by this gate so it cannot become permanent by inertia
+(anti-Lyndon #1/#5). [Adjust the line earlier — e.g. before Phase 4 / first demo —
+if desired.]
+
+**Constants change (config/constants.py):**
+- ~~Rename `LLM_REASONING_PRIMARY` → `LLM_REASONING_PROVIDER`~~ ✅ DONE
+- Add `LLM_PAYLOAD_PROVIDER` (direct open-weight provider).
+- Add `LLM_PAYLOAD_TRANSPORT = "direct"` (or equivalent) so the orchestrator
+  **refuses** to route payload generation through an aggregator-class transport.
+
+**Test contract:**
+- `reason()` dispatches to `LLM_REASONING_PROVIDER`; changing the constant changes
+  the adapter with NO code change (assert via a mock provider registry).
+- `payload()` dispatches to `LLM_PAYLOAD_PROVIDER`; assert it NEVER resolves to the
+  Claude adapter AND never to an aggregator-class transport.
+- Redaction runs before every provider call (both roles) — assert raw creds/PII
+  never reach the outbound provider payload.
+- `payload()` refuses unless the engagement's authorization state permits it
+  (gated; no payload for unauthorized/recon-only engagements).
+
+**Integration points.** `config/constants.py` (provider + transport config) →
+`llm/orchestrator.py` (role-based routing + transport policy enforcement) →
+`llm/providers/*` (adapters: deepseek, mimo, claude, gpt, + a gateway adapter) →
+`llm/redaction.py` + authorization gate IN FRONT. The cognitive loop calls
+`reason()` / `payload()` BY ROLE, never a hardcoded model name.
+
+**Supersedes:** the ambiguous `LLM_REASONING_PRIMARY` interpretation; relates to
+§12.0/§12.1 (LLM gate tiers), §12.10 (Claude never writes payloads), §1 (auth gate).
+
+### 12.16 Tool Layer: capabilities-vs-roles, contracts, composition discipline — LOCKED
+
+**Status:** LOCKED (2026-06-22, co-authored Opus + Natanael). Amends §12.4.
+**Relates to:** §12.13 (scaling/roles), §12.8/K19 (IntelligenceBase reliability), §12.1
+(tier ladder), §12.4 (RAG timing). Companion: `docs/TOOL_LAYER.md` (the contract scaffold).
+
+#### 12.16.1 — Agents are kill-chain ROLES; payload/proxy/browser are CAPABILITIES, not agents
+
+**Decision.** The agent taxonomy stays the six kill-chain roles (Alpha…Omega) under §12.13.
+"PayloadGenerator", "Proxy Tester", and "Browser" are **capabilities/tools**, NOT new agent
+roles. Rejected as agents.
+
+**Rationale.** An agent = a PHASE of the kill chain (recon → access → exploit → post →
+lateral → report). Payload generation, proxying, and browsing are *how* an agent does its
+work, not *what phase* it is. Modeling a capability as an agent repeats **Lyndon #4** (generic
+architecture: mixing capability with role) and pollutes the clean role taxonomy.
+
+**Placement.**
+- **PayloadGenerator** → the **LLM payload role** (DeepSeek, direct, §12.15) + **ToolComposer**.
+  Invoked BY Gamma/Beta; never a standalone agent.
+- **Browser (Playwright)** → a **shared capability** in the deterministic layer. Used by BOTH
+  Alpha (JS/SPA recon, client-rendered targets) AND Beta (anti-detect spray + Cloudflare/
+  Turnstile bypass). Built ONCE, injected into whoever needs it — never duplicated per agent.
+- **Proxy** → a tool (rotation: residential/SOCKS5) PLUS an explicit **proxy-health / OPSEC
+  check** (alive, not burned) that MUST run before any spray. Named as a tool, gated like one.
+
+#### 12.16.2 — Tool layer contracts + composition discipline
+
+**Decision.** All tools plug into one foundation (see `docs/TOOL_LAYER.md` §2): canonical
+`Tool` + `Template` protocols, `ToolRegistry`, `ToolComposer`. Non-negotiable invariants:
+
+1. **`ToolComposer.compose()` returns a PLAN, never executes.** Execution stays in the agent
+   cognitive loop, where **each step is re-gated (auth state) and verified**. No autonomous
+   "retrieve/compose → exploit" chain — preserves the non-bypassable gate (§1) + audit.
+2. **Every `Template` MUST implement `verify()`.** A tool is "successful" only when `verify()`
+   PROVES exploitability from the response and captures a proof artifact. "version matches CVE"
+   or "csrf-token present" is a hypothesis, not a finding (anti-Lyndon #3). This is the line
+   between Agent-Alpha and a scanner.
+3. **Selection is reliability-ranked, never hardcoded.** `ToolRegistry.for_context` ranks via
+   `IntelligenceBase.tool_reliability` (K19); no literal tool order in agent code (K11 / #7).
+4. **Authoring split (§12.15 / K21):** Claude authors the contracts + registry/composer glue +
+   test contracts (non-offensive). DeepSeek authors every offensive body (`run`/`build`/
+   `verify` payload logic) in `tools/templates/*`. Claude never writes payload bodies.
+5. **Bounded autonomy:** every tool runs under a `ResourceBudget` (requests/time/cost/rps),
+   single-sourced from constants (§12.13 #2 / #7). `rate_limit_rps` ties to the Pre-Beta
+   rate-limit control.
+
+**Build order (does NOT pull phases forward — anti-Lyndon #1/#5):** foundation contracts now;
+recon-finding tools next (first real `verify()` consumer); Access=Phase 3, Exploit + live
+ToolComposer=Phase 4, Post/Lateral=Phase 5. Offensive bodies land per-phase, never up front.
+
+#### 12.16.3 — Amends §12.4: RAG external-vs-internal split
+
+**Decision.** Split the single "RAG = Phase 6" into two tracks:
+- **Internal RAG** (pgvector over cross-engagement data) — stays **Phase 6**. Hard cold-start:
+  embeddings over an empty corpus retrieve nothing; needs accumulated real engagement data.
+- **External RAG** (CVE / Exploit-DB / MITRE ATT&CK feeds) — has **no cold-start** (data exists
+  day 1) and **MAY precede** internal embeddings. BUT only AFTER (a) the hypothesis→verify loop
+  exists and (b) recon produces precise version fingerprints — otherwise external CVE-matching
+  is just a worse Nessus/nuclei (scanner-grade, the thing we beat).
+
+**Invariant (both tracks).** RAG is **advisory + gated**: it enriches the SINGLE_LLM/CONSENSUS
+reasoning tiers (§12.1) and feeds `hypothesis.py` → `verifier.py`; it is NEVER an autonomous
+retrieve→exploit path. RULE tier (deterministic playbook) stays first for reproducibility/
+anti-injection/cost. External feed content crosses a trust boundary → redaction before any LLM
+(§8l); payload bodies still DeepSeek-direct; feed freshness is a correctness requirement (a
+stale CVE DB = false confidence, worse than none).
+
+**Consequences**
+- No new agent classes; capability work routes into the deterministic tool layer.
+- The differentiator is now concretely located: ToolComposer + `verify()`-gated templates +
+  reliability ranking + (Phase 6) RAG — NOT breadth of external-tool wrappers.
+- A clear DeepSeek/Claude contract boundary for every future tool.
+
+### 12.17 Secrets Vault — Postgres backend + lazy per-tenant provider — LOCKED
+
+**Status:** LOCKED (2026-06-28). **Relates to:** §8l (platform security), §12.14
+(tenant binding), §12.13 (RLS isolation), §1 (auth gate).
+
+**Decision.** Harvested credentials and API keys are stored in a Postgres-backed,
+tenant-isolated, Fernet-encrypted vault — NOT plaintext in log/graph. The vault
+mirrors the event store's laziness: import-safe, Postgres/key touched only at
+`for_tenant()` during a real tenant task.
+
+**Components:**
+- `SecretsVault` Protocol (`security/secrets.py`) — `store`, `retrieve`, `delete`,
+  `delete_engagement`, `list_labels`. Multi-backend contract.
+- `SecretsManager` — in-memory default (single-process, no key needed).
+- `PostgresSecretsVault` (`security/postgres_secrets_vault.py`) — Fernet encryption
+  at rest, RLS-scoped per tenant, shared key from `AGENT_ALPHA_VAULT_KEY` env.
+- `SecretsVaultProvider` (`config/stores.py`) — lazy per-tenant provider mirroring
+  `StoreProvider`. Key loaded on FIRST `for_tenant()` call, never at import.
+- `load_vault_key()` — fail-closed: raises if `AGENT_ALPHA_VAULT_KEY` not set.
+
+**Key fix (eager→lazy):** Initial wiring called `secrets_vault_from_env()` eagerly
+at `main.py:44`. On Oracle (DSN set), this called `load_vault_key()` at import time
+→ 7 collection errors. Replaced with `SecretsVaultProvider` (lazy, per-tenant),
+matching `StoreProvider`'s proven pattern.
+
+**Test contract:** `tests/phase_3/test_postgres_secrets_vault.py` — 4 integration
+tests (skip if no DSN): cross-instance retrieval, encryption at rest, tenant
+isolation, engagement-based purge. 9 unit tests for the Protocol + manager.
+
+### 12.18 Scope.db_endpoints + Applicator Factory — Gate-enforced DB access — LOCKED
+
+**Status:** LOCKED (2026-06-29). **Relates to:** §1 (auth gate), §12.14 (tenant
+binding), §12.16 (tool layer), §8l (platform security).
+
+**Problem.** Direct-DB credential application is the most invasive action. Three
+flaws needed convergence:
+
+| Flaw | Risk | Root cause |
+|------|------|------------|
+| **FLAW 1** (auth-gate softening) | `cred_reuse` holds `auth` handle → can bypass tier | No separation between gate logic and tool |
+| **FLAW 2** (out-of-scope DB host trap) | Leaked `DB_HOST` from .env (localhost/internal) used as target | No scope check on DB endpoints |
+| **FLAW 3** (ServiceProperties has no host) | DB port assumed co-located with asset host | No host⊕port join via `open_ports` |
+
+**Decision.**
+
+1. **`Scope.db_endpoints`** (`conductor/models.py`) — explicit `host:port` list in
+   the signed SOW scope. Validated at scope creation. Gate enforces exact match.
+
+2. **`is_db_endpoint_in_scope()`** (`conductor/authorization.py`) — gate method that
+   checks `host:port` against `scope.db_endpoints`. Never raises (fail-closed
+   return `False`). Read-only query on the event-sourced state.
+
+3. **`applicator_factory.py`** (`conductor/`) — the ONLY place where authorization
+   state and scope are read to decide WHICH credential applicators `cred_reuse` may
+   use, and AGAINST WHICH in-scope target each is bound.
+
+   - **Tier gate (FLAW 1):** `required_auth` vs engagement state. `cred_reuse`
+     receives `BoundApplicator` list and iterates — it holds NO `auth`/`scope`
+     handle. Stop-signal guard test enforces this.
+   - **Scope gate (FLAW 2):** DB applicators bind ONLY to ASSET `host:port`
+     validated by `is_db_endpoint_in_scope()`. Leaked `DB_HOST` rejected.
+   - **Host⊕port join (FLAW 3):** host from `AssetProperties.host`, port from
+     `open_ports`. ServiceProperties has no host — port joined via asset, never
+     assumed.
+   - **`BoundApplicator(applicator, target)`** — cred_reuse calls
+     `apply(target=...)` verbatim, never chooses a target.
+   - **`AuthScopeView` Protocol** — read-only slice of AuthorizationStateMachine;
+     no transition methods exposed to the factory.
+
+**Single source of truth (#7):** the `required_auth → state` ladder is defined once
+in the factory, mirroring `AuthorizationStateMachine.can_agent_proceed`.
+
+**Test contract:** `tests/phase_3/test_applicator_factory.py` — 9 tests covering
+all three flaws + cred_reuse blindness guard. `tests/phase_0/test_db_endpoint_scope.py`
+— gate-level scope validation tests.
+
 ### 12.20 Conductor Handoff-Consumer — Autonomous spine on Celery path — LOCKED
 
 **Status:** LOCKED (implemented + merged as PR #69 on Oracle #61, 2026-06-29). This is the
