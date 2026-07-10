@@ -31,6 +31,7 @@ import yaml
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
+from agent_alpha.agents.omega.roaster import Omega, Report
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -200,6 +201,13 @@ def run_odoo_chain_live_fire(
     )
 
 
+def report_odoo_chain(graph_store: Any) -> Report:
+    """Omega report for the Odoo chain graph (read-only). The wiring seam that
+    was missing at 530ffee: every sibling chain runner calls Omega; this exposes
+    the same for the Odoo path in a testable form."""
+    return Omega(graph_store).generate_report("technical")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Agent-Alpha Odoo cred-reuse chain live-fire")
     parser.add_argument("config", help="Path to odoo chain engagement YAML config")
@@ -245,9 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  CHAIN PROVEN: {result.chain_proven}")
     print("=" * 64)
 
-    from agent_alpha.agents.omega.roaster import Omega
-
-    report = Omega(graph_store).generate_report("technical")
+    report = report_odoo_chain(graph_store)
     cf = report.chain_finding
     print()
     print("OMEGA REPORT (chain finding)")
@@ -261,7 +267,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  Downstream mapped: {cf.downstream_mapped}")
         print(f"  Rationale       : {cf.rationale}")
         print(f"  MITRE           : {', '.join(report.mitre_techniques)}")
-    print("=" * 64)
 
     return 0 if result.chain_proven else 1
 
