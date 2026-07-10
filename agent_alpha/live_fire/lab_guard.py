@@ -38,6 +38,11 @@ LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
         # SPA lab (js_lab/) — Caddy, 2 vhosts
         "spa-vuln.lab",
         "spa-hardened.lab",
+        # Chain lab (infra/chain_lab_app.py) — mock server on :9201
+        "chain-lab.lab",
+        # Odoo lab (odoo_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
+        "vuln.odoo.lab",
+        "hardened.odoo.lab",
     }
 )
 

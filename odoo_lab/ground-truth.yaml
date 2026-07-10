@@ -1,0 +1,22 @@
+# Odoo lab ground truth — slice 1d cross-service cred-reuse chain.
+# odoo_chain_runner (1d-1) scores its result against this.
+#
+# leak_creds_added: CREDENTIAL nodes wp_config_probe should mint from the bait.
+# chain_proven: leaked admin/<PW> reused on Odoo XML-RPC authenticate → uid.
+# db_source: MUST be "enumerated" (list_db on) — a "guessed" db never counts as proven.
+# access_level: "admin" (uid 2 on a default Odoo admin).
+
+hosts:
+  vuln.odoo.lab:
+    leak_creds_added_min: 1
+    leak_creds_added_max: 1
+    chain_proven: true
+    db_source: enumerated
+    expected_uid_min: 1
+    expected_access_level: admin
+
+  hardened.odoo.lab:
+    leak_creds_added_min: 0
+    leak_creds_added_max: 0
+    chain_proven: false
+    db_source: enumerated

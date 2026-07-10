@@ -35,8 +35,9 @@ on:
     branches: [main]
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-oracle-box   # single global lock — shared-box runner, prevent 2 CI
+                         # runs competing for RAM on 12GB box (updated 2026-07-08)
+  cancel-in-progress: false   # JANGAN cancel — partial CI worse than queued
 
 jobs:
   quality-gate:
