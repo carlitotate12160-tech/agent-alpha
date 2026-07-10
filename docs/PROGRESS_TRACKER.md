@@ -306,34 +306,6 @@ Upgrade Python environment di Oracle dari versi lama ke Python 3.12, dan tambah 
 
 ---
 
-## Komponen yang Belum Dibuat (Phase 0)
-
-### Conductor Skeleton (FastAPI + Celery app)
-**Status:** ⬜ BELUM  
-**Priority:** TINGGI (komponen terakhir Phase 0)
-
-#### Apa ini?
-Skeleton FastAPI untuk Conductor service dan Celery untuk task queue agent.
-
-#### Efek terhadap Agent
-- Agent mengirim request ke FastAPI endpoint
-- Agent menerima task dari Celery queue
-- Agent bisa beroperasi secara distributed
-
-#### Behavior Sistem (rencana)
-- FastAPI endpoints:
-  - POST /engagement → buat engagement baru
-  - POST /engagement/{id}/transition → transition state
-  - POST /engagement/{id}/emergency → trigger emergency stop
-  - POST /engagement/{id}/sow → upload SOW file
-- Celery tasks:
-  - task_recon → Alpha reconnaissance
-  - task_strike → Beta exploit
-  - task_anchor → Gamma persistence
-  - dll.
-
----
-
 ## Testing Strategy
 
 ### Test Coverage
