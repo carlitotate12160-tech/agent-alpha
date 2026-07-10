@@ -1,0 +1,12 @@
+<?php
+/**
+ * Lab bait — an "accidentally" exposed config backup. wp_config_probe parses
+ * DB_USER / DB_PASSWORD from here. In this lab the same admin/<pw> pair is REUSED
+ * as the Odoo application login → that is the cross-service reuse the chain proves.
+ * NOTE: DB_USER is set to the Odoo login on purpose (reuse scenario).
+ */
+define( 'DB_NAME', 'erp' );
+define( 'DB_USER', 'admin' );
+define( 'DB_PASSWORD', '__SET_TO_ODOO_ADMIN_PW_IN_SEED__' );
+define( 'DB_HOST', 'localhost' );
+define( 'DB_CHARSET', 'utf8' );
