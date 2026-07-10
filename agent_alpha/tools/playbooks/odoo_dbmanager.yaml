@@ -6,11 +6,13 @@ version: 1
 phase: recon
 # Any one indicator is sufficient (logical OR). Odoo-specific asset markers —
 # NOT a loose "/static/" that would fire on unrelated stacks (anti-#3 over-probe).
+priority: 50
 match:
   any_indicator:
     - body_contains: "/web/static/"
     - body_regex: 'web\.assets_(common|backend|frontend)'
     - body_contains: "odoo.define"
+    - body_contains: "/web/login"
 action:
   tool: odoo_dbmanager_probe
   tier: rule
