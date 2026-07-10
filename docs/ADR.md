@@ -424,6 +424,141 @@ Smallest demoable loop: recon → graph → report. Formal Agent Cognitive Loop 
 
 Initial access (ACTIVE_APPROVED), credential spray, chat-while-task-runs (§8a), multi-tenant queue, LLM Orchestration parallel consensus (§12.23: Gamma/P4, not Phase 3) + role split (Claude reasoning / DeepSeek payload) + redaction + budget cap (§8d, §8k), prompt-injection defense (§8l), loop/budget guardrail + checkpoint/resume (§8m), time-window & OPSEC profile (§8n).
 
+### Phase 2.5 — REACH (Autonomous Surface Expansion)
+
+**Status:** ACCEPTED (Natanael + Opus 4.8, 2026-07-10)
+**Amends:** `docs/ADR.md` §9 Roadmap Phases — inserts **Phase 2.5** between Phase 2
+and Phase 4. Governs `docs/OPERATIONAL_REFERENCE.md` "Priority 1 (Phase 2 Completion)".
+**Verified against:** repo `a9dcab7` (main).
+
+> **Legal & Authorization Notice.** All REACH behavior runs ONLY after the Conductor
+> authorization gate (RECON_ONLY minimum) and inside SOW scope. Surface expansion is
+> scope-bounded by Policy-as-Code (RoE); out-of-scope hosts are never enqueued.
+
+#### 1. Context — why this phase exists
+
+Phase 2 was sealed as the *"smallest demoable loop: recon → graph → report"* — a
+deliberate single-URL MVP. The autonomous **surface-expansion** capability
+(seed → grow attack surface → pivot → re-discover) was never given an explicit phase
+home: it is scattered across §8j (cognitive loop), §8o-2 (world model), the ops-doc
+"Phase 2 Completion", and Phase 5 (pivot). An orphaned capability with no owning phase
+is exactly how a silent foundation gap forms (the Lyndon pattern: everything on paper,
+nobody owns the wiring).
+
+**Verified gap (code trace @ `a9dcab7`):**
+- `scout.py:112` seeds `_work_queue = [target_url]`; **no code anywhere calls
+  `_work_queue.append/extend`** — the exploration frontier never grows.
+- `constants.py:146` `ALPHA_RECON_NO_PROGRESS_ITERS = 1` — recon ends after one idle
+  cycle when the seed drains.
+- **No WAF/CF/403/challenge branch** exists in `agents/` or `tools/` — a blocked root
+  dead-ends instead of pivoting.
+- Recon breadth (subdomain / port / dir / reverse-IP / JS) = NOT IMPLEMENTED
+  (`OPERATIONAL_REFERENCE.md`).
+
+Consequence: every field-proven chain (Odoo/WP/db) works **only because the live_fire
+runner hand-feeds the exact vulnerable entry_point**. Given a real CF-fronted root
+domain, the product dead-ends. The charter success bar ("find what a scanner missed,
+*autonomously*") is currently met only when a human supplies the target.
+
+#### 2. Reference model — NodeZero (loop, not breadth)
+
+NodeZero (Horizon3.ai) is a seed-driven autonomous expansion engine:
+discover/enumerate → chain-without-script → pivot → re-enumerate, over a knowledge
+graph with a cross-run learning loop. Agent-Alpha's ADR already describes this same
+loop-shape (§8j + AttackGraph + IntelligenceBase). Phase 2.5 realizes the **inner
+(recon) loop** of it.
+
+**Governing principle — "loop like NodeZero, moat unlike NodeZero":**
+Adopt the *expansion loop shape*. Do NOT chase NodeZero's enumeration/CVE breadth —
+that is unwinnable against a funded incumbent and regresses to Lyndon #4 (generic
+scanner). Agent-Alpha's moat stays: context-aware exploit composition, regional
+(Indonesia/SE-Asia) templates, proof-based payable narrative, cross-engagement memory
+(§12.22). The loop is the legs that deliver targets to the moat; the moat is the punch.
+
+#### 3. Decision
+
+1. Insert **Phase 2.5 — REACH** into §9, between Phase 2 and Phase 4.
+2. **FREEZE all Phase-4 breadth** (new STRIKE vectors, Gamma prep beyond what is sealed)
+   until Phase 2.5 **and** its Layer-V seal pass. One layer open at a time.
+3. Build the **inner loop first** (Alpha expansion). The **cross-agent loop**
+   (pivot → re-discover across hosts) remains Phase 5 and must NOT start before 2.5 seals.
+
+**Meta-rule (the anti-Lyndon seal definition — applies to ALL phases henceforth):**
+
+> A capability is **"done"** only when proven on a **real target** through the **full
+> live path** (Conductor → agent → AttackGraph → Omega), fed **only a root domain /
+> in-scope seed**. A field-prove via a `live_fire/*` script that hand-feeds the
+> entry_point counts as a **unit test**, NOT a phase seal.
+
+#### 4. Sub-layers, exit criteria & differential test contracts
+
+Each sub-layer is RED-first (test contract written and failing before implementation),
+sealed on Oracle ARM64 only, with zero regression to prior phases.
+
+**R1 — Frontier expansion wiring**
+- Recon handlers return in-scope URLs discovered on the page; `scout.step` enqueues them
+  into `_work_queue` (dedup against `_probed`). Raise `ALPHA_RECON_NO_PROGRESS_ITERS`
+  1 → 3 (single source of truth in `constants.py`, anti-#7).
+- Scope guard: only Policy-as-Code in-scope hosts are enqueued (RoE); out-of-scope
+  links are dropped and audited.
+- **Exit / differential test:** seed page with N in-scope links → N+1 probes and graph
+  grows; page with 0 links → drains as today; an out-of-scope link → NOT enqueued.
+  A finding on iteration k must be able to add frontier for iteration k+1.
+
+**R2 — Passive surface discovery (WRAP)**
+- New recon Tool(s) conforming to the Tool protocol, ranked by ToolRegistry, gated
+  RECON_ONLY: crt.sh + subfinder(passive) + reverse-IP → returns subdomains/hosts.
+- Discovered hosts scope-filtered, then enqueued to the frontier (reuses R1).
+- **Exit / test:** given an in-scope root with a known-subdomain fixture → subdomains
+  enqueued and probed; out-of-scope subdomains filtered; zero active packets to target
+  (passive sources only) — no RoE/rate-limit exposure.
+
+**R3 — Obstacle-aware re-plan (WAF/CF pivot)**
+- OBSERVE classifies each probe outcome into an explicit set:
+  `{ok, empty, transport_fail, BLOCKED(waf|cf|403|challenge)}`.
+- On BLOCKED: emit a distinct event and ORIENT selects a **PIVOT** action (probe a
+  discovered alternate host / origin-IP candidate from the frontier) instead of
+  treating the block as a non-analyzable dead-end.
+- **Exit / differential test:** CF-blocked root **with** an alternate host in frontier →
+  agent probes the alternate (pivot); `stop_reason ≠ NO_PROGRESS` at iteration 1.
+  Clean root → no pivot path taken. Blocked with **no** alternatives → honest BLOCKED
+  result surfaced (NOT silent success, anti-#3).
+
+**R4 — Active recon (optional, deferrable within 2.5)**
+- nmap top-30 + directory enum, behind scope + the sealed RateLimiter. Only after
+  R1–R3. May slip to Phase 4 without blocking the Layer-V seal.
+
+**Layer V — Validate the moat through REACH (the Phase 2.5 SEAL)**
+- Re-run **one** existing chain (Odoo or WP) fed **only the root domain**, over the full
+  live path, on a self-owned lab that models a multi-host, CF-fronted client.
+- **Exit (this is the real charter success bar):** `CHAIN PROVEN: True` starting from a
+  root domain with **no hand-fed entry_point**; true-negative on the hardened host.
+  Until Layer V passes, breadth stays frozen.
+
+#### 5. Anti-Lyndon mapping
+
+- **#1 feature-before-foundation:** freezing breadth until REACH+V seals is the whole
+  point — no more depth on a foundation that can't reach targets.
+- **#2 dead code:** every sub-layer wired + differential-tested on the live path.
+- **#3 false success:** R3 blocked-with-no-alternatives returns honest BLOCKED; Layer V
+  requires a real root-only proof.
+- **#11 hardcoded sequence:** each sub-layer ships a differential test (behavior changes
+  with graph state) — frontier growth and pivot are state-driven, never a static list.
+
+#### 6. Integration points
+
+- **Calls into:** `scout.step` (frontier), `orchestrator.decide` (ORIENT branch for
+  BLOCKED), ToolRegistry (R2 tools ranked), Policy-as-Code (scope gate), RateLimiter
+  (R4). No change to Conductor auth gate, event store, or Omega.
+- **Called by:** `run_recon` inner loop; downstream Beta/Omega unchanged — they simply
+  receive a richer graph.
+- **Does NOT touch:** authorization state machine, A2A contract, Gamma+ (still gated).
+
+---
+
+*This amendment wins over any prior session that reopens Phase-4 breadth before
+Phase 2.5 + Layer V are sealed.*
+
 ### Phase 4 — Gamma (ANCHOR) + ToolComposer + proof artifacts
 
 Exploitation (OFFENSIVE_APPROVED+SOW), runtime tool composition, blast radius gate + Telegram approval.
