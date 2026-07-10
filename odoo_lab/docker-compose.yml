@@ -1,0 +1,51 @@
+# Odoo Field-Prove Lab — cross-service credential-reuse chain (slice 1d).
+# One IP (127.0.0.1), Host-header vhosts, self-signed lab CA.
+# nginx: serves the exposed wp-config.php.bak bait (leak vector for wp_config_probe)
+#        AND reverse-proxies /xmlrpc/* + / to the Odoo backend (access vector).
+# Chain proven = leaked admin/<PW> (from bait) reused on Odoo XML-RPC → uid.
+# hardened.odoo.lab: no bait, Odoo admin uses a UNIQUE pw → chain must FAIL (true-neg).
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./exposed:/etc/nginx/exposed:ro
+    depends_on:
+      - odoo
+    restart: unless-stopped
+
+  odoo:
+    image: odoo:17.0
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      - odoo_data:/var/lib/odoo
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes:
+      - odoo_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "odoo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  odoo_data:
+  odoo_db:
