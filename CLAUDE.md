@@ -137,38 +137,36 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 4 — slice-1 (ToolRegistry.ranked) SEALED 2026-07-05; #99 superseded
-Last Decision  : Phase-4 breadth slice: Odoo DB-manager exposure probe (recon) added —
-                 agent_alpha/recon/odoo_dbmanager_probe.py. Universal Odoo surface detection
-                 (/web/database/manager fingerprint + action markers). 11 tests GREEN.
-                 Next: OdooXmlRpcTool (access phase) or breadth tool for WP/Laravel.
-                 Gamma (OFFENSIVE_APPROVED + blast-radius gate) still parked behind this.
-Next Action    : Continue Phase 4 breadth — add OdooXmlRpcTool (access-phase Tool conforming
-                 to Tool protocol, ranked by ToolRegistry via applies_to). Then ToolComposer
-                 slice when Gamma Template is ready.
+Project Phase  : Phase 4 — Odoo breadth ARC 1a–1d COMPLETE + FIELD-PROVEN (Oracle 2026-07-10)
+Last Decision  : Odoo cross-service cred-reuse chain field-proven end-to-end on self-owned lab.
+                 `CHAIN PROVEN: True` vuln.odoo.lab (Alpha fingerprints odoo → odoo_dbmanager_probe
+                 → ASSET → Beta ctx projection → odoo_access ranked → XML-RPC db.list=enumerated
+                 → authenticate → admin uid), `False` hardened.odoo.lab (true-negative).
+                 Foundation fixes sealed this arc:
+                   - beta_ctx_projection: Beta.step now projects tech_stack/prior_findings/open_ports
+                     from AttackGraph → ToolRegistry.ranked fingerprint-routing is LIVE (was #2
+                     tested-not-wired; the whole Phase-4 moat was decorative in prod before this).
+                   - odoo_access db_source "enumerated"|"guessed" in proof_request; 1d chains
+                     ENUMERATED only (guessed db ≠ proven).
+                   - odoo_access reused-path skips username=="" creds.
+                   - CodeQL hygiene: product-scoped + security-extended; log-injection (emergency.py
+                     CRLF scrub) sealed; clear-text-logging FP dismissed.
+Next Action    : (1) housekeeping + investigate hardened "user" access anomaly (non-reused access
+                 on hardened — default_creds succeeding = separate finding, or artifact).
+                 (2) Recommended next arc: Omega report from the Odoo chain (exec+technical+MITRE)
+                 — closes the "report a client would pay for" half of the success bar.
+                 Gamma/ANCHOR still STOP-gated: needs ToolComposer + blast-radius gate FIRST
+                 (Phase-4 exit criteria), gate is Claude lane, destructive bodies are DeepSeek lane.
 
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest` 
-                 or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum)
+                 or `make check`. 384 phase_3/4 passed + make check clean (89 source files).
 
-Phase status (verified on Oracle, not claimed):
-  Phase 0 : DONE (7 components)
-  Phase 1 : DONE (5 components)
-  Phase 2 : DONE (12 components) — CODE SEALED 2026-06-19
-  Phase 3 : CLOSED 2026-07-05. Beta/STRIKE + auto-advance Celery chain; cred-reuse (HIGH)
-            + direct-DB (db_root) payable chains field-proven; WP + JS-secret recon vectors
-            field-proven. Exit-bar H closed: A7-a run-trace projection + GET /trace endpoint
-            SEALED; A7-c queue-health probe + GET /health/queue SEALED; cohost_pivot
-            default-DENY gate (assert_pivot_target) SEALED (co-host trap closed).
-  Open (tracked, NON-blocking): A7-b LLM-cost metric DEFERRED (needs new event, dead-seam
-            risk); time_to_first_proof_s still None in 3 live_fire runners; /health/queue
-            returns GLOBAL depth (per-tenant scoping = later refinement).
-
-LLM roles (testing phase): DeepSeek-v4-pro = reasoning PRIMARY + payload/exec;
-  Kimi-2.6 = payload fallback; MiMo-v2.5-pro = reasoning CONSENSUS only — DEFERRED to
-  Phase 4 (Gamma) per ADR §12.23. NO consensus / MiMoProvider on any Phase-3 live path.
-
-ADR §12.22 tool strategy: wrap commodity, build the moat, gate the dangerous. Moat = triad
-  graph x cross-engagement-memory x proof. Phase 4 builds ToolComposer + Registry first.
+Phase status (verified on Oracle):
+  Phase 0/1/2 : DONE (sealed earlier)
+  Phase 3     : CLOSED
+  Phase 4     : Odoo arc 1a–1d DONE + field-proven. Registry.ranked + Beta ctx projection LIVE.
+                OPEN: ToolComposer (not built), blast-radius gate (not built) — both required
+                before Gamma. Evasion/WAF PARKED. Gamma/ANCHOR STOP-gated.
 ```
 
 ---
