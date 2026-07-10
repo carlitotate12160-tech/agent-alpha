@@ -62,6 +62,64 @@ ACCESS_USER = "user"
 ACCESS_ADMIN = "admin"
 
 
+def _project_target_context(
+    graph_store: Any,
+    *,
+    engagement_id: str,
+    tenant_id: str | None,
+    target: str,
+) -> TargetContext:
+    """Project the live AttackGraph into the TargetContext a tool ranks on.
+
+    Beta used to hand ToolRegistry an EMPTY context (no tech_stack/ports/findings),
+    so fingerprint-driven ranking (the whole point of applies_to) was decorative in
+    the live path: every tech-specific tool scored its off-target floor and lost to
+    the generic ones. This reads Alpha's recon back out of the graph so ranking is
+    actually context-driven (anti-Lyndon #2: ToolRegistry was tested with a hand-built
+    ctx but never wired to the live agent).
+
+    Single-target scope: tech_stack + open_ports come from ASSET nodes whose host
+    matches ``target``; prior_findings are engagement-wide (Beta runs one entry_point).
+    """
+    host = urlparse(target).hostname or urlparse(target).netloc
+    tech_stack: dict[str, str] = {}
+    open_ports: set[int] = set()
+    for node in graph_store.nodes_by_type(NodeType.ASSET):
+        props = node.properties
+        if getattr(props, "host", None) != host:
+            continue
+        for tech in getattr(props, "tech_stack", None) or []:
+            tech_stack[str(tech)] = str(tech)
+        for port in getattr(props, "open_ports", None) or []:
+            open_ports.add(int(port))
+
+    prior_findings: list[str] = []
+    for node in graph_store.nodes_by_type(NodeType.CREDENTIAL):
+        props = node.properties
+        prior_findings.append(
+            f"credential harvested service={getattr(props, 'service', '')} "
+            f"username={getattr(props, 'username', '')}"
+        )
+    for node in graph_store.nodes_by_type(NodeType.VULNERABILITY):
+        props = node.properties
+        prior_findings.append(
+            f"vulnerability {getattr(props, 'affected_service', '')} "
+            f"{getattr(props, 'cve_id', '') or ''}".strip()
+        )
+    for node in graph_store.nodes_by_type(NodeType.ACCESS_LEVEL):
+        props = node.properties
+        prior_findings.append(f"access level={getattr(props, 'level', '')}")
+
+    return TargetContext(
+        engagement_id=engagement_id,
+        tenant_id=tenant_id,
+        target=target,
+        tech_stack=tech_stack,
+        open_ports=tuple(sorted(open_ports)),
+        prior_findings=tuple(prior_findings),
+    )
+
+
 def _deep_redact(obj: Any) -> Any:
     """Recursively redact all strings in a nested dict/list structure.
 
@@ -236,7 +294,8 @@ class Beta:
 
         # ── ACT: ranked tool selection (seed of ToolRegistry — inline for 2
         #    tools, extract to registry.py when a 3rd tool/Gamma needs it) ──
-        ctx = TargetContext(
+        ctx = _project_target_context(
+            self.graph_store,
             engagement_id=self._engagement_id,
             tenant_id=None,
             target=self._entry_point,
