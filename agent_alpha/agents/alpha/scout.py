@@ -14,9 +14,10 @@ any (anti-Lyndon #6).
 from __future__ import annotations
 
 import datetime
+import re
 import uuid
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
@@ -206,6 +207,14 @@ class Alpha:
             nodes_added = self._handle_generic_probe(resp, url)
 
         self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
+
+        # ── FRONTIER EXPANSION (R1) ─────────────────────────────
+        # Enqueue in-scope hrefs from this response so the cognitive loop
+        # explores beyond the initial seed URL.  Out-of-scope, duplicate, and
+        # already-probed URLs are silently dropped by enqueue_discovered_url.
+        for href in self._extract_hrefs(resp.text, url):
+            self.enqueue_discovered_url(href)
+
         return {"discovered_nodes": nodes_added, "cost_usd": decision.cost_usd}
 
     # ── Private: tool handlers ──────────────────────────────────
@@ -489,6 +498,47 @@ class Alpha:
             payload,
         )
         self.graph_store.apply_event("EdgeDiscovered", payload)
+
+    # ── Private: frontier expansion (R1) ───────────────────────
+
+    def _extract_hrefs(self, html: str, base_url: str) -> list[str]:
+        """Extract absolute same-origin hrefs from *html*.
+
+        Resolves relative paths against *base_url*, skips anchors/mailto/
+        javascript/tel, and filters to the same scheme+host as *base_url*.
+        Scope-gate (``authorization.is_in_scope``) is applied separately in
+        ``enqueue_discovered_url`` — this is the HTML-level same-origin filter.
+        """
+        base = urlparse(base_url)
+        base_origin = (base.scheme, base.hostname or "")
+
+        hrefs: list[str] = []
+        for match in re.finditer(r'<a\s[^>]*href=["\']([^"\'#][^"\']*)["\']', html, re.IGNORECASE):
+            raw = match.group(1).strip()
+            if not raw or raw.startswith(("mailto:", "javascript:", "tel:")):
+                continue
+            absolute = urljoin(base_url, raw)
+            parsed = urlparse(absolute)
+            if (parsed.scheme, parsed.hostname or "") == base_origin:
+                hrefs.append(absolute)
+        return hrefs
+
+    def enqueue_discovered_url(self, url: str) -> None:
+        """Add *url* to ``_work_queue`` if in-scope and not already seen.
+
+        Scope is validated through the authorisation gate — the same gate that
+        guards ``run_recon`` — so discovered hrefs cannot expand recon outside
+        client scope regardless of what a target page links to.  Dedup against
+        both ``_probed`` (already executed) and ``_work_queue`` (already
+        scheduled) prevents re-scan loops on link-cycle pages.
+        """
+        host = urlparse(url).hostname or urlparse(url).netloc
+        if (
+            self.authorization.is_in_scope(self._engagement_id, host)
+            and url not in self._probed
+            and url not in self._work_queue
+        ):
+            self._work_queue.append(url)
 
     # ── Private: helpers ────────────────────────────────────────
 
