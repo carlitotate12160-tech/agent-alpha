@@ -265,6 +265,10 @@ class OdooAccessTool:
                 props = node.properties
                 if not hasattr(props, "secret_ref") or not hasattr(props, "username"):
                     continue
+                if not props.username:
+                    # Keyless secrets (js_secret / config KEY-branch mint username="")
+                    # can NEVER authenticate to Odoo — skip, don't waste an auth request.
+                    continue
                 try:
                     secret = self._secrets_manager.retrieve(props.secret_ref)
                 except Exception:
