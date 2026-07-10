@@ -119,6 +119,7 @@ class HttpClient:
                 timeout=self.timeout,
                 transport=self._transport,
                 verify=self._verify,
+                follow_redirects=True,
             ) as client:
                 response = client.request(
                     method,
