@@ -1,4 +1,9 @@
-# Agent-Alpha — Architecture Decision Record & Phased Roadmap
+# Agent-Alpha — Architecture Decision Record & Phased Roadmap (HISTORICAL)
+
+> **DEPRECATED 2026-07-08.** This file is retained for history only. The canonical
+> ADR is now `docs/ADR.md` (merged §12.13–§12.18 + §12.20–§12.23 into one file).
+> `docs/ADR_SUMMARY.md` is the quick-reference index. Do NOT cite this file for
+> current decisions — use `ADR.md`.
 
 Architecture blueprint for Agent-Alpha: autonomous red-team platform Level 1-6 (SCOUT→STRIKE→ANCHOR→HUNTER→SCOUT-HUNTER→ROASTER) with non-bypassable authorization gate, multi-agent orchestration, and memory that makes it smarter across engagements.
 
@@ -1104,3 +1109,45 @@ where the applicator factory (§12.18) feeds Beta's cred_reuse task.
 
 **Decommission script path.** Once Celery path runs green, `chain_runner.py` becomes
 dev/live-fire harness only — NOT a second production orchestrator (anti-#6).
+
+### 12.21 External Benchmark Gate — Proof of value-add before GA — PROPOSED
+
+**Status:** PROPOSED → LOCK on merge. Adds a NEW exit gate; does not change any existing
+phase. **Relates to:** §12.2 (differential test), §12.3 (real-target gate), §8m
+(reliability/validation), §8o-6 (adaptive learning).
+
+Three-tier external benchmark as Phase 6 / pre-GA exit criteria, run on Oracle ARM64.
+Tier A = AutoPenBench autonomous (primary, measures scripted-vs-autonomous gap).
+Tier B = CyberGym real-world chaining (primary, false-success guard). Tier C = Cybench
+(secondary, regression only). Internal payable-report bar still dominates. Harness
+exercises real Conductor autonomous path, NOT chain_runner. Build trigger: autonomy
+audit green + cred-reuse on Celery path. Full detail in `ADR.md` §12.21.
+
+### 12.22 Tool strategy: wrap commodity, build the moat, gate the dangerous — PROPOSED
+
+**Status:** PROPOSED → LOCK on merge. Extends §12.16 (tool layer) and §5–§7 differentiators.
+
+**Decision 1 — litmus rule:** build internal ONLY if uses attack graph / cross-engagement
+memory / proof-composition; otherwise WRAP behind `ToolResult` contract. WRAP = nmap,
+nuclei, sqlmap, feroxbuster/ffuf, proxy, captcha, GSocket, john. BUILD = ToolComposer,
+IntelligenceBase, AttackGraph narrative, regional verified templates.
+
+**Decision 2 — safety revisions:** cohost_pivot/symlink default-DENY (co-host = different
+owner, almost always out of SOW). Credential spray lockout governor. Persistence/exfil
+require explicit SOW clause + guaranteed teardown/restore.
+
+**Decision 3 — new internal tools:** scope/blast-radius governor (compliance moat),
+TransportResilience (WAF/CF discriminator — classify CF-RAY/challenge as WAF-BLOCKED,
+never "not vulnerable"), engagement teardown/restore tool. Full detail in `ADR.md` §12.22.
+
+### 12.23 Consensus-LLM tier — deferral from Phase 3 to Phase 4 (Gamma) — LOCKED
+
+**Status:** LOCKED (2026-07-02). Supersedes "multi-LLM consensus" in Phase 3 exit criteria.
+Aligns ADR with `docs/PHASE_3_TEST_CONTRACT.md`. Doc-integrity sweep COMPLETE: §8-era
+citations repointed to §12.23.
+
+`CONSENSUS_LLM` tier + `MiMoProvider` + parallel-consensus moved to Phase 4 (Gamma).
+Phase 3 runs single reasoning provider only. Consensus is for exploit-chain selection,
+blast-radius assessment, "Try Harder" — none occur in Phase 3 (ACTIVE_APPROVED, bounded,
+reversible). The irreversible high-blast-radius decisions land in Gamma (OFFENSIVE_APPROVED
++ SOW). Full detail in `ADR.md` §12.23.

@@ -165,7 +165,7 @@ Phase status (verified on Oracle, not claimed):
 
 LLM roles (testing phase): DeepSeek-v4-pro = reasoning PRIMARY + payload/exec;
   Kimi-2.6 = payload fallback; MiMo-v2.5-pro = reasoning CONSENSUS only — DEFERRED to
-  Phase 4 (Gamma) per ADR §12.20. NO consensus / MiMoProvider on any Phase-3 live path.
+  Phase 4 (Gamma) per ADR §12.23. NO consensus / MiMoProvider on any Phase-3 live path.
 
 ADR §12.22 tool strategy: wrap commodity, build the moat, gate the dangerous. Moat = triad
   graph x cross-engagement-memory x proof. Phase 4 builds ToolComposer + Registry first.
