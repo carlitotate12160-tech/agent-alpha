@@ -146,9 +146,7 @@ def test_recon_runner_threads_time_to_first_proof_into_report(
 
     pipeline = _fake_pipeline(auth, graph, store, http_client)
     monkeypatch.setattr(recon_runner, "build_recon_pipeline", lambda *a, **kw: pipeline)
-    monkeypatch.setattr(
-        recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL]
-    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
 
     result = recon_runner.run_recon_for_engagement(
         engagement_id=engagement_id,
@@ -183,9 +181,7 @@ def test_recon_runner_none_time_to_proof_when_no_proof_event(
 
     pipeline = _fake_pipeline(auth, graph, store, http_client)
     monkeypatch.setattr(recon_runner, "build_recon_pipeline", lambda *a, **kw: pipeline)
-    monkeypatch.setattr(
-        recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL]
-    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
 
     result = recon_runner.run_recon_for_engagement(
         engagement_id=engagement_id,

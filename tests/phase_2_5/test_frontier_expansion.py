@@ -29,7 +29,6 @@ from __future__ import annotations
 import inspect
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import urlparse
 
 import pytest
 
@@ -90,7 +89,7 @@ def _make_alpha(body: str = "<html></html>") -> Alpha:
     """Alpha wired with scope=target.example.com, no live deps."""
     a = Alpha(
         authorization=_FakeAuth(),
-        graph_store=None,           # not needed for frontier-expansion tests
+        graph_store=None,  # not needed for frontier-expansion tests
         event_store=None,
         orchestrator=_FakeOrchestrator(),
         http_client=_FakeHttpClient(body),
@@ -105,6 +104,7 @@ def _make_alpha(body: str = "<html></html>") -> Alpha:
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def alpha() -> Alpha:
@@ -132,6 +132,7 @@ def alpha_multi_link() -> Alpha:
 # T0 — threshold guard
 # ---------------------------------------------------------------------------
 
+
 def test_no_progress_threshold_allows_frontier_growth() -> None:
     """``ALPHA_RECON_NO_PROGRESS_ITERS = 1`` kills recon after one idle cycle —
     before any URL enqueued by step() can run.  R1 requires >= 5."""
@@ -145,6 +146,7 @@ def test_no_progress_threshold_allows_frontier_growth() -> None:
 # ---------------------------------------------------------------------------
 # T1 — interface exists
 # ---------------------------------------------------------------------------
+
 
 def test_alpha_has_enqueue_discovered_url() -> None:
     """Alpha must expose ``enqueue_discovered_url`` — the frontier enqueue seam.
@@ -169,6 +171,7 @@ def test_alpha_has_extract_hrefs() -> None:
 # T2 — in-scope URL is enqueued
 # ---------------------------------------------------------------------------
 
+
 def test_in_scope_href_enqueued(alpha: Alpha) -> None:
     """A discovered href on the same base domain must enter ``_work_queue``."""
     initial = len(alpha._work_queue)
@@ -187,6 +190,7 @@ def test_subdomain_href_enqueued(alpha: Alpha) -> None:
 # ---------------------------------------------------------------------------
 # T3 — out-of-scope URL is NOT enqueued
 # ---------------------------------------------------------------------------
+
 
 def test_out_of_scope_href_rejected(alpha: Alpha) -> None:
     """A href to a different domain must NOT enter ``_work_queue``.
@@ -212,6 +216,7 @@ def test_out_of_scope_similar_suffix_rejected(alpha: Alpha) -> None:
 # T4 — duplicate deduplication
 # ---------------------------------------------------------------------------
 
+
 def test_duplicate_url_not_enqueued_twice(alpha: Alpha) -> None:
     """Enqueuing the same URL twice must result in exactly one entry (dedup).
     Without dedup, a link-cycle would produce infinite re-scanning."""
@@ -233,6 +238,7 @@ def test_already_probed_url_not_re_enqueued(alpha: Alpha) -> None:
 # ---------------------------------------------------------------------------
 # T5 — dead-seam guard: step() calls enqueue_discovered_url (anti-Lyndon #2)
 # ---------------------------------------------------------------------------
+
 
 def test_step_calls_enqueue_discovered_url() -> None:
     """``step()`` must call ``enqueue_discovered_url()`` on the live path.
@@ -259,6 +265,7 @@ def test_step_calls_extract_hrefs() -> None:
 # ---------------------------------------------------------------------------
 # T6 — differential: different HTML surface → different queue growth
 # ---------------------------------------------------------------------------
+
 
 def test_extract_hrefs_multi_link_page(alpha_multi_link: Alpha) -> None:
     """``_extract_hrefs`` on a page with 2 in-scope + 1 out-of-scope links must
@@ -299,9 +306,7 @@ def test_frontier_grows_on_multi_link_target_not_on_dead_end(
     seed = f"https://{_SCOPE_HOST}"
 
     # Simulate what step() does after PERSIST
-    for href in alpha_multi_link._extract_hrefs(
-        alpha_multi_link.http_client.get(seed).text, seed
-    ):
+    for href in alpha_multi_link._extract_hrefs(alpha_multi_link.http_client.get(seed).text, seed):
         alpha_multi_link.enqueue_discovered_url(href)
 
     for href in alpha_single_page._extract_hrefs(
