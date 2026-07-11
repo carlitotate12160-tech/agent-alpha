@@ -102,10 +102,14 @@ class PassiveDiscovery:
         http_client: Any,
         authorization: AuthorizationStateMachine,
         event_store: EventStore,
+        crtsh_url_template: str = CRTSH_URL_TEMPLATE,
     ) -> None:
         self._http = http_client
         self._auth = authorization
         self._event_store = event_store
+        # Source is injectable so a lab-local CT stand-in can exercise the REAL
+        # parse/partition/seed path offline. Default = public crt.sh (unchanged).
+        self._crtsh_url_template = crtsh_url_template
 
     def discover(
         self,
@@ -124,7 +128,7 @@ class PassiveDiscovery:
             return PassiveDiscoveryResult(domain, (), (), ())
 
         # STEP 2 — single crt.sh GET
-        url = CRTSH_URL_TEMPLATE.format(domain=domain)
+        url = self._crtsh_url_template.format(domain=domain)
         resp = self._http.get(url)
 
         # STEP 3 — parse
