@@ -240,9 +240,7 @@ WP_CONFIG_BACKUP_PATHS: tuple[str, ...] = (
     "/wp-config.txt",
 )
 
-WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (
-    "/.git/config",
-)
+WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
 
 # ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
 # Single source of truth for K19 "decision threshold". Score itself
