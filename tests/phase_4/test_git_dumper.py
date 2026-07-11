@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import http.server
 import os
-import platform
+import shutil
 import socketserver
 import subprocess
 import threading
@@ -29,10 +29,10 @@ import pytest
 
 from agent_alpha.recon.git_exposure_probe import GitDumper  # RED: real wrap absent
 
-# Skip on non-Oracle ARM64 (git-dumper not available on Windows dev environment)
+# Skip if git-dumper tool is not available in PATH
 pytestmark = pytest.mark.skipif(
-    platform.system() != "Linux" or platform.machine() != "aarch64",
-    reason="git-dumper test requires Oracle ARM64 with git-dumper installed"
+    not shutil.which("git-dumper"),
+    reason="git-dumper tool not found in PATH (requires installation)"
 )
 
 
