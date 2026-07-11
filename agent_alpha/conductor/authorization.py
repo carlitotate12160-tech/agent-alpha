@@ -154,8 +154,10 @@ class AuthorizationStateMachine:
 
     def enable_recon(self, engagement_id: str, scope: Scope) -> bool:
         record = self._get(engagement_id)
-        if record.state != a2a_pb2.CREATED:
-            raise ValueError(f"enable_recon requires CREATED state, found {record.state}")
+        if record.state not in (a2a_pb2.CREATED, a2a_pb2.RECON_ONLY):
+            raise ValueError(
+                f"enable_recon requires CREATED or RECON_ONLY state, found {record.state}"
+            )
         try:
             scope.validate()
         except ValueError as exc:

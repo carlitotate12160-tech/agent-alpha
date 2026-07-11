@@ -45,6 +45,7 @@ class LayerVConfig:
 
 @dataclasses.dataclass(frozen=True)
 class LayerVResult:
+    engagement_id: str
     leak_creds_added: int
     web_access_level: str
     edge_from_harvested_cred: bool
@@ -99,7 +100,7 @@ def _host_discovery_sourced(event_store: Any, engagement_id: str, host: str) -> 
             continue
 
         if event_type == EventType.PASSIVE_DISCOVERY:
-            if host in payload.get("in_scope", []):
+            if host in payload.get("discovered", []):
                 return True
         elif event_type == EventType.NODE_DISCOVERED:
             node_type = payload.get("type")
@@ -134,6 +135,29 @@ def run_layer_v_live_fire(
     pd = PassiveDiscovery(http_client=http_client, authorization=auth, event_store=event_store)
     result = pd.discover(rec.engagement_id, config.root_domain)
 
+    # 2b-bis. AUTHORIZE DISCOVERED HOSTS THROUGH CONDUCTOR
+    from agent_alpha.conductor.models import _coerce_address
+
+    valid_discovered = []
+    for host in result.enumerated:
+        parsed_host = _coerce_address(host)
+        is_excluded = any(
+            AuthorizationStateMachine._matches(parsed_host, ex) for ex in config.scope_exclusions
+        )
+        if not is_excluded:
+            valid_discovered.append(host)
+
+    if valid_discovered:
+        extended_domains = sorted(set(config.scope_domains) | set(valid_discovered))
+        auth.enable_recon(
+            rec.engagement_id,
+            Scope(
+                ip_ranges=config.scope_ip_ranges,
+                domains=extended_domains,
+                exclusions=config.scope_exclusions,
+            ),
+        )
+
     alpha = Alpha(
         authorization=auth,
         graph_store=graph_store,
@@ -151,6 +175,10 @@ def run_layer_v_live_fire(
 
     # Seed frontier from passive
     seed_frontier_from_passive(alpha, result)
+
+    # Enqueue the newly authorized discovered hosts as well
+    for host in valid_discovered:
+        alpha.enqueue_discovered_url(f"https://{host}/")
 
     # Ensure root domain is also evaluated if not found by passive discovery,
     # as the root domain itself might have links to discover (Frontier Expansion).
@@ -195,6 +223,7 @@ def run_layer_v_live_fire(
     is_sourced = _host_discovery_sourced(event_store, rec.engagement_id, odoo_host)
 
     return LayerVResult(
+        engagement_id=rec.engagement_id,
         leak_creds_added=odoo_result.leak_creds_added,
         web_access_level=odoo_result.web_access_level,
         edge_from_harvested_cred=odoo_result.edge_from_harvested_cred,
@@ -248,15 +277,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  CHAIN PROVEN: {result.chain_proven}")
     print("=" * 64)
 
-    engagements = [
-        e.engagement_id
-        for e in event_store.get_events(None)
-        if e.event_type == EventType.ENGAGEMENT_CREATED
-    ]
-    if engagements:
-        # Use the first engagement (the discovery one) to report blocked hosts
-        mem = EngagementMemoryProjector(event_store).project(engagements[0])
-        print(f"  Blocked Hosts (CF)      : {mem.blocked_hosts}")
+    from agent_alpha.memory.engagement import InMemoryEngagementMemoryStore
+
+    mem = EngagementMemoryProjector(event_store, InMemoryEngagementMemoryStore()).project(
+        result.engagement_id
+    )
+    print(f"  Blocked Hosts (CF)      : {mem.blocked_hosts}")
 
     return 0 if result.chain_proven else 1
 
