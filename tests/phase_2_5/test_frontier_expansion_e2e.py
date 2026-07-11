@@ -39,6 +39,7 @@ from __future__ import annotations
 import dataclasses
 
 from agent_alpha.agents.alpha.scout import Alpha
+from agent_alpha.config import constants
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -188,9 +189,15 @@ def test_run_recon_dead_end_seed_probes_only_seed() -> None:
 
     agent.run_recon(eng, dead)
 
-    assert agent.http_client.calls == [dead], (
-        "a link-free page produced extra fetches — frontier growth is not driven "
-        f"by page content (Lyndon #11). calls={agent.http_client.calls}"
+    # Baseline recon now ALSO probes the fixed, target-INDEPENDENT well-known leak
+    # paths (WELL_KNOWN_LEAK_PATHS, e.g. /.git/config). The Lyndon #11 guard still
+    # holds: a link-free page must produce NO href-driven frontier growth — i.e.
+    # nothing beyond the seed + that constant baseline.
+    expected = [dead] + [f"https://{_SCOPE_HOST}{p}" for p in constants.WELL_KNOWN_LEAK_PATHS]
+    assert agent.http_client.calls == expected, (
+        "a link-free page fetched something beyond seed + the well-known-path "
+        f"baseline — HREF-driven expansion is not zero (Lyndon #11). "
+        f"calls={agent.http_client.calls}"
     )
 
 

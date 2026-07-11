@@ -1465,3 +1465,20 @@ Gamma's exploit-chain / blast-radius decisions.
 
 **Confidence ~95%** — verified against #61: consensus is grep-clean on all live paths.
 The deferral is doc-only; the residual is the sweep landing on every checklist (done).
+
+### 12.25 Well-known-path recon baseline — LOCKED
+
+`run_recon` seeds a fixed, target-INDEPENDENT set of sensitive paths
+(`constants.WELL_KNOWN_LEAK_PATHS` — `/.git/config`, later `/.env` + backup files)
+into the frontier for every in-scope host — the seed of the path_probe catalog.
+
+Universal by design (standard recon hygiene); NOT a per-target static attack
+sequence (Lyndon #11 governs the ATTACK chain, not recon breadth). Stealth
+control, if ever needed, is a first-class `recon_policy` toggle (default on),
+never per-target hand-feeding.
+
+**Confidence ~85%** — two assumptions to confirm at apply time:
+(a) call order = `[seed, /.git/config]` (seed popped first, well-known appended
+after in `run_recon`); if impl appends before seed, reverse `expected`.
+(b) monologue fixture 404s `/.git/config` so cycle 2 is OBSERVE-only; if fixture
+raises, that is a fixture issue, not an invariant.
