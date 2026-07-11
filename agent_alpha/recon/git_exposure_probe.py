@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import datetime
 import shutil
-import subprocess
+import subprocess  # nosec B404 — commodity tool WRAP (git-dumper)
 import tempfile
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
