@@ -49,6 +49,15 @@ scope:
 # ---------------------------------------------------------------------------
 root_domain: "odoo.lab"        # <-- the apex; the single hand-off point
 
+# ---------------------------------------------------------------------------
+# LAB-ONLY passive-discovery SOURCE. crt.sh cannot see `.lab` (no CT logs for a
+# non-public TLD), so point R2 at a lab-local crt.sh-shaped JSON served by nginx
+# off the apex vhost. {domain} is filled by PassiveDiscovery. This is a data
+# SOURCE, not a target host — vuln.odoo.lab still EMERGES from parsing this.
+# In production omit this key entirely; real crt.sh is used by default.
+# ---------------------------------------------------------------------------
+passive_source_template: "https://odoo.lab/ct/{domain}.json"
+
 # =============================================================================
 # EXPECTED (the seal — recorded, checked against the live run on Oracle ARM64):
 #   CHAIN PROVEN            : True

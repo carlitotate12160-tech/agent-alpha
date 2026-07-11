@@ -29,7 +29,11 @@ from agent_alpha.live_fire.odoo_chain_runner import (
 )
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.memory.engagement import EngagementMemoryProjector
-from agent_alpha.recon.passive_discovery import PassiveDiscovery, seed_frontier_from_passive
+from agent_alpha.recon.passive_discovery import (
+    CRTSH_URL_TEMPLATE,
+    PassiveDiscovery,
+    seed_frontier_from_passive,
+)
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
 
@@ -41,6 +45,10 @@ class LayerVConfig:
     scope_domains: list[str]
     scope_exclusions: list[str]
     root_domain: str
+    # LAB-ONLY: a crt.sh-shaped CT SOURCE url template (has a {domain} slot). This
+    # is a data SOURCE, never a target host — the exploited host still emerges from
+    # parsing CT output. Omit in production; real crt.sh is used by default.
+    passive_source_template: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -87,6 +95,7 @@ def load_layer_v_config(path: str | pathlib.Path) -> LayerVConfig:
         scope_domains=list(scope["domains"]),
         scope_exclusions=list(scope["exclusions"]),
         root_domain=data["root_domain"],
+        passive_source_template=data.get("passive_source_template"),
     )
 
 
@@ -110,6 +119,45 @@ def _host_discovery_sourced(event_store: Any, engagement_id: str, host: str) -> 
     return False
 
 
+def _authorize_apex_subdomains(
+    auth: Any,
+    engagement_id: str,
+    config: LayerVConfig,
+    result: Any,
+) -> list[str]:
+    """Promote CT-discovered apex-subdomains to scope via Conductor (audited).
+
+    A host is authorized iff it is the apex OR a strict subdomain of it AND is not
+    excluded. The apex bound is enforced HERE (belt-and-suspenders on top of
+    parse_crtsh_names' suffix filter) so no discovery source can widen scope beyond
+    the authorized registrable domain. Iterates result.discovered (the parsed CT
+    surface), NOT the audit-only `enumerated` field. Default-DENY preserved.
+    """
+    apex = config.root_domain.strip().lower()
+    suffix = "." + apex
+    excluded = {e.strip().lower() for e in config.scope_exclusions}
+
+    authorized: list[str] = []
+    for host in result.discovered:
+        h = host.strip().lower()
+        if h in excluded:
+            continue
+        if h == apex or h.endswith(suffix):
+            authorized.append(h)
+
+    if authorized:
+        extended = sorted(set(config.scope_domains) | set(authorized))
+        auth.enable_recon(
+            engagement_id,
+            Scope(
+                ip_ranges=config.scope_ip_ranges,
+                domains=extended,
+                exclusions=config.scope_exclusions,
+            ),
+        )
+    return authorized
+
+
 def run_layer_v_live_fire(
     config: LayerVConfig,
     *,
@@ -131,32 +179,22 @@ def run_layer_v_live_fire(
         ),
     )
 
-    # 2b. Run passive discovery from root_domain
-    pd = PassiveDiscovery(http_client=http_client, authorization=auth, event_store=event_store)
+    # 2b. R2 passive discovery from root_domain. The subdomain hosts EMERGE from
+    #     parsing a CT source (public crt.sh, or a lab-local CT stand-in when
+    #     passive_source_template is set) — never from this config. This exercises
+    #     the SEALED R2 parse/partition/seed path on the live path (anti-Lyndon #2).
+    pd = PassiveDiscovery(
+        http_client=http_client,
+        authorization=auth,
+        event_store=event_store,
+        crtsh_url_template=(config.passive_source_template or CRTSH_URL_TEMPLATE),
+    )
     result = pd.discover(rec.engagement_id, config.root_domain)
 
-    # 2b-bis. AUTHORIZE DISCOVERED HOSTS THROUGH CONDUCTOR
-    from agent_alpha.conductor.models import _coerce_address
-
-    valid_discovered = []
-    for host in result.enumerated:
-        parsed_host = _coerce_address(host)
-        is_excluded = any(
-            AuthorizationStateMachine._matches(parsed_host, ex) for ex in config.scope_exclusions
-        )
-        if not is_excluded:
-            valid_discovered.append(host)
-
-    if valid_discovered:
-        extended_domains = sorted(set(config.scope_domains) | set(valid_discovered))
-        auth.enable_recon(
-            rec.engagement_id,
-            Scope(
-                ip_ranges=config.scope_ip_ranges,
-                domains=extended_domains,
-                exclusions=config.scope_exclusions,
-            ),
-        )
+    # 2b-bis. Authorize discovered apex-subdomains through Conductor (audited scope
+    #         extension). Named + apex-bounded so this is a first-class authorization
+    #         step, not an abuse of the audit-only `enumerated` field.
+    authorized_hosts = _authorize_apex_subdomains(auth, rec.engagement_id, config, result)
 
     alpha = Alpha(
         authorization=auth,
@@ -173,15 +211,12 @@ def run_layer_v_live_fire(
     alpha._analyzable_probes = 0
     alpha._ran_campaigns = set()
 
-    # Seed frontier from passive
+    # Seed frontier: in-scope passive hosts + the just-authorized apex-subdomains.
+    # Each authorized host is now its OWN in-scope origin; Alpha fingerprints it
+    # same-origin. No cross-origin crawl is required or performed.
     seed_frontier_from_passive(alpha, result)
-
-    # Enqueue the newly authorized discovered hosts as well
-    for host in valid_discovered:
+    for host in authorized_hosts:
         alpha.enqueue_discovered_url(f"https://{host}/")
-
-    # Ensure root domain is also evaluated if not found by passive discovery,
-    # as the root domain itself might have links to discover (Frontier Expansion).
     alpha.enqueue_discovered_url(f"https://{config.root_domain}/")
 
     # Alpha recon consumes the frontier and fingerprints hosts
@@ -201,10 +236,12 @@ def run_layer_v_live_fire(
     derived_url = f"https://{odoo_host}/"
 
     # 2d. Delegate to the SEALED run_odoo_chain_live_fire
+    # The delegated chain creates its OWN engagement; its scope MUST include the
+    # discovered odoo host or the chain's own recon on it would be scope-blocked.
     odoo_config = OdooChainConfig(
         client_id=config.client_id,
         scope_ip_ranges=config.scope_ip_ranges,
-        scope_domains=config.scope_domains,
+        scope_domains=sorted(set(config.scope_domains) | {odoo_host}),
         scope_exclusions=config.scope_exclusions,
         recon_url=derived_url,
         entry_point=derived_url,
