@@ -137,36 +137,47 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 4 — Odoo breadth ARC 1a–1d COMPLETE + FIELD-PROVEN (Oracle 2026-07-10)
-Last Decision  : Odoo cross-service cred-reuse chain field-proven end-to-end on self-owned lab.
-                 `CHAIN PROVEN: True` vuln.odoo.lab (Alpha fingerprints odoo → odoo_dbmanager_probe
-                 → ASSET → Beta ctx projection → odoo_access ranked → XML-RPC db.list=enumerated
-                 → authenticate → admin uid), `False` hardened.odoo.lab (true-negative).
-                 Foundation fixes sealed this arc:
-                   - beta_ctx_projection: Beta.step now projects tech_stack/prior_findings/open_ports
-                     from AttackGraph → ToolRegistry.ranked fingerprint-routing is LIVE (was #2
-                     tested-not-wired; the whole Phase-4 moat was decorative in prod before this).
-                   - odoo_access db_source "enumerated"|"guessed" in proof_request; 1d chains
-                     ENUMERATED only (guessed db ≠ proven).
-                   - odoo_access reused-path skips username=="" creds.
-                   - CodeQL hygiene: product-scoped + security-extended; log-injection (emergency.py
-                     CRLF scrub) sealed; clear-text-logging FP dismissed.
-Next Action    : (1) housekeeping + investigate hardened "user" access anomaly (non-reused access
-                 on hardened — default_creds succeeding = separate finding, or artifact).
-                 (2) Recommended next arc: Omega report from the Odoo chain (exec+technical+MITRE)
-                 — closes the "report a client would pay for" half of the success bar.
-                 Gamma/ANCHOR still STOP-gated: needs ToolComposer + blast-radius gate FIRST
-                 (Phase-4 exit criteria), gate is Claude lane, destructive bodies are DeepSeek lane.
+Project Phase  : Phase 2.5 REACH — LAYER V SEALED 2026-07-11. Phase-4 breadth UNFROZEN
+                 (Odoo arc 1a-1d already field-proven 2026-07-10). Gamma STILL STOP-gated.
+Last Decision  : LAYER V SEALED on Oracle (main HEAD 8fc0fc2; PRs #138 CT-source seam / #139 V-B /
+                 #141 bounded-autonomy). V-B live: seed = root `agentalpha.duckdns.org` ONLY → REAL
+                 crt.sh surfaced 7+ siblings → autonomous discovery reached vuln.<apex> →
+                 odoo_dbmanager_probe → CHAIN PROVEN: True (leak_creds=2, access=admin,
+                 edge_from_harvested_cred=True, db_enumerated=True, leak_suspected=False,
+                 host_discovery_sourced=True). 188 phase_2/2_5 green + make check clean (ruff+format+
+                 mypy 92 files), Python 3.12.13. TRUE seal (not fake-HTTP unit tier) for the Odoo chain.
+                 Fixes merged: (1) R2 CT source injectable (crtsh_url_template seam); (2) layer_v_runner
+                 3 bugs (enumerated-abuse → named apex-bounded _authorize_apex_subdomains; delegated
+                 odoo_config.scope_domains includes discovered host; cross-origin apex-crawl dropped);
+                 (3) bounded-autonomy stall semantics — step() reports work_remaining,
+                 run_cognitive_loop suppresses NO_PROGRESS while frontier non-empty (see
+                 adr_bounded_autonomy_stall_semantics.md). REJECTED the YAML-exclusions band-aid.
+                 GOVERNANCE: seal via field-prove harness (lab_guard self-owned DuckDNS), NOT the
+                 Conductor SOW path — full prod auth-gate (SOW→OFFENSIVE_APPROVED) = Phase-6 VERIFY.
+Open (refinement, non-blocking): double-recon at the compose boundary — Layer V discovery
+                 fingerprints vuln.<apex> once, then delegated run_odoo_chain_live_fire runs
+                 Alpha.run_recon(recon_url) AGAIN on the same host. Fix = pass discovered graph/host
+                 into the chain instead of re-reconning.
+Next Action    : Phase-4 breadth — git_exposure + backup_file payable probes FIRST, then a single
+                 data-driven path_probe catalog. Gamma/ANCHOR STOP-gated: needs ToolComposer +
+                 blast-radius gate FIRST (Phase-4 exit criteria); gate = Claude lane, destructive
+                 bodies = DeepSeek lane.
 
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest` 
-                 or `make check`. 384 phase_3/4 passed + make check clean (89 source files).
+                 or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum).
 
-Phase status (verified on Oracle):
-  Phase 0/1/2 : DONE (sealed earlier)
-  Phase 3     : CLOSED
-  Phase 4     : Odoo arc 1a–1d DONE + field-proven. Registry.ranked + Beta ctx projection LIVE.
-                OPEN: ToolComposer (not built), blast-radius gate (not built) — both required
-                before Gamma. Evasion/WAF PARKED. Gamma/ANCHOR STOP-gated.
+Phase status (verified on Oracle, not claimed):
+  Phase 0   : DONE (7 components)
+  Phase 1   : DONE (5 components)
+  Phase 2   : DONE (12 components) — CODE SEALED 2026-06-19
+  Phase 2.5 : REACH DONE + LAYER V SEALED 2026-07-11 (R1 frontier-expand, R2 crt.sh passive
+              discovery, R3 canonical classifier+WAF_BLOCKED+blocked_hosts report; Layer V-B
+              real-crt.sh root-only CHAIN PROVEN True). 188 phase_2/2_5 green.
+  Phase 3   : CLOSED 2026-07-05.
+  Phase 4   : UNFROZEN. Odoo arc 1a-1d DONE + field-proven 2026-07-10 (Registry.ranked + Beta ctx
+              projection LIVE). NEXT breadth = git_exposure + backup_file, then path_probe catalog.
+              OPEN before Gamma: ToolComposer (not built), blast-radius gate (not built).
+              Evasion/WAF PARKED. Gamma/ANCHOR STOP-gated.
 ```
 
 ---
