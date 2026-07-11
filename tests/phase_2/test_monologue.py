@@ -99,9 +99,20 @@ def test_collecting_sink_records_ordered_frames(
     phases = [f.phase for f in sink.frames]
     for required in ("OBSERVE", "ORIENT", "PERSIST"):
         assert required in phases, f"missing phase frame: {required}"
+    # Recon now spans N cognitive cycles (seed page + the fixed well-known-path
+    # probes, e.g. /.git/config). The ordering invariant is PER cycle — the phase
+    # index resets at each new OBSERVE — so a global sorted() was only ever valid
+    # for single-probe recon (a pre-existing fragility, exposed by the seed).
     order = {p: i for i, p in enumerate(_PHASES)}
-    seen = [order[p] for p in phases if p in order]
-    assert seen == sorted(seen), f"frames out of cognitive-loop order: {phases}"
+    cycle: list[int] = []
+    for p in phases:
+        if p not in order:
+            continue
+        if p == "OBSERVE" and cycle:
+            assert cycle == sorted(cycle), f"frames out of order within a cycle: {phases}"
+            cycle = []
+        cycle.append(order[p])
+    assert cycle == sorted(cycle), f"frames out of order within a cycle: {phases}"
 
 
 # ── 2. RULE-tier reasoning comes from the playbook rationale (not empty) ───────

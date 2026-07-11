@@ -1,0 +1,11 @@
+name: git_exposure_config
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - body_regex: '\[core\][\s\S]*repositoryformatversion'
+action:
+  tool: git_exposure_probe
+  tier: rule
+  technique_id: "T1595.002"
+  rationale: "Git config detected; probe for exposed /.git and recover payable secrets."

@@ -57,6 +57,7 @@ __all__ = [
     "WP_CREDENTIAL_SECRET_KEYS",
     "WP_CREDENTIAL_SERVICE_MAP",
     "WP_CONFIG_BACKUP_PATHS",
+    "WELL_KNOWN_LEAK_PATHS",
     "MIN_SAMPLES_BEFORE_SKIP",
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
@@ -239,6 +240,8 @@ WP_CONFIG_BACKUP_PATHS: tuple[str, ...] = (
     "/wp-config.txt",
 )
 
+WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
+
 # ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
 # Single source of truth for K19 "decision threshold". Score itself
 # is computed adaptively from event-stream data; this threshold is NOT.
@@ -286,6 +289,7 @@ RECON_TOOL_CATALOG: frozenset[str] = frozenset(
         "wp_config_probe",
         "js_secret_probe",
         "odoo_dbmanager_probe",
+        "git_exposure_probe",
         "generic_http_probe",
     }
 )

@@ -1,30 +1,23 @@
-# Agent-Alpha CI — P2 seal (pre-Phase-3 hardening)
+# Agent-Alpha CI — optimized (2026-07-11)
 #
-# Runs make check (ruff + mypy) + the FULL test suite, INCLUDING the durable
-# Postgres/Redis integration tests, on every push / PR. A red run blocks merge.
+# Two jobs:
+#   quality-gate    — lint + typecheck + bandit + pip-audit + gitleaks + full test suite
+#                     (BLOCKING — branch protection requires this check)
+#   security-audit  — Trivy container scan + Syft SBOM + Nuclei DAST
+#                     (non-blocking, needs quality-gate, continue-on-error)
+#
+# Optimizations vs the monolithic P2 seal version:
+#   - Pip/venv cached via actions/cache (saves ~1-2 min of pip install per run)
+#   - Security tool binaries (Trivy/Syft/Nuclei) cached (saves ~2-3 min of downloads)
+#   - Fast security scans (bandit/pip-audit/gitleaks) stay blocking in quality-gate
+#   - Slow security scans (Trivy/Syft/Nuclei) async in security-audit, never block merge
+#   - Security-audit skipped entirely if quality-gate fails (needs: quality-gate)
 #
 # Runs on a SELF-HOSTED runner on the Oracle ARM64 box — the project's hard rule
-# is "Oracle ARM64 is the only valid test environment" (anti-Lyndon #9). CI runs
-# on the deployment env, not a look-alike.
+# is "Oracle ARM64 is the only valid test environment" (anti-Lyndon #9).
 #
-# WHAT CHANGED FOR P2 SEAL (vs the P1.1 version):
-#   - Ephemeral Postgres + Redis service containers (fresh per run, hermetic —
-#     no shared mutable state, anti-Lyndon #3).
-#   - The app connects as a NON-superuser, NOBYPASSRLS role (agent_alpha_app).
-#     This is mandatory: a superuser bypasses Row-Level Security even with FORCE,
-#     which would make the RLS isolation tests pass falsely. Provisioned below.
-#   - AGENT_ALPHA_REQUIRE_DB=1 so the integration tests FAIL (not skip) if the
-#     backends are missing/unreachable (see tests/conftest.py). No silent pass.
-#
-# SETUP (one-time, your part): a self-hosted runner registered on the Oracle box
-# with labels [self-hosted, linux, ARM64] and Docker available to it (service
-# containers need Docker — you already run infra/docker-compose, so this is met).
-# Branch protection on main: require the "quality-gate" check.
-#
-# SECURITY: a self-hosted runner executes workflow code on the Oracle box. Keep
-# it scoped to THIS repo; do NOT auto-run forked-PR workflows on it. The DB
-# passwords below are for the EPHEMERAL, localhost-only CI containers — they are
-# not real secrets and never touch production data.
+# The DB passwords below are for EPHEMERAL, localhost-only CI containers — not
+# real secrets and never touch production data.
 
 name: CI
 
@@ -43,16 +36,10 @@ jobs:
   quality-gate:
     runs-on: [self-hosted, linux, ARM64]
     permissions:
-      security-events: write
-      actions: read
       contents: read
 
     services:
       postgres:
-        # Match infra/docker-compose: pgvector image (pgvector reserved for the
-        # Phase 6 IntelligenceBase; harmless now). POSTGRES_USER here is the
-        # SUPERUSER used ONLY to provision the restricted app role below — the
-        # app itself never connects as it.
         image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: agent_alpha
@@ -80,12 +67,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
+      - name: Cache venv + pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/pip
+          key: venv-arm64-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            venv-arm64-
+
       - name: Create venv + install deps (Python 3.12)
         run: |
-          python3.12 -m venv .venv
-          .venv/bin/pip install --upgrade pip
-          .venv/bin/pip install -e .
-          .venv/bin/pip install ruff mypy pytest grpcio-tools bandit pip-audit
+          if [ ! -f .venv/bin/python ]; then
+            python3.12 -m venv .venv
+            .venv/bin/pip install --upgrade pip
+          fi
+          .venv/bin/pip install -e . --quiet
+          .venv/bin/pip install ruff mypy pytest grpcio-tools bandit pip-audit --quiet
 
       - name: Generate A2A protobuf stubs (a2a_pb2 is generated, not committed)
         run: make proto
@@ -93,94 +92,26 @@ jobs:
       - name: Lint + typecheck (make check = ruff + ruff format --check + mypy)
         run: make check
 
-      - name: Dependency audit (pip-audit — CVE check on installed packages)
-        # --skip-editable: skip agent-alpha itself (installed from source, not on PyPI).
-        # pip-audit exits non-zero if actual CVEs are found in dependencies.
-        # --strict omitted: it turns the benign editable-install warning into a fatal error.
-        run: .venv/bin/pip-audit --skip-editable
-
       - name: Security scan (bandit — SAST for Python code, all severity)
         # Fail on ALL severity findings except B101/B110/B112 (suppressed via .bandit
         # config — legitimate patterns in offensive tooling: assert in guards,
         # try/except/pass in cleanup, try/except/continue in brute-force loops).
-        # MEDIUM+ findings always block. LOW findings are auditable in .bandit.
         run: .venv/bin/bandit -r agent_alpha/ -l -ii -c .bandit
 
+      - name: Dependency audit (pip-audit — CVE check on installed packages)
+        run: .venv/bin/pip-audit --skip-editable
+
       - name: Secret scanning (gitleaks — detect hardcoded credentials in repo)
-        # Scan full git history for hardcoded secrets, API keys, tokens.
-        # Any finding blocks merge — a red team agent must not leak its own secrets.
         # .gitleaks.toml (repo root) allowlists CI-only ephemeral DB passwords.
-        # continue-on-error: gitleaks-action@v2 has a bug crashing when zero findings
-        # (no results.sarif to upload). The scan still runs; real secrets are caught
-        # by GitGuardian (parallel check) and the gitleaks pre-commit hook.
+        # continue-on-error: gitleaks-action crashes when zero findings (no sarif).
+        # Real secrets caught by GitGuardian (parallel check) + pre-commit hook.
         uses: gitleaks/gitleaks-action@v3
         continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_COMMENTS: "true"
 
-      - name: Container scan (Trivy — CVE scan on Docker images used in CI)
-        # Scan the service container images for OS-level and library CVEs.
-        # continue-on-error: informational for now — review findings before enabling
-        # as a blocking gate. Once baseline CVEs are triaged, remove continue-on-error.
-        continue-on-error: true
-        run: |
-          mkdir -p /tmp/trivy-bin
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp/trivy-bin v0.50.0
-          export PATH="/tmp/trivy-bin:$PATH"
-          trivy --version
-          # Scan Postgres image
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16 || true
-          # Scan Redis image
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
-
-      - name: Generate SBOM (Syft — Software Bill of Materials)
-        # Generate an SBOM for the Python project — required for enterprise compliance
-        # (SOC2, ISO27001). Uploaded as a CI artifact for audit trail.
-        run: |
-          mkdir -p /tmp/syft-bin
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp/syft-bin v1.9.0
-          export PATH="/tmp/syft-bin:$PATH"
-          syft dir:. --output spdx-json=sbom.spdx.json
-          syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: sbom
-          path: |
-            sbom.spdx.json
-            sbom.cyclonedx.json
-          retention-days: 90
-
-      - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
-        # Start the beta lab app and scan it with Nuclei for common web vulns.
-        # continue-on-error: DAST is informational for now; failures don't block merge
-        # (beta lab app is a test target, not production code).
-        continue-on-error: true
-        run: |
-          # Install Nuclei
-          mkdir -p /tmp/nuclei-bin
-          curl -sSfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
-          unzip -o /tmp/nuclei.zip -d /tmp/nuclei-bin nuclei
-          export PATH="/tmp/nuclei-bin:$PATH"
-          nuclei --version
-          # Start beta lab app in background
-          .venv/bin/python -m infra.beta_lab_app &
-          APP_PID=$!
-          sleep 3
-          # Run Nuclei scan (low-severity templates only for speed)
-          nuclei -u http://localhost:5000 -severity medium,high,critical -o nuclei-results.txt || true
-          # Kill the app
-          kill $APP_PID 2>/dev/null || true
-          # Display results
-          cat nuclei-results.txt 2>/dev/null || echo "No Nuclei findings"
-
       - name: Provision least-privilege DB role (NOSUPERUSER NOBYPASSRLS)
-        # Fresh container: tables don't exist yet. The app, connecting as
-        # agent_alpha_app, will CREATE and therefore OWN them, so FORCE ROW LEVEL
-        # SECURITY actually constrains it. No ownership reassignment needed here
-        # (unlike the persistent Oracle DB, which used create_app_role.sql).
         env:
           PGPASSWORD: test-super-pw
         run: |
@@ -199,11 +130,92 @@ jobs:
 
       - name: Full test suite (all phases + integration, Oracle ARM64)
         env:
-          # Integration backends are MANDATORY in CI — tests FAIL, not skip, if
-          # these are missing/unreachable (enforced by tests/conftest.py).
           AGENT_ALPHA_REQUIRE_DB: "1"
           AGENT_ALPHA_PG_DSN: "postgresql://agent_alpha_app:test-app-pw@localhost:5433/agent_alpha"
           AGENT_ALPHA_REDIS_URL: "redis://localhost:6380/0"
-          # If set, the 2 live DeepSeek tests run; else they SKIP (acceptable).
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: .venv/bin/pytest tests/ -q --cov=agent_alpha --cov-report=term-missing --cov-fail-under=80
+
+  security-audit:
+    runs-on: [self-hosted, linux, ARM64]
+    needs: quality-gate
+    continue-on-error: true
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Cache venv + pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/pip
+          key: venv-arm64-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            venv-arm64-
+
+      - name: Create venv + install deps (Python 3.12)
+        run: |
+          if [ ! -f .venv/bin/python ]; then
+            python3.12 -m venv .venv
+            .venv/bin/pip install --upgrade pip
+          fi
+          .venv/bin/pip install -e . --quiet
+
+      - name: Cache security tool binaries
+        id: cache-secbin
+        uses: actions/cache@v4
+        with:
+          path: /tmp/secbin
+          key: secbin-arm64-v1
+
+      - name: Install security tools (if not cached)
+        if: steps.cache-secbin.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/secbin
+          # Trivy
+          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp/secbin v0.50.0
+          # Syft
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp/secbin v1.9.0
+          # Nuclei
+          curl -sSfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
+          unzip -o /tmp/nuclei.zip -d /tmp/secbin nuclei
+          rm -f /tmp/nuclei.zip
+
+      - name: Container scan (Trivy — CVE scan on Docker images used in CI)
+        continue-on-error: true
+        run: |
+          export PATH="/tmp/secbin:$PATH"
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16 || true
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
+
+      - name: Generate SBOM (Syft — Software Bill of Materials)
+        run: |
+          export PATH="/tmp/secbin:$PATH"
+          syft dir:. --output spdx-json=sbom.spdx.json
+          syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+          retention-days: 90
+
+      - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
+        continue-on-error: true
+        run: |
+          export PATH="/tmp/secbin:$PATH"
+          .venv/bin/python -m infra.beta_lab_app &
+          APP_PID=$!
+          sleep 3
+          nuclei -u http://localhost:5000 -severity medium,high,critical -o nuclei-results.txt || true
+          kill $APP_PID 2>/dev/null || true
+          cat nuclei-results.txt 2>/dev/null || echo "No Nuclei findings"
