@@ -5,4 +5,7 @@ secrets-ignore:
   - name: Generic Password
     paths:
       - "infra/docker-compose.yml"
+  - name: Username Password
+    paths:
+      - "tests/phase_4/test_git_exposure_probe.py"
 
