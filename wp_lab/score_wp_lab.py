@@ -11,25 +11,25 @@ Run on Oracle after seed.sh, with SSL_CERT_FILE pointing at the lab CA bundle:
 
 Exit 0 iff every row matches AND the co-tenant was never probed.
 """
+
 from __future__ import annotations
 
 import argparse
+import pathlib
 import subprocess
-import sys
 from typing import Any
 
 import yaml
 
-from agent_alpha.events.store import InMemoryEventStore
-from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.agents.http_client import HttpClient
-from agent_alpha.security.secrets import SecretsManager
-from agent_alpha.llm.orchestrator import LLMOrchestrator
-from agent_alpha.tools.playbook import PlaybookEngine
+from agent_alpha.conductor.authorization import AuthorizationStateMachine
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider
 from agent_alpha.live_fire.wp_chain_runner import WpChainConfig, run_wp_chain_live_fire
-import pathlib
+from agent_alpha.llm.orchestrator import LLMOrchestrator
+from agent_alpha.security.secrets import SecretsManager
+from agent_alpha.tools.playbook import PlaybookEngine
 
 
 def _run_host(host: str, in_scope: list[str], exclusions: list[str]) -> dict[str, Any]:
@@ -40,7 +40,9 @@ def _run_host(host: str, in_scope: list[str], exclusions: list[str]) -> dict[str
     client_id = f"wp-lab-{host}"
     http_client = HttpClient(engagement_id=client_id)
     secrets_manager = SecretsManager()
-    playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "agent_alpha" / "tools" / "playbooks"
+    playbook_dir = (
+        pathlib.Path(__file__).resolve().parent.parent / "agent_alpha" / "tools" / "playbooks"
+    )
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
     graph_store = NetworkXGraphStore()
 
@@ -76,7 +78,9 @@ def _check(host: str, got: dict[str, Any], exp: dict[str, Any], expect_adapter: 
         fails.append(f"leak_creds_added {got['leak_creds_added']} < min {lo}")
     if hi is not None and got["leak_creds_added"] > hi:
         fails.append(f"leak_creds_added {got['leak_creds_added']} > max {hi}")
-    exp_proven = exp["chain_proven_post_adapter"] if expect_adapter else exp["chain_proven_pre_adapter"]
+    exp_proven = (
+        exp["chain_proven_post_adapter"] if expect_adapter else exp["chain_proven_pre_adapter"]
+    )
     if got["chain_proven"] != exp_proven:
         fails.append(f"chain_proven {got['chain_proven']} != expected {exp_proven}")
     if "waf_blocked" in exp and got["waf_blocked"] != exp["waf_blocked"]:
@@ -94,9 +98,18 @@ def _cotenant_requests(host: str) -> int:
         except Exception:
             dc_cmd = ["docker-compose"]
         out = subprocess.run(
-            dc_cmd + ["exec", "-T", "nginx", "sh", "-c",
-             "wc -l < /var/log/nginx/cotenant.access.log 2>/dev/null || echo 0"],
-            capture_output=True, text=True, timeout=15,
+            dc_cmd
+            + [
+                "exec",
+                "-T",
+                "nginx",
+                "sh",
+                "-c",
+                "wc -l < /var/log/nginx/cotenant.access.log 2>/dev/null || echo 0",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=15,
         )
         return int((out.stdout or "0").strip() or "0")
     except Exception as exc:  # noqa: BLE001
@@ -106,9 +119,13 @@ def _cotenant_requests(host: str) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser()
-    p.add_argument("engagement"); p.add_argument("ground_truth")
-    p.add_argument("--expect-adapter", action="store_true",
-                   help="expect the WpLoginApplicator to be present (vuln chain proves)")
+    p.add_argument("engagement")
+    p.add_argument("ground_truth")
+    p.add_argument(
+        "--expect-adapter",
+        action="store_true",
+        help="expect the WpLoginApplicator to be present (vuln chain proves)",
+    )
     args = p.parse_args(argv)
 
     scope = yaml.safe_load(open(args.engagement))["scope"]
@@ -125,8 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         fails = _check(host, got, gt["hosts"][host], args.expect_adapter)
         status = "PASS" if not fails else "FAIL"
         all_ok = all_ok and not fails
-        print(f"  {host:<20} leak={got['leak_creds_added']} proven={got['chain_proven']} "
-              f"waf={got['waf_blocked']}  [{status}]")
+        print(
+            f"  {host:<20} leak={got['leak_creds_added']} proven={got['chain_proven']} "
+            f"waf={got['waf_blocked']}  [{status}]"
+        )
         for f in fails:
             print(f"       ! {f}")
 
@@ -136,8 +155,10 @@ def main(argv: list[str] | None = None) -> int:
     cohost_ok = n == gt.get("cotenant_max_requests", 0)
     all_ok = all_ok and cohost_ok
     print("-" * 74)
-    print(f"  cohost gate: {cohost} received {n} request(s) "
-          f"(expected {gt.get('cotenant_max_requests', 0)})  [{'PASS' if cohost_ok else 'FAIL'}]")
+    print(
+        f"  cohost gate: {cohost} received {n} request(s) "
+        f"(expected {gt.get('cotenant_max_requests', 0)})  [{'PASS' if cohost_ok else 'FAIL'}]"
+    )
     print("=" * 74)
     print(f"  RESULT: {'ALL PASS' if all_ok else 'FAIL'}")
     return 0 if all_ok else 1

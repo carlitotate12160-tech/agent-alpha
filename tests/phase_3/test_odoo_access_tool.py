@@ -65,6 +65,7 @@ def _budget(max_requests: int = 30) -> ResourceBudget:
 
 # ── XML-RPC response builders ───────────────────────────────────────────────
 
+
 def _xmlrpc_int(value: int) -> str:
     """Minimal XML-RPC methodResponse returning an <int>."""
     return textwrap.dedent(f"""\
@@ -91,9 +92,7 @@ def _xmlrpc_bool_false() -> str:
 
 def _xmlrpc_list(names: list[str]) -> str:
     """XML-RPC methodResponse returning a list of string db names."""
-    items = "".join(
-        f"<value><string>{n}</string></value>" for n in names
-    )
+    items = "".join(f"<value><string>{n}</string></value>" for n in names)
     return textwrap.dedent(f"""\
         <?xml version="1.0"?>
         <methodResponse>
@@ -122,6 +121,7 @@ def _xmlrpc_fault() -> str:
 
 
 # ── Test double: routing HTTP client ────────────────────────────────────────
+
 
 @dataclass
 class _Resp:
@@ -159,6 +159,7 @@ class _RoutingHttpClient:
 
 # ── TC1: admin/admin → uid=2, admin, default, no password in proof ──────────
 
+
 class TestTC1AdminAdminSuccess:
     """TC1 — default admin/admin authenticates with uid=2."""
 
@@ -167,17 +168,22 @@ class TestTC1AdminAdminSuccess:
             if "authenticate" in body and "admin" in body:
                 return _Resp(200, _xmlrpc_int(2))
             if "version" in body:
-                return _Resp(200, "<?xml version='1.0'?><methodResponse><params>"
-                             "<param><value><struct>"
-                             "<member><name>server_version</name>"
-                             "<value><string>17.0</string></value></member>"
-                             "</struct></value></param></params></methodResponse>")
+                return _Resp(
+                    200,
+                    "<?xml version='1.0'?><methodResponse><params>"
+                    "<param><value><struct>"
+                    "<member><name>server_version</name>"
+                    "<value><string>17.0</string></value></member>"
+                    "</struct></value></param></params></methodResponse>",
+                )
             return _Resp(200, _xmlrpc_bool_false())
 
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-            ODOO_XMLRPC_COMMON_PATH: auth_router,
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+                ODOO_XMLRPC_COMMON_PATH: auth_router,
+            }
+        )
         return OdooAccessTool(http_client=http)
 
     def test_success_true(self) -> None:
@@ -232,14 +238,17 @@ class TestTC1AdminAdminSuccess:
 
 # ── TC2: all authenticate returns False → failure ───────────────────────────
 
+
 class TestTC2AllFalse:
     """TC2 — every authenticate returns boolean False; no findings returned."""
 
     def _make_tool(self) -> OdooAccessTool:
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-            ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_bool_false()),
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+                ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_bool_false()),
+            }
+        )
         return OdooAccessTool(http_client=http)
 
     def test_success_false(self) -> None:
@@ -258,24 +267,29 @@ class TestTC2AllFalse:
 
 # ── TC3: db.list() faults AND no derivable db name → failure ────────────────
 
+
 class TestTC3NoDbDiscovery:
     """TC3 — list endpoint faults and ctx has no usable hostname label."""
 
     def _make_tool_no_derivable_db(self) -> OdooAccessTool:
         """Target is a bare IP; no hostname label → no fallback db name."""
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(500, _xmlrpc_fault()),
-            ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(2)),
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(500, _xmlrpc_fault()),
+                ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(2)),
+            }
+        )
         return OdooAccessTool(http_client=http)
 
     def test_failure_when_no_db_reachable_and_no_hostname(self) -> None:
         # target="https://203.0.113.9" → hostname="203.0.113.9", split(".")[0]="203"
         # which IS a non-empty string; use a path-only target with empty hostname to
         # truly exercise the no-db-name branch.
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(500, ""),
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(500, ""),
+            }
+        )
         tool = OdooAccessTool(http_client=http)
         # target with no parseable hostname component
         ctx = _ctx(target="https://")
@@ -286,9 +300,11 @@ class TestTC3NoDbDiscovery:
 
     def test_fault_response_and_no_usable_hostname(self) -> None:
         """Fault XML-RPC response + hostname that yields empty split → failure."""
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_fault()),
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_fault()),
+            }
+        )
         tool = OdooAccessTool(http_client=http)
         # Empty hostname after strip — use the target string that urlparse returns
         # hostname=None for (e.g. a plain "/" path).
@@ -298,9 +314,11 @@ class TestTC3NoDbDiscovery:
 
     def test_non_200_db_list_and_no_fallback(self) -> None:
         """403 on db.list AND target is empty → no silent success."""
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(403, "Forbidden"),
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(403, "Forbidden"),
+            }
+        )
         tool = OdooAccessTool(http_client=http)
         ctx = _ctx(target="https://")
         result = tool.run(ctx, _budget())
@@ -309,6 +327,7 @@ class TestTC3NoDbDiscovery:
 
 
 # ── TC4: CREDENTIAL node from graph → reused source ─────────────────────────
+
 
 class TestTC4ReusedCredential:
     """TC4 — graph CREDENTIAL node with vaulted secret authenticates."""
@@ -345,10 +364,12 @@ class TestTC4ReusedCredential:
                 return _Resp(200, _xmlrpc_int(5))
             return _Resp(200, _xmlrpc_bool_false())
 
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-            ODOO_XMLRPC_COMMON_PATH: auth_router,
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+                ODOO_XMLRPC_COMMON_PATH: auth_router,
+            }
+        )
         return OdooAccessTool(http_client=http, graph_store=gs, secrets_manager=sm)
 
     def test_success_true(self) -> None:
@@ -385,6 +406,7 @@ class TestTC4ReusedCredential:
 
 # ── G1: ValueError when http_client is None ──────────────────────────────────
 
+
 def test_g1_run_raises_value_error_without_http_client() -> None:
     """G1 — missing http_client raises ValueError (not NotImplementedError)."""
     tool = OdooAccessTool()
@@ -394,14 +416,17 @@ def test_g1_run_raises_value_error_without_http_client() -> None:
 
 # ── G2: uid=0 / False / fault all rejected ───────────────────────────────────
 
+
 class TestG2InvalidUids:
     """G2 — uid=0, boolean False, and XML-RPC <fault> are all non-access."""
 
     def _tool_returning(self, auth_body: str) -> OdooAccessTool:
-        http = _RoutingHttpClient({
-            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-            ODOO_XMLRPC_COMMON_PATH: _Resp(200, auth_body),
-        })
+        http = _RoutingHttpClient(
+            {
+                ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+                ODOO_XMLRPC_COMMON_PATH: _Resp(200, auth_body),
+            }
+        )
         return OdooAccessTool(http_client=http)
 
     def test_uid_zero_is_not_access(self) -> None:
@@ -419,12 +444,15 @@ class TestG2InvalidUids:
 
 # ── G3: tight budget prevents authenticate ────────────────────────────────────
 
+
 def test_g3_budget_max_1_no_silent_success() -> None:
     """G3 — max_requests=1: db.list() takes the 1 slot; authenticate never runs."""
-    http = _RoutingHttpClient({
-        ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-        ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(2)),  # would succeed if reached
-    })
+    http = _RoutingHttpClient(
+        {
+            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+            ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(2)),  # would succeed if reached
+        }
+    )
     tool = OdooAccessTool(http_client=http)
     result = tool.run(_ctx(), _budget(max_requests=1))
     # Either failure because budget exhausted before authenticate, or success if
@@ -439,12 +467,15 @@ def test_g3_budget_max_1_no_silent_success() -> None:
 
 # ── G4: uid=1 → admin ────────────────────────────────────────────────────────
 
+
 def test_g4_uid_1_is_admin() -> None:
     """G4 — uid=1 (Odoo __import__ superuser) maps to access_level 'admin'."""
-    http = _RoutingHttpClient({
-        ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-        ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(1)),
-    })
+    http = _RoutingHttpClient(
+        {
+            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+            ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(1)),
+        }
+    )
     tool = OdooAccessTool(http_client=http)
     result = tool.run(_ctx(), _budget())
     assert result.success is True
@@ -454,12 +485,15 @@ def test_g4_uid_1_is_admin() -> None:
 
 # ── G5+G6: proof dict key contract ───────────────────────────────────────────
 
+
 def test_g5_g6_proof_dict_key_contract() -> None:
     """G5/G6 — proof_request has required keys, no password; proof_response no secrets."""
-    http = _RoutingHttpClient({
-        ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-        ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(2)),
-    })
+    http = _RoutingHttpClient(
+        {
+            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+            ODOO_XMLRPC_COMMON_PATH: _Resp(200, _xmlrpc_int(2)),
+        }
+    )
     tool = OdooAccessTool(http_client=http)
     result = tool.run(_ctx(), _budget())
     assert result.success is True
@@ -479,12 +513,15 @@ def test_g5_g6_proof_dict_key_contract() -> None:
 
 # ── G7: non-200 authenticate response → not access ───────────────────────────
 
+
 def test_g7_non_200_authenticate_not_access() -> None:
     """G7 — a 403 on the authenticate call is not treated as access."""
-    http = _RoutingHttpClient({
-        ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
-        ODOO_XMLRPC_COMMON_PATH: _Resp(403, "Forbidden"),
-    })
+    http = _RoutingHttpClient(
+        {
+            ODOO_XMLRPC_DB_PATH: _Resp(200, _xmlrpc_list([_DB])),
+            ODOO_XMLRPC_COMMON_PATH: _Resp(403, "Forbidden"),
+        }
+    )
     tool = OdooAccessTool(http_client=http)
     result = tool.run(_ctx(), _budget())
     assert result.success is False

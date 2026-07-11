@@ -48,8 +48,8 @@ from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 
-_HOST = "wp-lab.invalid"           # the host actually probed in each test
-_HOST_B = "sibling-lab.invalid"    # an in-scope SIBLING that must NOT be scanned
+_HOST = "wp-lab.invalid"  # the host actually probed in each test
+_HOST_B = "sibling-lab.invalid"  # an in-scope SIBLING that must NOT be scanned
 _ROOT_URL = f"https://{_HOST}/"
 _WP_CONFIG_BODY = (
     "<?php\n"
@@ -103,13 +103,18 @@ def _recon_engagement(
     rec = auth.create_engagement(client_id="wp_lab", target=_HOST)
     auth.enable_recon(
         rec.engagement_id,
-        Scope(ip_ranges=["10.0.0.1/32"], domains=domains or [_HOST], exclusions=[], db_endpoints=[]),
+        Scope(
+            ip_ranges=["10.0.0.1/32"], domains=domains or [_HOST], exclusions=[], db_endpoints=[]
+        ),
     )
     return auth, rec.engagement_id
 
 
 def _make_alpha(
-    auth: AuthorizationStateMachine, event_store: InMemoryEventStore, http: FakeHttpClient, tool: str
+    auth: AuthorizationStateMachine,
+    event_store: InMemoryEventStore,
+    http: FakeHttpClient,
+    tool: str,
 ) -> Alpha:
     return Alpha(
         authorization=auth,
@@ -263,7 +268,9 @@ def test_hardened_target_not_contaminated_by_vulnerable_sibling_in_scope(
 
     _install(monkeypatch, "verify_js_secret_leak", fake_verify)
     event_store = InMemoryEventStore()
-    auth, eng_id = _recon_engagement(event_store, domains=[_HOST, _HOST_B])  # _HOST probed, _HOST_B vuln sibling
+    auth, eng_id = _recon_engagement(
+        event_store, domains=[_HOST, _HOST_B]
+    )  # _HOST probed, _HOST_B vuln sibling
     http = FakeHttpClient({_ROOT_URL: FakeResponse(200, '<html><div id="root"></div></html>')})
     alpha = _make_alpha(auth, event_store, http, "js_secret_probe")
 
