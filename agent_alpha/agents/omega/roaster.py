@@ -121,7 +121,11 @@ class Omega:
         self.graph_store = graph_store
 
     def generate_report(
-        self, style: str, *, time_to_first_proof_s: float | None = None, blocked_hosts: tuple[str, ...] = ()
+        self,
+        style: str,
+        *,
+        time_to_first_proof_s: float | None = None,
+        blocked_hosts: tuple[str, ...] = (),
     ) -> Report:
         """Generate a :class:`Report` from the current graph state.
 
