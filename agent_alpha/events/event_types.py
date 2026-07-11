@@ -75,6 +75,11 @@ class EventType(enum.StrEnum):
     CHAIN_COMPLETE = "ChainComplete"
     # ^ Conductor halted: no next agent recommended. Carries {reason}.
 
+    # ── Phase 2.5 (passive recon — R2 subdomain discovery) ────────
+    PASSIVE_DISCOVERY = "PassiveDiscovery"
+    # ^ PassiveDiscovery.discover(): one event per passive crt.sh run.
+    # Carries {discovered: [...], in_scope: [...], enumerated: [...]}.
+
     # ── Phase 3 (recon evidence — WAF discriminator §12.23) ──────
     WAF_BLOCKED = "WafBlocked"
     # ^ A recon probe received a 403 / challenge / block response. Recorded as
