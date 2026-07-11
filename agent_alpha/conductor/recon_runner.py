@@ -13,11 +13,13 @@ and the live-fire FP<20% gate are C6b.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 import pathlib
 import socket
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
@@ -29,6 +31,7 @@ from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.recon.passive_discovery import PassiveDiscovery
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
@@ -108,6 +111,7 @@ class ReconRunResult:
     node_count: int
     report: Report
     targets_scanned: int
+    enumerated_hosts: tuple[str, ...] = ()
 
 
 def build_recon_pipeline(
@@ -169,6 +173,28 @@ def resolve_recon_targets(record: Any) -> list[str]:
     return urls
 
 
+def build_passive_discovery(
+    engagement_id: str,
+    auth: AuthorizationStateMachine,
+    store: EventStore,
+) -> PassiveDiscovery:
+    """Construct a PassiveDiscovery instance for one worker run.
+
+    Module-level seam (monkeypatchable, mirrors build_recon_pipeline): hermetic
+    tests replace this to inject a fake crt.sh client without live network I/O.
+    """
+    from agent_alpha.agents.http_client import HttpClient
+
+    return PassiveDiscovery(
+        http_client=HttpClient(engagement_id=engagement_id),
+        authorization=auth,
+        event_store=store,
+    )
+
+
+_log = logging.getLogger(__name__)
+
+
 def run_recon_for_engagement(
     engagement_id: str,
     tenant_id: str | None,
@@ -188,6 +214,27 @@ def run_recon_for_engagement(
         engagement_id, tenant_id, auth, store, secrets_manager=secrets_manager
     )
     targets = resolve_recon_targets(record)
+
+    # ── Passive crt.sh discovery (fail-open: crt.sh down must NOT break the engagement) ──
+    enumerated: set[str] = set()
+    seen_hosts: set[str] = set()
+    for url in targets:
+        host = urlparse(url).hostname
+        if host is None or host in seen_hosts:
+            continue
+        seen_hosts.add(host)
+        try:
+            pd = build_passive_discovery(engagement_id, auth, store)
+            result = pd.discover(engagement_id, host)
+            enumerated.update(result.enumerated)
+        except Exception:
+            _log.warning(
+                "Passive discovery failed for %s (engagement %s) — continuing (fail-open)",
+                host,
+                engagement_id,
+                exc_info=True,
+            )
+
     for url in targets:
         pipeline.alpha.run_recon(engagement_id, url)
 
@@ -196,4 +243,5 @@ def run_recon_for_engagement(
         node_count=pipeline.graph_store.node_count(),
         report=report,
         targets_scanned=len(targets),
+        enumerated_hosts=tuple(sorted(enumerated)),
     )
