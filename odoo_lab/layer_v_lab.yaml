@@ -1,0 +1,64 @@
+# =============================================================================
+# Layer V — Root-Only Engagement Config  (Phase 2.5 REACH, the seal)
+# =============================================================================
+# Consumed by: agent_alpha/live_fire/layer_v_runner.py -> load_layer_v_config()
+# Run with:    .venv312/bin/python3 -m agent_alpha.live_fire.layer_v_runner <this-file.yaml>
+#
+# PURPOSE
+#   Prove the sealed Odoo cred-reuse chain end-to-end when fed ONLY a root
+#   domain. The exploited odoo host MUST be DISCOVERED (R2 crt.sh passive +
+#   R1 frontier expansion), never hand-fed. This is the true Phase 2.5 seal.
+#
+# HARD DIFFERENCE vs odoo_chain_runner config (anti-Lyndon #3 false-success):
+#   - There is NO `recon_url` key   (that was a hand-fed odoo host).
+#   - There is NO `entry_point` key  (that was a hand-fed XML-RPC URL).
+#   load_layer_v_config() MUST raise ValueError if either key is present —
+#   their absence is the structural guarantee that no host was hand-fed.
+#
+# AUTHORIZATION RULE (non-negotiable):
+#   root_domain and every in-scope entry MUST be a system YOU own, covered by a
+#   signed SOW. Layer V runs the FULL Conductor auth path — it is NOT the
+#   lab-self-owned bypass harness. Point this only at your own CF-fronted lab.
+# =============================================================================
+
+client_id: "layer-v-odoo-lab"
+
+# ---------------------------------------------------------------------------
+# Scope — VERIFIED: authorization.is_in_scope() matches domains by EXACT FQDN
+# (authorization.py:334, `parsed.value == domain.strip().lower()`) — NOT suffix.
+#
+# Consequence: list ONLY the apex here. The odoo host (e.g. odoo.<apex>) is
+# deliberately NOT listed — pre-listing it would hand-feed the host identity and
+# defeat Layer V. Instead the runner authorizes each DISCOVERED in-scope host at
+# runtime via Conductor.enable_recon(union(apex, discovered)) — an audited scope
+# extension, still gated, before any action. Default-DENY is preserved.
+# ---------------------------------------------------------------------------
+scope:
+  ip_ranges:
+    - "127.0.0.1/32"          # self-owned lab origin (Odoo docker binds local 443)
+  domains:
+    - "odoo.lab"               # <-- APEX ONLY. Do NOT add vuln.odoo.lab — discovery must surface it.
+  exclusions:
+    - "hardened.odoo.lab"      # default-DENY co-host; deliberately not exploited
+
+# ---------------------------------------------------------------------------
+# The ONLY seed. Alpha starts from the apex, runs passive discovery (R2 crt.sh)
+# + frontier expansion (R1). The odoo host must EMERGE from that discovery,
+# then be authorized via Conductor, before the sealed run_odoo_chain_live_fire
+# is delegated to.
+# ---------------------------------------------------------------------------
+root_domain: "odoo.lab"        # <-- the apex; the single hand-off point
+
+# =============================================================================
+# EXPECTED (the seal — recorded, checked against the live run on Oracle ARM64):
+#   CHAIN PROVEN            : True
+#   host_discovery_sourced  : True   (odoo ASSET node traces to a passive_discovery
+#                                      OR frontier event, NOT to this config)
+#   blocked_hosts           : printed list (R3). Any CF-blocked host must appear
+#                             here. If a host returns a CF 200 challenge page and
+#                             is MISSING from blocked_hosts -> that is the R3
+#                             slice-2 trigger (body-signature), not a Layer V fail.
+#
+# META-RULE: fake-HTTP unit tests != seal. Only this live root-only run with
+# CHAIN PROVEN: True closes Phase 2.5.
+# =============================================================================
