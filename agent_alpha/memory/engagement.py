@@ -48,7 +48,7 @@ class EngagementMemoryRecord:
     time_to_first_exploit_s: float | None
     event_stream_id: str
     last_sequence_number: int
-    blocked_hosts: tuple[str, ...]
+    blocked_hosts: tuple[str, ...] = ()
 
 
 # ── Store protocol ───────────────────────────────────────────────────
