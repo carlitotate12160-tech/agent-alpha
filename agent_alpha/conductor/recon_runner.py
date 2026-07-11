@@ -17,7 +17,7 @@ import logging
 import os
 import pathlib
 import socket
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -28,10 +28,10 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.config import constants
 from agent_alpha.events.store import EventStore
-from agent_alpha.recon.passive_discovery import PassiveDiscovery
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.recon.passive_discovery import PassiveDiscovery
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
