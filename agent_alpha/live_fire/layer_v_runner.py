@@ -246,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
 
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
-    http_client = HttpClient(engagement_id=config.client_id)
+    http_client = HttpClient(engagement_id=config.client_id, verify=False)
     secrets_manager = SecretsManager()
     playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
