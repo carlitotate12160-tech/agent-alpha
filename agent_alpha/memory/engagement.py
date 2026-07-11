@@ -334,4 +334,10 @@ class PostgresEngagementMemoryStore:
                 (self._tenant_id, engagement_id),
             )
             row = cur.fetchone()
-            return EngagementMemoryRecord(**row[0]) if row else None
+            if row is None:
+                return None
+            data = dict(row[0])
+            bh = data.get("blocked_hosts")
+            if isinstance(bh, list):
+                data["blocked_hosts"] = tuple(bh)
+            return EngagementMemoryRecord(**data)
