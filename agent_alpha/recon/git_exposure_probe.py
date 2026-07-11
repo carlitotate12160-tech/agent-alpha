@@ -112,7 +112,7 @@ class GitDumper:
             output_dir = tmp_path / "dumped"
 
             # Run git-dumper
-            result = subprocess.run(  # nosec B607,B603 — commodity tool call with PATH check + validated input (base_url from scope_hosts)
+            result = subprocess.run(  # nosec — commodity tool call with PATH check + validated input (base_url from scope_hosts)
                 ["git-dumper", base_url, str(output_dir)],
                 capture_output=True,
                 text=True,
