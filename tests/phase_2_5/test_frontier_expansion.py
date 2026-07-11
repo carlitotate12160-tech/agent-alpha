@@ -245,9 +245,11 @@ def test_step_calls_enqueue_discovered_url() -> None:
 
     The method existing is not enough — it must be called from step() so that
     frontier growth actually happens during recon (Lyndon #2: dead code = done)."""
-    src = inspect.getsource(scout_module.Alpha.step)
+    src = inspect.getsource(scout_module.Alpha.step) + inspect.getsource(
+        scout_module.Alpha._step_once
+    )
     assert "enqueue_discovered_url(" in src, (
-        "Alpha.step() does not call enqueue_discovered_url() — "
+        "Alpha.step()/_step_once() does not call enqueue_discovered_url() — "
         "frontier expansion is dead code (Lyndon #2)."
     )
 
@@ -255,9 +257,11 @@ def test_step_calls_enqueue_discovered_url() -> None:
 def test_step_calls_extract_hrefs() -> None:
     """``step()`` must call ``_extract_hrefs()`` to obtain hrefs from the response body.
     Without this call, HTML parsing never feeds the frontier."""
-    src = inspect.getsource(scout_module.Alpha.step)
+    src = inspect.getsource(scout_module.Alpha.step) + inspect.getsource(
+        scout_module.Alpha._step_once
+    )
     assert "_extract_hrefs(" in src, (
-        "Alpha.step() does not call _extract_hrefs() — "
+        "Alpha.step()/_step_once() does not call _extract_hrefs() — "
         "hrefs are never extracted from response body (dead-seam, Lyndon #2)."
     )
 

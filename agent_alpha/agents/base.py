@@ -114,6 +114,8 @@ def run_cognitive_loop(agent: Any, policy: BoundedAutonomy) -> LoopOutcome:
         total_cost_usd += result["cost_usd"]
         discovered = result["discovered_nodes"]
         total_nodes_discovered += discovered
+        # Un-probed frontier size reported by the agent (0 if it does not report).
+        work_remaining = int(result.get("work_remaining", 0) or 0)
 
         if discovered > 0:
             iters_without_progress = 0
@@ -128,6 +130,14 @@ def run_cognitive_loop(agent: Any, policy: BoundedAutonomy) -> LoopOutcome:
             cost_usd=total_cost_usd,
             iters_without_progress=iters_without_progress,
         )
+        # A stall (NO_PROGRESS) means the agent is out of productive options — NOT
+        # that the last few frontier pops were duds while more un-probed work waits.
+        # A real discovery surface (crt.sh always returns dead/irrelevant siblings)
+        # must not starve a reachable target that merely sorts later in the queue.
+        # Suppress NO_PROGRESS while the frontier is non-empty; the hard ceilings
+        # (max_iterations / time_budget / cost_budget) still bound a large dud queue.
+        if reason is StopReason.NO_PROGRESS and work_remaining > 0:
+            reason = None
         if reason is not None:
             return LoopOutcome(
                 stop_reason=reason,

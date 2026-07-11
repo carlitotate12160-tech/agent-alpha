@@ -142,6 +142,17 @@ class Alpha:
     # ── Cognitive-loop step ─────────────────────────────────────
 
     def step(self, context: dict[str, object]) -> dict[str, object]:
+        """OBSERVE→…→PERSIST cycle, plus the frontier signal the driver needs.
+
+        Reports ``work_remaining`` (un-probed frontier size) so run_cognitive_loop
+        can tell a genuine stall from "more hosts are still queued" and not stop
+        early on a noisy discovery surface. Pure pass-through otherwise.
+        """
+        out = self._step_once(context)
+        out.setdefault("work_remaining", len(self._work_queue))
+        return out
+
+    def _step_once(self, context: dict[str, object]) -> dict[str, object]:
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
 
         # Pop an unprobed target; none left → no progress.
