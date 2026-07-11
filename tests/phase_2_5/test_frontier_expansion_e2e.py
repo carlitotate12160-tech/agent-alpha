@@ -133,6 +133,7 @@ _SEED_BODY = (
 # T1 — frontier GROWS and discovered in-scope links are actually probed
 # ---------------------------------------------------------------------------
 
+
 def test_run_recon_probes_discovered_in_scope_links() -> None:
     agent, eng = _make_recon_alpha(
         {
@@ -157,6 +158,7 @@ def test_run_recon_probes_discovered_in_scope_links() -> None:
 # T2 — cross-host link is NEVER fetched (same-origin scope safety, anti-#3)
 # ---------------------------------------------------------------------------
 
+
 def test_run_recon_never_probes_cross_host_link() -> None:
     agent, eng = _make_recon_alpha(
         {
@@ -179,11 +181,10 @@ def test_run_recon_never_probes_cross_host_link() -> None:
 # T3 — dead-end seed fetches only the seed (Lyndon #11 differential)
 # ---------------------------------------------------------------------------
 
+
 def test_run_recon_dead_end_seed_probes_only_seed() -> None:
     dead = f"https://{_SCOPE_HOST}/lonely"
-    agent, eng = _make_recon_alpha(
-        {dead: _page(dead, "<html><body>no links here</body></html>")}
-    )
+    agent, eng = _make_recon_alpha({dead: _page(dead, "<html><body>no links here</body></html>")})
 
     agent.run_recon(eng, dead)
 
@@ -199,6 +200,7 @@ def test_run_recon_dead_end_seed_probes_only_seed() -> None:
 #       an observable behaviour: raising ALPHA_RECON_NO_PROGRESS_ITERS to 5
 #       is what allows the crawl to reach a good link past ≤3 non-analyzable duds)
 # ---------------------------------------------------------------------------
+
 
 def test_run_recon_reaches_deep_link_past_dud_probes() -> None:
     d1 = f"https://{_SCOPE_HOST}/d1"

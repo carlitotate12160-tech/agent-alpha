@@ -17,8 +17,7 @@ Four tests:
 
 from __future__ import annotations
 
-from agent_alpha.live_fire.scoring import ScanScore, TargetResult, score_findings
-
+from agent_alpha.live_fire.scoring import TargetResult, score_findings
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -65,7 +64,7 @@ def test_inconclusive_blocks_pass_even_with_real_tp() -> None:
 def test_all_analyzable_run_unaffected() -> None:
     """Regression: when every target is analyzable, semantics are unchanged."""
     results = [
-        TargetResult(url="http://t/vuln", predicted_vulnerable=True),   # TP
+        TargetResult(url="http://t/vuln", predicted_vulnerable=True),  # TP
         TargetResult(url="http://t/clean", predicted_vulnerable=False),  # TN
     ]
     gt = _gt(("http://t/vuln", True), ("http://t/clean", False))
