@@ -177,15 +177,21 @@ jobs:
       - name: Install security tools (if not cached)
         if: steps.cache-secbin.outputs.cache-hit != 'true'
         run: |
+          rm -rf /tmp/secbin
           mkdir -p /tmp/secbin
-          # Trivy
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp/secbin v0.50.0
-          # Syft
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp/secbin v1.9.0
-          # Nuclei
-          curl -sSfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
+          # Trivy — direct binary download (install.sh unreliable on self-hosted)
+          curl -sfL https://github.com/aquasecurity/trivy/releases/download/v0.50.0/trivy_0.50.0_Linux-ARM64.tar.gz -o /tmp/trivy.tar.gz
+          tar xzf /tmp/trivy.tar.gz -C /tmp/secbin trivy
+          rm -f /tmp/trivy.tar.gz
+          # Syft — direct binary download
+          curl -sfL https://github.com/anchore/syft/releases/download/v1.9.0/syft_1.9.0_linux_arm64.tar.gz -o /tmp/syft.tar.gz
+          tar xzf /tmp/syft.tar.gz -C /tmp/secbin syft
+          rm -f /tmp/syft.tar.gz
+          # Nuclei — direct binary download
+          curl -sfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
           unzip -o /tmp/nuclei.zip -d /tmp/secbin nuclei
           rm -f /tmp/nuclei.zip
+          chmod +x /tmp/secbin/*
 
       - name: Container scan (Trivy — CVE scan on Docker images used in CI)
         continue-on-error: true
