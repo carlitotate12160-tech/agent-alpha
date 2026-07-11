@@ -158,8 +158,8 @@ def test_can_agent_proceed_role_state_matrix(role: int, state: int, expected: bo
 # repeated out of order — the core promise of the gate.
 
 
-def test_enable_recon_rejected_when_already_past_created() -> None:
-    sm, eid = _sm_in(a2a_pb2.RECON_ONLY)
+def test_enable_recon_rejected_when_already_past_created_or_recon() -> None:
+    sm, eid = _sm_in(a2a_pb2.ACTIVE_APPROVED)
     with pytest.raises(ValueError):
         sm.enable_recon(eid, _valid_scope())
 

@@ -46,8 +46,8 @@ from agent_alpha.tools.playbook import PlaybookEngine
 PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "phase_2" / "fixtures" / "playbooks"
 
 _ROOT = "lab-target.invalid"
-_ADMIN = "admin.lab-target.invalid"   # discovered subdomain, NOT in SOW -> enumerated
-_CDN = "cdn.lab-target.invalid"       # discovered subdomain, NOT in SOW -> enumerated
+_ADMIN = "admin.lab-target.invalid"  # discovered subdomain, NOT in SOW -> enumerated
+_CDN = "cdn.lab-target.invalid"  # discovered subdomain, NOT in SOW -> enumerated
 _TARGET_URL = f"https://{_ROOT}"
 
 _CRTSH_JSON = f'[{{"name_value":"{_ROOT}\\n{_ADMIN}"}},{{"name_value":"{_CDN}"}}]'

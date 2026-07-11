@@ -57,6 +57,7 @@ def _append_waf_blocked(store: InMemoryEventStore, eng: str, host: str) -> None:
 # B1 — report carries the blocked host
 # ---------------------------------------------------------------------------
 
+
 def test_report_surfaces_blocked_host() -> None:
     store = InMemoryEventStore()
     eng = _engagement(store)
@@ -73,18 +74,22 @@ def test_report_surfaces_blocked_host() -> None:
 # B2 — no WAF_BLOCKED -> no blocked hosts (anti false-positive, direction b)
 # ---------------------------------------------------------------------------
 
+
 def test_report_no_blocked_when_no_waf_events() -> None:
     store = InMemoryEventStore()
     eng = _engagement(store)
 
     report = build_engagement_report(NetworkXGraphStore(), store, eng)
 
-    assert tuple(report.blocked_hosts) == (), "a clean engagement was reported as blocked (false BLOCKED)"
+    assert tuple(report.blocked_hosts) == (), (
+        "a clean engagement was reported as blocked (false BLOCKED)"
+    )
 
 
 # ---------------------------------------------------------------------------
 # B3 — the blocked host is VISIBLE in the client narrative (consumed, not a dead field)
 # ---------------------------------------------------------------------------
+
 
 def test_blocked_host_is_visible_in_narrative() -> None:
     store = InMemoryEventStore()
@@ -103,6 +108,7 @@ def test_blocked_host_is_visible_in_narrative() -> None:
 # ---------------------------------------------------------------------------
 # B4 — projector derives blocked_hosts from the event stream (single source)
 # ---------------------------------------------------------------------------
+
 
 def test_projector_derives_blocked_hosts_from_events() -> None:
     store = InMemoryEventStore()
