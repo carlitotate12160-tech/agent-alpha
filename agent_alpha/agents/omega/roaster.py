@@ -39,6 +39,7 @@ class Report:
     mitre_attack_version: str
     chain_finding: ChainFinding | None = None
     time_to_first_proof_s: float | None = None
+    blocked_hosts: tuple[str, ...] = ()
 
     def time_to_proof_headline(self) -> str | None:
         """Sellable headline string, or None when no proof was produced."""
@@ -119,7 +120,9 @@ class Omega:
     def __init__(self, graph_store: GraphStore) -> None:
         self.graph_store = graph_store
 
-    def generate_report(self, style: str, *, time_to_first_proof_s: float | None = None) -> Report:
+    def generate_report(
+        self, style: str, *, time_to_first_proof_s: float | None = None, blocked_hosts: tuple[str, ...] = ()
+    ) -> Report:
         """Generate a :class:`Report` from the current graph state.
 
         *style* is one of ``"executive"``, ``"technical"``, or
@@ -127,6 +130,10 @@ class Omega:
         :func:`~agent_alpha.graph.narrative.to_narrative`.
         """
         narrative = to_narrative(self.graph_store, style)  # type: ignore[arg-type]
+
+        if blocked_hosts:
+            blocked_line = "WAF/CF blocked (not assessed): " + ", ".join(blocked_hosts)
+            narrative = narrative + "\n" + blocked_line
 
         # Collect unique, non-empty technique IDs from all edges.
         mitre_techniques = sorted(
@@ -139,4 +146,5 @@ class Omega:
             mitre_attack_version=constants.MITRE_ATTACK_VERSION,
             chain_finding=summarize_chain_finding(self.graph_store),
             time_to_first_proof_s=time_to_first_proof_s,
+            blocked_hosts=blocked_hosts,
         )

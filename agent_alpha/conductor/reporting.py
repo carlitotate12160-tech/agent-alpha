@@ -12,5 +12,7 @@ def build_engagement_report(
     """Project the engagement memory record and generate the Omega report."""
     emr = EngagementMemoryProjector(store, InMemoryEngagementMemoryStore()).project(engagement_id)
     return Omega(graph_store).generate_report(
-        style=style, time_to_first_proof_s=emr.time_to_first_proof_s
+        style=style,
+        time_to_first_proof_s=emr.time_to_first_proof_s,
+        blocked_hosts=emr.blocked_hosts,
     )
