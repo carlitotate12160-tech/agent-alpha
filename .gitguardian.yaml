@@ -8,4 +8,5 @@ secrets-ignore:
   - name: Username Password
     paths:
       - "tests/phase_4/test_git_exposure_probe.py"
+      - "tests/phase_4/test_git_exposure_wiring.py"
 
