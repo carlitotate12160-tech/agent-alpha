@@ -62,6 +62,7 @@ ATTACKER_HARNESSES: frozenset[str] = frozenset(
         "wp_chain_runner",
         "spa_secret_field_prove",
         "odoo_chain_runner",
+        "layer_v_runner",
     }
 )
 
