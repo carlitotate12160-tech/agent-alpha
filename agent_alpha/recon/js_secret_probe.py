@@ -44,6 +44,7 @@ from agent_alpha.graph.nodes import (
     VulnerabilityProperties,
     node_to_dict,
 )
+from agent_alpha.recon.response_classifier import Verdict, classify_response
 
 # ── Protocol (mirrors wp_config_probe.HttpClientProtocol) ───────────────────
 
@@ -280,8 +281,8 @@ def verify_js_secret_leak(
         status = getattr(resp, "status_code", 0)
         body = getattr(resp, "text", "")
 
-        # WAF discriminator on the page itself
-        if status in (403, 429, 503):
+        # WAF discriminator on the page itself (canonical classifier, anti-#7)
+        if classify_response(status_code=status, body=body) is Verdict.BLOCKED:
             event_store.append(
                 EventType.WAF_BLOCKED,
                 engagement_id,
@@ -306,8 +307,8 @@ def verify_js_secret_leak(
             bstatus = getattr(bresp, "status_code", 0)
             bbody = getattr(bresp, "text", "")
 
-            # WAF discriminator on the bundle
-            if bstatus in (403, 429, 503):
+            # WAF discriminator on the bundle (canonical classifier, anti-#7)
+            if classify_response(status_code=bstatus, body=bbody) is Verdict.BLOCKED:
                 event_store.append(
                     EventType.WAF_BLOCKED,
                     engagement_id,
