@@ -131,10 +131,12 @@ def js_graph_ctx() -> dict[str, Any]:
 
     page_url = f"https://{_HOST}/"
     bundle_url = f"https://{_HOST}/assets/app.js"
-    http = FakeHttpClient({
-        page_url: FakeResponse(200, '<script src="/assets/app.js"></script>'),
-        bundle_url: FakeResponse(200, 'const k="AKIA1234567890ABCDEF";'),
-    })
+    http = FakeHttpClient(
+        {
+            page_url: FakeResponse(200, '<script src="/assets/app.js"></script>'),
+            bundle_url: FakeResponse(200, 'const k="AKIA1234567890ABCDEF";'),
+        }
+    )
 
     n = verify_js_secret_leak(
         engagement_id=eid,
