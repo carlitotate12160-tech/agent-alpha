@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import pathlib
-import sys
 from typing import Any
 
 import yaml
@@ -19,15 +18,18 @@ from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
-from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.events.event_types import EventType
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
-from agent_alpha.llm.orchestrator import LLMOrchestrator
-from agent_alpha.recon.passive_discovery import PassiveDiscovery, seed_frontier_from_passive
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider
-from agent_alpha.live_fire.odoo_chain_runner import OdooChainConfig, run_odoo_chain_live_fire, report_odoo_chain
+from agent_alpha.live_fire.odoo_chain_runner import (
+    OdooChainConfig,
+    run_odoo_chain_live_fire,
+)
+from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.memory.engagement import EngagementMemoryProjector
+from agent_alpha.recon.passive_discovery import PassiveDiscovery, seed_frontier_from_passive
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
 
@@ -149,7 +151,7 @@ def run_layer_v_live_fire(
 
     # Seed frontier from passive
     seed_frontier_from_passive(alpha, result)
-    
+
     # Ensure root domain is also evaluated if not found by passive discovery,
     # as the root domain itself might have links to discover (Frontier Expansion).
     alpha.enqueue_discovered_url(f"https://{config.root_domain}/")
@@ -167,7 +169,7 @@ def run_layer_v_live_fire(
 
     if not odoo_host:
         raise ValueError("No odoo host discovered via passive frontier")
-        
+
     derived_url = f"https://{odoo_host}/"
 
     # 2d. Delegate to the SEALED run_odoo_chain_live_fire
@@ -179,7 +181,7 @@ def run_layer_v_live_fire(
         recon_url=derived_url,
         entry_point=derived_url,
     )
-    
+
     odoo_result = run_odoo_chain_live_fire(
         odoo_config,
         auth=auth,
@@ -189,7 +191,7 @@ def run_layer_v_live_fire(
         event_store=event_store,
         secrets_manager=secrets_manager,
     )
-    
+
     is_sourced = _host_discovery_sourced(event_store, rec.engagement_id, odoo_host)
 
     return LayerVResult(
@@ -208,8 +210,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = load_layer_v_config(args.config)
-    
+
     from agent_alpha.live_fire.lab_guard import assert_lab_only_target
+
     assert_lab_only_target(f"https://{config.root_domain}/")
 
     event_store = InMemoryEventStore()
@@ -244,8 +247,12 @@ def main(argv: list[str] | None = None) -> int:
     print("-" * 64)
     print(f"  CHAIN PROVEN: {result.chain_proven}")
     print("=" * 64)
-    
-    engagements = [e.engagement_id for e in event_store.get_events(None) if e.event_type == EventType.ENGAGEMENT_CREATED]
+
+    engagements = [
+        e.engagement_id
+        for e in event_store.get_events(None)
+        if e.event_type == EventType.ENGAGEMENT_CREATED
+    ]
     if engagements:
         # Use the first engagement (the discovery one) to report blocked hosts
         mem = EngagementMemoryProjector(event_store).project(engagements[0])
