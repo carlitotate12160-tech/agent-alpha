@@ -137,47 +137,79 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 2.5 REACH — LAYER V SEALED 2026-07-11. Phase-4 breadth UNFROZEN
-                 (Odoo arc 1a-1d already field-proven 2026-07-10). Gamma STILL STOP-gated.
-Last Decision  : LAYER V SEALED on Oracle (main HEAD 8fc0fc2; PRs #138 CT-source seam / #139 V-B /
-                 #141 bounded-autonomy). V-B live: seed = root `agentalpha.duckdns.org` ONLY → REAL
-                 crt.sh surfaced 7+ siblings → autonomous discovery reached vuln.<apex> →
+Project Phase  : Phase 4 breadth OPEN (Layer V sealed). git_exposure slice-1+1b SEALED; slice-1c
+                 (real git-dumper + field-prove) IN PROGRESS. Gamma STILL STOP-gated.
+Last Decision  : git_exposure WIRED into live recon path — SEALED on Oracle (main HEAD 7125edf;
+                 PR #144 module / #145 wiring). verify_git_exposure reuses classify_response (#7) +
+                 assemble_leaked_credentials + vault (#6); injectable `dumper` seam, default
+                 _NoopGitDumper FAIL-LOUD (raises, not silent). Wired: scout _dispatch_registry +
+                 Alpha injectable git_dumper + _handle_git_exposure + run_recon seeds
+                 constants.WELL_KNOWN_LEAK_PATHS=("/.git/config",) (SINGLE source; backup_file
+                 appends here = path_probe catalog seed) + git_exposure.yaml rule. W1-W4 prove reach
+                 via real run_recon (non-island, dead-code #2 closed). 562 green + make check clean.
+                 Two sealed tests updated deliberately: dead-end #11 guard KEPT (exact seed+wellknown
+                 assert), monologue invariant fixed to PER-CYCLE (genuine correctness, not theatre).
+                 ADR §12.25 well-known-path recon baseline (universal by design; stealth =
+                 recon_policy toggle, never per-target hand-feed). REJECTED "Credential Injection
+                 Seam before Phase 4" (feature-before-foundation #1/#5; not small — must be
+                 event-sourced+auth-gated; parked as assumed-breach input).
+                 STATUS: git_exposure WIRED-BUT-NOT-PAYABLE until slice-1c (default dumper raises on
+                 real exposure). --- PRIOR: LAYER V SEALED (main 8fc0fc2; PRs #138 CT-source seam / #139 V-B /
+                 #141 bounded-autonomy). Layer V-B live: seed = root `agentalpha.duckdns.org` ONLY →
+                 REAL crt.sh surfaced 7+ siblings → autonomous discovery reached vuln.<apex> →
                  odoo_dbmanager_probe → CHAIN PROVEN: True (leak_creds=2, access=admin,
                  edge_from_harvested_cred=True, db_enumerated=True, leak_suspected=False,
                  host_discovery_sourced=True). 188 phase_2/2_5 green + make check clean (ruff+format+
                  mypy 92 files), Python 3.12.13. TRUE seal (not fake-HTTP unit tier) for the Odoo chain.
-                 Fixes merged: (1) R2 CT source injectable (crtsh_url_template seam); (2) layer_v_runner
-                 3 bugs (enumerated-abuse → named apex-bounded _authorize_apex_subdomains; delegated
-                 odoo_config.scope_domains includes discovered host; cross-origin apex-crawl dropped);
-                 (3) bounded-autonomy stall semantics — step() reports work_remaining,
-                 run_cognitive_loop suppresses NO_PROGRESS while frontier non-empty (see
-                 adr_bounded_autonomy_stall_semantics.md). REJECTED the YAML-exclusions band-aid.
+                 Three fixes merged clean: (1) R2 CT source injectable (crtsh_url_template seam) —
+                 V-A drives real parse path offline via lab CT stand-in, V-B omits it → real crt.sh;
+                 (2) layer_v_runner 3 bugs (enumerated-abuse → named apex-bounded _authorize_apex_
+                 subdomains; delegated odoo_config.scope_domains now includes discovered host;
+                 cross-origin apex-crawl dropped); (3) bounded-autonomy stall semantics — step()
+                 reports work_remaining, run_cognitive_loop suppresses NO_PROGRESS while frontier
+                 non-empty (was starving the live target sorted after 5 dead siblings). See
+                 adr_bounded_autonomy_stall_semantics.md. REJECTED the YAML-exclusions band-aid
+                 (hand-feeding + masks product bug). REFACTOR step→_step_once handled honestly
+                 (#141 fixed 2 source-inspection guards, NOT weakened).
                  GOVERNANCE: seal via field-prove harness (lab_guard self-owned DuckDNS), NOT the
                  Conductor SOW path — full prod auth-gate (SOW→OFFENSIVE_APPROVED) = Phase-6 VERIFY.
 Open (refinement, non-blocking): double-recon at the compose boundary — Layer V discovery
                  fingerprints vuln.<apex> once, then delegated run_odoo_chain_live_fire runs
-                 Alpha.run_recon(recon_url) AGAIN on the same host. Fix = pass discovered graph/host
-                 into the chain instead of re-reconning.
-Next Action    : Phase-4 breadth — git_exposure + backup_file payable probes FIRST, then a single
-                 data-driven path_probe catalog. Gamma/ANCHOR STOP-gated: needs ToolComposer +
-                 blast-radius gate FIRST (Phase-4 exit criteria); gate = Claude lane, destructive
-                 bodies = DeepSeek lane.
+                 Alpha.run_recon(recon_url) AGAIN on the same host (2nd identical probe block in log).
+                 Redundant HTTP against target = stealth/efficiency smell; fix = pass discovered
+                 graph/host into the chain instead of re-reconning.
+Next Action    : git_exposure slice-1c — replace _NoopGitDumper with a real WRAP of commodity
+                 git-dumper (IDE/infra lane) + field-prove on a self-owned exposed-.git lab
+                 (lab_guard-allowlisted, planted secret) → CHAIN PROVEN, hardened true-neg. Makes
+                 git_exposure PAYABLE. THEN backup_file (same pattern, append path to
+                 WELL_KNOWN_LEAK_PATHS) → single data-driven path_probe catalog (see
+                 [[breadth-roadmap]]). Gamma/ANCHOR STILL STOP-gated: ToolComposer + blast-radius
+                 gate FIRST; gate = Claude lane, destructive bodies = DeepSeek lane.
+NOTE: repo main CLAUDE.md status block is STALE in a different direction (still 'Phase 4 Odoo arc',
+      never carried the Phase-2.5 text) — reconcile the repo copy to this block on next commit.
 
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest` 
-                 or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum).
+                 or `make check` (NEVER bare `pytest` — system python is 3.10, fails StrEnum)
 
 Phase status (verified on Oracle, not claimed):
-  Phase 0   : DONE (7 components)
-  Phase 1   : DONE (5 components)
-  Phase 2   : DONE (12 components) — CODE SEALED 2026-06-19
-  Phase 2.5 : REACH DONE + LAYER V SEALED 2026-07-11 (R1 frontier-expand, R2 crt.sh passive
-              discovery, R3 canonical classifier+WAF_BLOCKED+blocked_hosts report; Layer V-B
-              real-crt.sh root-only CHAIN PROVEN True). 188 phase_2/2_5 green.
-  Phase 3   : CLOSED 2026-07-05.
-  Phase 4   : UNFROZEN. Odoo arc 1a-1d DONE + field-proven 2026-07-10 (Registry.ranked + Beta ctx
-              projection LIVE). NEXT breadth = git_exposure + backup_file, then path_probe catalog.
-              OPEN before Gamma: ToolComposer (not built), blast-radius gate (not built).
-              Evasion/WAF PARKED. Gamma/ANCHOR STOP-gated.
+  Phase 0 : DONE (7 components)
+  Phase 1 : DONE (5 components)
+  Phase 2 : DONE (12 components) — CODE SEALED 2026-06-19
+  Phase 3 : CLOSED 2026-07-05. Beta/STRIKE + auto-advance Celery chain; cred-reuse (HIGH)
+            + direct-DB (db_root) payable chains field-proven; WP + JS-secret recon vectors
+            field-proven. Exit-bar H closed: A7-a run-trace projection + GET /trace endpoint
+            SEALED; A7-c queue-health probe + GET /health/queue SEALED; cohost_pivot
+            default-DENY gate (assert_pivot_target) SEALED (co-host trap closed).
+  Open (tracked, NON-blocking): A7-b LLM-cost metric DEFERRED (needs new event, dead-seam
+            risk); time_to_first_proof_s still None in 3 live_fire runners; /health/queue
+            returns GLOBAL depth (per-tenant scoping = later refinement).
+
+LLM roles (testing phase): DeepSeek-v4-pro = reasoning PRIMARY + payload/exec;
+  Kimi-2.6 = payload fallback; MiMo-v2.5-pro = reasoning CONSENSUS only — DEFERRED to
+  Phase 4 (Gamma) per ADR §12.23. NO consensus / MiMoProvider on any Phase-3 live path.
+
+ADR §12.22 tool strategy: wrap commodity, build the moat, gate the dangerous. Moat = triad
+  graph x cross-engagement-memory x proof. Phase 4 builds ToolComposer + Registry first.
 ```
 
 ---
