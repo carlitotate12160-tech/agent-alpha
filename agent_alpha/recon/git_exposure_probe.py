@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import datetime
 import shutil
-import subprocess  # nosec B404 — commodity tool WRAP (git-dumper)
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
@@ -112,7 +112,7 @@ class GitDumper:
             output_dir = tmp_path / "dumped"
 
             # Run git-dumper
-            result = subprocess.run(  # nosec — commodity tool call with PATH check + validated input (base_url from scope_hosts)
+            result = subprocess.run(
                 ["git-dumper", base_url, str(output_dir)],
                 capture_output=True,
                 text=True,

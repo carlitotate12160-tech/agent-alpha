@@ -10,7 +10,9 @@
 #         JWT_SECRET_ENV = "AGENT_ALPHA_JWT_SECRET" (string constant, not a password)
 #   B110: try_except_pass — connection cleanup (close() on best-effort basis)
 #   B112: try_except_continue — brute-force/recon loops (continue to next target on error)
-skips: ["B101", "B105", "B110", "B112"]
+#   B607: start_process_with_partial_path — commodity tool calls (git-dumper) with PATH check
+#   B603: subprocess_without_shell_equals_true — false positive (list not string)
+skips: ["B101", "B105", "B110", "B112", "B607", "B603"]
 
 # Exclude generated protobuf stubs (not our code)
 exclude_dirs: ["agent_alpha/a2a"]
