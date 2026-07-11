@@ -36,6 +36,7 @@ from agent_alpha.graph.nodes import (
     node_to_dict,
 )
 from agent_alpha.llm.orchestrator import OrientationError
+from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.laravel_env import iter_env_leaks
@@ -57,6 +58,7 @@ class Alpha:
         http_client: Any,
         secrets_manager: Any = None,
         monologue: MonologueSink | None = None,
+        git_dumper: Any | None = None,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
@@ -65,6 +67,7 @@ class Alpha:
         self.http_client = http_client
         self._secrets_manager = secrets_manager
         self.monologue: MonologueSink = monologue or NullMonologueSink()
+        self._git_dumper = git_dumper or _default_git_dumper()
 
         # Dispatch registry: tool_name -> handler(resp, decision, url) -> int.
         # Canonical dispatch (anti-Lyndon #8: no growing if-chain).
@@ -73,6 +76,7 @@ class Alpha:
             "wp_config_probe": self._handle_wp_config_probe,
             "js_secret_probe": self._handle_js_secret_probe,
             "odoo_dbmanager_probe": self._handle_odoo_dbmanager,
+            "git_exposure_probe": self._handle_git_exposure,
         }
 
         # Per-run state, initialised in run_recon().
@@ -116,6 +120,11 @@ class Alpha:
         self._findings = 0
         self._analyzable_probes = 0
         self._ran_campaigns = set()
+
+        parsed = urlparse(target_url)
+        root = f"{parsed.scheme}://{parsed.netloc}"
+        for path in getattr(constants, "WELL_KNOWN_LEAK_PATHS", ()):  # seed known leak paths
+            self.enqueue_discovered_url(f"{root}{path}")
 
         # ── Drive through the cognitive loop ────────────────────
         policy = BoundedAutonomy(
@@ -360,6 +369,31 @@ class Alpha:
             graph_store=self.graph_store,
             event_store=self.event_store,
             secrets_manager=self._secrets_manager,
+        )
+        if creds_added > 0:
+            self._findings += 1
+        return creds_added
+
+    def _handle_git_exposure(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        from agent_alpha.recon.git_exposure_probe import verify_git_exposure
+
+        creds_added = verify_git_exposure(
+            engagement_id=self._engagement_id,
+            auth=self.authorization,
+            http_client=self.http_client,
+            scope_hosts=[host],
+            graph_store=self.graph_store,
+            event_store=self.event_store,
+            secrets_manager=self._secrets_manager,
+            dumper=self._git_dumper,
         )
         if creds_added > 0:
             self._findings += 1
