@@ -27,6 +27,12 @@ scope:
     - "agentalpha.duckdns.org"       # <-- APEX ONLY. Do NOT list vuln.* — discovery must surface it.
   exclusions:
     - "hardened.agentalpha.duckdns.org"   # default-DENY co-host; deliberately not exploited
+    # Co-tenant lab subdomains that also have LE certs in CT — exclude so they
+    # don't exhaust the no-progress budget before vuln.<apex> is probed.
+    - "laravel-hardened.agentalpha.duckdns.org"
+    - "laravel-vuln.agentalpha.duckdns.org"
+    - "spa-hardened.agentalpha.duckdns.org"
+    - "spa-vuln.agentalpha.duckdns.org"
 
 root_domain: "agentalpha.duckdns.org"      # the apex; single hand-off point
 # NOTE: passive_source_template is intentionally ABSENT -> real crt.sh is used.
