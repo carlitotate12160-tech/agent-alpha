@@ -36,6 +36,7 @@ from agent_alpha.graph.nodes import (
     node_to_dict,
 )
 from agent_alpha.llm.orchestrator import OrientationError
+from agent_alpha.recon.response_classifier import Verdict, classify_response
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.laravel_env import iter_env_leaks
 from agent_alpha.tools.templates.cms.laravel_finding import LaravelFindingTemplate
@@ -160,8 +161,30 @@ class Alpha:
             self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
+        # Classify the response through the ONE canonical classifier so a WAF/CF
+        # block on ANY recon path is recorded as evidence and never dressed as
+        # clean (anti-Lyndon #3, single source of truth — anti-#7).
+        verdict = classify_response(status_code=resp.status_code, body=resp.text)
+
+        # A WAF/CF block is a non-analyzable probe, NOT a clean/no-progress
+        # result. Record WAF_BLOCKED (reused event) and continue the loop
+        # without ever calling the LLM.
+        if verdict is Verdict.BLOCKED:
+            host = urlparse(url).hostname or urlparse(url).netloc
+            self._emit(
+                "OBSERVE",
+                f"{url} returned HTTP {resp.status_code}; WAF/CF block — non-analyzable",
+            )
+            self.event_store.append(
+                EventType.WAF_BLOCKED,
+                self._engagement_id,
+                "alpha",
+                {"host": host, "path": urlparse(url).path, "status_code": resp.status_code},
+            )
+            return {"discovered_nodes": 0, "cost_usd": 0.0}
+
         # Empty/whitespace body → non-analyzable probe.
-        if not resp.text or not resp.text.strip():
+        if verdict is Verdict.EMPTY:
             self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
