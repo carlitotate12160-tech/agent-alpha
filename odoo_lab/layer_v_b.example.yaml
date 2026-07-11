@@ -1,0 +1,42 @@
+# =============================================================================
+# Layer V-B — Real-TLD Root-Only Engagement Config  (Phase 2.5 REACH seal, prod-path)
+# =============================================================================
+# Consumed by: agent_alpha/live_fire/layer_v_runner.py -> load_layer_v_config()
+# Run with:    .venv312/bin/python3 -m agent_alpha.live_fire.layer_v_runner <this>
+#
+# DIFFERENCE vs layer_v_lab.yaml (V-A):
+#   V-A used a lab-local CT stand-in (passive_source_template) because crt.sh is
+#   blind to a `.lab` TLD. V-B uses a REAL owned domain whose per-host Let's
+#   Encrypt certs are logged in Certificate Transparency, so REAL crt.sh returns
+#   the subdomains. => NO passive_source_template key here. R2 hits public crt.sh.
+#
+# PRECONDITION (run ct_preflight.py first): crt.sh must already have indexed
+#   vuln.<apex>. CT indexing can lag minutes–hours after issuance.
+#
+# CERT RULE: issue PER-HOST certs (apex, vuln.<apex>, hardened.<apex>). A WILDCARD
+#   cert shows only "*.apex" in CT, which parse_crtsh_names collapses to the apex —
+#   the specific subdomain would never be discoverable.
+# =============================================================================
+
+client_id: "layer-v-b-duckdns"
+
+scope:
+  ip_ranges:
+    - "127.0.0.1/32"                 # self-owned lab origin (adjust to lab public IP if remote)
+  domains:
+    - "agentalpha.duckdns.org"       # <-- APEX ONLY. Do NOT list vuln.* — discovery must surface it.
+  exclusions:
+    - "hardened.agentalpha.duckdns.org"   # default-DENY co-host; deliberately not exploited
+
+root_domain: "agentalpha.duckdns.org"      # the apex; single hand-off point
+# NOTE: passive_source_template is intentionally ABSENT -> real crt.sh is used.
+
+# =============================================================================
+# EXPECTED (live run, Oracle ARM64):
+#   CHAIN PROVEN            : True
+#   host_discovery_sourced  : True   (vuln.<apex> ASSET node traces to a real
+#                                      PASSIVE_DISCOVERY event from public crt.sh)
+#   blocked_hosts           : printed list (R3)
+# This proves R2 end-to-end against REAL Certificate Transparency — the gap V-A
+# (local CT stand-in) could not close. CHAIN PROVEN True here = production-path seal.
+# =============================================================================

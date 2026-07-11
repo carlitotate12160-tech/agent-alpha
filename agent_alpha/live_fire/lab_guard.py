@@ -45,6 +45,11 @@ LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
         "odoo.lab",
         "vuln.odoo.lab",
         "hardened.odoo.lab",
+        # Layer V-B — real-TLD self-owned lab (DuckDNS) for the crt.sh-on-real-CT
+        # proof. Per-host FQDNs (NOT a wildcard): each must appear in CT logs
+        # individually, because parse_crtsh_names collapses "*." to the apex.
+        "vuln.agentalpha.duckdns.org",
+        "hardened.agentalpha.duckdns.org",
     }
 )
 
