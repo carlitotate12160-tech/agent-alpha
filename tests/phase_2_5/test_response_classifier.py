@@ -47,11 +47,14 @@ _SEED = f"https://{_HOST}/"
 # C1 — the canonical classifier, BOTH directions
 # ---------------------------------------------------------------------------
 
+
 def test_classify_response_verdicts() -> None:
     # Direction (a): a real block signal is BLOCKED.
     assert classify_response(status_code=403, body="Forbidden") is Verdict.BLOCKED
     assert classify_response(status_code=429, body="Too Many Requests") is Verdict.BLOCKED
-    assert classify_response(status_code=503, body="<html>Just a moment...</html>") is Verdict.BLOCKED
+    assert (
+        classify_response(status_code=503, body="<html>Just a moment...</html>") is Verdict.BLOCKED
+    )
     # Direction (b): clean / empty / transport are NEVER BLOCKED (anti false-BLOCKED).
     assert classify_response(status_code=200, body="<html><body>hello</body></html>") is Verdict.OK
     assert classify_response(status_code=200, body="") is Verdict.EMPTY
@@ -63,12 +66,16 @@ def test_classify_response_verdicts() -> None:
 def test_classify_response_is_pure_and_conservative() -> None:
     # A legitimate 200 page that merely CONTAINS the word 'forbidden' in its body is
     # NOT a block — only the status code carries the block verdict in slice-1.
-    assert classify_response(status_code=200, body="Access to admin is forbidden for guests") is Verdict.OK
+    assert (
+        classify_response(status_code=200, body="Access to admin is forbidden for guests")
+        is Verdict.OK
+    )
 
 
 # ---------------------------------------------------------------------------
 # Alpha harness (real Alpha; fake HTTP + orchestrator) — mirrors frontier e2e
 # ---------------------------------------------------------------------------
+
 
 @dataclasses.dataclass(frozen=True)
 class _Resp:
@@ -124,6 +131,7 @@ def _waf_events(store: InMemoryEventStore, eng: str) -> list[object]:
 # W1 — core OBSERVE emits WAF_BLOCKED on a 403 (direction a)
 # ---------------------------------------------------------------------------
 
+
 def test_observe_emits_waf_blocked_on_403() -> None:
     alpha, eng, store = _make_recon_alpha({_SEED: _Resp(403, "Forbidden", {}, _SEED)})
     alpha.run_recon(eng, _SEED)
@@ -137,27 +145,34 @@ def test_observe_emits_waf_blocked_on_403() -> None:
 # W2 — clean 200 does NOT emit WAF_BLOCKED (direction b — anti false-positive)
 # ---------------------------------------------------------------------------
 
+
 def test_observe_no_waf_blocked_on_clean_200() -> None:
     alpha, eng, store = _make_recon_alpha(
         {_SEED: _Resp(200, "<html><body>ok</body></html>", {"server": "nginx"}, _SEED)}
     )
     alpha.run_recon(eng, _SEED)
-    assert _waf_events(store, eng) == [], "a clean 200 was mislabelled as WAF-blocked (false BLOCKED)"
+    assert _waf_events(store, eng) == [], (
+        "a clean 200 was mislabelled as WAF-blocked (false BLOCKED)"
+    )
 
 
 # ---------------------------------------------------------------------------
 # W3 — reachable-but-empty is EMPTY, not BLOCKED
 # ---------------------------------------------------------------------------
 
+
 def test_observe_empty_is_not_blocked() -> None:
     alpha, eng, store = _make_recon_alpha({_SEED: _Resp(200, "", {}, _SEED)})
     alpha.run_recon(eng, _SEED)
-    assert _waf_events(store, eng) == [], "an empty (reachable) response was mislabelled as WAF-blocked"
+    assert _waf_events(store, eng) == [], (
+        "an empty (reachable) response was mislabelled as WAF-blocked"
+    )
 
 
 # ---------------------------------------------------------------------------
 # D1 — de-dup driver: the existing probes use the canonical classifier (anti-#7)
 # ---------------------------------------------------------------------------
+
 
 def test_js_secret_probe_uses_canonical_classifier() -> None:
     import agent_alpha.recon.js_secret_probe as js
