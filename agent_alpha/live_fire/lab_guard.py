@@ -41,6 +41,8 @@ LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
         # Chain lab (infra/chain_lab_app.py) — mock server on :9201
         "chain-lab.lab",
         # Odoo lab (odoo_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
+        # "odoo.lab" is the apex used by the Layer V root-only seal (R1+R2 discovery).
+        "odoo.lab",
         "vuln.odoo.lab",
         "hardened.odoo.lab",
     }
