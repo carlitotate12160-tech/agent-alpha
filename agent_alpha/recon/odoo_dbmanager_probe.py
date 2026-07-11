@@ -32,6 +32,7 @@ from agent_alpha.graph.nodes import (
     VulnerabilityProperties,
     node_to_dict,
 )
+from agent_alpha.recon.response_classifier import Verdict, classify_response
 
 # ── Single-source markers for THIS probe (defined once; not a #7 dup) ──────
 ODOO_DBMANAGER_PATH = "/web/database/manager"
@@ -118,7 +119,7 @@ def verify_odoo_dbmanager_exposure(
         status = getattr(resp, "status_code", 0)
         body = getattr(resp, "text", "")
 
-        if status in (403, 429, 503):
+        if classify_response(status_code=status, body=body) is Verdict.BLOCKED:
             event_store.append(
                 EventType.WAF_BLOCKED,
                 engagement_id,
