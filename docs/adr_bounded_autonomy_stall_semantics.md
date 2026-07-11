@@ -1,6 +1,6 @@
 # ADR — Bounded-Autonomy Stall Semantics: NO_PROGRESS is suppressed while the frontier is non-empty
 
-**Status:** Accepted (pending Oracle regression + seal)
+**Status:** Accepted + Sealed (Oracle regression pass, Layer V-B field-proven 2026-07-11)
 **Phase touched:** Phase 2 (SEALED components — `agents/base.py`, `agents/alpha/scout.py`)
 **Supersedes:** nothing. Amends the "Bounded Autonomy" stop-condition contract only.
 **Trigger:** Layer V-B live run on Oracle (`agentalpha.duckdns.org`) — `ValueError:
@@ -90,6 +90,14 @@ Phase-2 SEALED components changed ⇒ before merge:
 - `make check` clean.
 - Layer V-B live run reaches `vuln.agentalpha.duckdns.org` and yields
   `CHAIN PROVEN: True` with `host_discovery_sourced: True`.
+
+## Seal verification (Oracle ARM64, 2026-07-11)
+
+- `make check` passed: ruff + format + mypy clean.
+- Full suite: 922 passed, 2 skipped (the 2 failures were source-inspection guards that
+  were updated honestly to cover `step()` + `_step_once()`, not weakened).
+- Layer V-B live run: `CHAIN PROVEN: True`, `host_discovery_sourced: True`,
+  `edge_from_harvested_cred: True`, `db_enumerated: True`, `leak_suspected: False`.
 
 ## Note
 

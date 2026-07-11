@@ -51,6 +51,11 @@ REQUIRED components in architecture, managed only by Conductor:
 - **Celery from the start.** Non-blocking tasks → user can chat "status?" / "stop scan" while task runs. Per-tenant dedicated queue, priority queue for paid tier, rate limiting per tenant.
 - **Authorization = single gate in Conductor.** Agent autonomous after authorized.
 
+### Related/Supplemental ADRs
+
+- **Bounded-Autonomy Stall Semantics** — `docs/adr_bounded_autonomy_stall_semantics.md`.
+  Defines how `NO_PROGRESS` is interpreted: it is suppressed while the frontier still has un-probed work, so a noisy discovery surface (e.g. real crt.sh returning many dead sibling subdomains) does not starve a reachable target that merely sorts later in the queue. Hard ceilings still bound the loop.
+
 ### Decision points you need to decide (see §10)
 
 - Build sequencing: Full hybrid from start vs Python MVP first then port to Go. Roadmap in §8 is structured with Python-first as default low-risk option; can be changed.
