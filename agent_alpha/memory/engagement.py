@@ -48,6 +48,7 @@ class EngagementMemoryRecord:
     time_to_first_exploit_s: float | None
     event_stream_id: str
     last_sequence_number: int
+    blocked_hosts: tuple[str, ...] = ()
 
 
 # ── Store protocol ───────────────────────────────────────────────────
@@ -191,6 +192,7 @@ class EngagementMemoryProjector:
         first_created_ts: str | None = None
         first_proof_ts: str | None = None
         first_exploit_ts: str | None = None
+        blocked_host_set: set[str] = set()
 
         for event in events:
             last_sequence_number = max(last_sequence_number, event.sequence_number)
@@ -216,6 +218,11 @@ class EngagementMemoryProjector:
                 if event.sequence_number > scratchpad_max_seq:
                     scratchpad_max_seq = event.sequence_number
                     scratchpad_snapshot = dict(event.payload)
+
+            elif event.event_type == EventType.WAF_BLOCKED:
+                host = event.payload.get("host", "")
+                if host:
+                    blocked_host_set.add(str(host))
 
             # DEFERRED (P0 decision, 2026-06-20 — was mislabeled TODO(Phase 2)):
             # agents emit OutcomeTag-tagged events from PHASE 3 (on verified
@@ -249,6 +256,7 @@ class EngagementMemoryProjector:
             time_to_first_exploit_s=time_to_first_exploit_s,
             event_stream_id=engagement_id,
             last_sequence_number=last_sequence_number,
+            blocked_hosts=tuple(sorted(blocked_host_set)),
         )
 
 
@@ -326,4 +334,10 @@ class PostgresEngagementMemoryStore:
                 (self._tenant_id, engagement_id),
             )
             row = cur.fetchone()
-            return EngagementMemoryRecord(**row[0]) if row else None
+            if row is None:
+                return None
+            data = dict(row[0])
+            bh = data.get("blocked_hosts")
+            if isinstance(bh, list):
+                data["blocked_hosts"] = tuple(bh)
+            return EngagementMemoryRecord(**data)
