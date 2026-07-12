@@ -25,6 +25,10 @@ No new credential type, no new vault path, no new classifier.
 from __future__ import annotations
 
 import datetime
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
@@ -89,8 +93,59 @@ class _NoopGitDumper:
         raise RuntimeError("Git dumper integration not configured")
 
 
+class GitDumper:
+    """Commodity WRAP of the git-dumper tool (ADR §12.22).
+
+    Shells out to git-dumper to recover tracked files from an exposed /.git over HTTP.
+    Returns {relative_path: content} for all recovered files. FAIL-LOUD on any error
+    or empty recovery (anti-#3).
+    """
+
+    def dump(self, base_url: str) -> dict[str, str]:
+        # Check git-dumper is available
+        if not shutil.which("git-dumper"):
+            raise RuntimeError("git-dumper tool not found in PATH")
+
+        # Create temp directory for the dump
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir)
+            output_dir = tmp_path / "dumped"
+
+            # Run git-dumper
+            result = subprocess.run(
+                ["git-dumper", base_url, str(output_dir)],
+                capture_output=True,
+                text=True,
+                timeout=300,  # 5 minute timeout for large repos
+            )
+
+            if result.returncode != 0:
+                raise RuntimeError(f"git-dumper failed: {result.stderr}")
+
+            # Read all recovered tracked files
+            recovered: dict[str, str] = {}
+            if not output_dir.exists():
+                raise RuntimeError("git-dumper produced no output directory")
+
+            for file_path in output_dir.rglob("*"):
+                if file_path.is_file():
+                    # Get relative path from output_dir
+                    rel_path = file_path.relative_to(output_dir)
+                    try:
+                        content = file_path.read_text(encoding="utf-8", errors="ignore")
+                        recovered[str(rel_path)] = content
+                    except Exception:
+                        # Skip files that can't be read, but don't fail entirely
+                        continue
+
+            if not recovered:
+                raise RuntimeError("git-dumper recovered no files")
+
+            return recovered
+
+
 def _default_git_dumper() -> GitDumperProtocol:
-    return _NoopGitDumper()
+    return GitDumper()
 
 
 def verify_git_exposure(
