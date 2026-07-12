@@ -1,0 +1,24 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# Fires when Alpha fetches a leaked backup config file (.env / database.yml /
+# wp-config.php backup) and the body carries a DB-credential signature. On a hit
+# the PlaybookEngine returns `action` verbatim -> Alpha._handle_backup_file, which
+# runs verify_backup_file (the sealed slice-1 sweep). Deterministic by construction.
+#
+# Indicators are DISJOINT from git_exposure (`[core] ... repositoryformatversion`)
+# and wp_config (runtime page markers `wp-content` / `generator=WordPress`): a
+# leaked *config file* body carries the secret define/assignment, never those page
+# markers, so there is no cross-rule collision. High-precision single tokens keep
+# the RULE tier from firing (and triggering the verify sweep) on generic pages.
+name: backup_file_config_leak
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - body_regex: '(?m)^\s*DB_PASSWORD\s*='                 # .env / .env.bak assignment
+    - body_regex: 'define\(\s*[''"]DB_PASSWORD[''"]'        # wp-config.php backup
+    - body_regex: '(?m)^\s*adapter:\s*(postgresql|mysql)'   # Rails database.yml backup
+action:
+  tool: backup_file_probe
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Wordlist Scanning
+  rationale: "Backup config file leaked (.env/.yml/.php); probe backup paths for DB credential leak."
