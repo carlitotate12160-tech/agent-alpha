@@ -113,7 +113,8 @@ def run_actuator_field_prove(
         # FULL live path — OBSERVE root → seed ACTUATOR_PATHS → actuator.yaml rule →
         # _handle_path_probe → process_path_hit (DIRECT, JSON body) → mint. Masked
         # (******) values are dropped by the extractor (anti-#3).
-        alpha.run_recon(rec.engagement_id, config.recon_url)
+        target_url = f"https://{target}/"
+        alpha.run_recon(rec.engagement_id, target_url)
 
         creds_added = len(graph_store.nodes_by_type(NodeType.CREDENTIAL))
         leak_nodes = [
