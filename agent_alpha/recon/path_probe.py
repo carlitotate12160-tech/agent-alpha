@@ -76,12 +76,8 @@ class PathProbeSpec:
     username_keys: frozenset[str] = field(
         default_factory=lambda: constants.WP_CREDENTIAL_USERNAME_KEYS
     )
-    secret_keys: frozenset[str] = field(
-        default_factory=lambda: constants.WP_CREDENTIAL_SECRET_KEYS
-    )
-    service_map: dict[str, str] = field(
-        default_factory=lambda: constants.WP_CREDENTIAL_SERVICE_MAP
-    )
+    secret_keys: frozenset[str] = field(default_factory=lambda: constants.WP_CREDENTIAL_SECRET_KEYS)
+    service_map: dict[str, str] = field(default_factory=lambda: constants.WP_CREDENTIAL_SERVICE_MAP)
 
 
 # The catalog is the SINGLE source of truth. Each spec's `paths` reuses the same
