@@ -77,6 +77,7 @@ class Alpha:
             "js_secret_probe": self._handle_js_secret_probe,
             "odoo_dbmanager_probe": self._handle_odoo_dbmanager,
             "git_exposure_probe": self._handle_git_exposure,
+            "backup_file_probe": self._handle_backup_file,
         }
 
         # Per-run state, initialised in run_recon().
@@ -394,6 +395,36 @@ class Alpha:
             event_store=self.event_store,
             secrets_manager=self._secrets_manager,
             dumper=self._git_dumper,
+        )
+        if creds_added > 0:
+            self._findings += 1
+        return creds_added
+
+    def _handle_backup_file(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
+        """Dispatch to the sealed backup-file leak vector (slice-1).
+
+        DIRECT (no dumper): a 200 on a backup path IS the recovered content, so
+        unlike git_exposure this handler threads no reconstruction seam. Single-
+        target + idempotency guard, mirroring the other recon dispatches.
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        from agent_alpha.recon.backup_file_probe import verify_backup_file
+
+        creds_added = verify_backup_file(
+            engagement_id=self._engagement_id,
+            auth=self.authorization,
+            http_client=self.http_client,
+            scope_hosts=[host],
+            graph_store=self.graph_store,
+            event_store=self.event_store,
+            secrets_manager=self._secrets_manager,
         )
         if creds_added > 0:
             self._findings += 1
