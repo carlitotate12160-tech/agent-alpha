@@ -1,0 +1,9 @@
+client_id: "lab-backup-file"
+scope:
+  ip_ranges:
+    - "127.0.0.1/32"
+  domains:
+    - "vuln.backup.lab"
+    - "hardened.backup.lab"
+  exclusions: []
+recon_url: "https://vuln.backup.lab"
