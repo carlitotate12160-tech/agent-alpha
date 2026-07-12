@@ -40,8 +40,8 @@ from agent_alpha.graph.nodes import (
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
-    node_to_dict,
 )
+from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.leak_extraction import extract_secrets
@@ -121,24 +121,6 @@ def _logical_path(path: str) -> str:
         if lower.endswith(suffix):
             return lower[: -len(suffix)]
     return lower
-
-
-def _persist_node(event_store: Any, graph_store: Any, engagement_id: str, node: AttackNode) -> None:
-    payload = node_to_dict(node)
-    event_store.append(EventType.NODE_DISCOVERED, engagement_id, "alpha", payload)
-    graph_store.apply_event("NodeDiscovered", payload)
-
-
-def _persist_edge(event_store: Any, graph_store: Any, engagement_id: str, edge: AttackEdge) -> None:
-    payload = {
-        "source_id": edge.source_id,
-        "target_id": edge.target_id,
-        "relationship": edge.relationship.value,
-        "confidence": edge.confidence,
-        "technique_id": edge.technique_id,
-    }
-    event_store.append(EventType.EDGE_DISCOVERED, engagement_id, "alpha", payload)
-    graph_store.apply_event("EdgeDiscovered", payload)
 
 
 def _recover(spec: PathProbeSpec, *, url: str, body: str, dumper: Any | None) -> dict[str, str]:
@@ -222,7 +204,7 @@ def process_path_hit(
         agent="alpha",
         timestamp_utc=now_utc,
     )
-    _persist_node(event_store, graph_store, engagement_id, vuln_node)
+    persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
 
     asset_node = AttackNode(
         id=f"asset:{host}",
@@ -232,9 +214,9 @@ def process_path_hit(
         agent="alpha",
         timestamp_utc=now_utc,
     )
-    _persist_node(event_store, graph_store, engagement_id, asset_node)
+    persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
 
-    _persist_edge(
+    persist_edge(
         event_store,
         graph_store,
         engagement_id,
@@ -244,6 +226,7 @@ def process_path_hit(
             relationship=RelationshipType.EXPLOITS,
             confidence=0.85,
         ),
+        agent="alpha",
     )
 
     nodes, edges = assemble_leaked_credentials(
@@ -262,9 +245,9 @@ def process_path_hit(
 
     creds_added = 0
     for node in nodes:
-        _persist_node(event_store, graph_store, engagement_id, node)
+        persist_node(event_store, graph_store, engagement_id, node, agent="alpha")
         creds_added += 1
     for edge in edges:
-        _persist_edge(event_store, graph_store, engagement_id, edge)
+        persist_edge(event_store, graph_store, engagement_id, edge, agent="alpha")
 
     return creds_added

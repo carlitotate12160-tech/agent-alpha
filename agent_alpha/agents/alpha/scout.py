@@ -33,8 +33,8 @@ from agent_alpha.graph.nodes import (
     ProofArtifact,
     RelationshipType,
     VulnerabilityProperties,
-    node_to_dict,
 )
+from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
@@ -330,7 +330,9 @@ class Alpha:
             agent="alpha",
             timestamp_utc=now_utc,
         )
-        self._persist_node(asset_node)
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
+        )
         nodes_added += 1
 
         # ── VULNERABILITY node ──────────────────────────────────
@@ -355,7 +357,9 @@ class Alpha:
             agent="alpha",
             timestamp_utc=now_utc,
         )
-        self._persist_node(vuln_node)
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
+        )
         nodes_added += 1
 
         # ── EDGE asset → vulnerability ──────────────────────────
@@ -366,7 +370,7 @@ class Alpha:
             confidence=0.90,
             technique_id=decision.technique_id,
         )
-        self._persist_edge(edge)
+        persist_edge(self.event_store, self.graph_store, self._engagement_id, edge, agent="alpha")
 
         # ── CREDENTIAL nodes from leaked env keys ────────────────
         nodes_added += self._extract_leaked_credentials(body, host, vuln_node.id)
@@ -522,7 +526,9 @@ class Alpha:
             agent="alpha",
             timestamp_utc=now_utc,
         )
-        self._persist_node(asset_node)
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
+        )
         return 1
 
     def _extract_leaked_credentials(self, body: str, host: str, vuln_node_id: str) -> int:
@@ -562,10 +568,14 @@ class Alpha:
 
         nodes_added = 0
         for node in nodes:
-            self._persist_node(node)
+            persist_node(
+                self.event_store, self.graph_store, self._engagement_id, node, agent="alpha"
+            )
             nodes_added += 1
         for edge in edges:
-            self._persist_edge(edge)
+            persist_edge(
+                self.event_store, self.graph_store, self._engagement_id, edge, agent="alpha"
+            )
 
         if nodes_added > 0:
             self._emit(
@@ -575,36 +585,6 @@ class Alpha:
             )
 
         return nodes_added
-
-    # ── Private: persistence ────────────────────────────────────
-
-    def _persist_node(self, node: AttackNode) -> None:
-        """Persist a node through both event_store and graph_store."""
-        payload = node_to_dict(node)
-        self.event_store.append(
-            EventType.NODE_DISCOVERED,
-            self._engagement_id,
-            "alpha",
-            payload,
-        )
-        self.graph_store.apply_event("NodeDiscovered", payload)
-
-    def _persist_edge(self, edge: AttackEdge) -> None:
-        """Persist an edge through both event_store and graph_store."""
-        payload = {
-            "source_id": edge.source_id,
-            "target_id": edge.target_id,
-            "relationship": edge.relationship.value,
-            "confidence": edge.confidence,
-            "technique_id": edge.technique_id,
-        }
-        self.event_store.append(
-            EventType.EDGE_DISCOVERED,
-            self._engagement_id,
-            "alpha",
-            payload,
-        )
-        self.graph_store.apply_event("EdgeDiscovered", payload)
 
     # ── Private: frontier expansion (R1) ───────────────────────
 

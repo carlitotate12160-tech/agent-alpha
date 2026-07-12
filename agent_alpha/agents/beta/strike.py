@@ -41,8 +41,8 @@ from agent_alpha.graph.nodes import (
     NodeType,
     ProofArtifact,
     RelationshipType,
-    node_to_dict,
 )
+from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
@@ -432,7 +432,9 @@ class Beta:
                 timestamp_utc=now_utc,
                 verified=True,
             )
-            self._persist_node(cred_node)
+            persist_node(
+                self.event_store, self.graph_store, self._engagement_id, cred_node, agent="beta"
+            )
             nodes_added += 1
 
         # ACCESS_LEVEL node (verified).
@@ -458,7 +460,9 @@ class Beta:
             timestamp_utc=now_utc,
             verified=True,
         )
-        self._persist_node(access_node)
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, access_node, agent="beta"
+        )
         nodes_added += 1
 
         # CREDENTIAL → ACCESS_LEVEL edge (ENABLES). Attribution follows the TOOL that
@@ -472,39 +476,11 @@ class Beta:
                 winning_tool.mitre_technique if winning_tool is not None else decision.technique_id
             ),
         )
-        self._persist_edge(cred_edge)
+        persist_edge(
+            self.event_store, self.graph_store, self._engagement_id, cred_edge, agent="beta"
+        )
 
         return {"discovered_nodes": nodes_added, "cost_usd": cost_usd}
-
-    # ── Private: persistence ────────────────────────────────────
-
-    def _persist_node(self, node: AttackNode) -> None:
-        """Persist a node through both event_store and graph_store."""
-        payload = node_to_dict(node)
-        self.event_store.append(
-            EventType.NODE_DISCOVERED,
-            self._engagement_id,
-            "beta",
-            payload,
-        )
-        self.graph_store.apply_event("NodeDiscovered", payload)
-
-    def _persist_edge(self, edge: AttackEdge) -> None:
-        """Persist an edge through both event_store and graph_store."""
-        payload = {
-            "source_id": edge.source_id,
-            "target_id": edge.target_id,
-            "relationship": edge.relationship.value,
-            "confidence": edge.confidence,
-            "technique_id": edge.technique_id,
-        }
-        self.event_store.append(
-            EventType.EDGE_DISCOVERED,
-            self._engagement_id,
-            "beta",
-            payload,
-        )
-        self.graph_store.apply_event("EdgeDiscovered", payload)
 
     # ── A2A handoff builder (CLAUDE lane — do not weaken) ───────
 
