@@ -83,12 +83,25 @@ class GitCtx:
     secrets: SecretsManager = field(default_factory=SecretsManager)
 
 
-def _run(ctx: GitCtx, auth: AuthorizationStateMachine, eid: str, *, resp: FakeResponse,
-         dumper: FakeGitDumper, url: str = _CONFIG_URL) -> int:
+def _run(
+    ctx: GitCtx,
+    auth: AuthorizationStateMachine,
+    eid: str,
+    *,
+    resp: FakeResponse,
+    dumper: FakeGitDumper,
+    url: str = _CONFIG_URL,
+) -> int:
     return process_path_hit(
-        _SPEC, resp=resp, url=url, engagement_id=eid, auth=auth,
-        graph_store=ctx.graph_store, event_store=ctx.event_store,
-        secrets_manager=ctx.secrets, dumper=dumper,
+        _SPEC,
+        resp=resp,
+        url=url,
+        engagement_id=eid,
+        auth=auth,
+        graph_store=ctx.graph_store,
+        event_store=ctx.event_store,
+        secrets_manager=ctx.secrets,
+        dumper=dumper,
     )
 
 
@@ -148,8 +161,9 @@ def test_g5_out_of_scope_host_never_probed() -> None:
     ctx = GitCtx()
     auth, eid = _recon_engagement(ctx.event_store, domains=[_HOST])  # cotenant NOT in scope
     dumper = FakeGitDumper(_RECOVERED_WITH_SECRET)
-    added = _run(ctx, auth, eid, resp=FakeResponse(200, _GIT_CONFIG_BODY),
-                 dumper=dumper, url=_COTENANT_URL)
+    added = _run(
+        ctx, auth, eid, resp=FakeResponse(200, _GIT_CONFIG_BODY), dumper=dumper, url=_COTENANT_URL
+    )
     assert added == 0
     assert dumper.dump_calls == []  # scope gate stops before any recovery
     assert _cred_nodes(ctx.graph_store) == []

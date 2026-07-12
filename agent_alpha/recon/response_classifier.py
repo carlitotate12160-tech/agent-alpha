@@ -25,6 +25,7 @@ class Verdict(enum.StrEnum):
 
     OK = "ok"
     EMPTY = "empty"
+    NOT_FOUND = "not_found"
     TRANSPORT_FAIL = "transport_fail"
     BLOCKED = "blocked"
 
@@ -32,6 +33,12 @@ class Verdict(enum.StrEnum):
 # Block status codes: WAF/CF/rate-limit/challenge signals. Recorded as evidence
 # (WAF_BLOCKED), never as "clean / not vulnerable".
 _BLOCK_STATUS_CODES: frozenset[int] = frozenset({403, 429, 503})
+
+# Missing-path status. A 404 WITH a body would otherwise read as OK and get
+# escalated to the LLM tier (pure token burn on a path that is not there — F2).
+# Checked AFTER the empty check so a 404 with an empty body stays EMPTY (zero
+# behaviour change); only a 404 that carries a body becomes NOT_FOUND.
+_NOT_FOUND_STATUS_CODES: frozenset[int] = frozenset({404, 410})
 
 
 def classify_response(
@@ -46,7 +53,10 @@ def classify_response(
       1. ``transport_error`` (host down, DNS, connect/read timeout) -> ``TRANSPORT_FAIL``.
       2. status in (403, 429, 503) -> ``BLOCKED`` (a block is evidence, not "clean").
       3. empty / whitespace-only body -> ``EMPTY`` (reachable but non-analyzable).
-      4. otherwise -> ``OK``.
+      4. status in (404, 410) WITH a body -> ``NOT_FOUND`` (missing path; the
+         RULE tier may still look — a debug/error page can leak on a 404 — but it
+         is NEVER escalated to the LLM, unlike ``OK`` (F2 token-burn guard).
+      5. otherwise -> ``OK``.
 
     Conservative by design: a 200 with a real body is ``OK`` and is never
     ``BLOCKED`` — only the status code carries the block verdict in slice-1.
@@ -57,4 +67,6 @@ def classify_response(
         return Verdict.BLOCKED
     if not body or not body.strip():
         return Verdict.EMPTY
+    if status_code in _NOT_FOUND_STATUS_CODES:
+        return Verdict.NOT_FOUND
     return Verdict.OK

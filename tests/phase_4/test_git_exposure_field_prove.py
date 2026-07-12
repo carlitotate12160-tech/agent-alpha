@@ -13,6 +13,7 @@ from agent_alpha.live_fire.git_exposure_field_prove import (
     _credential_vaulted,
     load_git_exposure_config,
 )
+from agent_alpha.security.secrets import SecretNotFoundError
 
 
 def _result(**over: object) -> GitExposureResult:
@@ -63,7 +64,7 @@ class _Vault:
     def retrieve(self, ref: str) -> str:
         if ref in self._resolvable:
             return "recovered-secret-value"
-        raise KeyError(ref)
+        raise SecretNotFoundError(ref)
 
 
 def test_credential_vaulted_true_when_ref_resolves() -> None:

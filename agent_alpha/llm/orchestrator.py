@@ -43,6 +43,16 @@ class LLMOrchestrator:
 
     # ── public API ──────────────────────────────────────────────
 
+    def decide_rule_only(self, observation: dict[str, Any]) -> PlaybookDecision | None:
+        """RULE tier ONLY — deterministic playbook match, provider NEVER touched.
+
+        The scout uses this for a 404 (NOT_FOUND) body: a debug/error page can still
+        leak on a missing path, so the playbook gets a look — but a 404 is never
+        escalated to the LLM provider (pure token burn on a path that is not there, F2).
+        Returns the matched decision, or None when no rule fires.
+        """
+        return self.playbook.match(observation)
+
     def decide(self, observation: dict[str, Any]) -> PlaybookDecision:
         """Return a tool decision for *observation*.
 
@@ -53,7 +63,7 @@ class LLMOrchestrator:
         or lacks a ``"tool"`` key (anti-Lyndon #3: no silent fallback).
         """
         # ── RULE tier ───────────────────────────────────────────
-        decision = self.playbook.match(observation)
+        decision = self.decide_rule_only(observation)
         if decision is not None:
             return decision
 

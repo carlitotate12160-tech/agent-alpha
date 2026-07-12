@@ -30,7 +30,9 @@ _COTENANT = "cotenant.example"
 _ENV_BAK_URL = f"https://{_HOST}/.env.bak"
 _COTENANT_URL = f"https://{_COTENANT}/.env.bak"
 
-_ENV_BAK_BODY = "APP_ENV=production\nDB_USER=appuser\nDB_PASSWORD=sup3rs3cret\nDB_HOST=db.internal\n"
+_ENV_BAK_BODY = (
+    "APP_ENV=production\nDB_USER=appuser\nDB_PASSWORD=sup3rs3cret\nDB_HOST=db.internal\n"
+)
 _HTML_BODY = "<!doctype html><html><body>Page not found</body></html>"
 
 _SPEC = spec_for_tool("backup_file_probe")
@@ -65,11 +67,23 @@ class Ctx:
     secrets: SecretsManager = field(default_factory=SecretsManager)
 
 
-def _run(ctx: Ctx, auth: AuthorizationStateMachine, eid: str, *, resp: FakeResponse,
-         url: str = _ENV_BAK_URL) -> int:
+def _run(
+    ctx: Ctx,
+    auth: AuthorizationStateMachine,
+    eid: str,
+    *,
+    resp: FakeResponse,
+    url: str = _ENV_BAK_URL,
+) -> int:
     return process_path_hit(
-        _SPEC, resp=resp, url=url, engagement_id=eid, auth=auth,
-        graph_store=ctx.graph, event_store=ctx.store, secrets_manager=ctx.secrets,
+        _SPEC,
+        resp=resp,
+        url=url,
+        engagement_id=eid,
+        auth=auth,
+        graph_store=ctx.graph,
+        event_store=ctx.store,
+        secrets_manager=ctx.secrets,
     )
 
 

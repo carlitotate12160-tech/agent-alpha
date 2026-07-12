@@ -39,8 +39,8 @@ from __future__ import annotations
 import dataclasses
 
 from agent_alpha.agents.alpha.scout import Alpha
-from agent_alpha.config import constants
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.config import constants
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 
