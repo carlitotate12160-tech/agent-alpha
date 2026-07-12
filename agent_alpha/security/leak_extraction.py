@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Dict
-
 from agent_alpha.recon.wp_config_probe import parse_wp_config
 
 
@@ -58,7 +56,7 @@ def _extract_from_env_file(body: str) -> dict[str, str]:
     return result
 
 
-def extract_secrets(recovered: Dict[str, str]) -> Dict[str, str]:
+def extract_secrets(recovered: dict[str, str]) -> dict[str, str]:
     leaked: dict[str, str] = {}
 
     for path, content in recovered.items():
