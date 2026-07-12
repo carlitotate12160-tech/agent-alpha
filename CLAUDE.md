@@ -137,8 +137,8 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 4 breadth OPEN (Layer V sealed). git_exposure slice-1+1b SEALED; slice-1c
-                 (real git-dumper + field-prove) IN PROGRESS. Gamma STILL STOP-gated.
+Project Phase  : Phase 4 breadth OPEN (Layer V sealed). git_exposure slice-1+1b SEALED; slice-1c-i
+                 (real GitDumper WRAP) SEALED; slice-1c-ii (field-prove) PENDING. Gamma STILL STOP-gated.
 Last Decision  : git_exposure WIRED into live recon path — SEALED on Oracle (main HEAD 7125edf;
                  PR #144 module / #145 wiring). verify_git_exposure reuses classify_response (#7) +
                  assemble_leaked_credentials + vault (#6); injectable `dumper` seam, default
@@ -153,12 +153,18 @@ Last Decision  : git_exposure WIRED into live recon path — SEALED on Oracle (m
                  recon_policy toggle, never per-target hand-feed). REJECTED "Credential Injection
                  Seam before Phase 4" (feature-before-foundation #1/#5; not small — must be
                  event-sourced+auth-gated; parked as assumed-breach input).
-                 STATUS: git_exposure WIRED-BUT-NOT-PAYABLE until slice-1c (default dumper raises on
-                 real exposure). --- PRIOR: LAYER V SEALED (main 8fc0fc2; PRs #138 CT-source seam / #139 V-B /
-                 #141 bounded-autonomy). Layer V-B live: seed = root `agentalpha.duckdns.org` ONLY →
-                 REAL crt.sh surfaced 7+ siblings → autonomous discovery reached vuln.<apex> →
-                 odoo_dbmanager_probe → CHAIN PROVEN: True (leak_creds=2, access=admin,
-                 edge_from_harvested_cred=True, db_enumerated=True, leak_suspected=False,
+                 STATUS: slice-1c-i SEALED (PR #147) — GitDumper class implements commodity WRAP of
+                 git-dumper tool: shell out to git-dumper into temp dir, read all recovered tracked
+                 files into {relative_path: content}, FAIL-LOUD on error/empty recovery (anti-#3).
+                 _default_git_dumper() now returns GitDumper() (real wrap) not _NoopGitDumper.
+                 Added git-dumper dependency to pyproject.toml. Test with tool availability skip.
+                 Bandit B404/B607/B603 suppressed via .bandit config (auditable). 934 green + make check clean.
+                 slice-1c-ii PENDING: install git-dumper on Oracle ARM64 + setup self-owned exposed-.git lab
+                 (lab_guard-allowlisted, planted secret) → field-prove end-to-end. --- PRIOR: LAYER V SEALED
+                 (main 8fc0fc2; PRs #138 CT-source seam / #139 V-B / #141 bounded-autonomy). Layer V-B live:
+                 seed = root `agentalpha.duckdns.org` ONLY → REAL crt.sh surfaced 7+ siblings → autonomous
+                 discovery reached vuln.<apex> → odoo_dbmanager_probe → CHAIN PROVEN: True (leak_creds=2,
+                 access=admin, edge_from_harvested_cred=True, db_enumerated=True, leak_suspected=False,
                  host_discovery_sourced=True). 188 phase_2/2_5 green + make check clean (ruff+format+
                  mypy 92 files), Python 3.12.13. TRUE seal (not fake-HTTP unit tier) for the Odoo chain.
                  Three fixes merged clean: (1) R2 CT source injectable (crtsh_url_template seam) —
@@ -178,13 +184,11 @@ Open (refinement, non-blocking): double-recon at the compose boundary — Layer 
                  Alpha.run_recon(recon_url) AGAIN on the same host (2nd identical probe block in log).
                  Redundant HTTP against target = stealth/efficiency smell; fix = pass discovered
                  graph/host into the chain instead of re-reconning.
-Next Action    : git_exposure slice-1c — replace _NoopGitDumper with a real WRAP of commodity
-                 git-dumper (IDE/infra lane) + field-prove on a self-owned exposed-.git lab
-                 (lab_guard-allowlisted, planted secret) → CHAIN PROVEN, hardened true-neg. Makes
-                 git_exposure PAYABLE. THEN backup_file (same pattern, append path to
-                 WELL_KNOWN_LEAK_PATHS) → single data-driven path_probe catalog (see
-                 [[breadth-roadmap]]). Gamma/ANCHOR STILL STOP-gated: ToolComposer + blast-radius
-                 gate FIRST; gate = Claude lane, destructive bodies = DeepSeek lane.
+Next Action    : git_exposure slice-1c-ii — install git-dumper on Oracle ARM64 + setup self-owned
+                 exposed-.git lab (lab_guard-allowlisted, planted secret) → field-prove end-to-end.
+                 THEN backup_file (same pattern, append path to WELL_KNOWN_LEAK_PATHS) → single
+                 data-driven path_probe catalog (see [[breadth-roadmap]]). Gamma/ANCHOR STILL STOP-gated:
+                 ToolComposer + blast-radius gate FIRST; gate = Claude lane, destructive bodies = DeepSeek lane.
 NOTE: repo main CLAUDE.md status block is STALE in a different direction (still 'Phase 4 Odoo arc',
       never carried the Phase-2.5 text) — reconcile the repo copy to this block on next commit.
 
