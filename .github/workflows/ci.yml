@@ -172,7 +172,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/secbin
-          key: secbin-arm64-v1
+          key: secbin-arm64-v2
 
       - name: Install security tools (if not cached)
         if: steps.cache-secbin.outputs.cache-hit != 'true'
@@ -180,15 +180,15 @@ jobs:
           rm -rf /tmp/secbin
           mkdir -p /tmp/secbin
           # Trivy — direct binary download (install.sh unreliable on self-hosted)
-          curl -sfL https://github.com/aquasecurity/trivy/releases/download/v0.50.0/trivy_0.50.0_Linux-ARM64.tar.gz -o /tmp/trivy.tar.gz
+          curl -sfL https://github.com/aquasecurity/trivy/releases/download/v0.72.0/trivy_0.72.0_Linux-ARM64.tar.gz -o /tmp/trivy.tar.gz
           tar xzf /tmp/trivy.tar.gz -C /tmp/secbin trivy
           rm -f /tmp/trivy.tar.gz
           # Syft — direct binary download
-          curl -sfL https://github.com/anchore/syft/releases/download/v1.9.0/syft_1.9.0_linux_arm64.tar.gz -o /tmp/syft.tar.gz
+          curl -sfL https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_arm64.tar.gz -o /tmp/syft.tar.gz
           tar xzf /tmp/syft.tar.gz -C /tmp/secbin syft
           rm -f /tmp/syft.tar.gz
           # Nuclei — direct binary download
-          curl -sfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
+          curl -sfL https://github.com/projectdiscovery/nuclei/releases/download/v3.11.0/nuclei_3.11.0_linux_arm64.zip -o /tmp/nuclei.zip
           unzip -o /tmp/nuclei.zip -d /tmp/secbin nuclei
           rm -f /tmp/nuclei.zip
           chmod +x /tmp/secbin/*
