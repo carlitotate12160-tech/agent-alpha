@@ -1,0 +1,49 @@
+# CodeRabbit AI Review Configuration
+# Docs: https://docs.coderabbit.ai/configure-coderabbit
+
+reviews:
+  # Auto-request review on every PR
+  auto_review:
+    enabled: true
+    drafts: false
+
+  # Review language
+  language: en
+
+  # High-level review summary at top of PR
+  high_level_summary: true
+
+  # Walkthrough of changes
+  walkthrough: true
+
+  # Review status as PR comment
+  review_status: true
+
+  # Path filters — only review production code, skip generated/lab files
+  path_filters:
+    - "!agent_alpha/a2a/**"        # generated protobuf
+    - "!**/*.pb2.py"               # generated protobuf
+    - "!debug_engagement.py"       # debug script
+    - "!fetch_review*.py"          # utility scripts
+    - "!gen_token.py"              # utility script
+    - "!**/seed.sh"                # lab setup
+    - "!archive/**"                # archived code
+
+  # Path instructions — domain-specific review guidance
+  path_instructions:
+    - path: "agent_alpha/conductor/**"
+      instructions: "Review for authorization bypass, scope violation, and tenant isolation. Check that no agent file writes to authorization state."
+    - path: "agent_alpha/recon/**"
+      instructions: "Review for double-fetch (F1) — probes must not accept http_client if path_probe already fetched. Check that new vectors use PathProbeSpec catalog."
+    - path: "agent_alpha/tools/**"
+      instructions: "Review for credential handling — secrets must go through SecretsManager, never plaintext. Check for bare except Exception without noqa."
+    - path: "agent_alpha/security/**"
+      instructions: "Review for crypto correctness, key management, and vault integrity. No hardcoded keys."
+    - path: "tests/**"
+      instructions: "Review for test isolation — no real network calls, no real LLM calls. Check that tests do not weaken existing assertions."
+    - path: ".github/workflows/**"
+      instructions: "Review for CI guard bypass — guards must not be skippable without admin override."
+
+chat:
+  # Allow replying to CodeRabbit comments for iterative review
+  auto_reply: true
