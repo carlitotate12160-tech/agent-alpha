@@ -11,7 +11,7 @@ Control flow (per tests/phase_4/test_git_exposure_probe.py):
      - Verdict.BLOCKED -> emit EventType.WAF_BLOCKED and DO NOT dump.
      - verdict != OK or body not a git config (no "[core]") -> not exposed, DO NOT dump.
   4. Exposed -> ``dumper.dump(f"https://{host}/")`` (wrapped git-dumper).
-  5. ``_extract_secrets`` turns recovered files (database.yml / .env / wp-config.php)
+  5. ``extract_secrets`` turns recovered files (database.yml / .env / wp-config.php)
      into a canonical leaked dict keyed like the WordPress path (DB_USER, DB_PASSWORD,
      DB_NAME, DB_HOST).
   6. Empty leaked dict -> no credential (exposure alone is not payable).
@@ -45,8 +45,8 @@ from agent_alpha.graph.nodes import (
     node_to_dict,
 )
 from agent_alpha.recon.response_classifier import Verdict, classify_response
-from agent_alpha.recon.wp_config_probe import parse_wp_config
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
+from agent_alpha.security.leak_extraction import extract_secrets
 
 # ── Credential key maps for git-sourced leaks (database.yml / .env / wp-config.php) ────
 # Canonicalised to the same DB_* key space as the WordPress wp-config path so we can
@@ -225,7 +225,7 @@ def verify_git_exposure(
             # Dumper failure → treat as non-analyzable for this host.
             continue
 
-        leaked = _extract_secrets(recovered)
+        leaked = extract_secrets(recovered)
         if not leaked:
             # Exposure without recoverable secret is not a payable credential.
             continue
@@ -290,97 +290,6 @@ def verify_git_exposure(
             _persist_edge(event_store, graph_store, engagement_id, edge)
 
     return creds_added
-
-
-def _extract_secrets(recovered: dict[str, str]) -> dict[str, str]:
-    """Extract DB-style credentials from recovered git-tracked files.
-
-    Supports three common config formats:
-      - ``config/database.yml`` (Rails-style YAML)
-      - ``.env`` files with DB_* keys
-      - ``wp-config.php`` checked into the repo (reusing ``parse_wp_config``)
-
-    Returns a canonical ``{KEY: value}`` mapping in the DB_* key space expected by
-    the shared credential_assembly seam.
-    """
-    leaked: dict[str, str] = {}
-
-    for path, content in recovered.items():
-        lower_path = path.lower()
-
-        if lower_path.endswith("database.yml"):
-            _merge_in(leaked, _extract_from_database_yml(content))
-        elif lower_path.endswith(".env") or "/.env" in lower_path:
-            _merge_in(leaked, _extract_from_env_file(content))
-        elif "wp-config" in lower_path:
-            _merge_in(leaked, parse_wp_config(content))
-
-    return leaked
-
-
-def _merge_in(target: dict[str, str], source: dict[str, str]) -> None:
-    """Merge *source* into *target*, without clearing existing keys."""
-
-    for key, value in source.items():
-        target[key] = value
-
-
-def _extract_from_database_yml(body: str) -> dict[str, str]:
-    """Best-effort extraction from a Rails-style database.yml snippet.
-
-    Looks for ``username:``, ``password:``, ``database:``, and ``host:`` keys,
-    mapping them into the DB_* key space.
-    """
-    result: dict[str, str] = {}
-    for line in body.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if ":" not in line:
-            continue
-        key, _, value = line.partition(":")
-        key = key.strip().lower()
-        value = value.strip()
-        if not value:
-            continue
-        if key == "username":
-            result["DB_USER"] = value
-        elif key == "password":
-            result["DB_PASSWORD"] = value
-        elif key == "database":
-            result["DB_NAME"] = value
-        elif key == "host":
-            result["DB_HOST"] = value
-    return result
-
-
-def _extract_from_env_file(body: str) -> dict[str, str]:
-    """Extract DB_* keys from a .env-style file.
-
-    Supports DB_USER / DB_USERNAME, DB_PASSWORD, DB_NAME / DB_DATABASE, DB_HOST.
-    Values are normalised into the DB_* key space.
-    """
-    result: dict[str, str] = {}
-    for line in body.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        key = key.strip().upper()
-        value = value.strip().strip('"').strip("'")
-        if not value:
-            continue
-        if key in ("DB_USER", "DB_USERNAME"):
-            result["DB_USER"] = value
-        elif key == "DB_PASSWORD":
-            result["DB_PASSWORD"] = value
-        elif key in ("DB_NAME", "DB_DATABASE"):
-            result["DB_NAME"] = value
-        elif key == "DB_HOST":
-            result["DB_HOST"] = value
-    return result
 
 
 def _persist_node(

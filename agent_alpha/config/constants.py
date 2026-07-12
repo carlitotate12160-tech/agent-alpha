@@ -57,6 +57,7 @@ __all__ = [
     "WP_CREDENTIAL_SECRET_KEYS",
     "WP_CREDENTIAL_SERVICE_MAP",
     "WP_CONFIG_BACKUP_PATHS",
+    "BACKUP_FILE_PATHS",
     "WELL_KNOWN_LEAK_PATHS",
     "MIN_SAMPLES_BEFORE_SKIP",
     "DEEPSEEK_PRICING_USD_PER_1K",
@@ -238,6 +239,20 @@ WP_CONFIG_BACKUP_PATHS: tuple[str, ...] = (
     "/wp-config.php.old",
     "/wp-config.php.dist",
     "/wp-config.txt",
+)
+
+BACKUP_FILE_PATHS: tuple[str, ...] = (
+    "/.env.bak",
+    "/.env.save",
+    "/.env~",
+    "/.env.old",
+    "/.env.orig",
+    "/config/database.yml.bak",
+    "/wp-config.php.bak",
+    "/wp-config.php~",
+    "/wp-config.php.save",
+    "/wp-config.php.orig",
+    "/wp-config.php.old",
 )
 
 WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
