@@ -144,6 +144,17 @@ jobs:
           fi
           echo "Anti-duplication guard completed (warning-only mode)."
 
+      - name: Private-attr-access guard (reject hasattr.*_graph patterns)
+        # WARNING-ONLY until existing hasattr._graph calls are replaced with graph_store.clear().
+        continue-on-error: true
+        run: |
+          HITS=$(grep -rn 'hasattr.*_graph' agent_alpha/ --include="*.py" || true)
+          if [ -n "$HITS" ]; then
+            echo "::warning::Private attr access: use graph_store.clear() instead of hasattr(graph_store, _graph)"
+            echo "$HITS"
+          fi
+          echo "Private-attr-access guard completed (warning-only mode)."
+
       - name: Full test suite (all phases + integration, Oracle ARM64)
         env:
           AGENT_ALPHA_REQUIRE_DB: "1"
