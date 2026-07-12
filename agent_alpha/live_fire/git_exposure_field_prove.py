@@ -1,10 +1,10 @@
 """Git exposure field-prove harness (Phase 4 slice-1c-ii).
 
-Mirrors odoo_chain_runner, but focused on the Alpha recon phase to validate
-the GitDumper integration and credential extraction logic on a self-owned lab.
+Validates the Alpha GitDumper integration and credential extraction logic
+on a self-owned lab.
 
 Lab-only (assert_lab_only_target). Run:
-    python -m agent_alpha.live_fire.git_exposure_chain_runner <engagement.yaml>
+    python -m agent_alpha.live_fire.git_exposure_field_prove <engagement.yaml>
 """
 
 from __future__ import annotations
@@ -21,53 +21,60 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
+from agent_alpha.live_fire.beta_runner import _NoLLMProvider
+from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.recon.git_exposure_probe import GitDumper, verify_git_exposure
 from agent_alpha.security.secrets import SecretsManager
+from agent_alpha.tools.playbook import PlaybookEngine
 
 
 @dataclasses.dataclass(frozen=True)
-class GitExposureChainConfig:
+class GitExposureConfig:
     client_id: str
     scope_ip_ranges: list[str]
     scope_domains: list[str]
     scope_exclusions: list[str]
+    recon_url: str
 
 
 @dataclasses.dataclass(frozen=True)
-class GitExposureChainResult:
-    leak_creds_added: int
-    edge_from_harvested_cred: bool
+class GitExposureResult:
+    creds_added: int
+    credential_vaulted: bool
+    exposure_detected: bool
 
     @property
     def chain_proven(self) -> bool:
         return (
-            self.leak_creds_added > 0
-            and self.edge_from_harvested_cred
+            self.creds_added > 0
+            and self.credential_vaulted
+            and self.exposure_detected
         )
 
 
-def load_git_exposure_chain_config(path: str | pathlib.Path) -> GitExposureChainConfig:
+def load_git_exposure_config(path: str | pathlib.Path) -> GitExposureConfig:
     with open(path) as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
-        raise ValueError("git exposure chain config must be a YAML mapping")
-    for key in ("client_id", "scope"):
+        raise ValueError("git exposure config must be a YAML mapping")
+    for key in ("client_id", "scope", "recon_url"):
         if key not in data:
-            raise ValueError(f"git exposure chain config missing required key: {key!r}")
+            raise ValueError(f"git exposure config missing required key: {key!r}")
     scope = data["scope"]
     for key in ("ip_ranges", "domains", "exclusions"):
         if key not in scope:
-            raise ValueError(f"git exposure chain config scope missing required key: {key!r}")
-    return GitExposureChainConfig(
+            raise ValueError(f"git exposure config scope missing required key: {key!r}")
+    return GitExposureConfig(
         client_id=data["client_id"],
         scope_ip_ranges=list(scope["ip_ranges"]),
         scope_domains=list(scope["domains"]),
         scope_exclusions=list(scope["exclusions"]),
+        recon_url=data["recon_url"],
     )
 
 
-def _edge_from_harvested_cred(graph_store: Any, secrets_manager: Any) -> bool:
-    """True iff a vaulted credential is minted and resolving."""
+def _credential_vaulted(graph_store: Any, secrets_manager: Any) -> bool:
+    """True iff a CREDENTIAL node has a resolvable vault pointer (secret_ref)."""
     cred_nodes = graph_store.nodes_by_type(NodeType.CREDENTIAL)
     for node in cred_nodes:
         ref = getattr(node.properties, "secret_ref", "")
@@ -81,20 +88,20 @@ def _edge_from_harvested_cred(graph_store: Any, secrets_manager: Any) -> bool:
     return False
 
 
-def run_git_exposure_chain_live_fire(
-    config: GitExposureChainConfig,
+def run_git_exposure_live_fire(
+    config: GitExposureConfig,
     *,
     auth: Any,
     http_client: Any,
+    orchestrator: Any,
     graph_store: Any,
     event_store: Any,
     secrets_manager: Any,
     dumper: Any = None,
-) -> dict[str, GitExposureChainResult]:
+) -> dict[str, GitExposureResult]:
     """Alpha recon (git exposure probe) on each target domain."""
-    results: dict[str, GitExposureChainResult] = {}
+    results: dict[str, GitExposureResult] = {}
 
-    # Process each domain as its own target to isolate the graph results per target
     for target in config.scope_domains:
         rec = auth.create_engagement(client_id=config.client_id, target=target)
         auth.enable_recon(
@@ -117,13 +124,24 @@ def run_git_exposure_chain_live_fire(
             dumper=dumper or GitDumper(),
         )
 
-        results[target] = GitExposureChainResult(
-            leak_creds_added=creds_added,
-            edge_from_harvested_cred=_edge_from_harvested_cred(graph_store, secrets_manager),
+        # Check exposure detected by verifying VULNERABILITY nodes exist
+        vuln_nodes = [
+            n for n in graph_store.nodes_by_type(NodeType.VULNERABILITY)
+            if "git_exposure" in getattr(n, "id", "")
+        ]
+        exposure_detected = len(vuln_nodes) > 0
+
+        results[target] = GitExposureResult(
+            creds_added=creds_added,
+            credential_vaulted=_credential_vaulted(graph_store, secrets_manager),
+            exposure_detected=exposure_detected,
         )
 
-        # Clear graph nodes for the next iteration to isolate testing
-        graph_store.clear_all()
+        # Clear graph for the next iteration to isolate per target
+        if hasattr(graph_store, "_graph"):
+            graph_store._graph.clear()
+        elif hasattr(graph_store, "graph"):
+            graph_store.graph.clear()
 
     return results
 
@@ -133,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("config", help="Path to git exposure engagement YAML config")
     args = parser.parse_args(argv)
 
-    config = load_git_exposure_chain_config(args.config)
+    config = load_git_exposure_config(args.config)
 
     from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 
@@ -145,16 +163,14 @@ def main(argv: list[str] | None = None) -> int:
     http_client = HttpClient(engagement_id=config.client_id)
     secrets_manager = SecretsManager()
     graph_store = NetworkXGraphStore()
+    playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
+    orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
 
-    # We add a clear_all method to NetworkXGraphStore dynamically for isolating runs
-    def clear_all() -> None:
-        graph_store._graph.clear()
-    graph_store.clear_all = clear_all  # type: ignore
-
-    results = run_git_exposure_chain_live_fire(
+    results = run_git_exposure_live_fire(
         config,
         auth=auth,
         http_client=http_client,
+        orchestrator=orchestrator,
         graph_store=graph_store,
         event_store=event_store,
         secrets_manager=secrets_manager,
@@ -168,8 +184,9 @@ def main(argv: list[str] | None = None) -> int:
 
     for target, result in results.items():
         print(f"TARGET: {target}")
-        print(f"  Leak creds added       : {result.leak_creds_added}")
-        print(f"  Edge from harvested cred (=reused) : {result.edge_from_harvested_cred}")
+        print(f"  Leak creds added       : {result.creds_added}")
+        print(f"  Credential vaulted     : {result.credential_vaulted}")
+        print(f"  Exposure detected      : {result.exposure_detected}")
 
         if "vuln" in target:
             proven = result.chain_proven
@@ -177,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
             if not proven:
                 all_proven = False
         elif "hardened" in target:
-            proven = (result.leak_creds_added == 0 and not result.edge_from_harvested_cred)
+            proven = (result.creds_added == 0 and not result.credential_vaulted and not result.exposure_detected)
             print(f"  EXPECTED NEGATIVE PROVEN: {proven}")
             if not proven:
                 all_proven = False
