@@ -37,6 +37,7 @@ from agent_alpha.graph.nodes import (
 )
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
+from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.laravel_env import iter_env_leaks
@@ -76,8 +77,8 @@ class Alpha:
             "wp_config_probe": self._handle_wp_config_probe,
             "js_secret_probe": self._handle_js_secret_probe,
             "odoo_dbmanager_probe": self._handle_odoo_dbmanager,
-            "git_exposure_probe": self._handle_git_exposure,
-            "backup_file_probe": self._handle_backup_file,
+            "git_exposure_probe": self._handle_path_probe,
+            "backup_file_probe": self._handle_path_probe,
         }
 
         # Per-run state, initialised in run_recon().
@@ -375,56 +376,35 @@ class Alpha:
             self._findings += 1
         return creds_added
 
-    def _handle_git_exposure(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
-        if decision.tool in self._ran_campaigns:
-            return 0
-        self._ran_campaigns.add(decision.tool)
+    def _handle_path_probe(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
+        """Dispatch a data-driven path-probe (git_exposure / backup_file / ...).
 
-        host = urlparse(url).hostname
-        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
-            return 0
-
-        from agent_alpha.recon.git_exposure_probe import verify_git_exposure
-
-        creds_added = verify_git_exposure(
-            engagement_id=self._engagement_id,
-            auth=self.authorization,
-            http_client=self.http_client,
-            scope_hosts=[host],
-            graph_store=self.graph_store,
-            event_store=self.event_store,
-            secrets_manager=self._secrets_manager,
-            dumper=self._git_dumper,
-        )
-        if creds_added > 0:
-            self._findings += 1
-        return creds_added
-
-    def _handle_backup_file(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
-        """Dispatch to the sealed backup-file leak vector (slice-1).
-
-        DIRECT (no dumper): a 200 on a backup path IS the recovered content, so
-        unlike git_exposure this handler threads no reconstruction seam. Single-
-        target + idempotency guard, mirroring the other recon dispatches.
+        ONE handler for every catalog vector (anti-#6/#7). PER-RESPONSE: processes the
+        response the loop already fetched (no re-sweep -- F1 closed). No tool-level
+        idempotency guard: each seeded path hit is processed on its own so multiple
+        leaked files on one host each contribute their distinct credentials; the
+        engine is idempotent at the graph level (deterministic node ids).
         """
-        if decision.tool in self._ran_campaigns:
+        spec = spec_for_tool(decision.tool)
+        if spec is None:
             return 0
-        self._ran_campaigns.add(decision.tool)
 
         host = urlparse(url).hostname
         if not host or not self.authorization.is_in_scope(self._engagement_id, host):
             return 0
 
-        from agent_alpha.recon.backup_file_probe import verify_backup_file
+        dumper = self._git_dumper if spec.recover is RecoverStrategy.DUMP else None
 
-        creds_added = verify_backup_file(
+        creds_added = process_path_hit(
+            spec,
+            resp=resp,
+            url=url,
             engagement_id=self._engagement_id,
             auth=self.authorization,
-            http_client=self.http_client,
-            scope_hosts=[host],
             graph_store=self.graph_store,
             event_store=self.event_store,
             secrets_manager=self._secrets_manager,
+            dumper=dumper,
         )
         if creds_added > 0:
             self._findings += 1
