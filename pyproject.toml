@@ -57,6 +57,8 @@ select = [
   "N",    # pep8-naming
   "T20",  # flake8-print: no print() in production code (anti-verbose)
   "C90",  # mccabe: complexity gate (max-complexity below)
+  "BLE001",  # blind-except: catch Exception without noqa = error
+  "E722",   # bare except: (no exception type) = always error
 ]
 ignore = [
   "E501",  # line too long (handled by formatter)
@@ -73,6 +75,32 @@ ignore = [
 # lab_guard uses LabOnlyViolation (not Error suffix) as the canonical name
 # in the safety-guard contract — renamed would break the test import surface.
 "agent_alpha/live_fire/lab_guard.py" = ["N818"]
+# Existing recon probes catch network errors with bare except Exception.
+# New code MUST use # noqa: BLE001 or catch specific exceptions.
+"agent_alpha/recon/js_secret_probe.py" = ["BLE001"]
+"agent_alpha/recon/odoo_dbmanager_probe.py" = ["BLE001"]
+"agent_alpha/recon/wp_config_probe.py" = ["BLE001"]
+"agent_alpha/recon/path_probe.py" = ["BLE001"]
+"agent_alpha/recon/db_service_probe.py" = ["BLE001"]
+"agent_alpha/live_fire/field_prove_common.py" = ["BLE001"]
+"agent_alpha/tools/internal/access/applicator.py" = ["BLE001"]
+"agent_alpha/tools/internal/access/cred_reuse.py" = ["BLE001"]
+"agent_alpha/tools/internal/access/default_creds.py" = ["BLE001"]
+"agent_alpha/tools/internal/access/mysql_applicator.py" = ["BLE001"]
+"agent_alpha/tools/internal/access/odoo_access.py" = ["BLE001"]
+"agent_alpha/conductor/main.py" = ["BLE001"]
+"agent_alpha/conductor/health.py" = ["BLE001"]
+"agent_alpha/conductor/execute_agent.py" = ["BLE001"]
+"agent_alpha/conductor/recon_runner.py" = ["BLE001"]
+"agent_alpha/conductor/routes_monologue.py" = ["BLE001"]
+"agent_alpha/conductor/revoker.py" = ["BLE001"]
+"agent_alpha/conductor/emergency.py" = ["BLE001"]
+"agent_alpha/live_fire/chain_runner.py" = ["BLE001"]
+"agent_alpha/live_fire/db_chain_runner.py" = ["BLE001"]
+"agent_alpha/live_fire/odoo_chain_runner.py" = ["BLE001"]
+"agent_alpha/live_fire/wp_chain_runner.py" = ["BLE001"]
+"agent_alpha/live_fire/spa_secret_field_prove.py" = ["BLE001"]
+"agent_alpha/recon/git_exposure_probe.py" = ["BLE001"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 22  # gate god-functions; Celery task entry points are inherently branchy
