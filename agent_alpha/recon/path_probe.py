@@ -103,6 +103,15 @@ PATH_PROBE_CATALOG: tuple[PathProbeSpec, ...] = (
         tech_stack=("web",),
         leak_source="backup_file",
     ),
+    PathProbeSpec(
+        name="actuator",
+        tool="actuator_probe",
+        paths=constants.ACTUATOR_PATHS,
+        recover=RecoverStrategy.DIRECT,
+        vuln_suffix="actuator_exposure",
+        tech_stack=("spring",),
+        leak_source="actuator",
+    ),
 )
 
 _CATALOG_BY_TOOL: dict[str, PathProbeSpec] = {spec.tool: spec for spec in PATH_PROBE_CATALOG}

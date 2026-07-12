@@ -1,0 +1,18 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# Fires when Alpha fetches an exposed Spring Boot Actuator /env endpoint. The body
+# is JSON carrying propertySources / activeProfiles — disjoint from every other rule
+# (git [core], wp page markers, .env DB_PASSWORD= assignment), so no cross-rule
+# collision. verify (via process_path_hit) drops MASKED (******) values, so a
+# redacted actuator never mints a false credential (anti-#3).
+name: actuator_env_exposure
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - body_contains: '"propertySources"'
+    - body_contains: '"activeProfiles"'
+action:
+  tool: actuator_probe
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Wordlist Scanning
+  rationale: "Spring Boot Actuator /env exposed; harvest unmasked datasource credentials."
