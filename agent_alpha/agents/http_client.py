@@ -10,7 +10,7 @@ working unchanged for Alpha (#10 — no behavioural change to the existing path)
 from __future__ import annotations
 
 import dataclasses
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
@@ -37,6 +37,23 @@ class HttpClientError(Exception):
     (one domain contract per concept). It deliberately does NOT subclass
     any ``httpx`` type.
     """
+
+
+@runtime_checkable
+class HttpClientProtocol(Protocol):
+    """Minimal HTTP client interface for recon GET requests.
+
+    ONE canonical definition (anti-#6): the recon probes import this instead of each
+    hand-rolling an identical Protocol. The concrete ``HttpClient`` below satisfies it.
+    """
+
+    def get(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+    ) -> Any: ...
 
 
 class HttpClient:

@@ -123,26 +123,30 @@ jobs:
           SQL
 
       - name: Anti-duplication guard (reject local _persist_node/_persist_edge/HttpClientProtocol)
-        # WARNING-ONLY until existing duplicates are hoisted to graph/persist.py + agents/http_client.py.
-        # Once hoist is complete, remove `continue-on-error` to make this blocking.
-        continue-on-error: true
+        # BLOCKING (2026-07-12): hoist complete — all callers use graph/persist.py + agents/http_client.py.
         run: |
           set -e
+          FAIL=0
           # _persist_node / _persist_edge must only exist in graph/persist.py
           HITS=$(grep -rn "def _persist_node\|def _persist_edge" agent_alpha/ --include="*.py" \
             | grep -v "graph/persist.py" || true)
           if [ -n "$HITS" ]; then
-            echo "::warning::Duplication violation: _persist_node/_persist_edge found outside graph/persist.py"
+            echo "::error::Duplication violation: _persist_node/_persist_edge found outside graph/persist.py"
             echo "$HITS"
+            FAIL=1
           fi
           # HttpClientProtocol must only exist in agents/http_client.py
           HITS=$(grep -rn "class HttpClientProtocol" agent_alpha/ --include="*.py" \
             | grep -v "agents/http_client.py" || true)
           if [ -n "$HITS" ]; then
-            echo "::warning::Duplication violation: HttpClientProtocol found outside agents/http_client.py"
+            echo "::error::Duplication violation: HttpClientProtocol found outside agents/http_client.py"
             echo "$HITS"
+            FAIL=1
           fi
-          echo "Anti-duplication guard completed (warning-only mode)."
+          if [ "$FAIL" -eq 1 ]; then
+            exit 1
+          fi
+          echo "Anti-duplication guard passed (no duplicates found)."
 
       - name: Private-attr-access guard (reject hasattr.*_graph patterns)
         # BLOCKING (2026-07-12): the last hasattr._graph was removed in #165
