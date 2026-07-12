@@ -1,0 +1,112 @@
+# Agent-Alpha Security Audit — nightly + manual trigger
+#
+# Slow security scans that don't need to run per-PR:
+#   - Trivy  — container image CVE scan (pgvector, redis)
+#   - Syft   — SBOM generation (SPDX + CycloneDX)
+#   - Nuclei — DAST scan against beta lab app
+#
+# Enterprise pattern: fast scans (bandit/pip-audit/gitleaks) block in ci.yml
+# per-PR; slow scans run nightly and report to the Security tab.
+#
+# Runs on a SELF-HOSTED runner on the Oracle ARM64 box.
+
+name: Security Audit
+
+on:
+  schedule:
+    - cron: '0 2 * * *'  # nightly 02:00 UTC
+  workflow_dispatch: {}   # manual trigger from Actions tab
+
+concurrency:
+  group: security-audit-oracle-box
+  cancel-in-progress: false
+
+jobs:
+  security-audit:
+    runs-on: [self-hosted, linux, ARM64]
+    continue-on-error: true
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Cache venv + pip
+        uses: actions/cache@v4
+        with:
+          path: |
+            .venv
+            ~/.cache/pip
+          key: venv-arm64-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            venv-arm64-
+
+      - name: Create venv + install deps (Python 3.12)
+        run: |
+          if [ ! -f .venv/bin/python ]; then
+            python3.12 -m venv .venv
+            .venv/bin/pip install --upgrade pip
+          fi
+          .venv/bin/pip install -e . --quiet
+
+      - name: Cache security tool binaries
+        id: cache-secbin
+        uses: actions/cache@v4
+        with:
+          path: /tmp/secbin
+          key: secbin-arm64-v2
+
+      - name: Install security tools (if not cached)
+        if: steps.cache-secbin.outputs.cache-hit != 'true'
+        run: |
+          rm -rf /tmp/secbin
+          mkdir -p /tmp/secbin
+          # Trivy — direct binary download (install.sh unreliable on self-hosted)
+          curl -sfL https://github.com/aquasecurity/trivy/releases/download/v0.72.0/trivy_0.72.0_Linux-ARM64.tar.gz -o /tmp/trivy.tar.gz
+          tar xzf /tmp/trivy.tar.gz -C /tmp/secbin trivy
+          rm -f /tmp/trivy.tar.gz
+          # Syft — direct binary download
+          curl -sfL https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_arm64.tar.gz -o /tmp/syft.tar.gz
+          tar xzf /tmp/syft.tar.gz -C /tmp/secbin syft
+          rm -f /tmp/syft.tar.gz
+          # Nuclei — direct binary download
+          curl -sfL https://github.com/projectdiscovery/nuclei/releases/download/v3.11.0/nuclei_3.11.0_linux_arm64.zip -o /tmp/nuclei.zip
+          unzip -o /tmp/nuclei.zip -d /tmp/secbin nuclei
+          rm -f /tmp/nuclei.zip
+          chmod +x /tmp/secbin/*
+
+      - name: Container scan (Trivy — CVE scan on Docker images used in CI)
+        continue-on-error: true
+        run: |
+          export PATH="/tmp/secbin:$PATH"
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16 || true
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
+
+      - name: Generate SBOM (Syft — Software Bill of Materials)
+        run: |
+          export PATH="/tmp/secbin:$PATH"
+          syft dir:. --output spdx-json=sbom.spdx.json
+          syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: |
+            sbom.spdx.json
+            sbom.cyclonedx.json
+          retention-days: 90
+
+      - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
+        continue-on-error: true
+        run: |
+          export PATH="/tmp/secbin:$PATH"
+          .venv/bin/python -m infra.beta_lab_app &
+          APP_PID=$!
+          sleep 3
+          nuclei -u http://localhost:5000 -severity medium,high,critical -o nuclei-results.txt || true
+          kill $APP_PID 2>/dev/null || true
+          cat nuclei-results.txt 2>/dev/null || echo "No Nuclei findings"

@@ -32,7 +32,7 @@ from agent_alpha.recon.git_exposure_probe import GitDumper  # RED: real wrap abs
 # Skip if git-dumper tool is not available in PATH
 pytestmark = pytest.mark.skipif(
     not shutil.which("git-dumper"),
-    reason="git-dumper tool not found in PATH (requires installation)"
+    reason="git-dumper tool not found in PATH (requires installation)",
 )
 
 

@@ -1,17 +1,11 @@
-# Agent-Alpha CI — optimized (2026-07-11)
+# Agent-Alpha CI — optimized (2026-07-12)
 #
-# Two jobs:
-#   quality-gate    — lint + typecheck + bandit + pip-audit + gitleaks + full test suite
-#                     (BLOCKING — branch protection requires this check)
-#   security-audit  — Trivy container scan + Syft SBOM + Nuclei DAST
-#                     (non-blocking, needs quality-gate, continue-on-error)
+# One job:
+#   quality-gate — lint + typecheck + bandit + pip-audit + gitleaks + full test suite
+#                  (BLOCKING — branch protection requires this check)
 #
-# Optimizations vs the monolithic P2 seal version:
-#   - Pip/venv cached via actions/cache (saves ~1-2 min of pip install per run)
-#   - Security tool binaries (Trivy/Syft/Nuclei) cached (saves ~2-3 min of downloads)
-#   - Fast security scans (bandit/pip-audit/gitleaks) stay blocking in quality-gate
-#   - Slow security scans (Trivy/Syft/Nuclei) async in security-audit, never block merge
-#   - Security-audit skipped entirely if quality-gate fails (needs: quality-gate)
+# Slow security scans (Trivy/Syft/Nuclei) moved to security-audit.yml (nightly schedule).
+# Fast security scans (bandit/pip-audit/gitleaks) stay blocking here.
 #
 # Runs on a SELF-HOSTED runner on the Oracle ARM64 box — the project's hard rule
 # is "Oracle ARM64 is the only valid test environment" (anti-Lyndon #9).
@@ -135,93 +129,3 @@ jobs:
           AGENT_ALPHA_REDIS_URL: "redis://localhost:6380/0"
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: .venv/bin/pytest tests/ -q --cov=agent_alpha --cov-report=term-missing --cov-fail-under=80
-
-  security-audit:
-    runs-on: [self-hosted, linux, ARM64]
-    needs: quality-gate
-    continue-on-error: true
-    permissions:
-      security-events: write
-      actions: read
-      contents: read
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Cache venv + pip
-        uses: actions/cache@v4
-        with:
-          path: |
-            .venv
-            ~/.cache/pip
-          key: venv-arm64-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            venv-arm64-
-
-      - name: Create venv + install deps (Python 3.12)
-        run: |
-          if [ ! -f .venv/bin/python ]; then
-            python3.12 -m venv .venv
-            .venv/bin/pip install --upgrade pip
-          fi
-          .venv/bin/pip install -e . --quiet
-
-      - name: Cache security tool binaries
-        id: cache-secbin
-        uses: actions/cache@v4
-        with:
-          path: /tmp/secbin
-          key: secbin-arm64-v1
-
-      - name: Install security tools (if not cached)
-        if: steps.cache-secbin.outputs.cache-hit != 'true'
-        run: |
-          rm -rf /tmp/secbin
-          mkdir -p /tmp/secbin
-          # Trivy — direct binary download (install.sh unreliable on self-hosted)
-          curl -sfL https://github.com/aquasecurity/trivy/releases/download/v0.50.0/trivy_0.50.0_Linux-ARM64.tar.gz -o /tmp/trivy.tar.gz
-          tar xzf /tmp/trivy.tar.gz -C /tmp/secbin trivy
-          rm -f /tmp/trivy.tar.gz
-          # Syft — direct binary download
-          curl -sfL https://github.com/anchore/syft/releases/download/v1.9.0/syft_1.9.0_linux_arm64.tar.gz -o /tmp/syft.tar.gz
-          tar xzf /tmp/syft.tar.gz -C /tmp/secbin syft
-          rm -f /tmp/syft.tar.gz
-          # Nuclei — direct binary download
-          curl -sfL https://github.com/projectdiscovery/nuclei/releases/download/v3.3.0/nuclei_3.3.0_linux_arm64.zip -o /tmp/nuclei.zip
-          unzip -o /tmp/nuclei.zip -d /tmp/secbin nuclei
-          rm -f /tmp/nuclei.zip
-          chmod +x /tmp/secbin/*
-
-      - name: Container scan (Trivy — CVE scan on Docker images used in CI)
-        continue-on-error: true
-        run: |
-          export PATH="/tmp/secbin:$PATH"
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16 || true
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
-
-      - name: Generate SBOM (Syft — Software Bill of Materials)
-        run: |
-          export PATH="/tmp/secbin:$PATH"
-          syft dir:. --output spdx-json=sbom.spdx.json
-          syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
-
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: sbom
-          path: |
-            sbom.spdx.json
-            sbom.cyclonedx.json
-          retention-days: 90
-
-      - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
-        continue-on-error: true
-        run: |
-          export PATH="/tmp/secbin:$PATH"
-          .venv/bin/python -m infra.beta_lab_app &
-          APP_PID=$!
-          sleep 3
-          nuclei -u http://localhost:5000 -severity medium,high,critical -o nuclei-results.txt || true
-          kill $APP_PID 2>/dev/null || true
-          cat nuclei-results.txt 2>/dev/null || echo "No Nuclei findings"

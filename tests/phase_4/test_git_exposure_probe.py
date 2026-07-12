@@ -49,7 +49,7 @@ _HOST = "vuln.example"
 _COTENANT = "cotenant.example"  # resolves same IP, NOT in scope.domains → default-DENY
 _CONFIG_URL = f"https://{_HOST}/.git/config"
 
-_GIT_CONFIG_BODY = "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = x\n"
+_GIT_CONFIG_BODY = '[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = x\n'
 
 # A recovered tracked file that carries a real DB credential (the payable secret).
 _RECOVERED_WITH_SECRET = {
@@ -169,9 +169,14 @@ def test_g2_not_exposed_skips_dump_and_mints_nothing() -> None:
     dumper = FakeGitDumper(_RECOVERED_WITH_SECRET)
 
     added = verify_git_exposure(
-        engagement_id=eid, auth=auth, http_client=http, scope_hosts=[_HOST],
-        graph_store=ctx.graph_store, event_store=ctx.event_store,
-        secrets_manager=ctx.secrets, dumper=dumper,
+        engagement_id=eid,
+        auth=auth,
+        http_client=http,
+        scope_hosts=[_HOST],
+        graph_store=ctx.graph_store,
+        event_store=ctx.event_store,
+        secrets_manager=ctx.secrets,
+        dumper=dumper,
     )
 
     assert added == 0
@@ -187,9 +192,14 @@ def test_g3_exposed_without_secret_mints_no_credential() -> None:
     dumper = FakeGitDumper(_RECOVERED_NO_SECRET)
 
     added = verify_git_exposure(
-        engagement_id=eid, auth=auth, http_client=http, scope_hosts=[_HOST],
-        graph_store=ctx.graph_store, event_store=ctx.event_store,
-        secrets_manager=ctx.secrets, dumper=dumper,
+        engagement_id=eid,
+        auth=auth,
+        http_client=http,
+        scope_hosts=[_HOST],
+        graph_store=ctx.graph_store,
+        event_store=ctx.event_store,
+        secrets_manager=ctx.secrets,
+        dumper=dumper,
     )
 
     assert added == 0
@@ -204,9 +214,14 @@ def test_g4_waf_block_is_recorded_and_halts() -> None:
     dumper = FakeGitDumper(_RECOVERED_WITH_SECRET)
 
     added = verify_git_exposure(
-        engagement_id=eid, auth=auth, http_client=http, scope_hosts=[_HOST],
-        graph_store=ctx.graph_store, event_store=ctx.event_store,
-        secrets_manager=ctx.secrets, dumper=dumper,
+        engagement_id=eid,
+        auth=auth,
+        http_client=http,
+        scope_hosts=[_HOST],
+        graph_store=ctx.graph_store,
+        event_store=ctx.event_store,
+        secrets_manager=ctx.secrets,
+        dumper=dumper,
     )
 
     assert added == 0
@@ -223,9 +238,14 @@ def test_g5_out_of_scope_host_never_probed() -> None:
     dumper = FakeGitDumper(_RECOVERED_WITH_SECRET)
 
     added = verify_git_exposure(
-        engagement_id=eid, auth=auth, http_client=http, scope_hosts=[_COTENANT],
-        graph_store=ctx.graph_store, event_store=ctx.event_store,
-        secrets_manager=ctx.secrets, dumper=dumper,
+        engagement_id=eid,
+        auth=auth,
+        http_client=http,
+        scope_hosts=[_COTENANT],
+        graph_store=ctx.graph_store,
+        event_store=ctx.event_store,
+        secrets_manager=ctx.secrets,
+        dumper=dumper,
     )
 
     assert added == 0
@@ -241,9 +261,14 @@ def test_g6_below_recon_tier_fails_closed() -> None:
     dumper = FakeGitDumper(_RECOVERED_WITH_SECRET)
 
     added = verify_git_exposure(
-        engagement_id=eid, auth=auth, http_client=http, scope_hosts=[_HOST],
-        graph_store=ctx.graph_store, event_store=ctx.event_store,
-        secrets_manager=ctx.secrets, dumper=dumper,
+        engagement_id=eid,
+        auth=auth,
+        http_client=http,
+        scope_hosts=[_HOST],
+        graph_store=ctx.graph_store,
+        event_store=ctx.event_store,
+        secrets_manager=ctx.secrets,
+        dumper=dumper,
     )
 
     assert added == 0

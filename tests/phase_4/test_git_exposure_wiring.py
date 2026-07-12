@@ -44,7 +44,7 @@ _PLAYBOOK_DIR = pathlib.Path("agent_alpha/tools/playbooks")
 _HOST = "vuln.example"
 _ROOT = f"https://{_HOST}/"
 _GIT_CONFIG_URL = f"https://{_HOST}/.git/config"
-_GIT_CONFIG_BODY = "[core]\n\trepositoryformatversion = 0\n[remote \"origin\"]\n\turl = x\n"
+_GIT_CONFIG_BODY = '[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = x\n'
 _RECOVERED = {
     "config/database.yml": (
         "production:\n  adapter: postgresql\n  database: app_prod\n"
@@ -130,7 +130,10 @@ def test_w3_run_recon_reaches_git_exposure_and_mints_credential() -> None:
     store = InMemoryEventStore()
     graph = NetworkXGraphStore()
     http = FakeHttpClient(
-        {_ROOT: FakeResponse(200, "<html>root</html>"), _GIT_CONFIG_URL: FakeResponse(200, _GIT_CONFIG_BODY)}
+        {
+            _ROOT: FakeResponse(200, "<html>root</html>"),
+            _GIT_CONFIG_URL: FakeResponse(200, _GIT_CONFIG_BODY),
+        }
     )
     dumper = FakeGitDumper(_RECOVERED)
     alpha, eid = _alpha(graph, store, http, dumper)
@@ -146,7 +149,10 @@ def test_w4_injected_dumper_secret_is_the_one_vaulted() -> None:
     store = InMemoryEventStore()
     graph = NetworkXGraphStore()
     http = FakeHttpClient(
-        {_ROOT: FakeResponse(200, "<html>root</html>"), _GIT_CONFIG_URL: FakeResponse(200, _GIT_CONFIG_BODY)}
+        {
+            _ROOT: FakeResponse(200, "<html>root</html>"),
+            _GIT_CONFIG_URL: FakeResponse(200, _GIT_CONFIG_BODY),
+        }
     )
     dumper = FakeGitDumper(_RECOVERED)
     alpha, eid = _alpha(graph, store, http, dumper)

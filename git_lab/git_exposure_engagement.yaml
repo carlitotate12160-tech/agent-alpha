@@ -1,0 +1,9 @@
+client_id: "lab-git-exposure"
+scope:
+  ip_ranges:
+    - "127.0.0.1/32"
+  domains:
+    - "vuln.git.lab"
+    - "hardened.git.lab"
+  exclusions: []
+recon_url: "https://vuln.git.lab"
