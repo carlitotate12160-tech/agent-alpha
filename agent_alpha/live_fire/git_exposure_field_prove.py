@@ -45,11 +45,7 @@ class GitExposureResult:
 
     @property
     def chain_proven(self) -> bool:
-        return (
-            self.creds_added > 0
-            and self.credential_vaulted
-            and self.exposure_detected
-        )
+        return self.creds_added > 0 and self.credential_vaulted and self.exposure_detected
 
 
 def load_git_exposure_config(path: str | pathlib.Path) -> GitExposureConfig:
@@ -126,7 +122,8 @@ def run_git_exposure_live_fire(
 
         # Check exposure detected by verifying VULNERABILITY nodes exist
         vuln_nodes = [
-            n for n in graph_store.nodes_by_type(NodeType.VULNERABILITY)
+            n
+            for n in graph_store.nodes_by_type(NodeType.VULNERABILITY)
             if "git_exposure" in getattr(n, "id", "")
         ]
         exposure_detected = len(vuln_nodes) > 0
@@ -194,7 +191,11 @@ def main(argv: list[str] | None = None) -> int:
             if not proven:
                 all_proven = False
         elif "hardened" in target:
-            proven = (result.creds_added == 0 and not result.credential_vaulted and not result.exposure_detected)
+            proven = (
+                result.creds_added == 0
+                and not result.credential_vaulted
+                and not result.exposure_detected
+            )
             print(f"  EXPECTED NEGATIVE PROVEN: {proven}")
             if not proven:
                 all_proven = False
