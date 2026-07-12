@@ -145,15 +145,16 @@ jobs:
           echo "Anti-duplication guard completed (warning-only mode)."
 
       - name: Private-attr-access guard (reject hasattr.*_graph patterns)
-        # WARNING-ONLY until existing hasattr._graph calls are replaced with graph_store.clear().
-        continue-on-error: true
+        # BLOCKING (2026-07-12): the last hasattr._graph was removed in #165
+        # (field-prove runners now call the public NetworkXGraphStore.clear()).
         run: |
           HITS=$(grep -rn 'hasattr.*_graph' agent_alpha/ --include="*.py" || true)
           if [ -n "$HITS" ]; then
-            echo "::warning::Private attr access: use graph_store.clear() instead of hasattr(graph_store, _graph)"
+            echo "::error::Private attr access: use graph_store.clear() instead of hasattr(graph_store, _graph)"
             echo "$HITS"
+            exit 1
           fi
-          echo "Private-attr-access guard completed (warning-only mode)."
+          echo "Private-attr-access guard passed (no private _graph access)."
 
       - name: Full test suite (all phases + integration, Oracle ARM64)
         env:
