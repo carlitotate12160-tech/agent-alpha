@@ -1,0 +1,16 @@
+# Git Exposure Field-Prove Lab — docker-compose
+# One IP (127.0.0.1), Host-header vhosts, TLS self-signed lab CA.
+# nginx serves static docroots that include a real git repository for vuln.git.lab
+# and no exposed /.git for hardened.git.lab.
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./sites:/etc/nginx/sites:ro
+    restart: unless-stopped
+
