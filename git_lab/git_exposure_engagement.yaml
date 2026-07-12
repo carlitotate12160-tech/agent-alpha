@@ -6,4 +6,4 @@ scope:
     - "vuln.git.lab"
     - "hardened.git.lab"
   exclusions: []
-recon_url: "http://vuln.git.lab"
+recon_url: "https://vuln.git.lab"
