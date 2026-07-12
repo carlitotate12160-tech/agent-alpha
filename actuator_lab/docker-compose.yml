@@ -1,0 +1,16 @@
+# Actuator Exposure Field-Prove Lab — docker-compose
+# One IP (127.0.0.1), Host-header vhosts, TLS self-signed lab CA.
+# nginx serves a static /actuator/env JSON: vuln exposes UNMASKED datasource creds;
+# hardened exposes the same endpoint but with MASKED (******) values (Spring default) —
+# a true-negative that also proves the extractor's masking rejection end-to-end.
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./sites:/etc/nginx/sites:ro
+    restart: unless-stopped

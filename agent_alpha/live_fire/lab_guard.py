@@ -51,6 +51,9 @@ LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
         # Backup-file exposure lab (backup_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
         "vuln.backup.lab",
         "hardened.backup.lab",
+        # Actuator exposure lab (actuator_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
+        "vuln.actuator.lab",
+        "hardened.actuator.lab",
         # Layer V-B — real-TLD self-owned lab (DuckDNS) for the crt.sh-on-real-CT
         # proof. Per-host FQDNs (NOT a wildcard): each must appear in CT logs
         # individually, because parse_crtsh_names collapses "*." to the apex.
