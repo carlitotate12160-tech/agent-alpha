@@ -13,6 +13,7 @@ from agent_alpha.live_fire.backup_file_field_prove import (
     load_backup_file_config,
 )
 from agent_alpha.live_fire.field_prove_common import credential_vaulted
+from agent_alpha.security.secrets import SecretNotFoundError
 
 
 def _result(**over: object) -> BackupFileResult:
@@ -64,7 +65,7 @@ class _Vault:
     def retrieve(self, ref: str) -> str:
         if ref in self._resolvable:
             return "recovered-secret-value"
-        raise KeyError(ref)
+        raise SecretNotFoundError(ref)
 
 
 def test_credential_vaulted_true_when_ref_resolves() -> None:

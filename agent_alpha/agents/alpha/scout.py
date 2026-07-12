@@ -163,6 +163,14 @@ class Alpha:
         out.setdefault("work_remaining", len(self._work_queue))
         return out
 
+    def _rule_only_decision(self, observation: dict[str, Any]) -> Any:
+        """RULE-tier-only decision for a 404 body (F2: never escalate a missing path
+        to the LLM). Uses the orchestrator's rule-only entrypoint when present; test
+        stub orchestrators without one simply yield None -> the 404 is non-analyzable.
+        """
+        rule_only = getattr(self.orchestrator, "decide_rule_only", None)
+        return rule_only(observation) if rule_only is not None else None
+
     def _step_once(self, context: dict[str, object]) -> dict[str, object]:
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
 
@@ -210,26 +218,45 @@ class Alpha:
             self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        self._emit(
-            "OBSERVE",
-            f"Fetched {url} (HTTP {resp.status_code}); analyzing {len(resp.text)} bytes",
-        )
-
         # ── ORIENT / PLAN ───────────────────────────────────────
         observation: dict[str, Any] = {
             "body": resp.text,
             "headers": dict(resp.headers),
         }
-        # An LLM/decision failure (truncation, malformed output, API/network) is
-        # a non-analyzable probe — NOT a crash. Mirrors the OBSERVE guard.
-        try:
-            decision = self.orchestrator.decide(observation)
-        except OrientationError:
+
+        if verdict is Verdict.NOT_FOUND:
+            # A 404 (with a body) is a missing path. A debug/error page (e.g. a
+            # framework stack trace with APP_DEBUG on) can still leak on a 404, so
+            # give the DETERMINISTIC rule tier a look — but NEVER escalate a 404 to
+            # the LLM provider (pure token burn on a path that is not there — F2).
+            decision = self._rule_only_decision(observation)
+            if decision is None:
+                self._emit(
+                    "OBSERVE",
+                    f"{url} returned HTTP {resp.status_code} (missing path); no rule "
+                    "match — non-analyzable (LLM not consulted)",
+                )
+                return {"discovered_nodes": 0, "cost_usd": 0.0}
             self._emit(
-                "ORIENT",
-                f"Could not orient on {url}: LLM decision failed; non-analyzable",
+                "OBSERVE",
+                f"{url} returned HTTP {resp.status_code} but the body matched a rule; "
+                "analyzing the leaked error page",
             )
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
+        else:
+            self._emit(
+                "OBSERVE",
+                f"Fetched {url} (HTTP {resp.status_code}); analyzing {len(resp.text)} bytes",
+            )
+            # An LLM/decision failure (truncation, malformed output, API/network) is
+            # a non-analyzable probe — NOT a crash. Mirrors the OBSERVE guard.
+            try:
+                decision = self.orchestrator.decide(observation)
+            except OrientationError:
+                self._emit(
+                    "ORIENT",
+                    f"Could not orient on {url}: LLM decision failed; non-analyzable",
+                )
+                return {"discovered_nodes": 0, "cost_usd": 0.0}
 
         self._analyzable_probes += 1
         self._emit(
@@ -254,11 +281,12 @@ class Alpha:
         self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
 
         # ── FRONTIER EXPANSION (R1) ─────────────────────────────
-        # Enqueue in-scope hrefs from this response so the cognitive loop
-        # explores beyond the initial seed URL.  Out-of-scope, duplicate, and
-        # already-probed URLs are silently dropped by enqueue_discovered_url.
-        for href in self._extract_hrefs(resp.text, url):
-            self.enqueue_discovered_url(href)
+        # Enqueue in-scope hrefs — ONLY for a real (OK) page. A 404 error page is
+        # not a surface to crawl (its nav links are noise, and crawling them would
+        # re-inflate the very probing F2 trims).
+        if verdict is Verdict.OK:
+            for href in self._extract_hrefs(resp.text, url):
+                self.enqueue_discovered_url(href)
 
         return {"discovered_nodes": nodes_added, "cost_usd": decision.cost_usd}
 

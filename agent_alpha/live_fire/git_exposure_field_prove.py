@@ -133,11 +133,8 @@ def run_git_exposure_field_prove(
             exposure_detected=exposure_detected,
         )
 
-        # Clear graph for the next iteration to isolate per target
-        if hasattr(graph_store, "_graph"):
-            graph_store._graph.clear()
-        elif hasattr(graph_store, "graph"):
-            graph_store.graph.clear()
+        # Isolate per-target graph state (public API, not private _graph).
+        graph_store.clear()
 
     return results
 
@@ -198,6 +195,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  EXPECTED NEGATIVE PROVEN: {proven}")
             if not proven:
                 all_proven = False
+        else:
+            # A target that is neither a known vuln nor hardened label would be
+            # SILENTLY skipped, leaving all_proven=True — a false pass. Fail loud.
+            raise ValueError(f"unknown field-prove target label: {target!r}")
         print("-" * 64)
 
     print(f"OVERALL CHAIN PROVEN: {all_proven}")

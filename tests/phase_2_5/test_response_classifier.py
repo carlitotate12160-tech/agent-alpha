@@ -59,7 +59,11 @@ def test_classify_response_verdicts() -> None:
     assert classify_response(status_code=200, body="<html><body>hello</body></html>") is Verdict.OK
     assert classify_response(status_code=200, body="") is Verdict.EMPTY
     assert classify_response(status_code=200, body="   \n  ") is Verdict.EMPTY
-    assert classify_response(status_code=404, body="<html>Not Found</html>") is Verdict.OK
+    # F2: a 404 WITH a body is NOT_FOUND (missing path — rule tier may look, but the
+    # LLM is never consulted). A 404 with an EMPTY body stays EMPTY (unchanged).
+    assert classify_response(status_code=404, body="<html>Not Found</html>") is Verdict.NOT_FOUND
+    assert classify_response(status_code=410, body="gone") is Verdict.NOT_FOUND
+    assert classify_response(status_code=404, body="") is Verdict.EMPTY
     assert classify_response(status_code=0, body="", transport_error=True) is Verdict.TRANSPORT_FAIL
 
 

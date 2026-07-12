@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_alpha.graph.nodes import NodeType
+from agent_alpha.security.secrets import SecretNotFoundError
 
 
 def credential_vaulted(graph_store: Any, secrets_manager: Any) -> bool:
@@ -29,6 +30,9 @@ def credential_vaulted(graph_store: Any, secrets_manager: Any) -> bool:
         try:
             secrets_manager.retrieve(ref)
             return True
-        except Exception:
+        except SecretNotFoundError:
+            # This ref belongs to another node / is absent — not vaulted here.
+            # Any OTHER error (e.g. DecryptionError) is a real vault fault and must
+            # surface, never be swallowed into a silent false-negative (anti-#3).
             continue
     return False

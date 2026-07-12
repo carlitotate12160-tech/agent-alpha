@@ -82,7 +82,10 @@ def _config() -> BackupFileConfig:
 def test_field_prove_routes_through_run_recon() -> None:
     store = InMemoryEventStore()
     http = FakeHttpClient(
-        {_ROOT: FakeResponse(200, "<html>root</html>"), _ENV_BAK_URL: FakeResponse(200, _ENV_BAK_BODY)}
+        {
+            _ROOT: FakeResponse(200, "<html>root</html>"),
+            _ENV_BAK_URL: FakeResponse(200, _ENV_BAK_BODY),
+        }
     )
     orch = LLMOrchestrator(
         playbook=PlaybookEngine.from_directory(_PLAYBOOK_DIR), provider=_StubProvider()

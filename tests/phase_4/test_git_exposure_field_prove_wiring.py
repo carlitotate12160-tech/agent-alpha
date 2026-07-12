@@ -93,7 +93,10 @@ def _config() -> GitExposureConfig:
 def test_field_prove_routes_through_run_recon() -> None:
     store = InMemoryEventStore()
     http = FakeHttpClient(
-        {_ROOT: FakeResponse(200, "<html>root</html>"), _GIT_CONFIG_URL: FakeResponse(200, _GIT_CONFIG_BODY)}
+        {
+            _ROOT: FakeResponse(200, "<html>root</html>"),
+            _GIT_CONFIG_URL: FakeResponse(200, _GIT_CONFIG_BODY),
+        }
     )
     dumper = FakeGitDumper(_RECOVERED)
     orch = LLMOrchestrator(
