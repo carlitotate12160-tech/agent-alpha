@@ -331,6 +331,18 @@ you MUST check the following:
 - If a PR introduces a local `_persist_node`, `HttpClientProtocol`, or `verify_*`
   self-sweeper, it MUST be rejected and redirected to the shared helper.
 
+### 7. No Silent Skip
+- Unknown target/label/enum → `raise ValueError`, never silent skip.
+- `if "vuln" in target: ... elif "hardened" in target: ...` MUST have
+  `else: raise ValueError(f"unknown target label: {target}")`.
+- Silent skip = false positive in test results (anti-#3).
+
+### 8. No Private Attr Access
+- Never access `obj._graph`, `obj._internal` — use public API only.
+- `hasattr(graph_store, "_graph")` + `graph_store._graph.clear()` is a bug —
+  use `graph_store.clear()` (public method).
+- CI grep guard warns on `hasattr.*_graph` patterns.
+
 ---
 
 ## Error Handling Contract
