@@ -79,6 +79,7 @@ class Alpha:
             "odoo_dbmanager_probe": self._handle_odoo_dbmanager,
             "git_exposure_probe": self._handle_path_probe,
             "backup_file_probe": self._handle_path_probe,
+            "actuator_probe": self._handle_path_probe,
         }
 
         # Per-run state, initialised in run_recon().

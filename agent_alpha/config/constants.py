@@ -58,6 +58,7 @@ __all__ = [
     "WP_CREDENTIAL_SERVICE_MAP",
     "WP_CONFIG_BACKUP_PATHS",
     "BACKUP_FILE_PATHS",
+    "ACTUATOR_PATHS",
     "GIT_LEAK_PATHS",
     "WELL_KNOWN_LEAK_PATHS",
     "MIN_SAMPLES_BEFORE_SKIP",
@@ -258,7 +259,10 @@ BACKUP_FILE_PATHS: tuple[str, ...] = (
 
 GIT_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
 
-WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, *BACKUP_FILE_PATHS)
+# Spring Boot Actuator env-disclosure endpoints (read-only info disclosure -> RECON).
+ACTUATOR_PATHS: tuple[str, ...] = ("/actuator/env", "/env")
+
+WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, *BACKUP_FILE_PATHS, *ACTUATOR_PATHS)
 # SINGLE source (anti-#7): BACKUP_FILE_PATHS is the one definition; this baseline
 # seed composes it — backup paths join the target-independent recon frontier so
 # Alpha.run_recon reaches the backup_file_probe vector without per-target hand-feed.
