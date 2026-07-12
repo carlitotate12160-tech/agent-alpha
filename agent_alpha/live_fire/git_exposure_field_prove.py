@@ -16,6 +16,7 @@ from typing import Any
 
 import yaml
 
+from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
@@ -23,7 +24,7 @@ from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider
 from agent_alpha.llm.orchestrator import LLMOrchestrator
-from agent_alpha.recon.git_exposure_probe import GitDumper, verify_git_exposure
+from agent_alpha.recon.git_exposure_probe import GitDumper
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
 
@@ -84,7 +85,7 @@ def _credential_vaulted(graph_store: Any, secrets_manager: Any) -> bool:
     return False
 
 
-def run_git_exposure_live_fire(
+def run_git_exposure_field_prove(
     config: GitExposureConfig,
     *,
     auth: Any,
@@ -109,16 +110,24 @@ def run_git_exposure_live_fire(
             ),
         )
 
-        creds_added = verify_git_exposure(
-            engagement_id=rec.engagement_id,
-            auth=auth,
-            http_client=http_client,
-            scope_hosts=[target],
+        # Build Alpha with injected dependencies (including git_dumper)
+        alpha = Alpha(
+            authorization=auth,
             graph_store=graph_store,
             event_store=event_store,
+            orchestrator=orchestrator,
+            http_client=http_client,
             secrets_manager=secrets_manager,
-            dumper=dumper or GitDumper(),
+            git_dumper=dumper or GitDumper(),
         )
+
+        # Route through run_recon (OBSERVEs root → seeds /.git/config → playbook rule
+        # → dispatch → _handle_git_exposure → GitDumper → mint)
+        alpha.run_recon(rec.engagement_id, config.recon_url)
+
+        # Count CREDENTIAL nodes minted for this target
+        cred_nodes = graph_store.nodes_by_type(NodeType.CREDENTIAL)
+        creds_added = len(cred_nodes)
 
         # Check exposure detected by verifying VULNERABILITY nodes exist
         vuln_nodes = [
@@ -163,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
 
-    results = run_git_exposure_live_fire(
+    results = run_git_exposure_field_prove(
         config,
         auth=auth,
         http_client=http_client,
