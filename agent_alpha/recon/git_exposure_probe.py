@@ -129,13 +129,19 @@ class GitDumper:
 
             for file_path in output_dir.rglob("*"):
                 if file_path.is_file():
-                    # Get relative path from output_dir
                     rel_path = file_path.relative_to(output_dir)
+                    rel_str = str(rel_path).replace("\\", "/")
+                    if (
+                        rel_str == ".git"
+                        or rel_str.startswith(".git/")
+                        or "/.git/" in rel_str
+                        or rel_str.endswith("/.git")
+                    ):
+                        continue
                     try:
                         content = file_path.read_text(encoding="utf-8", errors="ignore")
-                        recovered[str(rel_path)] = content
+                        recovered[rel_str] = content
                     except Exception:
-                        # Skip files that can't be read, but don't fail entirely
                         continue
 
             if not recovered:
