@@ -1,0 +1,16 @@
+# Backup-File Exposure Field-Prove Lab — docker-compose
+# One IP (127.0.0.1), Host-header vhosts, TLS self-signed lab CA.
+# nginx serves static docroots: vuln.backup.lab exposes a leaked /.env.bak (and a
+# database.yml.bak) carrying planted DB credentials; hardened.backup.lab serves the
+# same app shape but NO backup files (true-negative).
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+      - ./sites:/etc/nginx/sites:ro
+    restart: unless-stopped

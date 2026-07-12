@@ -11,14 +11,16 @@
 | Phase 0 | ✅ COMPLETED | 7/7 komponen selesai | 7 komponen |
 | Phase 1 | ✅ COMPLETED | 5/5 komponen selesai | 5 komponen |
 | Phase 2 | ✅ COMPLETED | 12/12 komponen selesai | 12 komponen |
-| Phase 3 | 🟦 IN PROGRESS | C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven + FP-Validation PASS done | C1–C8 |
-| Phase 4 | ⬜ NOT STARTED | 0% | - |
+| Phase 3 | ✅ COMPLETED | C1–C8 + Cred-Reuse Chain + DB Chain + FP-Validation PASS + Exit-bar H | C1–C8 |
+| Phase 4 | 🟦 IN PROGRESS | Layer V sealed + git_exposure FULLY SEALED + backup_file slice-1 + 1b wiring done | Recon breadth |
 | Phase 5 | ⬜ NOT STARTED | 0% | - |
 | Phase 6 | ⬜ NOT STARTED | 0% | - |
 
 ---
 
-> **Phase 3 Contract:** Lihat `docs/PHASE_3_TEST_CONTRACT.md` untuk authoritative step list (C1–C8). Status: C1, C2, C3, C4, C5, C6a GREEN on Oracle. Cred-Reuse Chain live-fire CHAIN PROVEN on Oracle. CredentialApplicator seam extracted (PR #63). CI hardened dengan 7 gate (PR #64, #65). DB Chain field-proven CHAIN PROVEN on Oracle ARM64 lawan real MySQL 8.4 (commit `73203b6`). Credential-pairing fix + safety guard landed. **FP-Validation RUN: TP=3, FP=0, FN=0, TN=3, PASS (FP rate 0.0000 < 0.2000)** on Oracle ARM64 dengan 6 DuckDNS lab targets. Next: C6b (fan-out execution), C7 (no regression + CI), C8 (anti-Lyndon gates).
+> **Phase 3 CLOSED 2026-07-05.** C1–C8 GREEN on Oracle. Cred-Reuse Chain + DB Chain CHAIN PROVEN. FP-Validation PASS (FP rate 0.0000). Exit-bar H closed: A7-a run-trace + GET /trace, A7-c queue-health + GET /health/queue, cohost_pivot default-DENY gate. Beta/STRIKE + auto-advance Celery chain sealed. WP + JS-secret + Laravel recon vectors field-proven.
+>
+> **Phase 4 IN PROGRESS.** Layer V sealed (CT-source seam + bounded autonomy + Layer V-B live: crt.sh → autonomous discovery → odoo chain PROVEN). git_exposure FULLY SEALED (slice-1c i+ii: GitDumper WRAP + field-prove on Oracle, routes through Alpha.run_recon #154). backup_file slice-1 module SEALED (#156) + extract_secrets hoisted to security/leak_extraction.py (anti-#6/#7). backup_file slice-1b wiring SEALED (#158: dispatch + playbook rule + WELL_KNOWN_LEAK_PATHS compose + W1-W4 wiring tests GREEN). 954+ tests green. Gamma STILL STOP-gated (ToolComposer + blast-radius gate FIRST).
 
 ---
 
@@ -55,7 +57,7 @@
 - **RLS Isolation Tests** — Integration tests dengan raw SQL verification
 - **Python 3.12 + Dependencies** — Upgrade Python dan tambah pytest/protobuf
 
-### Phase 3 — Orchestrator Hardening + Cred-Reuse Chain + CI Hardening + DB Chain Field-Proven (C1–C6a + Chain + Seam + CI + DB Field-Prove done)
+### Phase 3 — Orchestrator Hardening + Cred-Reuse Chain + CI Hardening + DB Chain Field-Proven (CLOSED 2026-07-05)
 - **C1** — Event-sourced auth state reconstruction (Oracle-green)
 - **C2** — Emergency revoker ≤5s (Oracle-green)
 - **C3** — Fan-out interface (Oracle-green)
@@ -81,9 +83,22 @@
 - **Graph Quality: Asset nodes for WP/JS** — `wp_config_probe.py` dan `js_secret_probe.py` sekarang persist ASSET node + EXPLOITS edge (asset→vuln), mirroring `_handle_laravel_debug`. Graph coherent: 3 asset nodes, 3 exploits edges, chain-finding bisa mulai (commit `127269f`)
 - **Scope.validate() fix** — Allow `ip_ranges=[]` ketika `domains` terisi. Domain-only engagement (DuckDNS lab) valid tanpa hardcode IP (commit `9558d78`)
 - **Graph Quality FROZEN test contract** — 5 tests di `test_alpha_graph_quality.py`: T1552.001 on WP/JS credential edges, Omega report surfaces T1552.001, asset node + asset→vuln edge for WP/JS (commit `9558d78`)
-- **C6b** — Per-unit fan-out execution + live-fire FP<20% (PENDING)
-- **C7** — No regression + CI (PENDING)
-- **C8** — Anti-Lyndon gates (PENDING)
+- **C6b** — Per-unit fan-out execution + live-fire FP<20% (DONE)
+- **C7** — No regression + CI (DONE)
+- **C8** — Anti-Lyndon gates (DONE)
+- **Exit-bar H** — A7-a run-trace + GET /trace, A7-c queue-health + GET /health/queue, cohost_pivot default-DENY gate (DONE)
+
+### Phase 4 — Recon Breadth (IN PROGRESS)
+- **Layer V Sealed** — CT-source injectable seam (PR #138), Layer V-B live (PR #139): crt.sh → autonomous subdomain discovery → vuln.<apex> → odoo_dbmanager_probe → CHAIN PROVEN: True (leak_creds=2, access=admin, host_discovery_sourced=True). Bounded autonomy stall semantics fix (PR #141)
+- **git_exposure slice-1c-i** — GitDumper commodity WRAP of git-dumper tool (PR #147): shell out to git-dumper, FAIL-LOUD on error/empty, Bandit suppressed via .bandit config
+- **git_exposure slice-1c-ii** — Field-prove on Oracle ARM64: self-owned exposed-.git lab (vuln.git.lab + hardened.git.lab), CHAIN PROVEN: True (2 creds leaked, vaulted, exposure detected)
+- **git_exposure refinement** — Field-prove routes through Alpha.run_recon (#154, full-live-path bar = Layer V; dead orchestrator param now used). .git/* filter in wrap (#149). git_exposure = FULLY SEALED
+- **CI: security-audit split** — Trivy/Syft/Nuclei moved to nightly workflow (PR #149), non-blocking, runs 02:00 UTC + manual. Fixed tool URLs (Trivy v0.72.0, Syft v1.46.0, Nuclei v3.11.0)
+- **backup_file slice-1** — Module SEALED (#156): verify_backup_file probes BACKUP_FILE_PATHS (.env.bak, wp-config.php.old, database.yml.bak, etc), extract_secrets hoisted to security/leak_extraction.py (anti-#6/#7)
+- **backup_file slice-1b** — Wiring SEALED (#158): dispatch registry + backup_file.yaml playbook rule + BACKUP_FILE_PATHS composed into WELL_KNOWN_LEAK_PATHS + _handle_backup_file handler + W1-W4 wiring tests GREEN
+- **OPERATIONAL_REFERENCE.md** — Updated to v3.0 (reconciled with codebase)
+- **NEXT** — backup_file slice-1c field-prove on self-owned lab → consolidate git_exposure + backup_file into ONE data-driven path_probe catalog
+- **Gamma/ANCHOR** — STILL STOP-gated: ToolComposer + blast-radius gate FIRST; gate = Claude lane, destructive bodies = DeepSeek lane
 
 ### Phase 3 Additional Components
 - **ADR §12.16: Tool Layer Contracts** — Template protocol untuk build/verify methods (MERGED)
@@ -245,13 +260,12 @@ CredentialApplicator memisahkan "kredensial mana yang mau dipakai" (tugas cred_r
 
 ## Next Steps
 
-### Phase 3 Remaining
-- **C6b** — Per-unit fan-out execution + live-fire FP<20%
-- **C7** — No regression + CI
-- **C8** — Anti-Lyndon gates
+### Phase 4 Current
+- **backup_file slice-1c** — Field-prove on self-owned lab (NEXT)
+- **path_probe catalog** — Consolidate git_exposure + backup_file into ONE data-driven catalog
+- **Gamma/ANCHOR** — STOP-gated: ToolComposer + blast-radius gate FIRST
 
 ### Future Phases
-- **Phase 4** — Beta STRKE, Gamma ANCHOR, Delta PERSIST, Epsilon CLEAN
 - **Phase 5** — Multi-engagement orchestration
 - **Phase 6** — IntelligenceBase dengan pgvector untuk embeddings
 
@@ -314,7 +328,7 @@ Upgrade Python environment di Oracle dari versi lama ke Python 3.12, dan tambah 
 - **Phase 1 tests** (85 test) — uji GraphStore, NetworkXGraphStore, EngagementMemory, SessionMemory, IntelligenceBase
 - **Phase 2 tests** (13 test) — uji DeepSeekProvider, PlaybookEngine, LLMOrchestrator, ToolRegistry, Alpha SCOUT, Omega ROASTER, HttpClient, Inner Monologue
 - Phase 3 tests (43+ test) — uji CredReuseTool, Alpha vaulting, Beta strike, chain runner, default creds, session token redaction, credential pairing (7 test), mysql safety guard (1 test), alpha vector dispatch (9 test), playbook vector reachability (4 test)
-- Total: 587 passed, 23 skipped (random order, coverage 84%)
+- Total: 954+ passed (random order, coverage 84%+)
 
 ### Aturan Penting (Rule 10)
 Semua test **HARUS** dijalankan di Oracle ARM64 (server remote), bukan di Windows lokal.
@@ -612,10 +626,13 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-07-04
-**Phase saat ini:** Phase 3 (IN PROGRESS — FP-Validation PASS + DB Chain Field-Proven + Credential Pairing + Safety Guard + CI 7-gate + Time-to-Proof Metrics)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 C1–C6a + Cred-Reuse Chain + Applicator Seam + CI Hardening + DB Chain Field-Proven + Time-to-Proof Metrics + FP-Validation PASS done
-**Total tests:** 587 passed, 23 skipped (random order, coverage 84%)
+**Dokumen ini diperbarui terakhir:** 2026-07-12
+**Phase saat ini:** Phase 4 (IN PROGRESS — Layer V sealed + git_exposure FULLY SEALED + backup_file slice-1 + 1b wiring done)
+**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 CLOSED (C1–C8 + Exit-bar H), Phase 4 IN PROGRESS (Layer V + git_exposure + backup_file slice-1/1b)
+**Total tests:** 954+ passed (random order, coverage 84%+)
 **Field-Prove:** DB Chain CHAIN PROVEN: True (db_root, critical) lawan real MySQL 8.4 di Oracle ARM64
 **FP-Validation:** TP=3, FP=0, FN=0, TN=3, FP rate=0.0000, Verdict=PASS — 6 lab targets (WP/Laravel/SPA × vuln/hardened) via DuckDNS + Caddy HTTPS di Oracle ARM64. MITRE: T1552.001 + T1592.002. Graph: 3 asset nodes, 3 vuln nodes, 3 credential nodes, 3 EXPLOITS edges, 3 LEADS_TO edges
 **Time-to-Proof:** EngagementMemory metrics (time_to_first_proof_s, time_to_first_exploit_s) + Omega PDF headline (format_duration) implemented
+**Layer V:** CT-source seam + bounded autonomy + Layer V-B live (crt.sh → autonomous discovery → odoo chain PROVEN: True)
+**git_exposure:** FULLY SEALED — GitDumper WRAP (#147) + field-prove on Oracle (vuln.git.lab CHAIN PROVEN: True) + routes through Alpha.run_recon (#154)
+**backup_file:** slice-1 module SEALED (#156) + slice-1b wiring SEALED (#158) — dispatch + playbook + WELL_KNOWN_LEAK_PATHS compose + W1-W4 GREEN

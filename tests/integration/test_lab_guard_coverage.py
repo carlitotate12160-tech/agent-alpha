@@ -64,6 +64,7 @@ ATTACKER_HARNESSES: frozenset[str] = frozenset(
         "odoo_chain_runner",
         "layer_v_runner",
         "git_exposure_field_prove",
+        "backup_file_field_prove",
     }
 )
 
