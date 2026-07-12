@@ -122,6 +122,27 @@ jobs:
           GRANT USAGE, CREATE ON SCHEMA public TO agent_alpha_app;
           SQL
 
+      - name: Anti-duplication guard (reject local _persist_node/_persist_edge/HttpClientProtocol)
+        run: |
+          set -e
+          # _persist_node / _persist_edge must only exist in graph/persist.py
+          HITS=$(grep -rn "def _persist_node\|def _persist_edge" agent_alpha/ --include="*.py" \
+            | grep -v "graph/persist.py" || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::Duplication violation: _persist_node/_persist_edge found outside graph/persist.py"
+            echo "$HITS"
+            exit 1
+          fi
+          # HttpClientProtocol must only exist in agents/http_client.py
+          HITS=$(grep -rn "class HttpClientProtocol" agent_alpha/ --include="*.py" \
+            | grep -v "agents/http_client.py" || true)
+          if [ -n "$HITS" ]; then
+            echo "::error::Duplication violation: HttpClientProtocol found outside agents/http_client.py"
+            echo "$HITS"
+            exit 1
+          fi
+          echo "Anti-duplication guard passed."
+
       - name: Full test suite (all phases + integration, Oracle ARM64)
         env:
           AGENT_ALPHA_REQUIRE_DB: "1"
