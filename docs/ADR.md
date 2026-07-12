@@ -1482,3 +1482,53 @@ never per-target hand-feeding.
 after in `run_recon`); if impl appends before seed, reverse `expected`.
 (b) monologue fixture 404s `/.git/config` so cycle 2 is OBSERVE-only; if fixture
 raises, that is a fixture issue, not an invariant.
+
+---
+
+### 12.26 Recon vector strategy: rubric, class taxonomy, and the recon/Gamma boundary — LOCKED
+
+**Status:** LOCKED (2026-07-12). **Relates to:** §12.22 (wrap/build/gate), §12.25
+(well-known-path baseline), §1 (auth gate), Lyndon #4 (generic-scanner).
+
+**Problem.** Recurring pressure to "add more playbooks/vectors" (audit lists of
+Swagger, GraphQL, Drupal, Joomla, Rails, Tomcat, Jenkins, K8s, Redis, …). Taken
+literally this rebuilds a generic scanner (Lyndon #4) — an unwinnable race against
+nuclei's template count — and, worse, blurs recon with exploitation.
+
+**Decision 1 — vector-inclusion rubric.** A new payable vector is added ONLY if it
+passes all three: (1) a real/paying client stack needs it (data-driven, never for
+completeness — speculative stacks = data-starvation); (2) it CHAINS to a payable
+outcome (yields a reusable credential → access), not a dead-end fingerprint;
+(3) it leverages the moat (graph / cross-engagement intelligence / proof). Fail any
+→ WRAP a commodity or drop it. The current payable-content set (git_exposure,
+backup_file, actuator, wp_config, laravel_debug, odoo_dbmanager, js_secret) already
+covers the known client base (WP / Laravel / Odoo / Spring); it is ~saturated.
+
+**Decision 2 — four-class taxonomy (class determines code path AND auth gate).**
+Every candidate maps to exactly one class; do NOT lump them into one "playbook" list:
+- **Payable content-probe** (leak → creds): fits the `path_probe` catalog (DIRECT/DUMP).
+  e.g. live `/.env`, `web.config`. RECON_ONLY.
+- **Surface-discovery** (frontier/graph feeder, NOT a finding): expands autonomous
+  reach like crt.sh in Layer V. e.g. Swagger/OpenAPI, GraphQL introspection,
+  `.DS_Store`, directory listing, exposed admin panels. Build as ONE data-driven
+  surface catalog, separate from payable path_probe. RECON_ONLY.
+- **Exploitation** (STOP-gated, Gamma): DETECTING an exposed panel is recon; ACTING on
+  it is exploitation. e.g. Tomcat Manager WAR deploy, Jenkins `/script` RCE, S3 write,
+  etcd. Requires OFFENSIVE_APPROVED + SOW + blast radius. NEVER on the recon path.
+- **Non-HTTP service** (not a playbook): Redis/Mongo/Elasticsearch/CouchDB no-auth =
+  a `db_service_probe` (TCP handshake) extension, not an HTTP-observation playbook.
+
+**Decision 3 — header-matching is an ENGINE capability, not a vector.** `observation` 
+already carries `headers` (scout builds `{"body", "headers"}`) but `PlaybookRule.matches` 
+reads only `body`. Adding `header_contains` / `header_regex` indicators (backward-
+compatible; body-only rules unchanged) unblocks a whole class at once (Tomcat realm,
+`WWW-Authenticate` Basic/NTLM, `Server:` fingerprint, S3 XML, CORS). This is the
+highest-leverage recon addition and is prioritised above any individual template.
+
+**Non-negotiable reaffirmed.** The recon/Gamma boundary in Decision 2 is a hard auth-gate
+rule: an "RCE"/write capability must never be built into a RECON_ONLY vector to make a
+demo look impressive. Detection is recon; execution is Gamma-gated.
+
+**Confidence ~80%** — strategic call; the header-matcher claim is code-verified
+(headers present, ignored). Client-base assumption per cross-engagement notes; if a new
+market segment appears (e.g. API-heavy fintech), the rubric — not preference — governs.
