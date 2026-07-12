@@ -290,6 +290,49 @@ against runaway autonomy and cost explosion.
 
 ---
 
+## Anti-Duplication Rule (Hard Constraint)
+
+Before creating any new recon probe, agent handler, or field-prove harness,
+you MUST check the following:
+
+### 1. Graph Persistence
+- `_persist_node` / `_persist_edge` MUST be imported from `agent_alpha/graph/persist.py`.
+- Defining them locally in a probe or agent file is a **duplication violation**.
+- CI grep guard rejects any `def _persist_node` or `def _persist_edge` outside `graph/persist.py`.
+
+### 2. HTTP Client Protocol
+- `HttpClientProtocol` MUST be imported from `agent_alpha/agents/http_client.py`.
+- Defining it locally in a recon probe is a **duplication violation**.
+- CI grep guard rejects any `class HttpClientProtocol` outside `agents/http_client.py`.
+
+### 3. Recon Vector = Catalog Entry, Not New File
+- New recon vectors (path-based leak probes) MUST be added as a `PathProbeSpec` entry
+  in `agent_alpha/recon/path_probe.py` `PATH_PROBE_CATALOG`.
+- Do NOT create a new `verify_*` self-sweeper file that accepts `http_client` and
+  re-fetches paths the cognitive loop already fetched (F1 double-fetch).
+- If a new `RecoverStrategy` is needed, add it to the enum + handle it in `_recover()`.
+- The catalog is the SINGLE source of truth for `WELL_KNOWN_LEAK_PATHS` (anti-#7).
+
+### 4. Field-Prove Harness
+- New field-prove harnesses MUST extend `agent_alpha/live_fire/runner.py:FieldProveRunner`
+  (when available) or reuse `load_engagement_config` from `runner.py`.
+- Do NOT copy-paste `load_*_config()`, `main()`, or graph-clear boilerplate.
+- Graph clear MUST use the public `graph_store.clear()` method, never
+  `hasattr(graph_store, "_graph")` + private attr access.
+
+### 5. Exception Handling
+- `except Exception` MUST be annotated with `# noqa: BLE001` and followed by
+  `_log.exception(...)` or `continue` with a comment explaining why.
+- Bare `except Exception:` that swallows errors silently is a **bug** (anti-#3).
+- In vault/credential checks, catch `KeyError` specifically, not bare `Exception`.
+
+### 6. PR Review Gate
+- Reviewer MUST check the Anti-Duplication Checklist in the PR template before approving.
+- If a PR introduces a local `_persist_node`, `HttpClientProtocol`, or `verify_*`
+  self-sweeper, it MUST be rejected and redirected to the shared helper.
+
+---
+
 ## Error Handling Contract
 
 ```python
