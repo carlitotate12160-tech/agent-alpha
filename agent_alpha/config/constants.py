@@ -255,7 +255,10 @@ BACKUP_FILE_PATHS: tuple[str, ...] = (
     "/wp-config.php.old",
 )
 
-WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
+WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = ("/.git/config", *BACKUP_FILE_PATHS)
+# SINGLE source (anti-#7): BACKUP_FILE_PATHS is the one definition; this baseline
+# seed composes it — backup paths join the target-independent recon frontier so
+# Alpha.run_recon reaches the backup_file_probe vector without per-target hand-feed.
 
 # ── IntelligenceBase / Tool Reliability (K19, ADR §12.8) ─────
 # Single source of truth for K19 "decision threshold". Score itself
@@ -305,6 +308,7 @@ RECON_TOOL_CATALOG: frozenset[str] = frozenset(
         "js_secret_probe",
         "odoo_dbmanager_probe",
         "git_exposure_probe",
+        "backup_file_probe",
         "generic_http_probe",
     }
 )
