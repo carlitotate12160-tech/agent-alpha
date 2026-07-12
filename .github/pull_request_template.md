@@ -16,6 +16,15 @@ Reviewer must verify ALL of the following before approving:
 - [ ] **Tests added/updated** — new code has test coverage, no tests weakened or deleted
 - [ ] **CI passes** — all 9 gates green (lint, format, typecheck, pip-audit, bandit, gitleaks, CodeQL, tests, coverage)
 
+## Anti-Duplication Checklist (required — see agent_rules.md §Anti-Duplication)
+
+- [ ] **No local `_persist_node`/`_persist_edge`** — imported from `graph/persist.py` (or not touched)
+- [ ] **No local `HttpClientProtocol`** — imported from `agents/http_client.py` (or not touched)
+- [ ] **No new `verify_*` self-sweeper** — new recon vectors use `PathProbeSpec` catalog entry in `path_probe.py`
+- [ ] **No copy-paste `load_*_config()`** — reuse `load_engagement_config` from `runner.py`
+- [ ] **No `hasattr(graph_store, "_graph")`** — use public `graph_store.clear()` if graph reset needed
+- [ ] **No bare `except Exception:`** — use `# noqa: BLE001` + `_log.exception()` or catch specific exception
+
 ## Test Results
 
 ```
