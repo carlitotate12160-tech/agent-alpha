@@ -27,10 +27,11 @@ import datetime
 import math
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.agents.http_client import HttpClientProtocol
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
@@ -42,25 +43,9 @@ from agent_alpha.graph.nodes import (
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
-    node_to_dict,
 )
+from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.recon.response_classifier import Verdict, classify_response
-
-# ── Protocol (mirrors wp_config_probe.HttpClientProtocol) ───────────────────
-
-
-@runtime_checkable
-class HttpClientProtocol(Protocol):
-    """Minimal HTTP client interface for recon GET requests."""
-
-    def get(
-        self,
-        url: str,
-        *,
-        headers: dict[str, str] | None = None,
-        cookies: dict[str, str] | None = None,
-    ) -> Any: ...
-
 
 # ── SecretHit dataclass ─────────────────────────────────────────────────────
 
@@ -355,7 +340,7 @@ def verify_js_secret_leak(
                 agent="alpha",
                 timestamp_utc=now_utc,
             )
-            _persist_node(event_store, graph_store, engagement_id, asset_node)
+            persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
 
             vuln_node = AttackNode(
                 id=vuln_node_id,
@@ -368,7 +353,7 @@ def verify_js_secret_leak(
                 agent="alpha",
                 timestamp_utc=now_utc,
             )
-            _persist_node(event_store, graph_store, engagement_id, vuln_node)
+            persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
 
             # ── EDGE asset → vulnerability ──────────────────────────────────
             asset_edge = AttackEdge(
@@ -377,7 +362,7 @@ def verify_js_secret_leak(
                 relationship=RelationshipType.EXPLOITS,
                 confidence=0.85,
             )
-            _persist_edge(event_store, graph_store, engagement_id, asset_edge)
+            persist_edge(event_store, graph_store, engagement_id, asset_edge, agent="alpha")
 
             for hit in hits:
                 # ── Vault the raw secret ────────────────────────────────────
@@ -404,7 +389,7 @@ def verify_js_secret_leak(
                     agent="alpha",
                     timestamp_utc=now_utc,
                 )
-                _persist_node(event_store, graph_store, engagement_id, cred_node)
+                persist_node(event_store, graph_store, engagement_id, cred_node, agent="alpha")
                 creds_added += 1
 
                 edge = AttackEdge(
@@ -414,7 +399,7 @@ def verify_js_secret_leak(
                     confidence=hit.confidence,
                     technique_id="T1552.001",
                 )
-                _persist_edge(event_store, graph_store, engagement_id, edge)
+                persist_edge(event_store, graph_store, engagement_id, edge, agent="alpha")
 
             # ── Persist API endpoints as intel ──────────────────────────────
             endpoints = extract_api_endpoints(bbody)
@@ -427,46 +412,3 @@ def verify_js_secret_leak(
                 )
 
     return creds_added
-
-
-# ── Persistence helpers (mirror wp_config_probe) ────────────────────────────
-
-
-def _persist_node(
-    event_store: Any,
-    graph_store: Any,
-    engagement_id: str,
-    node: AttackNode,
-) -> None:
-    """Persist a node through both event_store and graph_store."""
-    payload = node_to_dict(node)
-    event_store.append(
-        EventType.NODE_DISCOVERED,
-        engagement_id,
-        "alpha",
-        payload,
-    )
-    graph_store.apply_event("NodeDiscovered", payload)
-
-
-def _persist_edge(
-    event_store: Any,
-    graph_store: Any,
-    engagement_id: str,
-    edge: AttackEdge,
-) -> None:
-    """Persist an edge through both event_store and graph_store."""
-    payload = {
-        "source_id": edge.source_id,
-        "target_id": edge.target_id,
-        "relationship": edge.relationship.value,
-        "confidence": edge.confidence,
-        "technique_id": edge.technique_id,
-    }
-    event_store.append(
-        EventType.EDGE_DISCOVERED,
-        engagement_id,
-        "alpha",
-        payload,
-    )
-    graph_store.apply_event("EdgeDiscovered", payload)

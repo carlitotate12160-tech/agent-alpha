@@ -18,9 +18,10 @@ classify -> persist. Verify is Claude's gate lane; no offensive payload.
 from __future__ import annotations
 
 import datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.agents.http_client import HttpClientProtocol
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
@@ -30,8 +31,8 @@ from agent_alpha.graph.nodes import (
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
-    node_to_dict,
 )
+from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 
 # ── Single-source markers for THIS probe (defined once; not a #7 dup) ──────
@@ -71,19 +72,6 @@ def classify_odoo_dbmanager(body: str) -> str:
     if action_hits >= ODOO_DBMANAGER_MIN_ACTION_MARKERS:
         return EXPOSED
     return PRESENT_LOCKED
-
-
-@runtime_checkable
-class HttpClientProtocol(Protocol):
-    """Minimal HTTP client interface for recon GET requests."""
-
-    def get(
-        self,
-        url: str,
-        *,
-        headers: dict[str, str] | None = None,
-        cookies: dict[str, str] | None = None,
-    ) -> Any: ...
 
 
 def verify_odoo_dbmanager_exposure(
@@ -145,7 +133,7 @@ def verify_odoo_dbmanager_exposure(
             agent="alpha",
             timestamp_utc=now_utc,
         )
-        _persist_node(event_store, graph_store, engagement_id, asset_node)
+        persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
 
         if verdict != EXPOSED:
             continue  # present_locked → fingerprint only, no exposure finding (anti-#3)
@@ -161,7 +149,7 @@ def verify_odoo_dbmanager_exposure(
             agent="alpha",
             timestamp_utc=now_utc,
         )
-        _persist_node(event_store, graph_store, engagement_id, vuln_node)
+        persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
 
         edge = AttackEdge(
             source_id=asset_node.id,
@@ -169,25 +157,7 @@ def verify_odoo_dbmanager_exposure(
             relationship=RelationshipType.EXPLOITS,
             confidence=0.85,
         )
-        _persist_edge(event_store, graph_store, engagement_id, edge)
+        persist_edge(event_store, graph_store, engagement_id, edge, agent="alpha")
         exposures += 1
 
     return exposures
-
-
-def _persist_node(event_store: Any, graph_store: Any, engagement_id: str, node: AttackNode) -> None:
-    payload = node_to_dict(node)
-    event_store.append(EventType.NODE_DISCOVERED, engagement_id, "alpha", payload)
-    graph_store.apply_event("NodeDiscovered", payload)
-
-
-def _persist_edge(event_store: Any, graph_store: Any, engagement_id: str, edge: AttackEdge) -> None:
-    payload = {
-        "source_id": edge.source_id,
-        "target_id": edge.target_id,
-        "relationship": edge.relationship.value,
-        "confidence": edge.confidence,
-        "technique_id": edge.technique_id,
-    }
-    event_store.append(EventType.EDGE_DISCOVERED, engagement_id, "alpha", payload)
-    graph_store.apply_event("EdgeDiscovered", payload)

@@ -35,14 +35,13 @@ from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import STATE_RANK
-from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
     AssetProperties,
     AttackNode,
     NodeType,
     ServiceProperties,
-    node_to_dict,
 )
+from agent_alpha.graph.persist import persist_node
 
 # Single source of truth for the DB service labels this verifier recognises (#7).
 _DB_SERVICES: frozenset[str] = frozenset({"mysql", "mariadb"})
@@ -175,7 +174,7 @@ def verify_in_scope_db_services(
             timestamp_utc=now_utc,
             verified=True,
         )
-        _persist_node(event_store, graph_store, engagement_id, service_node)
+        persist_node(event_store, graph_store, engagement_id, service_node, agent="alpha")
 
         # ── Ensure the DB host's ASSET node has `port` in open_ports ───────
         asset_id = f"asset:{host}"
@@ -205,28 +204,11 @@ def verify_in_scope_db_services(
                 agent="alpha",
                 timestamp_utc=now_utc,
             )
-        _persist_node(event_store, graph_store, engagement_id, rebuilt_asset)
+        persist_node(event_store, graph_store, engagement_id, rebuilt_asset, agent="alpha")
 
         results.append(ev)
 
     return results
-
-
-def _persist_node(
-    event_store: Any,
-    graph_store: Any,
-    engagement_id: str,
-    node: AttackNode,
-) -> None:
-    """Persist a node through both event_store and graph_store (mirrors scout._persist_node)."""
-    payload = node_to_dict(node)
-    event_store.append(
-        EventType.NODE_DISCOVERED,
-        engagement_id,
-        "alpha",
-        payload,
-    )
-    graph_store.apply_event("NodeDiscovered", payload)
 
 
 class SocketDbHandshakeProbe:
