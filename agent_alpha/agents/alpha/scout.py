@@ -36,6 +36,7 @@ from agent_alpha.graph.nodes import (
 )
 from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
+from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.response_classifier import Verdict, classify_response
@@ -80,6 +81,9 @@ class Alpha:
             "git_exposure_probe": self._handle_path_probe,
             "backup_file_probe": self._handle_path_probe,
             "actuator_probe": self._handle_path_probe,
+            "tomcat_fingerprint": self._handle_capability_fingerprint,
+            "http_basic_auth_fingerprint": self._handle_capability_fingerprint,
+            "s3_bucket_fingerprint": self._handle_capability_fingerprint,
         }
 
         # Per-run state, initialised in run_recon().
@@ -530,6 +534,52 @@ class Alpha:
         persist_node(
             self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
         )
+        return 1
+
+    def _handle_capability_fingerprint(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
+        """Persist a header-fingerprinted capability as a labeled ASSET node.
+
+        DETECT only (Header-matcher slice-1). A fingerprint is not a payable
+        finding: this records a labeled ASSET node (feeding the attack graph) and
+        seeds any follow-up surface into the frontier through the SAME in-scope
+        guard as every other discovery -- it never mints a credential and never
+        increments ``self._findings`` (anti-Lyndon #3: fingerprint != finding).
+        Acting on a seeded surface is a gated Gamma concern (ADR §12.26).
+        """
+        spec = capability_for_tool(decision.tool)
+        if spec is None:
+            return 0
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        asset_id = f"asset:{host}"
+
+        # Merge tech_stack to prevent sequential fingerprints (e.g. tomcat then basic_auth)
+        # from clobbering each other.
+        existing = self.graph_store.get_node(asset_id)
+        if existing is not None and hasattr(existing.properties, "tech_stack"):
+            merged = list(dict.fromkeys([*existing.properties.tech_stack, spec.label]))
+        else:
+            merged = [spec.label]
+
+        asset_node = AttackNode(
+            id=asset_id,
+            type=NodeType.ASSET,
+            properties=AssetProperties(host=host, tech_stack=merged),
+            confidence=spec.confidence,
+            agent="alpha",
+            timestamp_utc=now_utc,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
+        )
+
+        for seed in spec.frontier_seeds:
+            self.enqueue_discovered_url(urljoin(url, seed))
+
         return 1
 
     def _extract_leaked_credentials(self, body: str, host: str, vuln_node_id: str) -> int:
