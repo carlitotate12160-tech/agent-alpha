@@ -1,7 +1,8 @@
 # agent_alpha/recon/capability_probe.py
 """Capability fingerprint catalog (Header-matcher slice-1).
 
-RULE-tier capability detection derived purely from response HEADERS. A playbook
+RULE-tier capability detection derived from a response SIGNATURE (headers OR, for
+GraphQL, a GET-response body marker) selected by a playbook rule. A playbook
 rule fires on a header signature (e.g. ``Server: Apache-Coyote`` -> Tomcat) and
 selects a per-capability tool name; this catalog maps that tool name back to the
 canonical label plus any frontier seed paths.
@@ -51,6 +52,11 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
     CapabilitySpec(
         tool="s3_bucket_fingerprint",
         label="s3_bucket",
+    ),
+    CapabilitySpec(
+        tool="graphql_fingerprint",
+        label="graphql",
+        confidence=0.85,
     ),
 )
 
