@@ -74,3 +74,9 @@ test_pg_conn.sh
 test_pg_store.sh
 gen_token.py
 debug_engagement.py
+
+# Deployment scripts (local)
+deploy_quantum.ps1
+user_patch.patch
+pr_body_c2.md
+deploy_quantum.sh
