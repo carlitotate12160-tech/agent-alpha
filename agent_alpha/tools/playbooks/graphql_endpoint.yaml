@@ -1,0 +1,19 @@
+# RULE-tier capability fingerprint (GraphQL slice-2). Pure data -- no LLM.
+# Fires when a GET to a GraphQL endpoint returns its no-query error or a GraphiQL/
+# Apollo landing page. DETECT ONLY: records that a GraphQL surface EXISTS; it does
+# NOT send an introspection query or any operation (that is a slice-3 active probe /
+# gated concern). Signatures are high-precision and disjoint from openapi/git/backup/
+# actuator/wp -> no cross-rule collision.
+name: graphql_endpoint_exposure
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - body_contains: "Must provide query string"
+    - body_contains: "GraphiQL"
+    - body_contains: "apollographql.com"
+action:
+  tool: graphql_fingerprint
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK Active Scanning: Wordlist Scanning
+  rationale: "GraphQL endpoint detected; record the API surface (introspection check is a gated follow-up)."
