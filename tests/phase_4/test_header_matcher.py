@@ -167,6 +167,7 @@ def test_w3_run_recon_fingerprints_tomcat_and_seeds_manager() -> None:
     assets = list(graph.nodes_by_type(NodeType.ASSET))
     labels = {label for a in assets for label in a.properties.tech_stack}
     assert "tomcat" in labels  # labeled ASSET minted via the LIVE loop -> not an island
+    assert "http_basic_auth" in labels  # merge: /manager/html 401 → basic_auth fingerprint
     assert _MANAGER_URL in http.get_calls  # seeded surface was enqueued + probed
 
 
