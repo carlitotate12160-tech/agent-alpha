@@ -713,8 +713,17 @@ class Alpha:
         client scope regardless of what a target page links to.  Dedup against
         both ``_probed`` (already executed) and ``_work_queue`` (already
         scheduled) prevents re-scan loops on link-cycle pages.
+
+        CDN-infrastructure paths (e.g., /cdn-cgi/*) are excluded before scope
+        check to prevent crawl loops on Cloudflare-injected paths that link to
+        each other indefinitely.
         """
-        host = urlparse(url).hostname or urlparse(url).netloc
+        parsed = urlparse(url)
+        # Exclude CDN-infrastructure paths before scope/dedup check
+        for prefix in constants.CDN_INFRA_EXCLUDE_PREFIXES:
+            if parsed.path.startswith(prefix):
+                return
+        host = parsed.hostname or parsed.netloc
         if (
             self.authorization.is_in_scope(self._engagement_id, host)
             and url not in self._probed
