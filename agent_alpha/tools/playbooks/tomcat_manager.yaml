@@ -1,0 +1,19 @@
+# RULE-tier header-fingerprint (Header-matcher slice-1). Pure data -- no LLM.
+# Fires when a response advertises Apache Tomcat / Coyote via the Server header.
+# DETECT only: seeds /manager/html for LATER gated (Gamma) auth review; this rule
+# never authenticates or attacks. Header signal is disjoint from every body rule
+# (git [core] / backup DB_PASSWORD / actuator propertySources / wp markers) -> no
+# cross-rule collision.
+name: tomcat_server_header
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - header_regex:
+        name: Server
+        value: '(?i)apache-coyote|tomcat'
+action:
+  tool: tomcat_fingerprint
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK Active Scanning: Wordlist Scanning
+  rationale: "Apache Tomcat detected via Server header; fingerprint asset and seed /manager/html for later gated review."

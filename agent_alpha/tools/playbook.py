@@ -31,13 +31,29 @@ class PlaybookRule:
     tool: str
     tier: str
     technique_id: str
-    indicators: list[dict[str, str]]
+    indicators: list[dict[str, Any]]
     rationale: str = ""
     priority: int = 100
 
     def matches(self, observation: dict[str, Any]) -> bool:
-        """Check if this rule matches the observation."""
+        """Check if this rule matches the observation.
+
+        Indicators are OR-ed. Body indicators (``body_contains`` / ``body_regex``)
+        match the response body; header indicators (``header_contains`` /
+        ``header_regex``) match a NAMED response header case-insensitively. The
+        headers are the ones ``scout._step_once`` already places in the
+        observation dict -- this RULE tier is their first consumer (it was
+        body-only before, so header-only signals such as Tomcat's
+        ``Server: Apache-Coyote`` fell through to the LLM tier or leaked past).
+
+        A header indicator is a mapping ``{"name": ..., "value": ...}``: ``name``
+        selects the header (case-insensitive), ``value`` is the substring
+        (``header_contains``) or regex (``header_regex``) tested against it.
+        """
         body = observation.get("body", "")
+        raw_headers = observation.get("headers", {}) or {}
+        # Case-insensitive header index, built once per evaluation.
+        headers = {str(name).lower(): str(value) for name, value in raw_headers.items()}
 
         for indicator in self.indicators:
             if "body_contains" in indicator:
@@ -45,6 +61,16 @@ class PlaybookRule:
                     return True
             elif "body_regex" in indicator:
                 if re.search(indicator["body_regex"], body) is not None:
+                    return True
+            elif "header_contains" in indicator:
+                spec = indicator["header_contains"]
+                value = headers.get(spec["name"].lower())
+                if value is not None and spec["value"] in value:
+                    return True
+            elif "header_regex" in indicator:
+                spec = indicator["header_regex"]
+                value = headers.get(spec["name"].lower())
+                if value is not None and re.search(spec["value"], value) is not None:
                     return True
 
         return False
