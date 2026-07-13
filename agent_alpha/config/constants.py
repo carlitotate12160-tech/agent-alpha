@@ -48,6 +48,7 @@ __all__ = [
     "SCOPE_ALWAYS_EXCLUDED",
     "REPORT_FORMATS",
     "MITRE_ATTACK_VERSION",
+    "CDN_INFRA_EXCLUDE_PREFIXES",
     "LARAVEL_CREDENTIAL_ENV_KEYS",
     "LARAVEL_CREDENTIAL_SERVICE_MAP",
     "LARAVEL_CREDENTIAL_USERNAME_KEYS",
@@ -264,6 +265,11 @@ GIT_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
 ACTUATOR_PATHS: tuple[str, ...] = ("/actuator/env", "/env")
 
 WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, *BACKUP_FILE_PATHS, *ACTUATOR_PATHS)
+
+# CDN-infrastructure path prefixes to exclude from frontier crawl (loop prevention).
+# Cloudflare and other CDNs inject /cdn-cgi/* paths that link to each other indefinitely,
+# causing a crawl loop that burns DeepSeek reasoning tokens for zero recon value.
+CDN_INFRA_EXCLUDE_PREFIXES: tuple[str, ...] = ("/cdn-cgi/",)
 
 # API-specification endpoints (passive GET, RECON_ONLY). A frontier FEEDER catalog,
 # deliberately SEPARATE from WELL_KNOWN_LEAK_PATHS: surface-discovery is not a leak
