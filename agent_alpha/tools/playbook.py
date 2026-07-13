@@ -31,7 +31,7 @@ class PlaybookRule:
     tool: str
     tier: str
     technique_id: str
-    indicators: list[dict[str, str]]
+    indicators: list[dict[str, Any]]
     rationale: str = ""
     priority: int = 100
 
