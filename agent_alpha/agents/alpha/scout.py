@@ -86,6 +86,7 @@ class Alpha:
             "http_basic_auth_fingerprint": self._handle_capability_fingerprint,
             "s3_bucket_fingerprint": self._handle_capability_fingerprint,
             "surface_discovery_probe": self._handle_surface_discovery,
+            "graphql_fingerprint": self._handle_capability_fingerprint,
         }
 
         # Per-run state, initialised in run_recon().

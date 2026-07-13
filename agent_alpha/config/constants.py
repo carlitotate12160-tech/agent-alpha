@@ -274,6 +274,8 @@ SURFACE_DISCOVERY_PATHS: tuple[str, ...] = (
     "/swagger.json",
     "/v2/api-docs",
     "/api-docs",
+    "/graphql",
+    "/graphiql",
 )
 # SINGLE source (anti-#7): BACKUP_FILE_PATHS is the one definition; this baseline
 # seed composes it — backup paths join the target-independent recon frontier so
