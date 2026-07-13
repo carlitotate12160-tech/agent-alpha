@@ -1,0 +1,16 @@
+# RULE-tier header-fingerprint (Header-matcher slice-1). Pure data -- no LLM.
+# Fires when a response is served by Amazon S3 (Server: AmazonS3). DETECT only:
+# records the storage surface; bucket enumeration/listing is a gated action, not here.
+name: s3_bucket_server_header
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - header_regex:
+        name: Server
+        value: '(?i)^AmazonS3$'
+action:
+  tool: s3_bucket_fingerprint
+  tier: rule
+  technique_id: "T1595.002"
+  rationale: "Amazon S3 origin detected via Server header; record the storage surface for scoping."

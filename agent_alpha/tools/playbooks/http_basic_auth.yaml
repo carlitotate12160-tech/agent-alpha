@@ -1,0 +1,19 @@
+# RULE-tier header-fingerprint (Header-matcher slice-1). Pure data -- no LLM.
+# Fires on an HTTP Basic auth challenge (WWW-Authenticate: Basic ...). DETECT only:
+# records the protected surface; it does NOT submit or guess credentials (a gated
+# Beta/Gamma action). SLICE-1 LIMIT: a 401 whose body is empty is classified EMPTY
+# upstream (response_classifier) and never reaches this rule; empty-body 401
+# detection needs a verdict tweak, deferred to a follow-up slice.
+name: http_basic_auth_challenge
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - header_regex:
+        name: WWW-Authenticate
+        value: '(?i)^basic\b'
+action:
+  tool: http_basic_auth_fingerprint
+  tier: rule
+  technique_id: "T1595.002"
+  rationale: "HTTP Basic auth challenge detected; record the protected surface for scoping."
