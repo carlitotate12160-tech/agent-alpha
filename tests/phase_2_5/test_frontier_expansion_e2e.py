@@ -193,7 +193,14 @@ def test_run_recon_dead_end_seed_probes_only_seed() -> None:
     # paths (WELL_KNOWN_LEAK_PATHS, e.g. /.git/config). The Lyndon #11 guard still
     # holds: a link-free page must produce NO href-driven frontier growth — i.e.
     # nothing beyond the seed + that constant baseline.
-    expected = [dead] + [f"https://{_SCOPE_HOST}{p}" for p in constants.WELL_KNOWN_LEAK_PATHS]
+    # Baseline = seed + WELL_KNOWN_LEAK_PATHS + SURFACE_DISCOVERY_PATHS (both are
+    # fixed, target-INDEPENDENT constant seeds). The Lyndon #11 guard still holds:
+    # a link-free page produces NO href-driven growth beyond these constant seeds.
+    expected = (
+        [dead]
+        + [f"https://{_SCOPE_HOST}{p}" for p in constants.WELL_KNOWN_LEAK_PATHS]
+        + [f"https://{_SCOPE_HOST}{p}" for p in constants.SURFACE_DISCOVERY_PATHS]
+    )
     assert agent.http_client.calls == expected, (
         "a link-free page fetched something beyond seed + the well-known-path "
         f"baseline — HREF-driven expansion is not zero (Lyndon #11). "

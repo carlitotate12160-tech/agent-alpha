@@ -40,6 +40,7 @@ from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.response_classifier import Verdict, classify_response
+from agent_alpha.recon.surface_discovery import extract_api_surface
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.laravel_env import iter_env_leaks
 from agent_alpha.tools.templates.cms.laravel_finding import LaravelFindingTemplate
@@ -84,6 +85,7 @@ class Alpha:
             "tomcat_fingerprint": self._handle_capability_fingerprint,
             "http_basic_auth_fingerprint": self._handle_capability_fingerprint,
             "s3_bucket_fingerprint": self._handle_capability_fingerprint,
+            "surface_discovery_probe": self._handle_surface_discovery,
         }
 
         # Per-run state, initialised in run_recon().
@@ -131,6 +133,8 @@ class Alpha:
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
         for path in getattr(constants, "WELL_KNOWN_LEAK_PATHS", ()):  # seed known leak paths
+            self.enqueue_discovered_url(f"{root}{path}")
+        for path in getattr(constants, "SURFACE_DISCOVERY_PATHS", ()):  # seed API-spec paths
             self.enqueue_discovered_url(f"{root}{path}")
 
         # ── Drive through the cognitive loop ────────────────────
@@ -580,6 +584,45 @@ class Alpha:
         for seed in spec.frontier_seeds:
             self.enqueue_discovered_url(urljoin(url, seed))
 
+        return 1
+
+    def _handle_surface_discovery(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
+        """Enumerate an exposed API spec into frontier endpoints (surface-discovery).
+
+        DETECT/enumerate only. Parses the already-fetched OpenAPI/Swagger body and
+        enqueues each declared endpoint through the SAME in-scope guard as every
+        other discovery -- discovered URLs cannot expand recon outside client scope.
+        Persists ONE ASSET node recording the API surface; it never mints a
+        credential nor increments ``self._findings`` (a surface is reach, not a
+        payable finding). Acting on a discovered endpoint stays gated (ADR §12.26).
+        """
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        endpoints = extract_api_surface(resp.text, url)
+        if not endpoints:
+            return 0
+
+        for endpoint in endpoints:
+            self.enqueue_discovered_url(endpoint)
+        self._emit(
+            "PLAN",
+            f"OpenAPI surface at {url}: seeded {len(endpoints)} endpoint(s) into the recon frontier",
+        )
+
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        asset_node = AttackNode(
+            id=f"asset:{host}",
+            type=NodeType.ASSET,
+            properties=AssetProperties(host=host, tech_stack=["openapi"]),
+            confidence=0.8,
+            agent="alpha",
+            timestamp_utc=now_utc,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
+        )
         return 1
 
     def _extract_leaked_credentials(self, body: str, host: str, vuln_node_id: str) -> int:

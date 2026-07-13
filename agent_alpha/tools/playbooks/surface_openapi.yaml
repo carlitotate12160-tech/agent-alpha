@@ -1,0 +1,19 @@
+# agent_alpha/tools/playbooks/surface_openapi.yaml
+# RULE-tier surface-discovery feeder (slice-1). Pure data -- no LLM.
+# Fires when Alpha fetches an exposed OpenAPI 3 / Swagger 2 JSON spec. DETECT/
+# enumerate only: the handler parses declared endpoints and enqueues them into the
+# recon frontier via the existing in-scope guard; it never authenticates, mints a
+# credential, or acts on an endpoint (ACT stays gated). The signature
+# ("openapi"|"swagger": "2|3...) is disjoint from git [core] / backup DB_PASSWORD /
+# actuator propertySources / wp markers -> no cross-rule collision.
+name: openapi_spec_exposure
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - body_regex: '"(openapi|swagger)"\s*:\s*"[23]'
+action:
+  tool: surface_discovery_probe
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK Active Scanning: Wordlist Scanning
+  rationale: "OpenAPI/Swagger spec exposed; enumerate declared endpoints into the recon frontier."

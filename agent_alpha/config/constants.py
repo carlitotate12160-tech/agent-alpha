@@ -61,6 +61,7 @@ __all__ = [
     "ACTUATOR_PATHS",
     "GIT_LEAK_PATHS",
     "WELL_KNOWN_LEAK_PATHS",
+    "SURFACE_DISCOVERY_PATHS",
     "MIN_SAMPLES_BEFORE_SKIP",
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
@@ -263,6 +264,17 @@ GIT_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
 ACTUATOR_PATHS: tuple[str, ...] = ("/actuator/env", "/env")
 
 WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, *BACKUP_FILE_PATHS, *ACTUATOR_PATHS)
+
+# API-specification endpoints (passive GET, RECON_ONLY). A frontier FEEDER catalog,
+# deliberately SEPARATE from WELL_KNOWN_LEAK_PATHS: surface-discovery is not a leak
+# (ADR §12.26), and WELL_KNOWN_LEAK_PATHS is pinned to the path_probe catalog union
+# (test N3). Seeded into the frontier on its own loop in run_recon.
+SURFACE_DISCOVERY_PATHS: tuple[str, ...] = (
+    "/openapi.json",
+    "/swagger.json",
+    "/v2/api-docs",
+    "/api-docs",
+)
 # SINGLE source (anti-#7): BACKUP_FILE_PATHS is the one definition; this baseline
 # seed composes it — backup paths join the target-independent recon frontier so
 # Alpha.run_recon reaches the backup_file_probe vector without per-target hand-feed.
