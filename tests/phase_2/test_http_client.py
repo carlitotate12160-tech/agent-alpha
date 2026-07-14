@@ -46,6 +46,44 @@ def test_user_agent_contains_engagement_id():
     assert "eng-abc-456" in ua
 
 
+def test_default_accept_header_is_sent():
+    """Bug #10: every request carries an Accept header by default.
+
+    Without it, origins like Cloudways/WP reject the request with HTTP 415
+    (unsupported media type) and serve their generic error page instead of
+    the target's real content.
+    """
+    captured_headers = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers["accept"] = request.headers.get("accept", "")
+        return httpx.Response(200, text="ok")
+
+    transport = httpx.MockTransport(handler)
+    client = HttpClient(engagement_id="eng-accept-test", transport=transport)
+    client.get("https://example.com")
+
+    assert captured_headers["accept"] != "", "no Accept header sent (Bug #10 regression)"
+    assert "text/html" in captured_headers["accept"]
+
+
+def test_caller_supplied_accept_header_overrides_default():
+    """A caller-supplied Accept header (e.g. for a JSON API probe) still wins —
+    the default is a floor, not a hard override (mirrors merged_headers in
+    HttpClient._request: {**self._headers, **(headers or {})})."""
+    captured_headers = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured_headers["accept"] = request.headers.get("accept", "")
+        return httpx.Response(200, text="{}")
+
+    transport = httpx.MockTransport(handler)
+    client = HttpClient(engagement_id="eng-accept-override", transport=transport)
+    client.get("https://example.com/api", headers={"Accept": "application/json"})
+
+    assert captured_headers["accept"] == "application/json"
+
+
 def test_timeout_is_configurable_with_positive_default():
     """Timeout is configurable and has a positive default."""
     client_default = HttpClient(engagement_id="test")

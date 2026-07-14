@@ -73,7 +73,10 @@ class HttpClient:
         self._verify = verify
         if opsec is not None:
             ua = opsec.get("user_agent", f"Agent-Alpha-Recon/{engagement_id}")
-            self._headers: dict[str, str] = {"User-Agent": ua}
+            self._headers: dict[str, str] = {
+                "User-Agent": ua,
+                "Accept": constants.HTTP_DEFAULT_ACCEPT_HEADER,
+            }
             extra = opsec.get("headers", {})
             if isinstance(extra, dict):
                 self._headers.update(extra)
@@ -81,6 +84,7 @@ class HttpClient:
         else:
             self._headers = {
                 "User-Agent": f"Agent-Alpha-Recon/{engagement_id}",
+                "Accept": constants.HTTP_DEFAULT_ACCEPT_HEADER,
             }
             rps = rate_limit_rps
         self._transport = transport

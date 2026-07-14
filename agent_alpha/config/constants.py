@@ -25,6 +25,7 @@ __all__ = [
     "JWT_ALGORITHM",
     "JWT_SECRET_ENV",
     "HTTP_REQUEST_TIMEOUT_SEC",
+    "HTTP_DEFAULT_ACCEPT_HEADER",
     "DEFAULT_RATE_LIMIT_RPS",
     "SOW_MAX_FILE_SIZE_MB",
     "SOW_HASH_ALGORITHM",
@@ -129,6 +130,11 @@ JWT_SECRET_ENV = "AGENT_ALPHA_JWT_SECRET"
 
 # ── HTTP Client ──────────────────────────────────────────────
 HTTP_REQUEST_TIMEOUT_SEC = 30.0
+# Bug #10: without an Accept header, some origins (observed: Cloudways/WP)
+# reject the request with HTTP 415 instead of serving real HTML — the agent
+# was analysing the origin's generic error page, not the target's content.
+# Single source (anti-Lyndon #7): every HttpClient instance uses this value.
+HTTP_DEFAULT_ACCEPT_HEADER = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 # Default egress rate limit (requests/sec) per engagement HttpClient. Safe RoE
 # default = the policy.yaml "quiet" OPSEC profile (2 rps); per-engagement OPSEC
 # profile selection (policy.yaml normal=10/loud=50) overrides via the ctor when

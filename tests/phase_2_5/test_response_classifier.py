@@ -65,6 +65,15 @@ def test_classify_response_verdicts() -> None:
     assert classify_response(status_code=410, body="gone") is Verdict.NOT_FOUND
     assert classify_response(status_code=404, body="") is Verdict.EMPTY
     assert classify_response(status_code=0, body="", transport_error=True) is Verdict.TRANSPORT_FAIL
+    # Bug #10: a 415 WITH a body (Cloudways/WP content-negotiation rejection) is
+    # UNSUPPORTED_MEDIA_TYPE — never OK (it is not the target's real content) and
+    # never BLOCKED (it is not a WAF/CF signal, so it must not pollute WAF_BLOCKED
+    # audit evidence). A 415 with an empty body stays EMPTY (same precedence as 404).
+    assert (
+        classify_response(status_code=415, body="<html>Unsupported Media Type</html>")
+        is Verdict.UNSUPPORTED_MEDIA_TYPE
+    )
+    assert classify_response(status_code=415, body="") is Verdict.EMPTY
 
 
 def test_classify_response_is_pure_and_conservative() -> None:
@@ -170,6 +179,22 @@ def test_observe_empty_is_not_blocked() -> None:
     alpha.run_recon(eng, _SEED)
     assert _waf_events(store, eng) == [], (
         "an empty (reachable) response was mislabelled as WAF-blocked"
+    )
+
+
+# ---------------------------------------------------------------------------
+# U1 — a 415 (content-negotiation rejection) is NEVER recorded as WAF_BLOCKED
+# ---------------------------------------------------------------------------
+
+
+def test_observe_415_is_not_blocked() -> None:
+    alpha, eng, store = _make_recon_alpha(
+        {_SEED: _Resp(415, "<html>Unsupported Media Type</html>", {}, _SEED)}
+    )
+    alpha.run_recon(eng, _SEED)
+    assert _waf_events(store, eng) == [], (
+        "a 415 content-negotiation rejection was mislabelled as WAF-blocked evidence "
+        "(Bug #10 fix must not reuse BLOCKED/WAF_BLOCKED for 415)"
     )
 
 
