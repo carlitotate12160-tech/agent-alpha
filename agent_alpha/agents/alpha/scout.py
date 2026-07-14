@@ -228,6 +228,20 @@ class Alpha:
             self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
+        # HTTP 415 → origin content-negotiation rejection (Bug #10), NOT the
+        # target's real content and NOT a WAF/CF block. Never escalated to the
+        # LLM, and — unlike NOT_FOUND — never given to the RULE tier either:
+        # the body is the origin's generic error page, so a rule match here
+        # would reproduce Bug #2/#14's page-wide-marker false positive. No
+        # frontier expansion (a 415 error page's links are not real hrefs).
+        if verdict is Verdict.UNSUPPORTED_MEDIA_TYPE:
+            self._emit(
+                "OBSERVE",
+                f"{url} returned HTTP 415 (unsupported media type); non-analyzable "
+                "origin rejection, not the target's content",
+            )
+            return {"discovered_nodes": 0, "cost_usd": 0.0}
+
         # ── ORIENT / PLAN ───────────────────────────────────────
         observation: dict[str, Any] = {
             "body": resp.text,

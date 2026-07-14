@@ -28,6 +28,7 @@ class Verdict(enum.StrEnum):
     NOT_FOUND = "not_found"
     TRANSPORT_FAIL = "transport_fail"
     BLOCKED = "blocked"
+    UNSUPPORTED_MEDIA_TYPE = "unsupported_media_type"
 
 
 # Block status codes: WAF/CF/rate-limit/challenge signals. Recorded as evidence
@@ -39,6 +40,17 @@ _BLOCK_STATUS_CODES: frozenset[int] = frozenset({403, 429, 503})
 # Checked AFTER the empty check so a 404 with an empty body stays EMPTY (zero
 # behaviour change); only a 404 that carries a body becomes NOT_FOUND.
 _NOT_FOUND_STATUS_CODES: frozenset[int] = frozenset({404, 410})
+
+# Content-negotiation rejection (Bug #10). Observed from Cloudways/WP origins
+# when the client sends no Accept header — the ORIGIN's error page, not a
+# WAF/CDN block, so it must NEVER become BLOCKED (that would mis-record a
+# content-negotiation quirk as WAF_BLOCKED evidence — corrupts the audit
+# trail, see graph/persist.py's provenance argument for the same principle).
+# It also must never fall through to OK: the body is the origin's generic
+# error page, not the target's real content, and matching a playbook rule
+# against it is exactly the false-positive pattern Bug #2/#14 already show
+# (page-wide markers hit inside an unrelated error page).
+_UNSUPPORTED_MEDIA_TYPE_STATUS_CODES: frozenset[int] = frozenset({415})
 
 
 def classify_response(
@@ -56,7 +68,14 @@ def classify_response(
       4. status in (404, 410) WITH a body -> ``NOT_FOUND`` (missing path; the
          RULE tier may still look — a debug/error page can leak on a 404 — but it
          is NEVER escalated to the LLM, unlike ``OK`` (F2 token-burn guard).
-      5. otherwise -> ``OK``.
+      5. status == 415 WITH a body -> ``UNSUPPORTED_MEDIA_TYPE`` (Bug #10 — an
+         origin content-negotiation rejection, e.g. Cloudways/WP without an
+         Accept header. NOT a WAF block, NOT the target's real content — never
+         escalated to the LLM AND never given to the RULE tier, unlike NOT_FOUND,
+         because the body is the origin's generic error page and matching a
+         playbook rule against it reproduces Bug #2/#14's page-wide-marker
+         false-positive pattern).
+      6. otherwise -> ``OK``.
 
     Conservative by design: a 200 with a real body is ``OK`` and is never
     ``BLOCKED`` — only the status code carries the block verdict in slice-1.
@@ -69,4 +88,6 @@ def classify_response(
         return Verdict.EMPTY
     if status_code in _NOT_FOUND_STATUS_CODES:
         return Verdict.NOT_FOUND
+    if status_code in _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES:
+        return Verdict.UNSUPPORTED_MEDIA_TYPE
     return Verdict.OK
