@@ -86,6 +86,9 @@ jobs:
       - name: Lint + typecheck (make check = ruff + ruff format --check + mypy)
         run: make check
 
+      - name: Documentation status consistency check
+        run: .venv/bin/python scripts/check_doc_status.py
+
       - name: Security scan (bandit — SAST for Python code, all severity)
         # Fail on ALL severity findings except B101/B110/B112 (suppressed via .bandit
         # config — legitimate patterns in offensive tooling: assert in guards,

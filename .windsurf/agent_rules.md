@@ -92,6 +92,15 @@ All test execution must be on Oracle Cloud ARM64 (Ubuntu 24).
 SSH: `ubuntu@<oracle-arm-host>` (IP + key in secrets vault, not in docs)
 If you cannot access Oracle, report the test as PENDING, not passing.
 
+### Rule 11: Update Documentation Status Before Marking Done
+When a task closes, fixes, or implements any ADR section, bug, or GAP:
+1. Update the `**Status**:` field in the relevant markdown file (`docs/ADR.md`, `docs/BUGS.md`, `docs/BUGS_AND_GAPS.md`).
+2. Add a reference line: `Closed by:`, `Fixed in:`, `Implemented in:`, or `Verified in:` with PR/commit/test info.
+3. Allowed statuses: `OPEN`, `IN_PROGRESS`, `DONE`, `FIXED`, `CLOSED`, `ADDRESSED`, `TERADDRESS`, `LOCKED`, `WONTFIX`, `PROPOSED`, `DRAFT`.
+4. Run `python scripts/check_doc_status.py` and ensure it passes before finishing.
+5. If the status is `OPEN`/`IN_PROGRESS`, do NOT add a close/fix reference.
+6. If the status is `DONE`/`FIXED`/`CLOSED`/`ADDRESSED`/`TERADDRESS`, a reference is REQUIRED.
+
 ---
 
 ## Model Selection Guide

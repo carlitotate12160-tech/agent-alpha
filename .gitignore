@@ -35,7 +35,7 @@ targets/
 # Cowork-mounted working folder â€” never commit the duplicate tree
 /Projects/
 
-# Engagement configs anywhere (contain SOW scope) — keep ONLY *.example.yaml
+# Engagement configs anywhere (contain SOW scope)  keep ONLY *.example.yaml
 **/*engagement*.yaml
 !**/*engagement*.example.yaml
 
@@ -45,7 +45,7 @@ pr_body_*.txt
 pr_body_*.md
 .coverage
 
-# Operational data — client recon reports, never commit (world-readable repo)
+# Operational data  client recon reports, never commit (world-readable repo)
 *_recon*.pdf
 *_report.pdf
 *_full_report.pdf
@@ -80,3 +80,7 @@ deploy_quantum.ps1
 user_patch.patch
 pr_body_c2.md
 deploy_quantum.sh
+# Client-specific bug catalogue and raw engagement logs â€” local only
+# These files contain real target names; never commit them.
+docs/BUGS.md
+docs/BUGS_AND_GAPS_APPENDIX.md
