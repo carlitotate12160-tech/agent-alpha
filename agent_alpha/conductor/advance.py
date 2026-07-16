@@ -281,14 +281,17 @@ def advance_engagement(
         auth.can_agent_proceed(next_role, engagement_id) if next_role is not None else False
     )
     already = _already_dispatched(events, handoff)
-    blast_gate_requires_approval = _assess_blast_gate_for_dispatch(
-        engagement_id=engagement_id,
-        event_store=event_store,
-        next_role=next_role,
-        next_permitted=next_permitted,
-        policy=policy,
-        graph_rebuilder=graph_rebuilder,
-    )
+
+    blast_gate_requires_approval = False
+    if not already and handoff.status == a2a_pb2.COMPLETE:
+        blast_gate_requires_approval = _assess_blast_gate_for_dispatch(
+            engagement_id=engagement_id,
+            event_store=event_store,
+            next_role=next_role,
+            next_permitted=next_permitted,
+            policy=policy,
+            graph_rebuilder=graph_rebuilder,
+        )
 
     decision = decide_advance(
         status=handoff.status,
