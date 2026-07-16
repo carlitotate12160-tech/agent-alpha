@@ -34,9 +34,13 @@ cognitive loops) already exist; this only sequences them.
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Callable
 from typing import Any, Protocol
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.blast_gate import assess_blast_gate
+from agent_alpha.conductor.policy import PolicyEnforcer
+from agent_alpha.config import constants
 
 # Canonical kill-chain topology — single source of truth (#7). Advancement may only go
 # FORWARD along this order (or jump to OMEGA, the read-only reporter, at any point). This
@@ -115,6 +119,7 @@ def decide_advance(
     current_state: int,
     next_permitted: bool,
     already_dispatched: bool,
+    blast_gate_requires_approval: bool = False,
 ) -> AdvanceDecision:
     """Decide the next action for an engagement given its latest handoff. Pure: takes the
     auth verdict (``next_permitted``) as a value rather than reading the gate itself, so it
@@ -141,6 +146,15 @@ def decide_advance(
             "park_awaiting_approval",
             next_recommended,
             "authorization tier does not permit next agent — human gate between tiers",
+        )
+    if blast_gate_requires_approval:
+        # SECONDARY gate (ADR §1 / §12.35 GAP-005/006): auth tier is granted, but the
+        # graph's worst-case blast severity meets the threshold for an offensive-tier
+        # agent — park for human opt-in instead of auto-dispatching.
+        return AdvanceDecision(
+            "park_awaiting_approval",
+            next_recommended,
+            "blast radius exceeds threshold — operator opt-in required (blast_radius_gate)",
         )
     return AdvanceDecision(
         "dispatch", next_recommended, "validated: forward transition + auth tier granted"
@@ -194,12 +208,62 @@ def _already_dispatched(events: list[Any], handoff: Handoff) -> bool:
 # ── Effectful orchestration (Conductor-owned) ────────────────────────────────────
 
 
+_GATE_AGENT_NAME: dict[int, str] = {
+    a2a_pb2.GAMMA: "ANCHOR",
+    a2a_pb2.DELTA: "HUNTER",
+    a2a_pb2.EPSILON: "SCOUT_HUNTER",
+}
+
+
+def _default_graph_rebuilder(event_store: Any, engagement_id: str) -> Any:
+    """Lazy import avoids an advance <-> execute_agent circular import."""
+    from agent_alpha.conductor.execute_agent import rebuild_graph_from_events
+
+    return rebuild_graph_from_events(event_store, engagement_id)
+
+
+def _assess_blast_gate_for_dispatch(
+    *,
+    engagement_id: str,
+    event_store: Any,
+    next_role: int | None,
+    next_permitted: bool,
+    policy: Any | None,
+    graph_rebuilder: Callable[[Any, str], Any] | None,
+) -> bool:
+    """True iff dispatch to *next_role* must park for human blast-radius approval.
+
+    Only offensive-tier + auth-permitted transitions are assessed (the auth gate is
+    the primary control; this is secondary). Fail-safe: a missing policy builds the
+    default PolicyEnforcer, so the gate is ON by default and never silently off.
+    """
+    if next_role is None or not next_permitted:
+        return False
+    next_name = _GATE_AGENT_NAME.get(next_role)
+    if next_name is None:
+        return False
+    enforcer = policy if policy is not None else PolicyEnforcer()
+    gate_before = enforcer.gate_before_agents()
+    if next_name not in gate_before:
+        return False
+    rebuild = graph_rebuilder if graph_rebuilder is not None else _default_graph_rebuilder
+    store = rebuild(event_store, engagement_id)
+    return assess_blast_gate(
+        store=store,
+        gate_before_agents=gate_before,
+        next_agent_name=next_name,
+        threshold=constants.BLAST_GATE_SEVERITY_THRESHOLD,
+    )
+
+
 def advance_engagement(
     *,
     engagement_id: str,
     auth: Any,  # AuthorizationStateMachine — Conductor owns it; read-only here
     event_store: Any,
     dispatcher: Dispatcher,
+    policy: Any | None = None,  # PolicyEnforcer; None -> default (gate ON, fail-safe)
+    graph_rebuilder: Callable[[Any, str], Any] | None = None,
 ) -> AdvanceDecision:
     """Consume the latest handoff and advance the chain by ONE validated step.
 
@@ -217,6 +281,14 @@ def advance_engagement(
         auth.can_agent_proceed(next_role, engagement_id) if next_role is not None else False
     )
     already = _already_dispatched(events, handoff)
+    blast_gate_requires_approval = _assess_blast_gate_for_dispatch(
+        engagement_id=engagement_id,
+        event_store=event_store,
+        next_role=next_role,
+        next_permitted=next_permitted,
+        policy=policy,
+        graph_rebuilder=graph_rebuilder,
+    )
 
     decision = decide_advance(
         status=handoff.status,
@@ -225,6 +297,7 @@ def advance_engagement(
         current_state=current_state,
         next_permitted=next_permitted,
         already_dispatched=already,
+        blast_gate_requires_approval=blast_gate_requires_approval,
     )
 
     if decision.action == "dispatch" and decision.next_agent is not None:
