@@ -14,6 +14,7 @@ __all__ = [
     "LLM_TIER_SINGLE",
     "LLM_TIER_CONSENSUS",
     "LLM_TOOL_SELECT_MAX_TOKENS",
+    "BLAST_GATE_SEVERITY_THRESHOLD",
     "DEEPSEEK_HTTP_TIMEOUT_SEC",
     "LLM_MAX_UNTRUSTED_BODY_CHARS",
     "CONSENSUS_AGREE_THRESHOLD",
@@ -121,6 +122,9 @@ LLM_MAX_UNTRUSTED_BODY_CHARS = 4000
 # ── Consensus Thresholds ────────────────────────────────────
 CONSENSUS_AGREE_THRESHOLD = 0.80
 CONSENSUS_ESCALATE_THRESHOLD = 0.50
+
+# ── Conductor Gates ──────────────────────────────────────────
+BLAST_GATE_SEVERITY_THRESHOLD = "high"
 
 # ── Authorization ────────────────────────────────────────────
 EMERGENCY_STOP_TIMEOUT_SEC = 5

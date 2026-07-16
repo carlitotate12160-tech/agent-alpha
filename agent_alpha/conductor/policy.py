@@ -139,6 +139,13 @@ class PolicyEnforcer:
         # Exact match only in allowed list (case-insensitive)
         return provider.lower() in [a.lower() for a in allowed]
 
+    def gate_before_agents(self) -> frozenset[str]:
+        """Agent names that must pass the blast-radius gate before dispatch
+        (policy.yaml `authorization.blast_radius_gate_before`)."""
+        auth = typing.cast(dict[str, object], self._policy["authorization"])
+        names = typing.cast(list[str], auth.get("blast_radius_gate_before", []))
+        return frozenset(names)
+
     def requires_human_approval(self, transition_to: str) -> bool:
         conditions = typing.cast(
             list[dict[str, object]],

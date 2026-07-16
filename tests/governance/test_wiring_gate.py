@@ -36,9 +36,11 @@ def _read(*rel_paths: str) -> str:
 # symbol -> production wiring-target module(s) that MUST reference it.
 # NOT the definition file, NOT tests/, NOT live_fire/ (those never count as "wired").
 WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
-    "rebuild_graph_from_events": ("conductor/main.py",),          # Bug #4 (graph replay)
-    "persist_node": ("agents/alpha/scout.py",),                   # event-sourced graph writes
+    "rebuild_graph_from_events": ("conductor/main.py",),  # Bug #4 (graph replay)
+    "persist_node": ("agents/alpha/scout.py",),  # event-sourced graph writes
     "AuthorizationStateMachine": ("conductor/recon_runner.py",),  # auth gate on the live path
+    "PolicyEnforcer": ("conductor/advance.py",),  # OPSEC/blast-radius gate (GAP-005)
+    "calculate_blast_radius": ("conductor/blast_gate.py",),  # Blast-radius evaluation (GAP-006)
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
@@ -48,10 +50,6 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
     "SessionStore": (
         ("conductor/recon_runner.py", "conductor/execute_agent.py"),
         "GAP-002 / ADR §12.11 (scratchpad wiring)",
-    ),
-    "PolicyEnforcer": (
-        ("conductor/recon_runner.py", "conductor/execute_agent.py"),
-        "GAP-005 / ADR §12.22 (safety gate — OPSEC/technique/scope/blast-radius)",
     ),
     "IntelligenceBase": (
         ("tools/registry.py", "llm/orchestrator.py"),
@@ -69,7 +67,9 @@ def test_required_component_stays_wired(symbol: str, targets: tuple[str, ...]) -
 
 
 @pytest.mark.parametrize("symbol,spec", list(WIRING_DEBT.items()))
-def test_wiring_debt_is_tracked_until_resolved(symbol: str, spec: tuple[tuple[str, ...], str]) -> None:
+def test_wiring_debt_is_tracked_until_resolved(
+    symbol: str, spec: tuple[tuple[str, ...], str]
+) -> None:
     targets, ref = spec
     assert symbol not in _read(*targets), (
         f"WIRING GATE (ADR §12.35): '{symbol}' is now wired into {targets} ({ref}). "
