@@ -31,6 +31,15 @@ Reviewer must verify ALL of the following before approving:
 <!-- paste test output: pytest, bandit, gitleaks results -->
 ```
 
+## Documentation Status Update (required if PR closes an ADR, bug, or GAP)
+
+PR author must update the relevant status fields before requesting review:
+
+- [ ] **ADR**: Add/update `**Status**:` in the related `docs/ADR.md` section and include an `Implemented in:` or `Verified in:` reference (PR/commit).
+- [ ] **Bug**: Update `**Status**:` in `docs/BUGS.md` to `FIXED`/`DONE`/`ADDRESSED`/`WONTFIX` and add `Closed by:` / `Fixed in:` / `Verified in:` (PR/commit).
+- [ ] **GAP**: Update `**Status**:` in `docs/BUGS_AND_GAPS.md` and add `Closed by:` / `Implemented in:` / `Verified in:` if moving to `DONE`.
+- [ ] **None** — this PR does not change any ADR/bug/GAP state.
+
 ## Related Issues
 
 <!-- Link to issues, ADR sections, or progress tracker entries -->

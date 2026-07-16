@@ -77,6 +77,7 @@ def _login_orchestrator() -> LLMOrchestrator:
         tier="rule",
         technique_id="T1078.001",
         indicators=[{"body_contains": 'type="password"'}],
+        phase="access",
     )
     # _NoLLMProvider raises if the LLM is ever reached → proves rule-tier.
     return LLMOrchestrator(PlaybookEngine([rule]), _NoLLMProvider())

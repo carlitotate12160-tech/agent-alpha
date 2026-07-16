@@ -43,9 +43,7 @@ class FakeHttpClient:
         self.calls.append(url)
         # Every unmatched path returns 415 with a Cloudways-style error body —
         # including any href the (buggy) frontier expansion might enqueue.
-        return self._routes.get(
-            url, FakeResponse(415, "<html>Unsupported Media Type</html>")
-        )
+        return self._routes.get(url, FakeResponse(415, "<html>Unsupported Media Type</html>"))
 
 
 @dataclass

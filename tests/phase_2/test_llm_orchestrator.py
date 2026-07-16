@@ -69,3 +69,37 @@ def test_novel_observation_escalates_to_single_llm_once() -> None:
     assert provider.calls == 1
     assert decision.tier == constants.LLM_TIER_SINGLE
     assert decision.tool == "generic_http_probe"
+
+
+# ---------------------------------------------------------------------------
+# Bug #2/#6 — decide_excluding: once a rule's tool has already run this
+# engagement, that rule must not keep pre-empting the LLM tier forever on
+# every subsequent page that also matches it.
+# ---------------------------------------------------------------------------
+
+
+def test_decide_excluding_empty_set_matches_decide() -> None:
+    """decide() is exactly decide_excluding(observation, exclude_tools=frozenset())
+    — this is what makes decide() backward compatible for every caller that
+    predates this fix."""
+    orch = _orchestrator(_ExplodingProvider())
+    obs = {"body": "Whoops! ... Laravel v10.3.1", "headers": {}}
+    assert orch.decide(obs) == orch.decide_excluding(obs, exclude_tools=frozenset())
+
+
+def test_decide_excluding_skips_already_run_tool_and_reaches_llm() -> None:
+    """The actual Bug #2/#6 scenario: a second page with the SAME rule-matching
+    fingerprint (e.g. a second Odoo page after odoo_dbmanager_probe already ran)
+    must reach the LLM tier instead of being handed the same RULE decision
+    again forever."""
+    provider = _StubProvider()
+    orch = _orchestrator(provider)
+    obs = {"body": "Whoops! ... Laravel v10.3.1", "headers": {}}
+
+    decision = orch.decide_excluding(obs, exclude_tools=frozenset({"laravel_debug_probe"}))
+
+    assert provider.calls == 1, (
+        "LLM tier was not reached once the matching rule's tool was excluded"
+    )
+    assert decision.tier == constants.LLM_TIER_SINGLE
+    assert decision.tool == "generic_http_probe"
