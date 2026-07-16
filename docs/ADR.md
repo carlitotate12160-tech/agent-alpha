@@ -1573,19 +1573,19 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Status:** LOCKED (2026-07-15). **Relates to:** §8o-2 (Planner/Executor + World Model + Simulation), §8j (cognitive loop), §7 ("Try Harder"), §12.0 (no hardcoded sequence), §12.24 (stall semantics), §12.27 (clean-graph prereq). **Absorbs GAP-004 + GAP-010.**
 
-**Problem.** Loop hari ini reaktif 1-langkah: `run_cognitive_loop` memanggil `agent.step({})` dengan context KOSONG (`agents/base.py:112`), tidak ada Planner/World-Model (grep 0 hasil), dan `BoundedAutonomy.should_stop()` hanya punya 4 kondisi (`MAX_ITERATIONS/TIME/COST/NO_PROGRESS`, `base.py:80-88`) — tak ada `GOAL_COMPLETED`. Akibatnya agent breadth-first prober, tak tahu tujuan dan tak tahu kapan selesai; ia jalan sampai budget habis walau chain sudah terbukti.
+**Problem.** Today's loop is reactive 1-step: `run_cognitive_loop` calls `agent.step({})` with EMPTY context (`agents/base.py:112`), there is no Planner/World-Model (grep 0 results), and `BoundedAutonomy.should_stop()` only has 4 conditions (`MAX_ITERATIONS/TIME/COST/NO_PROGRESS`, `base.py:80-88`) — no `GOAL_COMPLETED`. As a result the agent is a breadth-first prober, unaware of its goal and unaware of when it is done; it runs until budget is exhausted even when the chain is already proven.
 
-**Decision 1 — Objective kelas-satu.** `EngagementObjective` (target impact / HVT) menjadi entity runtime yang mengalir ke `step(context)` (context tak lagi `{}`). Prioritas aksi & crawl diturunkan dari objective + graph, bukan FIFO (menutup Bug #11 secara natural).
+**Decision 1 — Objective as first-class entity.** `EngagementObjective` (target impact / HVT) becomes a runtime entity that flows into `step(context)` (context is no longer `{}`). Action and crawl priority are derived from the objective + graph, not FIFO (naturally closes Bug #11).
 
-**Decision 2 — Planner/Executor split.** `planner.plan(world_model, objective)` menghasilkan rencana multi-langkah (HTN-style); Executor menjalankan lewat kontrak tool; replanning otomatis saat tool gagal atau belief berubah. "Try Harder" (§7) jadi bagian planner, bukan patch.
+**Decision 2 — Planner/Executor split.** `planner.plan(world_model, objective)` produces a multi-step plan (HTN-style); the Executor runs it via the tool contract; automatic replanning occurs when a tool fails or beliefs change. "Try Harder" (§7) becomes part of the planner, not a patch.
 
-**Decision 3 — World-Model / belief-state.** Hipotesis di bawah ketidakpastian hidup di scratchpad (GAP-002); hanya fakta lolos VERIFY dipromosikan ke graph (§8j-2). Planner membaca graph BERSIH (§12.27 prasyarat keras).
+**Decision 3 — World-Model / belief-state.** Hypotheses under uncertainty live in the scratchpad (GAP-002); only facts that pass VERIFY are promoted to the graph (§8j-2). The planner reads a CLEAN graph (§12.27 hard prerequisite).
 
-**Decision 4 — Goal-completion stop.** Tambah `GOAL_COMPLETED` ke `StopReason`. Kriteria contoh: `CREDENTIAL —ENABLES→ ACCESS_LEVEL` dengan `verified=True`. Cek tiap step; multi-objective (setelah A selesai → B jika budget sisa); per-objective budget (bukan hanya global cap).
+**Decision 4 — Goal-completion stop.** Add `GOAL_COMPLETED` to `StopReason`. Example criteria: `CREDENTIAL —ENABLES→ ACCESS_LEVEL` with `verified=True`. Checked every step; multi-objective (after A completes → B if budget remains); per-objective budget (not only a global cap).
 
-**Decision 5 — anti-Lyndon.** Rencana WAJIB emerge dari `f(graph, objective)` (§12.0), tak pernah daftar langkah hardcoded; tiap kemampuan planner ship dengan differential test (perilaku berubah dengan state graph).
+**Decision 5 — anti-Lyndon.** Plans MUST emerge from `f(graph, objective)` (§12.0), never a hardcoded step list; every planner capability ships with a differential test (behavior changes with graph state).
 
-**Confidence ~80%** — seam `step(context)` + `StopReason` code-verified; nilai penuh butuh GAP-002 (scratchpad) + §12.27 (clean graph) lebih dulu.
+**Confidence ~80%** — seam `step(context)` + `StopReason` code-verified; full value requires GAP-002 (scratchpad) + §12.27 (clean graph) first.
 
 ---
 
@@ -1593,17 +1593,17 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Status:** LOCKED (2026-07-15). **Relates to:** §8j (OBSERVE/ORIENT), §8j-2 (promotion rule), §8l (untrusted data/prompt-injection), §12.26 (engine-capability > new vector), §12.27 (clean-graph prereq), §12.29 (planner upgrade path).
 
-**Problem.** Loop reactive-tool-ranked: ORIENT hanya memilih dari `RECON_TOOL_CATALOG` dan frontier hanya menyerap href (`scout.py:296-313`). Agent tak bisa mengejar anomali seperti human red-teamer ("header ini aneh / endpoint `/api/v2/internal` menarik — gali").
+**Problem.** The loop is reactive-tool-ranked: ORIENT only selects from `RECON_TOOL_CATALOG` and the frontier only absorbs hrefs (`scout.py:296-313`). The agent cannot pursue anomalies like a human red-teamer would ("this header is odd / endpoint `/api/v2/internal` is interesting — dig in").
 
-**Decision 1 — curiosity = sinyal deterministik, bukan improvisasi.** ORIENT menghitung `curiosity_score(observation)` dari sinyal terstruktur atas `{status, headers, body, url}` yang SUDAH ada (header anomali, endpoint non-standar, input ter-reflect, version/tech disclosure). Tanpa LLM → reproducible.
+**Decision 1 — curiosity = deterministic signal, not improvisation.** ORIENT computes `curiosity_score(observation)` from structured signals over `{status, headers, body, url}` that ALREADY exist (header anomalies, non-standard endpoints, reflected input, version/tech disclosure). No LLM → reproducible.
 
-**Decision 2 — efek KETAT saat skor tinggi.** (a) re-prioritas frontier; (b) tepat SATU hypothesis-probe memakai kapabilitas/tool yang SUDAH ada (boleh eskalasi ke `SINGLE_LLM` dengan structured-prompt); (c) hipotesis dicatat ke scratchpad. Curiosity TIDAK PERNAH men-synthesize probe di luar catalog (anti-generative — konten target = untrusted, generatif = memberi kemudi ke penyerang).
+**Decision 2 — STRICT effect when score is high.** (a) re-prioritize frontier; (b) exactly ONE hypothesis-probe using an EXISTING capability/tool (may escalate to `SINGLE_LLM` with structured-prompt); (c) hypothesis recorded to scratchpad. Curiosity NEVER synthesizes probes outside the catalog (anti-generative — target content is untrusted, generative = handing the steering wheel to the attacker).
 
-**Decision 3 — envelope keamanan (non-negotiable).** Tetap dalam scope (`is_in_scope`), tetap RECON_ONLY (tak memicu ofensif), `MAX_CURIOSITY_PROBES` di `constants.py` masuk budget yang sama (anti-#7), konten target diperlakukan DATA (§8l), temuan hanya jadi hipotesis di scratchpad sampai lolos VERIFY (§8j-2, anti graph-pollution).
+**Decision 3 — security envelope (non-negotiable).** Stays in scope (`is_in_scope`), stays RECON_ONLY (does not trigger offensive), `MAX_CURIOSITY_PROBES` in `constants.py` counts against the same budget (anti-#7), target content treated as DATA (§8l), findings remain hypotheses in scratchpad until they pass VERIFY (§8j-2, anti graph-pollution).
 
-**Decision 4 — upgrade path.** Sinyal curiosity dirancang jadi input Planner (§12.29): saat planner ada, curiosity mengangkat "explore hypothesis X" jadi sub-objective. Bounded sekarang, goal-directed nanti — bukan fork.
+**Decision 4 — upgrade path.** The curiosity signal is designed as input to the Planner (§12.29): once the planner exists, curiosity promotes "explore hypothesis X" to a sub-objective. Bounded now, goal-directed later — not a fork.
 
-**Confidence ~80%** — envelope code-verified terhadap seam OBSERVE/ORIENT; nilai bergantung §12.27 (clean graph) sebagai prasyarat keras.
+**Confidence ~80%** — envelope code-verified against the OBSERVE/ORIENT seam; value depends on §12.27 (clean graph) as a hard prerequisite.
 
 ---
 
@@ -1611,15 +1611,15 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Status:** LOCKED (2026-07-15). **Relates to:** §8j (VERIFY), §8j-2 (promotion rule), GAP-003 (IntelligenceBase FP rate), Bug #2/#14 (greedy false-positive).
 
-**Problem.** VERIFY ada tapi **per-tool self-verification**: `strike.py:335-337` verify dari tool yang sama; `scout.py:330-331` template self-verify; `AttackNode.verified=True` diset oleh tool penemunya. `ToolResult.__post_init__` (`contracts.py:56-65`) hanya structural check. Akibat: false-positive satu tool langsung masuk graph sebagai verified (Bug #2).
+**Problem.** VERIFY exists but is **per-tool self-verification**: `strike.py:335-337` verifies from the same tool; `scout.py:330-331` template self-verify; `AttackNode.verified=True` is set by the discovering tool. `ToolResult.__post_init__` (`contracts.py:56-65`) is only a structural check. As a result, a single tool's false positive enters the graph as verified (Bug #2).
 
-**Decision 1 — dua tier verifikasi.** `AttackNode.verified` bertingkat: `self_verified` (tool penemu) vs `cross_verified` (sinyal/tool independen mengonfirmasi) sebelum finding dianggap confirmed.
+**Decision 1 — two verification tiers.** `AttackNode.verified` is tiered: `self_verified` (discovering tool) vs `cross_verified` (independent signal/tool confirms) before a finding is considered confirmed.
 
-**Decision 2 — cross-validation gate.** Finding berisiko-FP-tinggi wajib cross-validation sebelum `cross_verified`. Bobot risiko dari IntelligenceBase (GAP-003): tool dengan historical FP rate tinggi tak boleh auto-confirm.
+**Decision 2 — cross-validation gate.** High-FP-risk findings require cross-validation before `cross_verified`. Risk weight comes from IntelligenceBase (GAP-003): tools with high historical FP rates cannot auto-confirm.
 
-**Decision 3 — report transparan.** Laporan membedakan `self_verified` vs `cross_verified`; hanya `cross_verified` masuk klaim payable "proven".
+**Decision 3 — transparent reporting.** Reports distinguish `self_verified` vs `cross_verified`; only `cross_verified` enters payable "proven" claims.
 
-**Confidence ~75%** — seam `verified` + `ToolResult` code-verified; efektivitas bergantung GAP-003 (FP rate) yang butuh EngagementMemory persist (Bug #7) lebih dulu.
+**Confidence ~75%** — seam `verified` + `ToolResult` code-verified; effectiveness depends on GAP-003 (FP rate) which requires EngagementMemory persist (Bug #7) first.
 
 ---
 
@@ -1627,15 +1627,15 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Status:** LOCKED (2026-07-15). **Relates to:** §8f (pivot-chain = post-exploit lateral, BUKAN auth re-recon), §8j, §12.26 (DETECT=recon, ACT=Gamma boundary), §12.29 (post-access sub-objective).
 
-**Problem.** Setelah Beta dapat `valid_credentials` tak ada re-discovery bersesi aktif (`strike.py:335-337`); `http_client` punya `cookies` kwarg tapi tak ada mode authenticated-crawl (grep 0 hasil). Vuln paling berharga (OWASP A01: IDOR/Broken-Access-Control/priv-esc) tak ter-cover.
+**Problem.** After Beta obtains `valid_credentials` there is no active-session re-discovery (`strike.py:335-337`); `http_client` has a `cookies` kwarg but no authenticated-crawl mode (grep 0 results). The most valuable vulnerabilities (OWASP A01: IDOR/Broken-Access-Control/priv-esc) are not covered.
 
-**Decision 1 — AuthenticatedCrawlMode (RECON).** Setelah akses diperoleh, re-crawl bersesi aktif untuk menemukan surface baru; diff unauth vs auth (endpoint/menu/API baru). Ini tetap **recon** (DETECT).
+**Decision 1 — AuthenticatedCrawlMode (RECON).** After access is obtained, re-crawl with an active session to discover new surfaces; diff unauth vs auth (new endpoints/menus/APIs). This remains **recon** (DETECT).
 
-**Decision 2 — boundary auth-gate dijaga.** MENEMUKAN surface authenticated = recon. MENGEKSPLOITASI (uji IDOR aktual, horizontal/vertical priv-esc yang mengubah state) = ofensif, **Gamma-gated** (OFFENSIVE_APPROVED + SOW + blast-radius), tak pernah di jalur recon (§12.26).
+**Decision 2 — boundary auth-gate maintained.** DISCOVERING authenticated surfaces = recon. EXPLOITING (testing actual IDOR, horizontal/vertical priv-esc that changes state) = offensive, **Gamma-gated** (OFFENSIVE_APPROVED + SOW + blast-radius), never on the recon path (§12.26).
 
-**Decision 3 — wiring.** Jadi sub-objective post-access di Planner (§12.29); "access obtained" bukan goal final (§12.29 Decision 4) → memicu objective re-recon berikutnya.
+**Decision 3 — wiring.** Becomes a post-access sub-objective in the Planner (§12.29); "access obtained" is not a final goal (§12.29 Decision 4) → triggers the next re-recon objective.
 
-**Confidence ~75%** — `cookies` primitif ada; nilai penuh butuh §12.29 (planner) + Beta chain yang stabil.
+**Confidence ~75%** — `cookies` primitive exists; full value requires §12.29 (planner) + a stable Beta chain.
 
 ---
 
@@ -1643,15 +1643,15 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Status:** LOCKED (2026-07-15). **Relates to:** R3 (obstacle-aware = pivot host, BUKAN adapt evasion), §12.22 Decision 2 (TransportResilience discriminator + lockout governor), §8n (OPSEC statis), GAP-005 (dynamic OPSEC), §12.29 (re-plan).
 
-**Problem.** Saat `Verdict.BLOCKED` (403/429/503) agent hanya mencatat dan lanjut dengan cara sama (`scout.py`); `opsec_profile` = preset statis (`policy.yaml`); `cf_curl_cffi`/`cf_playwright` disebut §12.22 tapi 0 file. Setiap request berikut dengan fingerprint sama = lebih banyak noise → risiko lockout/SIEM.
+**Problem.** When `Verdict.BLOCKED` (403/429/503) the agent only records and continues the same way (`scout.py`); `opsec_profile` = static preset (`policy.yaml`); `cf_curl_cffi`/`cf_playwright` are mentioned in §12.22 but 0 files exist. Every subsequent request with the same fingerprint = more noise → lockout/SIEM risk.
 
-**Decision 1 — adaptive evasion layer.** Setelah BLOCKED N kali: auto-switch teknik (turunkan rate, rotate UA, ganti TLS fingerprint). Ambang N di `constants.py` (anti-#7).
+**Decision 1 — adaptive evasion layer.** After BLOCKED N times: auto-switch technique (lower rate, rotate UA, change TLS fingerprint). Threshold N in `constants.py` (anti-#7).
 
-**Decision 2 — implement `cf_curl_cffi` template.** TLS impersonation untuk CF (mengisi referensi §12.22). Tetap RECON_ONLY + scope-bounded; **evasion ≠ exploitation**.
+**Decision 2 — implement `cf_curl_cffi` template.** TLS impersonation for CF (fulfilling §12.22 reference). Stays RECON_ONLY + scope-bounded; **evasion ≠ exploitation**.
 
-**Decision 3 — dynamic OPSEC & tracking.** Wire ke PolicyEnforcer (GAP-005): "5x gagal → switch sebelum lockout" (tunduk lockout governor §12.22 Decision 2). Efektivitas teknik dilacak di scratchpad (GAP-002); re-plan alternatif lewat Planner (§12.29).
+**Decision 3 — dynamic OPSEC & tracking.** Wire to PolicyEnforcer (GAP-005): "5x failed → switch before lockout" (subject to lockout governor §12.22 Decision 2). Technique effectiveness tracked in scratchpad (GAP-002); alternative re-planning via Planner (§12.29).
 
-**Confidence ~70%** — seam classifier/OPSEC code-verified; butuh GAP-005 (PolicyEnforcer ter-wire) + template baru.
+**Confidence ~70%** — seam classifier/OPSEC code-verified; requires GAP-005 (PolicyEnforcer wired) + new template.
 
 ---
 
@@ -1659,12 +1659,12 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Status:** LOCKED (2026-07-15). **Relates to:** §8c (`credential_patterns(industry)` = cross-engagement/Phase 6, BUKAN within-engagement), §12.22 Decision 2 (credential-spray lockout governor), GAP-002 (pattern tracking), GAP-003 (cross-engagement feed).
 
-**Problem.** `cred_reuse.py` hanya literal reuse; `default_creds.py` static list; tak ada mutation (grep 0 hasil). Jika `Company2025!` bekerja di service A tapi B pakai `Company2026!`, agent tak menemukannya — human otomatis coba varian pola.
+**Problem.** `cred_reuse.py` only does literal reuse; `default_creds.py` uses a static list; there is no mutation (grep 0 results). If `Company2025!` works on service A but B uses `Company2026!`, the agent will not find it — a human would automatically try pattern variants.
 
-**Decision 1 — CredentialPatternMutator.** Analisis credential yang di-harvest → ekstrak pola (company+year+suffix). Generate varian (increment year, swap separator, case, common suffix).
+**Decision 1 — CredentialPatternMutator.** Analyze harvested credentials → extract patterns (company+year+suffix). Generate variants (increment year, swap separator, case, common suffix).
 
-**Decision 2 — bounded & gated.** Mencoba varian = credential spray (aksi AKTIF) → tunduk auth tier (ACTIVE_APPROVED+) + lockout governor §12.22 (batasi attempt, cooldown). Dipakai hanya setelah literal reuse gagal.
+**Decision 2 — bounded & gated.** Trying variants = credential spray (ACTIVE action) → subject to auth tier (ACTIVE_APPROVED+) + lockout governor §12.22 (limit attempts, cooldown). Used only after literal reuse fails.
 
-**Decision 3 — learning.** Pola sukses dilacak di scratchpad (GAP-002) untuk reuse dalam engagement sama; pola terbukti di-feed ke IntelligenceBase (GAP-003) untuk cross-engagement (jembatan ke §8c).
+**Decision 3 — learning.** Successful patterns tracked in scratchpad (GAP-002) for reuse within the same engagement; proven patterns fed to IntelligenceBase (GAP-003) for cross-engagement (bridge to §8c).
 
-**Confidence ~75%** — within-engagement lebih murah dari §8c (tak butuh data lintas-engagement); butuh lockout governor aktif agar aman.
+**Confidence ~75%** — within-engagement is cheaper than §8c (does not require cross-engagement data); requires an active lockout governor to be safe.
