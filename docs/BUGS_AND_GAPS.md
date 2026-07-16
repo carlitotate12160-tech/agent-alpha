@@ -32,6 +32,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 19 | Response classifier status-only, no body-content | Medium | Medium | CDN/WAF challenge detection |
 | 20 | Identical body dedup — same CDN page analyzed N times | Medium | Low | LLM token waste |
 | 16 | Runner script `Report.chains` AttributeError | Low | Low | Local runner scripts |
+| 21 | LLM-tier tool re-selection (exclude_tools not passed to LLM) | High | Medium | LLM token waste, tool starvation |
 
 ## Recommended Fix Order
 
@@ -56,6 +57,63 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 14. Bug #9 (URL backslash normalization) — cleanup, low effort, low impact.
 15. Bug #17 (Apache mod_autoindex sort URL explosion) — filter sort query params in `_extract_hrefs()`, quick win.
 16. Bug #16 (runner script `Report.chains`) — fix local runner scripts so they do not crash at the end.
+17. Bug #21 (LLM-tier tool re-selection) — pass `exclude_tools` to LLM tier or post-filter LLM output. Fix after Bug #2/#6 rule-tier fix is confirmed stable.
+
+---
+
+## Bug #21: LLM-tier Tool Re-selection (exclude_tools Not Passed to LLM)
+
+- **Status**: OPEN (identified during live-fire test `quantum-laboratories.com`, 2026-07-16)
+- **Priority**: High
+- **Effort**: Medium
+- **Blocks**: LLM token waste, tool diversification
+
+### Root Cause
+
+`LLMOrchestrator.decide_excluding()` in `agent_alpha/llm/orchestrator.py` passes `exclude_tools` to the **RULE tier** (`decide_rule_only`) but **NOT** to the **LLM tier** (`_build_tool_select_messages`). When the rule tier is skipped (tool already ran), the LLM tier is invoked without any knowledge of which tools have already been run this engagement. DeepSeek therefore re-selects the same tool on every page that shares a fingerprint (e.g. `odoo_dbmanager_probe` on every Odoo page).
+
+### Evidence
+
+Live-fire test against `quantum-laboratories.com` (Odoo-based pharmaceutical site):
+
+| Page | Tool Selected | Tier |
+|------|--------------|------|
+| `therapeutic-class-medical-devices` | `odoo_dbmanager_probe` | single_llm |
+| `medical-devices` | `odoo_dbmanager_probe` | single_llm |
+| `research-and-development` | `generic_http_probe` | single_llm |
+| `production` | `generic_http_probe` | single_llm |
+| `quality-control` | `odoo_dbmanager_probe` | single_llm |
+
+Before the Bug #2/#6 rule-tier fix: 100% `odoo_dbmanager_probe` on every page (rule-tier starvation, never reached LLM).
+After the Bug #2/#6 rule-tier fix: rule tier correctly skips `odoo_dbmanager_probe`, but LLM tier still re-selects it on ~60% of pages because it has no `exclude_tools` context.
+
+### Impact
+
+- **Token waste**: DeepSeek API call per page, selecting a tool that was already run and will produce 0 new graph nodes.
+- **Tool starvation**: Other recon tools (`laravel_debug_probe`, `wp_config_probe`, `js_secret_probe`, `git_exposure_probe`, `backup_file_probe`) never get selected by the LLM.
+- **Reduced coverage**: Alpha does not diversify tool selection across pages with the same fingerprint.
+
+### Affected Files
+
+- `agent_alpha/llm/orchestrator.py:96-97` — `decide_excluding` calls `_build_tool_select_messages(observation)` without `exclude_tools`
+- `agent_alpha/llm/orchestrator.py:116-140` — `_build_tool_select_messages` does not accept `exclude_tools` parameter
+
+### Proposed Fix (not yet implemented)
+
+**Option A (prompt-level)**: Pass `exclude_tools` to `_build_tool_select_messages`, add system prompt instruction: "The following tools have ALREADY been run this engagement and must NOT be selected again: {excluded_str}. Choose a DIFFERENT tool from the catalog."
+
+**Option B (programmatic post-filter)**: After LLM returns a tool decision, check if the selected tool is in `exclude_tools`. If yes, either:
+- Re-query the LLM with a stronger instruction, or
+- Fallback to `generic_http_probe` (safe default that always produces useful graph data)
+
+**Option C (both)**: Prompt-level instruction (A) + programmatic enforcement (B) as safety net — LLMs are not reliable at following negative constraints.
+
+**Recommended**: Option C — defense in depth. Prompt instruction reduces waste, post-filter guarantees correctness.
+
+### Cross-reference
+
+- Bug #2 (Odoo rule greedy) — same symptom, different tier. Bug #2 fix addressed RULE tier; Bug #21 is the LLM tier variant.
+- Bug #6 (Idempotency blocks LLM) — Bug #2/#6 fix unblocked the LLM tier, but the LLM tier itself has no exclusion awareness.
 
 ---
 

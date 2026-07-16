@@ -98,6 +98,14 @@ jobs:
       - name: Dependency audit (pip-audit — CVE check on installed packages)
         run: .venv/bin/pip-audit --skip-editable
 
+      - name: Cleanup stale gitleaks tmp (self-hosted runner hygiene)
+        # gitleaks-action@v3 downloads+extracts to /tmp/gitleaks.tmp but never
+        # cleans it up — the next run finds the stale file and crashes with
+        # "Destination file path /tmp/gitleaks.tmp already exists". This is a
+        # self-hosted runner issue (no ephemeral /tmp between runs), not a code
+        # issue. Remove before the action runs.
+        run: rm -f /tmp/gitleaks.tmp /tmp/gitleaks-*/gitleaks 2>/dev/null || true
+
       - name: Secret scanning (gitleaks — detect hardcoded credentials in repo)
         # .gitleaks.toml (repo root) allowlists CI-only ephemeral DB passwords.
         # continue-on-error: gitleaks-action crashes when zero findings (no sarif).

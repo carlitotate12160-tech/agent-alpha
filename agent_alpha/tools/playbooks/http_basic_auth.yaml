@@ -1,9 +1,9 @@
 # RULE-tier header-fingerprint (Header-matcher slice-1). Pure data -- no LLM.
 # Fires on an HTTP Basic auth challenge (WWW-Authenticate: Basic ...). DETECT only:
 # records the protected surface; it does NOT submit or guess credentials (a gated
-# Beta/Gamma action). SLICE-1 LIMIT: a 401 whose body is empty is classified EMPTY
-# upstream (response_classifier) and never reaches this rule; empty-body 401
-# detection needs a verdict tweak, deferred to a follow-up slice.
+# Beta/Gamma action). Empty-body 401s are routed through the RULE tier by scout
+# (Verdict.EMPTY follows the same rule-only path as NOT_FOUND), so this rule now
+# fires even when the body is blank — the slice-1 limitation is resolved.
 name: http_basic_auth_challenge
 version: 1
 phase: recon

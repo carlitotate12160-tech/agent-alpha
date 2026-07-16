@@ -256,10 +256,10 @@ class Alpha:
             )
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
-        # Empty/whitespace body → non-analyzable probe.
-        if verdict is Verdict.EMPTY:
-            self._emit("OBSERVE", f"Fetched {url} but the body was empty; non-analyzable")
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
+        # NOTE: Verdict.EMPTY no longer short-circuits here. An empty body
+        # still cannot match a body rule, but a HEADER rule (e.g.
+        # WWW-Authenticate: Basic) can — so EMPTY is routed through the
+        # RULE-only tier alongside NOT_FOUND below.
 
         # HTTP 415 → origin content-negotiation rejection (Bug #10), NOT the
         # target's real content and NOT a WAF/CF block. Never escalated to the
@@ -281,23 +281,24 @@ class Alpha:
             "headers": dict(resp.headers),
         }
 
-        if verdict is Verdict.NOT_FOUND:
-            # A 404 (with a body) is a missing path. A debug/error page (e.g. a
-            # framework stack trace with APP_DEBUG on) can still leak on a 404, so
-            # give the DETERMINISTIC rule tier a look — but NEVER escalate a 404 to
-            # the LLM provider (pure token burn on a path that is not there — F2).
+        if verdict in (Verdict.NOT_FOUND, Verdict.EMPTY):
+            # NOT_FOUND (404 with a body) and EMPTY (any status, blank body):
+            # give the DETERMINISTIC rule tier a look — a debug page can leak
+            # on a 404, and a header signal (WWW-Authenticate, Server) can
+            # ride an empty body — but NEVER escalate to the LLM provider
+            # (pure token burn on content that is not there — F2).
             decision = self._rule_only_decision(observation)
             if decision is None:
                 self._emit(
                     "OBSERVE",
-                    f"{url} returned HTTP {resp.status_code} (missing path); no rule "
-                    "match — non-analyzable (LLM not consulted)",
+                    f"{url} returned HTTP {resp.status_code}; no rule match — "
+                    "non-analyzable (LLM not consulted)",
                 )
                 return {"discovered_nodes": 0, "cost_usd": 0.0}
             self._emit(
                 "OBSERVE",
-                f"{url} returned HTTP {resp.status_code} but the body matched a rule; "
-                "analyzing the leaked error page",
+                f"{url} returned HTTP {resp.status_code}; a deterministic rule "
+                "matched — analyzing without the LLM",
             )
         else:
             self._emit(
