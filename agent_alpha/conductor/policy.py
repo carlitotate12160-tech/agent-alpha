@@ -143,8 +143,8 @@ class PolicyEnforcer:
         """Agent names that must pass the blast-radius gate before dispatch
         (policy.yaml `authorization.blast_radius_gate_before`)."""
         auth = typing.cast(dict[str, object], self._policy["authorization"])
-        names = typing.cast(list[str], auth.get("blast_radius_gate_before", []))
-        return frozenset(names)
+        names = auth.get("blast_radius_gate_before") or []
+        return frozenset(typing.cast(list[str], names))
 
     def requires_human_approval(self, transition_to: str) -> bool:
         conditions = typing.cast(

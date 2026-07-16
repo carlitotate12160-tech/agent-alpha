@@ -30,7 +30,7 @@ def _rank(severity: str) -> int:
     try:
         return _SEVERITY_RANK.index(severity)
     except ValueError:
-        return 0
+        raise ValueError(f"Unknown severity level: {severity}") from None
 
 
 def max_blast_severity(store: Any) -> str:
