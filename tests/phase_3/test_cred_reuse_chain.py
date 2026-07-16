@@ -129,6 +129,7 @@ def _login_orchestrator() -> LLMOrchestrator:
         tier="rule",
         technique_id="T1078.001",
         indicators=[{"body_contains": 'type="password"'}],
+        phase="access",
     )
     return LLMOrchestrator(PlaybookEngine([rule]), _NoLLMProvider())
 

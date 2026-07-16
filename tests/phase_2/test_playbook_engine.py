@@ -69,3 +69,89 @@ def test_engine_has_no_llm_dependency(engine: PlaybookEngine) -> None:
     decision belongs to the orchestrator, not the playbook."""
     assert not hasattr(engine, "llm")
     assert not hasattr(engine, "provider")
+
+
+# ---------------------------------------------------------------------------
+# Bug #2/#6 — exclude_tools: an already-run tool's rule must not keep
+# pre-empting the LLM tier for every subsequent matching page.
+# ---------------------------------------------------------------------------
+
+
+def test_exclude_tools_skips_matching_rule_and_signals_escalation(
+    engine: PlaybookEngine,
+) -> None:
+    """Same observation that deterministically matches laravel_debug_probe
+    (test_known_observation_matches_deterministically) returns None — the
+    escalation signal — once that tool is in exclude_tools, exactly as if
+    the page were genuinely novel."""
+    decision = engine.match(
+        _laravel_observation(), exclude_tools=frozenset({"laravel_debug_probe"})
+    )
+    assert decision is None
+
+
+def test_exclude_tools_default_is_empty_zero_behaviour_change(engine: PlaybookEngine) -> None:
+    """Every pre-existing caller of match(observation) — no exclude_tools arg
+    — must see byte-identical behaviour to before this fix."""
+    decision = engine.match(_laravel_observation())
+    assert decision is not None
+    assert decision.tool == "laravel_debug_probe"
+
+
+def test_exclude_tools_only_affects_the_named_tool(engine: PlaybookEngine) -> None:
+    """Excluding an unrelated tool name must not suppress a real match —
+    exclusion is scoped to the specific tool, not 'any rule fired before'."""
+    decision = engine.match(_laravel_observation(), exclude_tools=frozenset({"some_other_tool"}))
+    assert decision is not None
+    assert decision.tool == "laravel_debug_probe"
+
+
+# ---------------------------------------------------------------------------
+# Bug #14 — from_directory(phase=...): Alpha (RECON_ONLY) must be structurally
+# unable to load an access-phase rule, not merely rely on it not matching.
+# ---------------------------------------------------------------------------
+
+
+def _write_playbook(directory: pathlib.Path, filename: str, *, phase: str, tool: str) -> None:
+    directory.joinpath(filename).write_text(
+        f"""\
+name: {tool}_rule
+version: 1
+phase: {phase}
+match:
+  any_indicator:
+    - body_contains: "{tool}-marker"
+action:
+  tool: {tool}
+  tier: rule
+  technique_id: "T0000"
+  rationale: "test fixture"
+"""
+    )
+
+
+def test_phase_filter_excludes_other_phase_rules(tmp_path: pathlib.Path) -> None:
+    _write_playbook(tmp_path, "recon_rule.yaml", phase="recon", tool="recon_tool")
+    _write_playbook(tmp_path, "access_rule.yaml", phase="access", tool="access_tool")
+
+    recon_engine = PlaybookEngine.from_directory(tmp_path, phase="recon")
+
+    assert recon_engine.match({"body": "access_tool-marker", "headers": {}}) is None, (
+        "an access-phase rule was loaded into a phase='recon' engine — Alpha "
+        "(RECON_ONLY) must never even be ABLE to match an access-phase rule"
+    )
+    decision = recon_engine.match({"body": "recon_tool-marker", "headers": {}})
+    assert decision is not None
+    assert decision.tool == "recon_tool"
+
+
+def test_phase_filter_none_preserves_load_everything(tmp_path: pathlib.Path) -> None:
+    """The default (phase=None) is the pre-fix behaviour, unchanged — every
+    existing caller that doesn't pass phase= must see zero difference."""
+    _write_playbook(tmp_path, "recon_rule.yaml", phase="recon", tool="recon_tool")
+    _write_playbook(tmp_path, "access_rule.yaml", phase="access", tool="access_tool")
+
+    engine = PlaybookEngine.from_directory(tmp_path)
+
+    assert engine.match({"body": "access_tool-marker", "headers": {}}) is not None
+    assert engine.match({"body": "recon_tool-marker", "headers": {}}) is not None

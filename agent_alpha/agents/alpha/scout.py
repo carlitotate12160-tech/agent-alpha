@@ -14,6 +14,7 @@ any (anti-Lyndon #6).
 from __future__ import annotations
 
 import datetime
+import inspect
 import re
 import uuid
 from typing import Any
@@ -173,13 +174,45 @@ class Alpha:
         out.setdefault("work_remaining", len(self._work_queue))
         return out
 
+    def _decide(self, observation: dict[str, Any]) -> Any:
+        """Full RULE→LLM decision (Bug #2/#6/#14 fix).
+
+        Uses ``decide_excluding(observation, exclude_tools=self._ran_campaigns)``
+        when the orchestrator supports it (real ``LLMOrchestrator`` does), so a
+        RULE-tier rule for an already-run tool is skipped and the LLM tier gets
+        a genuine look at pages that keep re-matching the same rule (e.g. an
+        Odoo-fingerprint page hit AFTER ``odoo_dbmanager_probe`` already ran
+        once this engagement). Falls back to plain ``decide()`` for test-stub
+        orchestrators that only implement that method — zero behaviour change
+        for them, same detection approach as :meth:`_rule_only_decision`.
+        """
+        decide_excluding = getattr(self.orchestrator, "decide_excluding", None)
+        if (
+            decide_excluding is not None
+            and "exclude_tools" in inspect.signature(decide_excluding).parameters
+        ):
+            return decide_excluding(observation, exclude_tools=frozenset(self._ran_campaigns))
+        return self.orchestrator.decide(observation)
+
     def _rule_only_decision(self, observation: dict[str, Any]) -> Any:
         """RULE-tier-only decision for a 404 body (F2: never escalate a missing path
         to the LLM). Uses the orchestrator's rule-only entrypoint when present; test
         stub orchestrators without one simply yield None -> the 404 is non-analyzable.
+
+        Bug #2/#6/#14: passes ``exclude_tools=self._ran_campaigns`` when the
+        orchestrator's ``decide_rule_only`` supports it (real ``LLMOrchestrator``
+        does) so a rule for an already-run tool is skipped here too — a debug
+        page leaking on a 404 is still worth a DIFFERENT rule's look, just not
+        the same tool run twice. Detected via ``inspect.signature`` rather than
+        try/except TypeError so a genuine bug inside a test stub's own
+        ``decide_rule_only`` body still surfaces as itself, not as "unsupported".
         """
         rule_only = getattr(self.orchestrator, "decide_rule_only", None)
-        return rule_only(observation) if rule_only is not None else None
+        if rule_only is None:
+            return None
+        if "exclude_tools" in inspect.signature(rule_only).parameters:
+            return rule_only(observation, exclude_tools=frozenset(self._ran_campaigns))
+        return rule_only(observation)
 
     def _step_once(self, context: dict[str, object]) -> dict[str, object]:
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
@@ -274,7 +307,7 @@ class Alpha:
             # An LLM/decision failure (truncation, malformed output, API/network) is
             # a non-analyzable probe — NOT a crash. Mirrors the OBSERVE guard.
             try:
-                decision = self.orchestrator.decide(observation)
+                decision = self._decide(observation)
             except OrientationError:
                 self._emit(
                     "ORIENT",

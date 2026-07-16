@@ -129,7 +129,13 @@ def build_recon_pipeline(
     """
     http_client = HttpClient(engagement_id=engagement_id)
     provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
-    orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(_PLAYBOOK_DIR), provider)
+    # Bug #14 root cause: Alpha is RECON_ONLY (§K9/§5) and must never even be
+    # ABLE to load an access-phase rule (e.g. default_credentials_login,
+    # phase: access — Beta's job). phase="recon" makes that a load-time
+    # guarantee, not a hope that no access-phase rule happens to match.
+    orchestrator = LLMOrchestrator(
+        PlaybookEngine.from_directory(_PLAYBOOK_DIR, phase="recon"), provider
+    )
     graph_store = NetworkXGraphStore()
 
     # Wire tenant-scoped monologue sink if publisher is provided (Phase 3 infra)

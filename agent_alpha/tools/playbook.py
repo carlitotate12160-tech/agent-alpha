@@ -23,6 +23,9 @@ class PlaybookDecision:
     reasoning: str = ""
 
 
+_KNOWN_PHASES: frozenset[str] = frozenset({"recon", "access"})
+
+
 @dataclasses.dataclass(frozen=True)
 class PlaybookRule:
     """A single playbook rule."""
@@ -32,6 +35,7 @@ class PlaybookRule:
     tier: str
     technique_id: str
     indicators: list[dict[str, Any]]
+    phase: str
     rationale: str = ""
     priority: int = 100
 
@@ -83,11 +87,24 @@ class PlaybookEngine:
         self._rules = sorted(rules, key=lambda r: (r.priority, r.name))
 
     @classmethod
-    def from_directory(cls, path: pathlib.Path) -> PlaybookEngine:
-        """Load playbooks from a directory."""
+    def from_directory(cls, path: pathlib.Path, *, phase: str | None = None) -> PlaybookEngine:
+        """Load playbooks from a directory.
+
+        Bug #14 root cause: the ``phase:`` key in every playbook YAML was
+        parsed and then silently dropped -- never read by anything -- so an
+        ``access``-phase rule (e.g. default_credentials_login) was loaded
+        into Alpha's RECON-tier engine right alongside the ``recon`` rules
+        and could fire during recon crawl. *phase*, when given, restricts
+        loading to files declaring that phase; ``None`` (default) preserves
+        the old "load everything" behaviour for existing callers that don't
+        care about the distinction (anti-Lyndon #10: zero-risk default,
+        opt-in filtering only at the two call sites that actually need it).
+        """
         rules = []
         for playbook_file in path.glob("*.yaml"):
             rules.extend(cls._load_playbook(playbook_file))
+        if phase is not None:
+            rules = [r for r in rules if r.phase == phase]
         return cls(rules)
 
     @staticmethod
@@ -97,10 +114,16 @@ class PlaybookEngine:
             data = yaml.safe_load(f)
 
         # Validate required keys
-        required_keys = ["name", "match", "action"]
+        required_keys = ["name", "match", "action", "phase"]
         for key in required_keys:
             if key not in data:
                 raise ValueError(f"Playbook {path} missing required key: {key}")
+
+        phase = data["phase"]
+        if phase not in _KNOWN_PHASES:
+            raise ValueError(
+                f"Playbook {path} has invalid phase '{phase}'; must be one of {sorted(_KNOWN_PHASES)}"
+            )
 
         match = data["match"]
         if "any_indicator" not in match or not match["any_indicator"]:
@@ -125,14 +148,33 @@ class PlaybookEngine:
                 tier=action["tier"],
                 technique_id=action["technique_id"],
                 indicators=match["any_indicator"],
+                phase=phase,
                 rationale=action.get("rationale", ""),
                 priority=data.get("priority", 100),
             )
         ]
 
-    def match(self, observation: dict[str, Any]) -> PlaybookDecision | None:
-        """Find a matching rule for the observation."""
+    def match(
+        self,
+        observation: dict[str, Any],
+        *,
+        exclude_tools: frozenset[str] = frozenset(),
+    ) -> PlaybookDecision | None:
+        """Find a matching rule for the observation.
+
+        Bug #2/#6 root cause: once a tool has already run this engagement
+        (Alpha's ``_ran_campaigns`` idempotency set), a rule that keeps
+        matching for it on every subsequent page pre-empted the LLM tier
+        forever (``decide()`` checks RULE before LLM, unconditionally) --
+        even though the handler itself was correctly a no-op the whole time.
+        *exclude_tools* lets the caller skip such rules and keep scanning
+        for a DIFFERENT match, or fall through to ``None`` (-> LLM tier)
+        when nothing else matches. Default is empty (skip nothing) --
+        zero behaviour change for every existing caller.
+        """
         for rule in self._rules:
+            if rule.tool in exclude_tools:
+                continue
             if rule.matches(observation):
                 return PlaybookDecision(
                     tool=rule.tool,

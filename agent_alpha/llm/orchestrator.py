@@ -43,7 +43,12 @@ class LLMOrchestrator:
 
     # ── public API ──────────────────────────────────────────────
 
-    def decide_rule_only(self, observation: dict[str, Any]) -> PlaybookDecision | None:
+    def decide_rule_only(
+        self,
+        observation: dict[str, Any],
+        *,
+        exclude_tools: frozenset[str] = frozenset(),
+    ) -> PlaybookDecision | None:
         """RULE tier ONLY — deterministic playbook match, provider NEVER touched.
 
         The scout uses this for a 404 (NOT_FOUND) body: a debug/error page can still
@@ -51,7 +56,7 @@ class LLMOrchestrator:
         escalated to the LLM provider (pure token burn on a path that is not there, F2).
         Returns the matched decision, or None when no rule fires.
         """
-        return self.playbook.match(observation)
+        return self.playbook.match(observation, exclude_tools=exclude_tools)
 
     def decide(self, observation: dict[str, Any]) -> PlaybookDecision:
         """Return a tool decision for *observation*.
@@ -62,8 +67,29 @@ class LLMOrchestrator:
         Raises ``ValueError`` if the provider response is not valid JSON
         or lacks a ``"tool"`` key (anti-Lyndon #3: no silent fallback).
         """
+        return self.decide_excluding(observation, exclude_tools=frozenset())
+
+    def decide_excluding(
+        self, observation: dict[str, Any], *, exclude_tools: frozenset[str]
+    ) -> PlaybookDecision:
+        """Same as :meth:`decide`, but RULE-tier rules whose tool is in
+        *exclude_tools* are skipped (Bug #2/#6/#14 root cause).
+
+        Without this, a rule that keeps matching for an already-run tool
+        (e.g. odoo_dbmanager_probe on every Odoo-fingerprint page) pre-empted
+        the LLM tier FOREVER for that host — ``decide()`` checks RULE before
+        LLM unconditionally, and the RULE hit was real even when the handler
+        itself was correctly a no-op on repeat. Skipping lets the scan
+        continue to a DIFFERENT rule, or fall through to the LLM tier when
+        nothing else matches — exactly like a genuinely novel page would.
+
+        ``decide()`` is a thin wrapper over this with an empty exclusion set,
+        so its public signature/behaviour is unchanged for every existing
+        caller (Beta, live-fire runners, test stub orchestrators that only
+        implement ``decide()``).
+        """
         # ── RULE tier ───────────────────────────────────────────
-        decision = self.decide_rule_only(observation)
+        decision = self.decide_rule_only(observation, exclude_tools=exclude_tools)
         if decision is not None:
             return decision
 
