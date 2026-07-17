@@ -1,9 +1,9 @@
 # Agent-Alpha Security Audit — nightly + manual trigger
 #
 # Slow security scans that don't need to run per-PR:
-#   - Trivy  — container image CVE scan (pgvector, redis)
-#   - Syft   — SBOM generation (SPDX + CycloneDX)
-#   - Nuclei — DAST scan against beta lab app
+#   - Trivy  — container image CVE scan (pgvector, redis) → SARIF → Security tab
+#   - Syft   — SBOM generation (SPDX + CycloneDX) → artifact + summary
+#   - Nuclei — DAST scan against beta lab app → SARIF → Security tab + Issue
 #
 # Enterprise pattern: fast scans (bandit/pip-audit/gitleaks) block in ci.yml
 # per-PR; slow scans run nightly and report to the Security tab.
@@ -24,11 +24,11 @@ concurrency:
 jobs:
   security-audit:
     runs-on: [self-hosted, linux, ARM64]
-    continue-on-error: true
     permissions:
-      security-events: write
+      security-events: write  # upload SARIF to Security tab
       actions: read
       contents: read
+      issues: write            # auto-create Issue for Nuclei findings
 
     steps:
       - name: Checkout
@@ -51,13 +51,14 @@ jobs:
             .venv/bin/pip install --upgrade pip
           fi
           .venv/bin/pip install -e . --quiet
+          .venv/bin/pip install flask --quiet  # beta_lab_app dependency
 
       - name: Cache security tool binaries
         id: cache-secbin
         uses: actions/cache@v6
         with:
           path: /tmp/secbin
-          key: secbin-arm64-v2
+          key: secbin-arm64-v3
 
       - name: Install security tools (if not cached)
         if: steps.cache-secbin.outputs.cache-hit != 'true'
@@ -78,18 +79,44 @@ jobs:
           rm -f /tmp/nuclei.zip
           chmod +x /tmp/secbin/*
 
+      # --- Trivy: container CVE scan → SARIF → Security tab ---
       - name: Container scan (Trivy — CVE scan on Docker images used in CI)
-        continue-on-error: true
         run: |
           export PATH="/tmp/secbin:$PATH"
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --format sarif -o trivy-results.sarif pgvector/pgvector:pg16
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --format sarif -o trivy-redis.sarif redis:7-alpine
+          # Also print human-readable summary to job log
+          echo "### Trivy: pgvector/pgvector:pg16"
           trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16 || true
+          echo "### Trivy: redis:7-alpine"
           trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
 
+      - name: Upload Trivy SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-results.sarif
+          category: trivy-pgvector
+
+      - name: Upload Trivy Redis SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-redis.sarif
+          category: trivy-redis
+
+      # --- Syft: SBOM generation → artifact + job summary ---
       - name: Generate SBOM (Syft — Software Bill of Materials)
         run: |
           export PATH="/tmp/secbin:$PATH"
           syft dir:. --output spdx-json=sbom.spdx.json
           syft dir:. --output cyclonedx-json=sbom.cyclonedx.json
+          # Write package count to job summary
+          PKG_COUNT=$(syft dir:. --output json 2>/dev/null | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('artifacts',[])))" 2>/dev/null || echo "unknown")
+          echo "## SBOM Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- Packages detected: $PKG_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- SPDX: sbom.spdx.json" >> $GITHUB_STEP_SUMMARY
+          echo "- CycloneDX: sbom.cyclonedx.json" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload SBOM artifact
         uses: actions/upload-artifact@v7
@@ -100,13 +127,106 @@ jobs:
             sbom.cyclonedx.json
           retention-days: 90
 
+      # --- Nuclei: DAST scan → SARIF → Security tab + auto-Issue ---
       - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
-        continue-on-error: true
         run: |
           export PATH="/tmp/secbin:$PATH"
-          .venv/bin/python -m infra.beta_lab_app &
+          # Beta lab app listens on port 80 by default; use port 5000 via override
+          .venv/bin/python -c "from infra.beta_lab_app import app; app.run(host='127.0.0.1', port=5000)" &
           APP_PID=$!
-          sleep 3
-          nuclei -u http://localhost:5000 -severity medium,high,critical -o nuclei-results.txt || true
+          # Wait for app to be ready (up to 10 seconds)
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:5000/login >/dev/null 2>&1; then
+              echo "Beta lab app is ready on port 5000"
+              break
+            fi
+            sleep 1
+          done
+          # Verify app is actually responding
+          if ! curl -sf http://localhost:5000/login >/dev/null 2>&1; then
+            echo "::warning::Beta lab app did not start — skipping Nuclei scan"
+            echo "No Nuclei findings (app unavailable)" > nuclei-results.txt
+            kill $APP_PID 2>/dev/null || true
+            exit 0
+          fi
+          # Run Nuclei with JSON output for SARIF conversion
+          nuclei -u http://localhost:5000 -severity medium,high,critical -j -o nuclei-results.jsonl || true
           kill $APP_PID 2>/dev/null || true
-          cat nuclei-results.txt 2>/dev/null || echo "No Nuclei findings"
+          # Display findings in job log
+          if [ -s nuclei-results.jsonl ]; then
+            echo "### Nuclei findings:"
+            cat nuclei-results.jsonl
+            # Convert JSONL to SARIF for Security tab upload
+            python3 - <<'PYEOF'
+          import json, sys
+          results = []
+          with open("nuclei-results.jsonl") as f:
+              for line in f:
+                  if line.strip():
+                      r = json.loads(line)
+                      results.append({
+                          "ruleId": r.get("template-id", "nuclei-unknown"),
+                          "level": "error" if r.get("info", {}).get("severity") in ("critical","high") else "warning",
+                          "message": {"text": r.get("info", {}).get("name", "Nuclei finding")},
+                          "locations": [{
+                          "physicalLocation": {
+                              "artifactLocation": {"uri": "infra/beta_lab_app.py"},
+                              "region": {"startLine": 1}
+                          }}]
+                      })
+          sarif = {
+              "version": "2.1.0",
+              "runs": [{
+                  "tool": {"driver": {"name": "Nuclei", "version": "3.11.0"}},
+                  "results": results
+              }]
+          }
+          with open("nuclei-results.sarif", "w") as f:
+              json.dump(sarif, f)
+          print(f"Converted {len(results)} Nuclei findings to SARIF")
+          PYEOF
+          else
+            echo "No Nuclei findings"
+            # Write empty SARIF so the upload step doesn't fail
+            echo '{"version":"2.1.0","runs":[{"tool":{"driver":{"name":"Nuclei"}},"results":[]}]}' > nuclei-results.sarif
+          fi
+
+      - name: Upload Nuclei SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: nuclei-results.sarif
+          category: nuclei-dast
+
+      - name: Create GitHub Issue for Nuclei findings
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -s nuclei-results.jsonl ]; then
+            echo "No Nuclei findings — skipping Issue creation"
+            exit 0
+          fi
+          FINDING_COUNT=$(wc -l < nuclei-results.jsonl)
+          cat > /tmp/nuclei-issue-body.md << 'ISSUEEOF'
+          ## Nuclei DAST Scan Results
+
+          The nightly security audit found finding(s) when scanning the beta lab app.
+
+          ### Findings
+
+          ```json
+          ISSUEEOF
+          cat nuclei-results.jsonl >> /tmp/nuclei-issue-body.md
+          cat >> /tmp/nuclei-issue-body.md << 'ISSUEEOF2'
+          ```
+
+          View full details in the Security tab.
+
+          ISSUEEOF2
+          echo "Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> /tmp/nuclei-issue-body.md
+          gh issue create \
+            --title "[Security Audit] Nuclei DAST: $FINDING_COUNT finding(s) on beta lab app" \
+            --label security \
+            --body-file /tmp/nuclei-issue-body.md || true
+
