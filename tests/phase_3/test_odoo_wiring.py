@@ -5,7 +5,8 @@
 #
 # PINS:
 #   Reachability (production RULE-tier selection):
-#     R1  an Odoo fingerprint deterministically selects odoo_dbmanager_probe.
+#     R1  an Odoo fingerprint deterministically selects odoo_fingerprint (coarse).
+#     R1b a DB-manager body (master_pwd/list_db) selects odoo_dbmanager_probe (narrow).
 #     R2  a plain page selects NEITHER odoo nor another vector (anti-#3 over-probe).
 #     R3  regression: WP / Laravel / SPA rules still select their own tools.
 #   Dispatch (anti-#2: the handler is actually reached + runs the sealed vector):
@@ -57,12 +58,12 @@ def _tool_for(body: str) -> str | None:
 # ── reachability ────────────────────────────────────────────────────
 
 
-def test_odoo_fingerprint_selects_odoo_dbmanager_probe() -> None:
-    assert _tool_for(_ODOO_BODY) == "odoo_dbmanager_probe"
+def test_odoo_fingerprint_selects_odoo_fingerprint_rule() -> None:
+    assert _tool_for(_ODOO_BODY) == "odoo_fingerprint"
 
 
 def test_plain_page_does_not_select_odoo_probe() -> None:
-    assert _tool_for(_PLAIN_BODY) != "odoo_dbmanager_probe"
+    assert _tool_for(_PLAIN_BODY) not in ("odoo_dbmanager_probe", "odoo_fingerprint")
 
 
 def test_wp_and_laravel_rules_unaffected() -> None:
@@ -126,10 +127,11 @@ def test_probe_is_registered_in_dispatch_registry() -> None:
 
 
 def test_dispatch_lands_odoo_exposure_in_graph() -> None:
-    http = _Http({f"https://{_HOST}/web/database/manager": _Resp(200, _ODOO_EXPOSED)})
+    http = _Http({})
     alpha, _ = _alpha(http)
     decision = SimpleNamespace(tool="odoo_dbmanager_probe")
-    n = alpha._handle_odoo_dbmanager(_Resp(200, ""), decision, f"https://{_HOST}/")
+    resp = _Resp(200, _ODOO_EXPOSED)
+    n = alpha._handle_odoo_dbmanager(resp, decision, f"https://{_HOST}/web/database/manager")
     assert n == 1
     vulns = alpha.graph_store.nodes_by_type(NodeType.VULNERABILITY)
     assert any("odoo_dbmanager" in v.id for v in vulns)

@@ -1,0 +1,20 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# Coarse Odoo fingerprint: detects an Odoo surface and seeds /web/database/manager
+# to the frontier for a gated narrow probe. It NEVER directly probes the manager.
+name: odoo_fingerprint
+version: 1
+phase: recon
+# Any one indicator is sufficient (logical OR). Odoo-specific body markers —
+# NOT a loose "/static/" or "/web/login" that would fire on unrelated stacks
+# (anti-#3 over-probe). Intentionally omits master_pwd/list_db; those are the
+# narrow odoo_dbmanager_probe trigger.
+priority: 60
+match:
+  any_indicator:
+    - body_contains: "odoo.define"
+    - body_regex: 'web\.assets_(common|backend|frontend)'
+action:
+  tool: odoo_fingerprint
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
+  rationale: "Odoo surface detected; label asset and seed /web/database/manager for a gated look."

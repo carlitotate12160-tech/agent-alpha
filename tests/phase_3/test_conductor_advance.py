@@ -115,6 +115,7 @@ class FakeEvent:
         self.event_type = event_type
         self.payload = payload
         self.sequence = sequence
+        self.sequence_number = sequence
 
 
 class FakeStore:
@@ -191,8 +192,16 @@ def test_advance_idempotent_under_retry() -> None:
     store = FakeStore([_handoff_event()])
     dispatcher = SpyDispatcher()
 
-    advance_engagement(engagement_id=ENG, auth=auth, event_store=store, dispatcher=dispatcher)
-    advance_engagement(engagement_id=ENG, auth=auth, event_store=store, dispatcher=dispatcher)
+    kwargs = {
+        "engagement_id": ENG,
+        "auth": auth,
+        "event_store": store,
+        "dispatcher": dispatcher,
+        "policy": type("P", (), {"gate_before_agents": lambda self: frozenset()})(),
+        "graph_rebuilder": lambda es, eid: None
+    }
+    advance_engagement(**kwargs)
+    advance_engagement(**kwargs)
     assert len(dispatcher.calls) == 1
 
 
