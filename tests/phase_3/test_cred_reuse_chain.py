@@ -32,7 +32,7 @@ PLAYBOOK_DIR = pathlib.Path(__file__).parent.parent / "phase_2" / "fixtures" / "
 LARAVEL_DEBUG_BODY = (
     "<!DOCTYPE html><html><head><title>Whoops! There was an error.</title></head>"
     "<body><div class='exception'>Illuminate\\Database\\QueryException</div>"
-    "<div>SQLSTATE[HY000] [1045] Access denied for user 'forge'@'localhost'</div>"
+    "<div>SQLSTATE[HY000] [1045] Access refused for user 'forge'@'localhost'</div>"
     "<table><tr><td>APP_ENV</td><td>production</td></tr>"
     "<tr><td>APP_DEBUG</td><td>true</td></tr>"
     "<tr><td>DB_PASSWORD</td><td>s3cr3t-leaked</td></tr></table>"

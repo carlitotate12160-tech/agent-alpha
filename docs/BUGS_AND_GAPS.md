@@ -488,6 +488,6 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 > - Structured decision explanation (ADR §8j-2, Phase 2) — monologue sudah ada, structured reasoning trace = future enhancement
 > - Team coordination / blackboard (ADR §8o-5, Phase 5) — parallel agent coordination, scheduled for Delta/Epsilon phase
 > - HVT / objective-based engagement (ADR §8i, Phase 6) — crown-jewel targeting, belum dibangun
-> - SPA / Playwright rendering (ADR §12.16.1) — shared capability untuk Alpha+Beta, belum dibangun
+> - SPA / Camoufox rendering (ADR §12.16.1) — shared capability untuk Alpha+Beta, belum dibangun
 > - Hypothesis→verify loop (ADR §8j-2 + §12.16.3) — prerequisite untuk external RAG, belum dibangun
 > - Engagement teardown/restore (ADR §12.22 Decision 3) — cleanup tool, build setelah IntelligenceBase

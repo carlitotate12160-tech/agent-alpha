@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome - ExampleCorp</title>
+</head>
+<body>
+    <nav>
+        <a href="/">Home</a>
+        <a href="/about">About</a>
+        <a href="/products">Products</a>
+        <a href="/contact">Contact</a>
+    </nav>
+    <main>
+        <h1>Welcome to ExampleCorp</h1>
+        <p>This is the public home page. Real content served behind Cloudflare.</p>
+        <p>Browse our <a href="/products">product catalog</a> or read the <a href="/about">about page</a>.</p>
+    </main>
+    <footer>
+        <p>&copy; 2026 ExampleCorp. All rights reserved.</p>
+    </footer>
+</body>
+</html>

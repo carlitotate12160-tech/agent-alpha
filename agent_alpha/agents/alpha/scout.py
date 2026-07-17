@@ -14,6 +14,7 @@ any (anti-Lyndon #6).
 from __future__ import annotations
 
 import datetime
+import hashlib
 import inspect
 import re
 import uuid
@@ -98,6 +99,7 @@ class Alpha:
         self._findings: int = 0
         self._analyzable_probes: int = 0
         self._ran_campaigns: set[str] = set()
+        self._body_hashes: set[str] = set()
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -132,6 +134,7 @@ class Alpha:
         self._findings = 0
         self._analyzable_probes = 0
         self._ran_campaigns = set()
+        self._body_hashes = set()
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -238,7 +241,9 @@ class Alpha:
         # Classify the response through the ONE canonical classifier so a WAF/CF
         # block on ANY recon path is recorded as evidence and never dressed as
         # clean (anti-Lyndon #3, single source of truth — anti-#7).
-        verdict = classify_response(status_code=resp.status_code, body=resp.text)
+        verdict = classify_response(
+            status_code=resp.status_code, body=resp.text, headers=dict(resp.headers)
+        )
 
         # A WAF/CF block is a non-analyzable probe, NOT a clean/no-progress
         # result. Record WAF_BLOCKED (reused event) and continue the loop
@@ -254,6 +259,25 @@ class Alpha:
                 self._engagement_id,
                 "alpha",
                 {"host": host, "path": urlparse(url).path, "status_code": resp.status_code},
+            )
+            return {"discovered_nodes": 0, "cost_usd": 0.0}
+
+        if verdict is Verdict.CHALLENGE:
+            host = urlparse(url).hostname or urlparse(url).netloc
+            self._emit(
+                "OBSERVE",
+                f"{url} returned HTTP {resp.status_code}; CDN/WAF challenge — non-analyzable",
+            )
+            self.event_store.append(
+                EventType.WAF_BLOCKED,
+                self._engagement_id,
+                "alpha",
+                {
+                    "host": host,
+                    "path": urlparse(url).path,
+                    "status_code": resp.status_code,
+                    "signal": "cf_challenge",
+                },
             )
             return {"discovered_nodes": 0, "cost_usd": 0.0}
 
@@ -281,6 +305,22 @@ class Alpha:
             "body": resp.text,
             "headers": dict(resp.headers),
         }
+
+        if verdict is Verdict.OK:
+            body_hash = hashlib.sha256(resp.text.encode("utf-8")).hexdigest()
+            if body_hash in self._body_hashes:
+                self._emit(
+                    "OBSERVE",
+                    f"{url} returned HTTP {resp.status_code}; identical body skipped (dedup) — non-analyzable",
+                )
+                self.event_store.append(
+                    EventType.PASSIVE_DISCOVERY,
+                    self._engagement_id,
+                    "alpha",
+                    {"url": url, "reason": "identical_body", "hash": body_hash},
+                )
+                return {"discovered_nodes": 0, "cost_usd": 0.0}
+            self._body_hashes.add(body_hash)
 
         if verdict in (Verdict.NOT_FOUND, Verdict.EMPTY):
             # NOT_FOUND (404 with a body) and EMPTY (any status, blank body):

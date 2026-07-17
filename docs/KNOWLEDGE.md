@@ -232,7 +232,7 @@ class ToolComposer:
 
     # Bypass templates
     # templates/bypass/cf_curl_cffi.py      → curl_cffi TLS impersonation
-    # templates/bypass/cf_playwright.py     → Playwright Turnstile bypass
+    # templates/bypass/cf_camoufox.py      → Camoufox Turnstile bypass
     # templates/bypass/waf_tamper.py        → WAF bypass patterns
 ```
 

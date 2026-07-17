@@ -164,7 +164,7 @@ agent_alpha/intelligence/
     ├── regional/   (erp_rce, his_sqli, egov_bypass, banking_portal)  # category templates, client-owned + SOW only
     ├── cms/        (wp_full_chain, laravel_debug, joomla_chain)
     ├── cloud/      (aws_metadata SSRF→IAM, gcs_bucket)
-    └── bypass/     (cf_curl_cffi, cf_playwright/Turnstile, waf_tamper)
+    └── bypass/     (cf_curl_cffi, cf_camoufox/Turnstile, waf_tamper)
 ```
 
 Logic: SCOUT (Alpha) detects facts (e.g., Laravel 9.x + MySQL + /storage writable + no WAF). ANCHOR (Gamma) does not run generic scanner — ToolComposer.compose(base_template, context) generates exploit script specific to this target. Because execution is in Go, output can be a deployable single-binary. Template names denote system *categories* (banking portal, hospital information system, e-gov portal, ERP), never specific organizations; applied only to client-owned systems under signed SOW.
@@ -436,7 +436,7 @@ Initial access (ACTIVE_APPROVED), credential spray, chat-while-task-runs (§8a),
 
 **Tool detail:** See `OPERATIONAL_REFERENCE.md` §O1 (Beta) for the full strike tool catalog. Per ADR §12.22:
 - **Current (sealed):** CredReuseTool (vaulted credential reuse), DefaultCredsTool (6 platforms), CredentialApplicator seam (HttpFormApplicator + MySqlApplicator). Conductor auto-advance Alpha→Beta via Celery.
-- **Target (WRAP):** browser automation (Playwright + stealth), proxy infrastructure (BrightData Web Unlocker), CAPTCHA bypass (2Captcha), protocol spray (SSH/FTP/IMAP).
+- **Target (WRAP):** browser automation (Camoufox + anti-fingerprint), proxy infrastructure (BrightData Web Unlocker), CAPTCHA bypass (2Captcha), protocol spray (SSH/FTP/IMAP).
 - **BUILD INTERNAL:** credential applicator dispatch, false-success guard, scope-gated DB endpoint check — graph-aware logic standalone tools lack.
 - **Note:** Consensus tier (§8d) deferred to Phase 4 per §12.23.
 
@@ -836,7 +836,7 @@ architecture: mixing capability with role) and pollutes the clean role taxonomy.
 **Placement.**
 - **PayloadGenerator** → the **LLM payload role** (DeepSeek, direct, §12.15) + **ToolComposer**.
   Invoked BY Gamma/Beta; never a standalone agent.
-- **Browser (Playwright)** → a **shared capability** in the deterministic layer. Used by BOTH
+- **Browser (Camoufox)** → a **shared capability** in the deterministic layer. Used by BOTH
   Alpha (JS/SPA recon, client-rendered targets) AND Beta (anti-detect spray + Cloudflare/
   Turnstile bypass). Built ONCE, injected into whoever needs it — never duplicated per agent.
 - **Proxy** → a tool (rotation: residential/SOCKS5) PLUS an explicit **proxy-health / OPSEC

@@ -46,7 +46,7 @@ PLANTED_APP_KEY = "base64:TESTFIXTUREAPPKEY9999999999999999999999AAAA="
 LEAKY_LARAVEL_BODY = (
     "<!DOCTYPE html><html><head><title>Whoops! There was an error.</title></head>"
     "<body><div class='exception'>Illuminate\\Database\\QueryException</div>"
-    "<div>SQLSTATE[HY000] [1045] Access denied</div><table>"
+    "<div>SQLSTATE[HY000] [1045] Access refused</div><table>"
     "<tr><td>APP_DEBUG</td><td>true</td></tr>"
     f"<tr><td>APP_KEY</td><td>{PLANTED_APP_KEY}</td></tr>"
     f"<tr><td>DB_PASSWORD</td><td>{PLANTED_DB_PASSWORD}</td></tr>"
