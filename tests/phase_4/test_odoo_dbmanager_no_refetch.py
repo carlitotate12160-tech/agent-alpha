@@ -110,7 +110,9 @@ def test_n2a_direct_persists_exposure_from_injected_body() -> None:
 
     assert added >= 1, "an EXPOSED manager body must persist at least the exposure node"
     vuln_ids = {n.id for n in graph.nodes_by_type(NodeType.VULNERABILITY)}
-    assert _VULN_ID in vuln_ids, "the exposure VULNERABILITY is minted purely from the injected body"
+    assert _VULN_ID in vuln_ids, (
+        "the exposure VULNERABILITY is minted purely from the injected body"
+    )
 
 
 def test_n2b_handler_persists_without_refetching() -> None:
@@ -131,9 +133,7 @@ def test_n2b_handler_persists_without_refetching() -> None:
     alpha._ran_campaigns = set()
     alpha._findings = 0
 
-    decision = PlaybookDecision(
-        tool="odoo_dbmanager_probe", tier="rule", technique_id="T1595.002"
-    )
+    decision = PlaybookDecision(tool="odoo_dbmanager_probe", tier="rule", technique_id="T1595.002")
     # The handler is handed the response the loop ALREADY fetched; it must classify
     # THAT body and never reach back to the network.
     alpha._handle_odoo_dbmanager(FakeResponse(200, _EXPOSED_MANAGER_BODY), decision, _MANAGER_URL)

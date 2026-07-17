@@ -198,7 +198,7 @@ def test_advance_idempotent_under_retry() -> None:
         "event_store": store,
         "dispatcher": dispatcher,
         "policy": type("P", (), {"gate_before_agents": lambda self: frozenset()})(),
-        "graph_rebuilder": lambda es, eid: None
+        "graph_rebuilder": lambda es, eid: None,
     }
     advance_engagement(**kwargs)
     advance_engagement(**kwargs)
