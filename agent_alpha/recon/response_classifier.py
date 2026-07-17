@@ -53,25 +53,28 @@ class Verdict(enum.StrEnum):
 # triggering CHALLENGE (the reflection / self-DoS landmine).
 
 # STRONG body markers — lowercase-compared. A body containing any of these is a
-# CDN/WAF interstitial regardless of headers.
+# CDN/WAF interstitial regardless of headers.  These are CDN-internal tokens
+# that never appear in legitimate page text (CodeRabbit #188).
 CHALLENGE_STRONG_MARKERS: frozenset[str] = frozenset(
     {
-        "just a moment",
         "cf-browser-verification",
         "challenge-platform",
         "_cf_chl_opt",
-        "checking your browser",
         "sucuri_cloudproxy",
-        "incapsula",
-        "imperva",
     }
 )
 
 # WEAK body markers — require a corroborating :data:`CHALLENGE_HEADER_HINT`.
-# These are generic phrases ("access denied", "reference #") that appear in
-# legitimate pages; they only produce CHALLENGE when a vendor header is present.
+# These are natural-language / brand-name strings ("just a moment",
+# "checking your browser", "incapsula", "imperva", "access denied",
+# "reference #") that appear in legitimate pages; they only produce CHALLENGE
+# when a vendor header is present (CodeRabbit #188).
 CHALLENGE_WEAK_MARKERS: frozenset[str] = frozenset(
     {
+        "just a moment",
+        "checking your browser",
+        "incapsula",
+        "imperva",
         "access denied",
         "reference #",
     }
@@ -143,7 +146,7 @@ def _has_challenge_header_hint(headers: dict[str, str] | None) -> bool:
     """
     if not headers:
         return False
-    headers_lower = {k.lower(): v.lower() for k, v in headers.items()}
+    headers_lower = {str(k).lower(): str(v).lower() for k, v in headers.items()}
     for name, substr in CHALLENGE_HEADER_HINTS:
         if name.endswith("*"):
             prefix = name[:-1]

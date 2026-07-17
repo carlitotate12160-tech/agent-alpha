@@ -14,18 +14,30 @@ tier (Bug #18/#19).
 corroborate but MUST NOT alone produce `CHALLENGE` — a legit 200 behind
 `Server: cloudflare` stays `OK`.
 
-### CHALLENGE_BODY_MARKERS
+### CHALLENGE_STRONG_MARKERS
 
-Lowercase-compared. A body containing any of these is a CDN/WAF interstitial.
+Lowercase-compared. A body containing any of these is a CDN/WAF interstitial
+**regardless of headers** — these are CDN-internal tokens that never appear
+in legitimate page text (CodeRabbit #188).
+
+| Marker | CDN/WAF |
+|---|---|
+| `cf-browser-verification` | Cloudflare |
+| `challenge-platform` | Cloudflare |
+| `_cf_chl_opt` | Cloudflare |
+| `sucuri_cloudproxy` | Sucuri |
+
+### CHALLENGE_WEAK_MARKERS
+
+Lowercase-compared. A body containing any of these **requires** a
+corroborating `CHALLENGE_HEADER_HINT` to produce `CHALLENGE` — these are
+natural-language / brand-name strings that appear in legitimate pages
+(CodeRabbit #188).
 
 | Marker | CDN/WAF |
 |---|---|
 | `just a moment` | Cloudflare |
-| `cf-browser-verification` | Cloudflare |
-| `challenge-platform` | Cloudflare |
-| `_cf_chl_opt` | Cloudflare |
 | `checking your browser` | Cloudflare / Sucuri |
-| `sucuri_cloudproxy` | Sucuri |
 | `incapsula` | Incapsula |
 | `imperva` | Imperva |
 | `access denied` | Akamai |

@@ -1547,7 +1547,7 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Decision 1 — CHALLENGE verdict, body+header aware.** `classify_response()` gains a `CHALLENGE` verdict for CDN/WAF interstitials (Cloudflare "Just a moment"/"cf-browser-verification"/challenge-platform, Sucuri, Imperva/Incapsula, Akamai reference-ID) detected from body AND response headers (`Server: cloudflare`, `CF-Ray`). Contract widens to accept headers (backward compatible; status-only paths unchanged). `CHALLENGE`, like `UNSUPPORTED_MEDIA_TYPE`, skips BOTH rule and LLM tiers, no frontier expansion, no asset-node persist — but still records a WAF/CF-blocked audit event.
 
-**Decision 2 — identical-body dedup.** Scout hashes each OK body (SHA-256) per engagement; a repeat hash short-circuits before any tier (skip LLM/RULE, still audit-persist). Kills "same CDN page analyzed N times" (Bug #20); with mod_autoindex sort-param stripping (Bug #17), the sort-variant explosion.
+**Decision 2 — identical-body dedup.** Scout hashes each OK body (SHA-256) per engagement; a repeat hash short-circuits before any tier (skip LLM/RULE, still audit-persist). Kills "same CDN page analyzed N times" (Bug #20); with mod_autoindex sort-param stripping (Bug #17), the sort-variant explosion. **Note:** event-source body hash (per-run idempotency state) is deferred to step-resume (GAP-002/§12.29) and must then cover ALL per-run idempotency state uniformly.
 
 **Decision 3 — greedy-rule false-positive guard.** Page-wide markers ("Login"/"Sign in"/Odoo asset links) may no longer, alone, select a payable probe. A rule fires only on a specific surface (login form + `type=password`, or URL/status precondition) and NEVER on 404 (Bug #2/#14).
 
