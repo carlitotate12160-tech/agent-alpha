@@ -254,3 +254,56 @@ def test_reflection_guard_legit_page_with_access_denied_text_is_ok() -> None:
         "</article></body></html>"
     )
     assert classify_response(status_code=200, body=body) is Verdict.OK
+
+
+# ---------------------------------------------------------------------------
+# #188 — Natural-language markers need header; internal tokens stay STRONG;
+#        non-str headers must not crash (CWE-693)
+# ---------------------------------------------------------------------------
+# CodeRabbit #188 / CodeQL CWE-693: "just a moment", "checking your browser",
+# "incapsula", "imperva" are natural-language / brand-name strings that appear
+# in legitimate page text.  They are moved from STRONG to WEAK so a body-only
+# match (no vendor header) is OK, while a real CDN challenge (which always
+# carries a vendor header) is still CHALLENGE via WEAK+header.
+#
+# Internal tokens (_cf_chl_opt, cf-browser-verification, challenge-platform,
+# sucuri_cloudproxy) stay STRONG — they are CDN-internal identifiers that
+# never appear in legitimate content.
+#
+# t_natural_marker_needs_header  — RED: "just a moment" body-only → OK (was CHALLENGE)
+# t_internal_token_body_only     — GREEN: _cf_chl_opt body-only → CHALLENGE (STRONG stays)
+# t_nonstr_header_no_crash       — RED: non-str headers crash (CWE-693)
+
+
+def test_natural_marker_needs_header() -> None:
+    """A body with ONLY a natural-language marker ('just a moment') and NO
+    vendor header must be Verdict.OK — it could be legitimate page text.
+    The same body WITH a Cloudflare vendor header must be Verdict.CHALLENGE."""
+    body = "<html><body><h1>Just a moment...</h1><p>Please wait.</p></body></html>"
+    # No vendor header → OK (natural-language marker is WEAK)
+    assert classify_response(status_code=200, body=body) is Verdict.OK
+    # With CF vendor headers → CHALLENGE (WEAK + header hint)
+    assert classify_response(status_code=200, body=body, headers=_CF_HEADERS) is Verdict.CHALLENGE
+
+
+def test_internal_token_body_only() -> None:
+    """A body containing an internal CDN token (_cf_chl_opt) with NO vendor
+    header must be Verdict.CHALLENGE — internal tokens are STRONG markers
+    that never appear in legitimate content."""
+    body = "<html><body><script>var _cf_chl_opt = {};</script></body></html>"
+    assert classify_response(status_code=200, body=body) is Verdict.CHALLENGE
+
+
+def test_nonstr_header_no_crash() -> None:
+    """classify_response must not raise when headers contain non-str values
+    (bytes, list, None) — fail-safe coercion (CWE-693).  No challenge marker
+    is present so the verdict must be OK."""
+    headers = {
+        "X-Weird": b"bytes",
+        "Set-Cookie": ["a", "b"],
+        "X-None": None,
+    }
+    # If classify_response raises on non-str header values, pytest surfaces
+    # the traceback directly — no try/except needed (CWE-693 fail-safe).
+    verdict = classify_response(status_code=200, body="hi", headers=headers)
+    assert verdict is Verdict.OK
