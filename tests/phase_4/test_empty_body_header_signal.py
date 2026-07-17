@@ -84,9 +84,7 @@ def test_empty_body_401_basic_auth_is_fingerprinted() -> None:
     alpha.run_recon(eid, _ROOT)
 
     labels = {
-        label
-        for a in graph.nodes_by_type(NodeType.ASSET)
-        for label in a.properties.tech_stack
+        label for a in graph.nodes_by_type(NodeType.ASSET) for label in a.properties.tech_stack
     }
     assert "http_basic_auth" in labels  # empty body no longer hides the header signal
 
