@@ -58,6 +58,11 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
         label="graphql",
         confidence=0.85,
     ),
+    CapabilitySpec(
+        tool="odoo_fingerprint",
+        label="odoo",
+        frontier_seeds=("/web/database/manager",),
+    ),
 )
 
 _BY_TOOL: dict[str, CapabilitySpec] = {spec.tool: spec for spec in CAPABILITY_CATALOG}

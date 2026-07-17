@@ -1,20 +1,21 @@
 # RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
-# Fires when an Odoo surface is fingerprinted, so the deterministic path can
-# reach the odoo_dbmanager_probe recon vector (anti-#2: production selection).
-name: odoo_dbmanager_exposure
+# NARROW rule: fires ONLY on a real /web/database/manager body carrying the
+# DB-manager markers (master_pwd, list_db). The coarse odoo_fingerprint rule
+# handles generic Odoo surfaces and seeds this path to the frontier (anti-#2:
+# no LLM starvation, no double-recon re-fetch).
+name: odoo_dbmanager_exposed
 version: 1
 phase: recon
-# Any one indicator is sufficient (logical OR). Odoo-specific asset markers —
-# NOT a loose "/static/" that would fire on unrelated stacks (anti-#3 over-probe).
+# Any one indicator is sufficient (logical OR). Manager-page body markers ONLY —
+# deliberately NOT /web/static/, odoo.define, or /web/login (those are the broad
+# fingerprint rule, and putting them here re-introduces Bug #2 starvation).
 priority: 50
 match:
   any_indicator:
-    - body_contains: "/web/static/"
-    - body_regex: 'web\.assets_(common|backend|frontend)'
-    - body_contains: "odoo.define"
-    - body_contains: "/web/login"
+    - body_contains: "master_pwd"
+    - body_contains: "list_db"
 action:
   tool: odoo_dbmanager_probe
   tier: rule
   technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
-  rationale: "Odoo detected; probe /web/database/manager for an exposed database manager."
+  rationale: "Odoo DB-manager markers present; classify /web/database/manager for exposure."

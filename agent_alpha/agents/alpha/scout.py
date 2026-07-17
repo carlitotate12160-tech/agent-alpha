@@ -88,6 +88,7 @@ class Alpha:
             "s3_bucket_fingerprint": self._handle_capability_fingerprint,
             "surface_discovery_probe": self._handle_surface_discovery,
             "graphql_fingerprint": self._handle_capability_fingerprint,
+            "odoo_fingerprint": self._handle_capability_fingerprint,
         }
 
         # Per-run state, initialised in run_recon().
@@ -543,13 +544,13 @@ class Alpha:
         if not host or not self.authorization.is_in_scope(self._engagement_id, host):
             return 0
 
-        from agent_alpha.recon.odoo_dbmanager_probe import verify_odoo_dbmanager_exposure
+        from agent_alpha.recon.odoo_dbmanager_probe import process_odoo_dbmanager_hit
 
-        exposures = verify_odoo_dbmanager_exposure(
+        exposures = process_odoo_dbmanager_hit(
+            resp=resp,
+            url=url,
             engagement_id=self._engagement_id,
             auth=self.authorization,
-            http_client=self.http_client,
-            scope_hosts=[host],
             graph_store=self.graph_store,
             event_store=self.event_store,
         )
@@ -599,6 +600,10 @@ class Alpha:
         increments ``self._findings`` (anti-Lyndon #3: fingerprint != finding).
         Acting on a seeded surface is a gated Gamma concern (ADR §12.26).
         """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
         spec = capability_for_tool(decision.tool)
         if spec is None:
             return 0

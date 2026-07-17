@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 from typing import Any
+from urllib.parse import urlparse
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.http_client import HttpClientProtocol
@@ -74,6 +75,82 @@ def classify_odoo_dbmanager(body: str) -> str:
     return PRESENT_LOCKED
 
 
+def process_odoo_dbmanager_hit(
+    *,
+    resp: Any,
+    url: str,
+    engagement_id: str,
+    auth: Any,
+    graph_store: Any,
+    event_store: Any,
+) -> int:
+    """Process a single Odoo DB manager response without an HTTP client."""
+    current_state = auth.get_state(engagement_id)
+    if STATE_RANK.get(current_state, 0) < STATE_RANK[a2a_pb2.RECON_ONLY]:
+        return 0
+
+    host = urlparse(url).hostname
+    if not host or not auth.is_in_scope(engagement_id, host):
+        return 0
+
+    status = getattr(resp, "status_code", 0)
+    body = getattr(resp, "text", "")
+
+    if classify_response(status_code=status, body=body) is Verdict.BLOCKED:
+        event_store.append(
+            EventType.WAF_BLOCKED,
+            engagement_id,
+            "alpha",
+            {"host": host, "path": ODOO_DBMANAGER_PATH, "status_code": status},
+        )
+        return 0
+
+    if status != 200:
+        return 0
+
+    verdict = classify_odoo_dbmanager(body)
+    if verdict == NOT_ODOO:
+        return 0
+
+    now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+
+    asset_node = AttackNode(
+        id=f"asset:{host}",
+        type=NodeType.ASSET,
+        properties=AssetProperties(host=host, tech_stack=["odoo"]),
+        confidence=0.85,
+        agent="alpha",
+        timestamp_utc=now_utc,
+    )
+    persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
+
+    if verdict != EXPOSED:
+        return 0
+
+    vuln_node = AttackNode(
+        id=f"vuln:{host}:odoo_dbmanager_exposed",
+        type=NodeType.VULNERABILITY,
+        properties=VulnerabilityProperties(
+            affected_service="web",
+            exploit_available=False,
+        ),
+        confidence=0.85,
+        agent="alpha",
+        timestamp_utc=now_utc,
+    )
+    persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
+
+    edge = AttackEdge(
+        source_id=asset_node.id,
+        target_id=vuln_node.id,
+        relationship=RelationshipType.EXPLOITS,
+        confidence=0.85,
+    )
+    persist_edge(event_store, graph_store, engagement_id, edge, agent="alpha")
+
+    return 1
+
+
 def verify_odoo_dbmanager_exposure(
     *,
     engagement_id: str,
@@ -104,60 +181,13 @@ def verify_odoo_dbmanager_exposure(
         except Exception:
             continue  # network error → skip, not a finding
 
-        status = getattr(resp, "status_code", 0)
-        body = getattr(resp, "text", "")
-
-        if classify_response(status_code=status, body=body) is Verdict.BLOCKED:
-            event_store.append(
-                EventType.WAF_BLOCKED,
-                engagement_id,
-                "alpha",
-                {"host": host, "path": ODOO_DBMANAGER_PATH, "status_code": status},
-            )
-            continue  # WAF block is evidence, NOT "clean / not-vulnerable"
-
-        if status != 200:
-            continue
-
-        verdict = classify_odoo_dbmanager(body)
-        if verdict == NOT_ODOO:
-            continue
-
-        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-
-        asset_node = AttackNode(
-            id=f"asset:{host}",
-            type=NodeType.ASSET,
-            properties=AssetProperties(host=host, tech_stack=["odoo"]),
-            confidence=0.85,
-            agent="alpha",
-            timestamp_utc=now_utc,
+        exposures += process_odoo_dbmanager_hit(
+            resp=resp,
+            url=url,
+            engagement_id=engagement_id,
+            auth=auth,
+            graph_store=graph_store,
+            event_store=event_store,
         )
-        persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
-
-        if verdict != EXPOSED:
-            continue  # present_locked → fingerprint only, no exposure finding (anti-#3)
-
-        vuln_node = AttackNode(
-            id=f"vuln:{host}:odoo_dbmanager_exposed",
-            type=NodeType.VULNERABILITY,
-            properties=VulnerabilityProperties(
-                affected_service="web",
-                exploit_available=False,
-            ),
-            confidence=0.85,
-            agent="alpha",
-            timestamp_utc=now_utc,
-        )
-        persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
-
-        edge = AttackEdge(
-            source_id=asset_node.id,
-            target_id=vuln_node.id,
-            relationship=RelationshipType.EXPLOITS,
-            confidence=0.85,
-        )
-        persist_edge(event_store, graph_store, engagement_id, edge, agent="alpha")
-        exposures += 1
 
     return exposures
