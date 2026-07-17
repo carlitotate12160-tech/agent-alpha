@@ -28,18 +28,21 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 8 | Passive discovery not enqueued | Medium | Low | Subdomain coverage |
 | 9 | URL backslash not normalized | Low | Low | Crawl noise |
 | 17 | Apache mod_autoindex sort URL explosion | High | Low | Crawl noise + LLM waste |
-| 18 | Cloudflare JS challenge (200) not classified | High | Medium | CF-protected target recon |
-| 19 | Response classifier status-only, no body-content | Medium | Medium | CDN/WAF challenge detection |
-| 20 | Identical body dedup — same CDN page analyzed N times | Medium | Low | LLM token waste |
+| 18 | Cloudflare JS challenge (200) not classified | High | Medium | CF-protected target recon | **DONE** (PR #188) |
+| 19 | Response classifier status-only, no body-content | Medium | Medium | CDN/WAF challenge detection | **DONE** (PR #188) |
+| 20 | Identical body dedup — same CDN page analyzed N times | Medium | Low | LLM token waste | **DONE** (PR #188) |
 | 16 | Runner script `Report.chains` AttributeError | Low | Low | Local runner scripts |
 | 21 | LLM-tier tool re-selection (exclude_tools not passed to LLM) | High | Medium | LLM token waste, tool starvation |
 
 ## Recommended Fix Order
 
 1. Bug #10 (HTTP 415) — DONE (PR #180, commit 56056f9).
-2. Bug #18 (CF JS challenge 200) + Bug #20 (identical body dedup) — stop token burn
-   on CF-protected targets. Bug #18: body-content detection + `CHALLENGE` verdict.
-   Bug #20: body hash dedup. Quick win for LLM cost reduction.
+2. Bug #18 (CF JS challenge 200) + Bug #19 (body-content classifier) + Bug #20
+   (identical body dedup) — stop token burn on CF-protected targets.
+   — **DONE**: Bug #18/#19 fixed in PR #188 (`Verdict.CHALLENGE` + body-marker
+   detection + optional `headers` param). Bug #20 fixed in PR #188 (SHA-256
+   body hash dedup in scout). R2 follow-up: marker tiering (STRONG/WEAK) +
+   curated-header dedup key — tests pinned RED in PR #188.
 3. Bug #14 (default_creds rule) + Bug #2 (Odoo rule) — same pattern: greedy rules
    with page-wide markers. Fix together: make rules match only on specific forms/URLs.
    — **DONE**: Bug #14 fixed in PR #181 (indicator narrowing). Bug #2 fixed in PR #186
@@ -50,11 +53,13 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 5. Bug #6 (idempotency) — after #14 and #2 are fixed, idempotency no longer blocks the LLM.
    — **DONE**: Fixed in PR #181 (`decide_excluding` + `_ran_campaigns`) and confirmed
    stable in PR #186 (`odoo_fingerprint` recorded as run-once campaign).
-6. Bug #13 (WP rule Cloudways) — partially addressed by Bug #10 fix, but Bug #18
-   (CF challenge) is still a blocker. Fix Bug #18 to fully resolve Bug #13.
+6. Bug #13 (WP rule Cloudways) — partially addressed by Bug #10 fix, and Bug #18
+   (CF challenge) is now resolved in PR #188. Bug #13 is fully resolved.
 7. Bug #15 (trailing slash) + Bug #12 (fragment dedup) — quick win, URL normalization.
 8. Bug #19 (body-content classifier) — generalize Bug #18 for other CDNs (Sucuri,
    Imperva, Akamai). After Bug #18 pattern is proven.
+   — **DONE**: Fixed in PR #188 (CHALLENGE_BODY_MARKERS covers Sucuri, Incapsula,
+   Imperva, Akamai + CHALLENGE_HEADER_HINTS for corroboration).
 9. Bug #5 (report endpoint) — quick win, endpoint only.
 10. Bug #3 (report persist) — requires #5 for the endpoint.
 11. Bug #8 (passive discovery enqueue) — quick win.
@@ -488,6 +493,6 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 > - Structured decision explanation (ADR §8j-2, Phase 2) — monologue sudah ada, structured reasoning trace = future enhancement
 > - Team coordination / blackboard (ADR §8o-5, Phase 5) — parallel agent coordination, scheduled for Delta/Epsilon phase
 > - HVT / objective-based engagement (ADR §8i, Phase 6) — crown-jewel targeting, belum dibangun
-> - SPA / Playwright rendering (ADR §12.16.1) — shared capability untuk Alpha+Beta, belum dibangun
+> - SPA / Camoufox rendering (ADR §12.16.1) — shared capability untuk Alpha+Beta, belum dibangun
 > - Hypothesis→verify loop (ADR §8j-2 + §12.16.3) — prerequisite untuk external RAG, belum dibangun
 > - Engagement teardown/restore (ADR §12.22 Decision 3) — cleanup tool, build setelah IntelligenceBase

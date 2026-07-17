@@ -7,10 +7,12 @@ responses through :func:`classify_response` so the WAF/CF block rule has a
 SINGLE source of truth (anti-Lyndon #7) and a block is never silently dressed
 as "clean" (anti-Lyndon #3).
 
-The verdict is deliberately conservative and status-only in slice-1: a 200 with
-a real body is ``OK`` and is NEVER ``BLOCKED``, even if the body happens to
-contain the word "forbidden". Only the block status codes (403 / 429 / 503)
-carry the ``BLOCKED`` verdict.
+A 200 with a real body is ``OK`` and is NEVER ``BLOCKED``, even if the body
+happens to contain the word "forbidden". Only the block status codes
+(403 / 429 / 503) carry the ``BLOCKED`` verdict. The one exception is a CDN/WAF
+interstitial page (Cloudflare "Just a moment…", Sucuri, Incapsula, Akamai)
+served at HTTP 200: the body-marker-gated ``CHALLENGE`` verdict catches it
+before it can reach ``OK`` and burn LLM tokens (ADR §12.27 D1, Bug #18/#19).
 
 PURE: no I/O, no logging, no side effects — a plain function of its arguments.
 """
@@ -29,7 +31,73 @@ class Verdict(enum.StrEnum):
     TRANSPORT_FAIL = "transport_fail"
     BLOCKED = "blocked"
     UNSUPPORTED_MEDIA_TYPE = "unsupported_media_type"
+    CHALLENGE = "challenge"
 
+
+# --- CHALLENGE detection (ADR §12.27 D1) --------------------------------------
+#
+# A CDN/WAF interstitial page (Cloudflare "Just a moment...", Sucuri, Incapsula,
+# Akamai) served at HTTP 200 is a challenge, not real content.  Without detection
+# it reads as OK → token burn in the LLM tier (Bug #18/#19).
+#
+# SINGLE source of truth (anti-#7): the constants below are the only place these
+# patterns live. docs/RECON_CONDITION_CATALOG.md mirrors them as documentation.
+#
+# PRECISION-CRITICAL: a CHALLENGE verdict requires a BODY marker. Headers may
+# corroborate but MUST NOT alone produce CHALLENGE — a legit 200 behind
+# Server: cloudflare stays OK (the FP landmine).
+#
+# R2 tiering (CodeRabbit #3/#4): markers are split into STRONG (body alone
+# suffices) and WEAK (need a corroborating header hint).  This prevents
+# "access denied" / "reference #" in legitimate article text from false-
+# triggering CHALLENGE (the reflection / self-DoS landmine).
+
+# STRONG body markers — lowercase-compared. A body containing any of these is a
+# CDN/WAF interstitial regardless of headers.
+CHALLENGE_STRONG_MARKERS: frozenset[str] = frozenset(
+    {
+        "just a moment",
+        "cf-browser-verification",
+        "challenge-platform",
+        "_cf_chl_opt",
+        "checking your browser",
+        "sucuri_cloudproxy",
+        "incapsula",
+        "imperva",
+    }
+)
+
+# WEAK body markers — require a corroborating :data:`CHALLENGE_HEADER_HINT`.
+# These are generic phrases ("access denied", "reference #") that appear in
+# legitimate pages; they only produce CHALLENGE when a vendor header is present.
+CHALLENGE_WEAK_MARKERS: frozenset[str] = frozenset(
+    {
+        "access denied",
+        "reference #",
+    }
+)
+
+# Header hints — corroborating ONLY. Presence of any hint RAISES confidence but
+# NEVER alone produces CHALLENGE.  Each entry is (header_name_lower,
+# value_substr_lower) where "" means "header presence is enough".
+# A name ending in "*" is a prefix match (e.g. "x-akamai-*").
+CHALLENGE_HEADER_HINTS: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("server", "cloudflare"),
+        ("cf-ray", ""),
+        ("x-sucuri-id", ""),
+        ("x-iinfo", ""),
+        ("server", "akamaighost"),
+        ("x-akamai-*", ""),
+    }
+)
+
+# Volatile headers that MUST NOT enter the body-dedup hash key (Bug #20).
+# Hashing these would defeat dedup entirely — every request has a different
+# CF-Ray / Date / Set-Cookie.  scout.py imports this for its dedup whitelist.
+VOLATILE_HEADERS: frozenset[str] = frozenset(
+    {"cf-ray", "date", "set-cookie", "age", "x-request-id"}
+)
 
 # Block status codes: WAF/CF/rate-limit/challenge signals. Recorded as evidence
 # (WAF_BLOCKED), never as "clean / not vulnerable".
@@ -53,10 +121,48 @@ _NOT_FOUND_STATUS_CODES: frozenset[int] = frozenset({404, 410})
 _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES: frozenset[int] = frozenset({415})
 
 
+def _is_challenge(body: str, headers: dict[str, str] | None) -> bool:
+    """Return True if body matches CHALLENGE rules.
+
+    Rule: CHALLENGE iff (any STRONG body marker) OR (any WEAK body marker AND
+    any header hint present).  ``headers=None`` is treated as no headers —
+    weak markers alone never trigger CHALLENGE.
+    """
+    body_lower = body.lower()
+    if any(marker in body_lower for marker in CHALLENGE_STRONG_MARKERS):
+        return True
+    if any(marker in body_lower for marker in CHALLENGE_WEAK_MARKERS):
+        return _has_challenge_header_hint(headers)
+    return False
+
+
+def _has_challenge_header_hint(headers: dict[str, str] | None) -> bool:
+    """Return True if *headers* contain any :data:`CHALLENGE_HEADER_HINT`.
+
+    Corroborating only — never used as the sole trigger for CHALLENGE.
+    """
+    if not headers:
+        return False
+    headers_lower = {k.lower(): v.lower() for k, v in headers.items()}
+    for name, substr in CHALLENGE_HEADER_HINTS:
+        if name.endswith("*"):
+            prefix = name[:-1]
+            if any(
+                k.startswith(prefix) and (not substr or substr in v)
+                for k, v in headers_lower.items()
+            ):
+                return True
+        else:
+            if name in headers_lower and (not substr or substr in headers_lower[name]):
+                return True
+    return False
+
+
 def classify_response(
     *,
     status_code: int,
     body: str,
+    headers: dict[str, str] | None = None,
     transport_error: bool = False,
 ) -> Verdict:
     """Classify a fetched recon response into a single :class:`Verdict`.
@@ -65,20 +171,31 @@ def classify_response(
       1. ``transport_error`` (host down, DNS, connect/read timeout) -> ``TRANSPORT_FAIL``.
       2. status in (403, 429, 503) -> ``BLOCKED`` (a block is evidence, not "clean").
       3. empty / whitespace-only body -> ``EMPTY`` (reachable but non-analyzable).
-      4. status in (404, 410) WITH a body -> ``NOT_FOUND`` (missing path; the
+      4. body contains a :data:`CHALLENGE_STRONG_MARKER` -> ``CHALLENGE``, or
+         body contains a :data:`CHALLENGE_WEAK_MARKER` AND a
+         :data:`CHALLENGE_HEADER_HINT` is present -> ``CHALLENGE`` (a CDN/WAF
+         interstitial at any status incl. 200; non-analyzable — no LLM, no
+         frontier, no asset, but a WAF/CF audit event IS recorded). Headers may
+         corroborate but NEVER alone produce CHALLENGE (a legit 200 behind
+         Server: cloudflare stays OK).
+      5. status in (404, 410) WITH a body -> ``NOT_FOUND`` (missing path; the
          RULE tier may still look — a debug/error page can leak on a 404 — but it
          is NEVER escalated to the LLM, unlike ``OK`` (F2 token-burn guard).
-      5. status == 415 WITH a body -> ``UNSUPPORTED_MEDIA_TYPE`` (Bug #10 — an
+      6. status == 415 WITH a body -> ``UNSUPPORTED_MEDIA_TYPE`` (Bug #10 — an
          origin content-negotiation rejection, e.g. Cloudways/WP without an
          Accept header. NOT a WAF block, NOT the target's real content — never
          escalated to the LLM AND never given to the RULE tier, unlike NOT_FOUND,
          because the body is the origin's generic error page and matching a
          playbook rule against it reproduces Bug #2/#14's page-wide-marker
          false-positive pattern).
-      6. otherwise -> ``OK``.
+      7. otherwise -> ``OK``.
 
-    Conservative by design: a 200 with a real body is ``OK`` and is never
-    ``BLOCKED`` — only the status code carries the block verdict in slice-1.
+    Backward-compatible: omitting ``headers`` reproduces today's verdicts
+    byte-for-byte (the CHALLENGE check is body-marker-gated and only fires on
+    bodies containing a CDN/WAF interstitial marker — a case that was previously
+    a false-OK / token burn, now correctly caught).
+
+    PURE: no I/O, no logging, no side effects — a plain function of its arguments.
     """
     if transport_error:
         return Verdict.TRANSPORT_FAIL
@@ -86,6 +203,8 @@ def classify_response(
         return Verdict.BLOCKED
     if not body or not body.strip():
         return Verdict.EMPTY
+    if _is_challenge(body, headers):
+        return Verdict.CHALLENGE
     if status_code in _NOT_FOUND_STATUS_CODES:
         return Verdict.NOT_FOUND
     if status_code in _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES:

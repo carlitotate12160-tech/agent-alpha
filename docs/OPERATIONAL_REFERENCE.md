@@ -70,7 +70,7 @@ Credential Applicator: [IMPLEMENTED] CredentialApplicator seam
                        - MySqlApplicator (MySQL protocol auth, safety-guarded)
                        - OdooAccessTool (Odoo DB manager auth + enumeration)
                        - select_applicator() for service-agnostic dispatch
-Browser Automation:    [NOT IMPLEMENTED] Playwright + stealth patches — WRAP
+Browser Automation:    [NOT IMPLEMENTED] Camoufox (anti-fingerprint Firefox) — WRAP
 Proxy Infrastructure:  [NOT IMPLEMENTED] BrightData Web Unlocker + Residential proxies — WRAP
 CAPTCHA Bypass:        [NOT IMPLEMENTED] 2Captcha integration — WRAP
 Protocol Spray:        [NOT IMPLEMENTED] SSH spray, FTP spray, IMAP spray — WRAP
@@ -278,7 +278,7 @@ Mock Target:           [IMPLEMENTED] mock_laravel_debug.py — HTTP server mock
 - Subdomain enum expansion (WRAP: subfinder, dnsenum, DNS brute) — crt.sh already built
 
 ### Priority 2 (Phase 3 Completion — Beta Expansion)
-- Browser automation (WRAP: Playwright + stealth)
+- Browser automation (WRAP: Camoufox + anti-fingerprint)
 - Proxy infrastructure (WRAP: BrightData Web Unlocker)
 - CAPTCHA bypass (WRAP: 2Captcha)
 - Protocol spray (WRAP: SSH, FTP, IMAP)

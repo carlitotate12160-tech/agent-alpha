@@ -164,7 +164,7 @@ agent_alpha/intelligence/
     ├── regional/   (erp_rce, his_sqli, egov_bypass, banking_portal)  # category templates, client-owned + SOW only
     ├── cms/        (wp_full_chain, laravel_debug, joomla_chain)
     ├── cloud/      (aws_metadata SSRF→IAM, gcs_bucket)
-    └── bypass/     (cf_curl_cffi, cf_playwright/Turnstile, waf_tamper)
+    └── bypass/     (cf_curl_cffi, cf_camoufox/Turnstile [PLANNED], waf_tamper)
 ```
 
 Logic: SCOUT (Alpha) detects facts (e.g., Laravel 9.x + MySQL + /storage writable + no WAF). ANCHOR (Gamma) does not run generic scanner — ToolComposer.compose(base_template, context) generates exploit script specific to this target. Because execution is in Go, output can be a deployable single-binary. Template names denote system *categories* (banking portal, hospital information system, e-gov portal, ERP), never specific organizations; applied only to client-owned systems under signed SOW.
@@ -948,9 +948,13 @@ architecture: mixing capability with role) and pollutes the clean role taxonomy.
 **Placement.**
 - **PayloadGenerator** → the **LLM payload role** (DeepSeek, direct, §12.15) + **ToolComposer**.
   Invoked BY Gamma/Beta; never a standalone agent.
-- **Browser (Playwright)** → a **shared capability** in the deterministic layer. Used by BOTH
-  Alpha (JS/SPA recon, client-rendered targets) AND Beta (anti-detect spray + Cloudflare/
-  Turnstile bypass). Built ONCE, injected into whoever needs it — never duplicated per agent.
+- **Browser (Camoufox)** → a **shared capability** in the deterministic layer [PLANNED —
+  not yet implemented]. Used by BOTH Alpha (JS/SPA recon, client-rendered targets) AND Beta
+  (anti-detect spray + Cloudflare/Turnstile bypass). Built ONCE, **leased through the
+  Conductor authorization gate** — never injected directly agent-to-agent (consistent with
+  the non-negotiable single auth gate, §1). Camoufox (anti-fingerprint Firefox fork)
+  replaces Playwright — engine-level fingerprint evasion (canvas, WebGL, font, screen) vs
+  JS-layer patches; harder for CF/Turnstile to detect.
 - **Proxy** → a tool (rotation: residential/SOCKS5) PLUS an explicit **proxy-health / OPSEC
   check** (alive, not burned) that MUST run before any spray. Named as a tool, gated like one.
 
@@ -1327,7 +1331,7 @@ tool** (see Decision 3) — "provably stays in scope" is a compliance differenti
 2. **TransportResilience capability (§12.16 capability, NOT an agent) — Cloudflare/WAF:**
    - Reaching origin (if origin IP in SOW) is scoping, not evasion.
    - Passing anti-bot to TEST the authorized app: wrap `curl_cffi` (TLS/JA3 impersonation) +
-     Playwright (Turnstile) — commodity, gated to in-scope targets only.
+     Camoufox (Turnstile) — commodity, gated to in-scope targets only.
    - **The unique value = the WAF/CF-block DISCRIMINATOR:** classify a CF-RAY/challenge/403
      as WAF-BLOCKED — NOT a vulnerability verdict. This kills false-negatives ("blocked" ≠
      "safe") and false-success, feeding the proof/verify moat. On block: adapt transport /
@@ -1643,7 +1647,7 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Status:** LOCKED (2026-07-15). **Relates to:** R3 (obstacle-aware = pivot host, BUKAN adapt evasion), §12.22 Decision 2 (TransportResilience discriminator + lockout governor), §8n (OPSEC statis), GAP-005 (dynamic OPSEC), §12.29 (re-plan).
 
-**Problem.** When `Verdict.BLOCKED` (403/429/503) the agent only records and continues the same way (`scout.py`); `opsec_profile` = static preset (`policy.yaml`); `cf_curl_cffi`/`cf_playwright` are mentioned in §12.22 but 0 files exist. Every subsequent request with the same fingerprint = more noise → lockout/SIEM risk.
+**Problem.** When `Verdict.BLOCKED` (403/429/503) the agent only records and continues the same way (`scout.py`); `opsec_profile` = static preset (`policy.yaml`); `cf_curl_cffi`/`cf_camoufox` are mentioned in §12.22 but 0 files exist. Every subsequent request with the same fingerprint = more noise → lockout/SIEM risk.
 
 **Decision 1 — adaptive evasion layer.** After BLOCKED N times: auto-switch technique (lower rate, rotate UA, change TLS fingerprint). Threshold N in `constants.py` (anti-#7).
 
