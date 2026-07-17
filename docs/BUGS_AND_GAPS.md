@@ -15,9 +15,9 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 1 | CDN crawl loop | DONE | Low | — |
 | 10 | HTTP 415 not classified | FIXED | Low | WP recon |
 | 11 | Crawl not discriminating | High | Medium | LLM token waste |
-| 14 | default_creds rule greedy (Laravel) | High | Low | DeepSeek analysis |
-| 2 | Odoo rule greedy | High | Low | DeepSeek analysis |
-| 6 | Idempotency blocks LLM | High | Medium | DeepSeek analysis |
+| 14 | default_creds rule greedy (Laravel) | FIXED | Low | DeepSeek analysis |
+| 2 | Odoo rule greedy | FIXED | Low | DeepSeek analysis |
+| 6 | Idempotency blocks LLM | FIXED | Medium | DeepSeek analysis |
 | 13 | WP rule mismatch (Cloudways) | High | Low | WP recon |
 | 3 | Report not persisted | High | Medium | Client deliverable |
 | 5 | No report endpoint | High | Low | Client deliverable |
@@ -42,8 +42,14 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
    Bug #20: body hash dedup. Quick win for LLM cost reduction.
 3. Bug #14 (default_creds rule) + Bug #2 (Odoo rule) — same pattern: greedy rules
    with page-wide markers. Fix together: make rules match only on specific forms/URLs.
+   — **DONE**: Bug #14 fixed in PR #181 (indicator narrowing). Bug #2 fixed in PR #186
+   (two-rule split: coarse `odoo_fingerprint` seeds frontier, narrow `odoo_dbmanager_probe`
+   fires only on `master_pwd`/`list_db`). F1 double-recon also eliminated in PR #186
+   (`process_odoo_dbmanager_hit` classifies already-fetched body, no HTTP client).
 4. Bug #11 (crawl not discriminating) — priority queue + depth limit + path filter.
 5. Bug #6 (idempotency) — after #14 and #2 are fixed, idempotency no longer blocks the LLM.
+   — **DONE**: Fixed in PR #181 (`decide_excluding` + `_ran_campaigns`) and confirmed
+   stable in PR #186 (`odoo_fingerprint` recorded as run-once campaign).
 6. Bug #13 (WP rule Cloudways) — partially addressed by Bug #10 fix, but Bug #18
    (CF challenge) is still a blocker. Fix Bug #18 to fully resolve Bug #13.
 7. Bug #15 (trailing slash) + Bug #12 (fragment dedup) — quick win, URL normalization.
