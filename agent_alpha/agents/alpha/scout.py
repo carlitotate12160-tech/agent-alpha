@@ -41,11 +41,24 @@ from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
-from agent_alpha.recon.response_classifier import Verdict, classify_response
+from agent_alpha.recon.response_classifier import (  # noqa: F401
+    VOLATILE_HEADERS,
+    Verdict,
+    classify_response,
+)
 from agent_alpha.recon.surface_discovery import extract_api_surface
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.laravel_env import iter_env_leaks
 from agent_alpha.tools.templates.cms.laravel_finding import LaravelFindingTemplate
+
+DEDUP_HEADER_KEYS: frozenset[str] = frozenset({"www-authenticate", "content-type", "location"})
+"""Subset of decision-relevant headers hashed for deduplication.
+
+Volatile headers deliberately excluded from the hash key: see
+:data:`agent_alpha.recon.response_classifier.VOLATILE_HEADERS` (anti-#7:
+single source of truth).  Hashing those would defeat Bug #20 entirely —
+every request has a different CF-Ray / Date / Set-Cookie.
+"""
 
 
 class Alpha:
@@ -307,7 +320,19 @@ class Alpha:
         }
 
         if verdict is Verdict.OK:
-            body_hash = hashlib.sha256(resp.text.encode("utf-8")).hexdigest()
+            headers_lower = {k.lower(): v for k, v in resp.headers.items()}
+            subset_headers = []
+            for key in sorted(DEDUP_HEADER_KEYS):
+                if key in headers_lower:
+                    val = headers_lower[key]
+                    if key == "content-type":
+                        val = val.split(";")[0].strip()
+                    subset_headers.append(f"{key}:{val}")
+
+            normalized_headers = "\n".join(subset_headers)
+            key_content = f"{resp.text}\n{normalized_headers}"
+
+            body_hash = hashlib.sha256(key_content.encode("utf-8")).hexdigest()
             if body_hash in self._body_hashes:
                 self._emit(
                     "OBSERVE",

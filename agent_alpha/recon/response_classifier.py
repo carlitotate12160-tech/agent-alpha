@@ -46,10 +46,15 @@ class Verdict(enum.StrEnum):
 # PRECISION-CRITICAL: a CHALLENGE verdict requires a BODY marker. Headers may
 # corroborate but MUST NOT alone produce CHALLENGE — a legit 200 behind
 # Server: cloudflare stays OK (the FP landmine).
+#
+# R2 tiering (CodeRabbit #3/#4): markers are split into STRONG (body alone
+# suffices) and WEAK (need a corroborating header hint).  This prevents
+# "access denied" / "reference #" in legitimate article text from false-
+# triggering CHALLENGE (the reflection / self-DoS landmine).
 
-# Body markers — lowercase-compared. A body (any status, incl. 200) containing
-# any of these is a CDN/WAF interstitial, not real content.
-CHALLENGE_BODY_MARKERS: frozenset[str] = frozenset(
+# STRONG body markers — lowercase-compared. A body containing any of these is a
+# CDN/WAF interstitial regardless of headers.
+CHALLENGE_STRONG_MARKERS: frozenset[str] = frozenset(
     {
         "just a moment",
         "cf-browser-verification",
@@ -59,6 +64,14 @@ CHALLENGE_BODY_MARKERS: frozenset[str] = frozenset(
         "sucuri_cloudproxy",
         "incapsula",
         "imperva",
+    }
+)
+
+# WEAK body markers — require a corroborating :data:`CHALLENGE_HEADER_HINT`.
+# These are generic phrases ("access denied", "reference #") that appear in
+# legitimate pages; they only produce CHALLENGE when a vendor header is present.
+CHALLENGE_WEAK_MARKERS: frozenset[str] = frozenset(
+    {
         "access denied",
         "reference #",
     }
@@ -67,6 +80,7 @@ CHALLENGE_BODY_MARKERS: frozenset[str] = frozenset(
 # Header hints — corroborating ONLY. Presence of any hint RAISES confidence but
 # NEVER alone produces CHALLENGE.  Each entry is (header_name_lower,
 # value_substr_lower) where "" means "header presence is enough".
+# A name ending in "*" is a prefix match (e.g. "x-akamai-*").
 CHALLENGE_HEADER_HINTS: frozenset[tuple[str, str]] = frozenset(
     {
         ("server", "cloudflare"),
@@ -74,7 +88,15 @@ CHALLENGE_HEADER_HINTS: frozenset[tuple[str, str]] = frozenset(
         ("x-sucuri-id", ""),
         ("x-iinfo", ""),
         ("server", "akamaighost"),
+        ("x-akamai-*", ""),
     }
+)
+
+# Volatile headers that MUST NOT enter the body-dedup hash key (Bug #20).
+# Hashing these would defeat dedup entirely — every request has a different
+# CF-Ray / Date / Set-Cookie.  scout.py imports this for its dedup whitelist.
+VOLATILE_HEADERS: frozenset[str] = frozenset(
+    {"cf-ray", "date", "set-cookie", "age", "x-request-id"}
 )
 
 # Block status codes: WAF/CF/rate-limit/challenge signals. Recorded as evidence
@@ -99,14 +121,19 @@ _NOT_FOUND_STATUS_CODES: frozenset[int] = frozenset({404, 410})
 _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES: frozenset[int] = frozenset({415})
 
 
-def _body_has_challenge_marker(body: str) -> bool:
-    """Return True if *body* contains any :data:`CHALLENGE_BODY_MARKER`.
+def _is_challenge(body: str, headers: dict[str, str] | None) -> bool:
+    """Return True if body matches CHALLENGE rules.
 
-    Case-insensitive. This is the GATE for ``Verdict.CHALLENGE`` — headers
-    alone can never trigger it (the FP landmine).
+    Rule: CHALLENGE iff (any STRONG body marker) OR (any WEAK body marker AND
+    any header hint present).  ``headers=None`` is treated as no headers —
+    weak markers alone never trigger CHALLENGE.
     """
     body_lower = body.lower()
-    return any(marker in body_lower for marker in CHALLENGE_BODY_MARKERS)
+    if any(marker in body_lower for marker in CHALLENGE_STRONG_MARKERS):
+        return True
+    if any(marker in body_lower for marker in CHALLENGE_WEAK_MARKERS):
+        return _has_challenge_header_hint(headers)
+    return False
 
 
 def _has_challenge_header_hint(headers: dict[str, str] | None) -> bool:
@@ -117,10 +144,18 @@ def _has_challenge_header_hint(headers: dict[str, str] | None) -> bool:
     if not headers:
         return False
     headers_lower = {k.lower(): v.lower() for k, v in headers.items()}
-    return any(
-        name in headers_lower and (not substr or substr in headers_lower[name])
-        for name, substr in CHALLENGE_HEADER_HINTS
-    )
+    for name, substr in CHALLENGE_HEADER_HINTS:
+        if name.endswith("*"):
+            prefix = name[:-1]
+            if any(
+                k.startswith(prefix) and (not substr or substr in v)
+                for k, v in headers_lower.items()
+            ):
+                return True
+        else:
+            if name in headers_lower and (not substr or substr in headers_lower[name]):
+                return True
+    return False
 
 
 def classify_response(
@@ -136,7 +171,9 @@ def classify_response(
       1. ``transport_error`` (host down, DNS, connect/read timeout) -> ``TRANSPORT_FAIL``.
       2. status in (403, 429, 503) -> ``BLOCKED`` (a block is evidence, not "clean").
       3. empty / whitespace-only body -> ``EMPTY`` (reachable but non-analyzable).
-      4. body contains a :data:`CHALLENGE_BODY_MARKER` -> ``CHALLENGE`` (a CDN/WAF
+      4. body contains a :data:`CHALLENGE_STRONG_MARKER` -> ``CHALLENGE``, or
+         body contains a :data:`CHALLENGE_WEAK_MARKER` AND a
+         :data:`CHALLENGE_HEADER_HINT` is present -> ``CHALLENGE`` (a CDN/WAF
          interstitial at any status incl. 200; non-analyzable — no LLM, no
          frontier, no asset, but a WAF/CF audit event IS recorded). Headers may
          corroborate but NEVER alone produce CHALLENGE (a legit 200 behind
@@ -166,7 +203,7 @@ def classify_response(
         return Verdict.BLOCKED
     if not body or not body.strip():
         return Verdict.EMPTY
-    if _body_has_challenge_marker(body):
+    if _is_challenge(body, headers):
         return Verdict.CHALLENGE
     if status_code in _NOT_FOUND_STATUS_CODES:
         return Verdict.NOT_FOUND

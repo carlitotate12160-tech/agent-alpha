@@ -48,7 +48,7 @@ header presence is enough.
 
 ### Precedence
 
-```
+```text
 transport_error → BLOCKED(403/429/503) → EMPTY → CHALLENGE(body marker) → NOT_FOUND(404/410) → UNSUPPORTED_MEDIA_TYPE(415) → OK
 ```
 

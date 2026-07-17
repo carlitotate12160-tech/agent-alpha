@@ -20,14 +20,12 @@ from typing import Any
 
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.llm.orchestrator import LLMOrchestrator
-
-# Net-new CHALLENGE verdict and headers-aware classifier.
-from agent_alpha.config import constants
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
@@ -157,13 +155,15 @@ def test_cf_challenge_200_never_burns_llm_tokens() -> None:
     assert list(alpha.graph_store.nodes_by_type(NodeType.ASSET)) == [], (
         "Cloudflare challenge 200 persisted an ASSET node"
     )
-    # Frontier expansion only fires on Verdict.OK. The seed body has no hrefs,
-    # so the only URLs fetched should be the seed plus seeded well-known paths.
-    # The important guard is that no challenge-page hrefs are enqueued.
-    extra = set(http.calls) - _EXPECTED_SEeded_URLS
-    assert not extra, (
-        f"challenge-page hrefs were fetched beyond seed + well-known paths: {extra}"
+    # Frontier expansion only fires on Verdict.OK. The fixture body now contains
+    # a same-origin <a href="/x"> anchor — if CHALLENGE is working correctly,
+    # that href must NOT be enqueued.
+    _challenge_href = f"{_ROOT}/x"
+    assert _challenge_href not in http.calls, (
+        "challenge-page href /x was fetched — frontier expanded on a CHALLENGE verdict"
     )
+    extra = set(http.calls) - _EXPECTED_SEeded_URLS
+    assert not extra, f"challenge-page hrefs were fetched beyond seed + well-known paths: {extra}"
     assert len(_waf_events(store, eid)) >= 1, (
         "Cloudflare challenge 200 did not record a WAF/CF audit event"
     )
@@ -176,18 +176,9 @@ def test_cf_challenge_200_never_burns_llm_tokens() -> None:
 
 def test_cf_headers_alone_do_not_trigger_challenge() -> None:
     """A real 200 page served behind Cloudflare must stay Verdict.OK.
-    Headers (Server: cloudflare, CF-Ray) are not enough to call it a challenge.
-
-    Until the optional ``headers`` parameter lands, this guard falls back to the
-    existing status-only contract so it does not artificially fail."""
-    import inspect
-
+    Headers (Server: cloudflare, CF-Ray) are not enough to call it a challenge."""
     body = _load_fixture("cf_legit_200_body.txt")
-    sig = inspect.signature(classify_response)
-    if "headers" in sig.parameters:
-        verdict = classify_response(status_code=200, body=body, headers=_CF_HEADERS)
-    else:
-        verdict = classify_response(status_code=200, body=body)
+    verdict = classify_response(status_code=200, body=body, headers=_CF_HEADERS)
     assert verdict is Verdict.OK
 
 
@@ -205,3 +196,61 @@ def test_classify_response_without_headers_unchanged() -> None:
         classify_response(status_code=415, body="unsupported media type")
         is Verdict.UNSUPPORTED_MEDIA_TYPE
     )
+
+
+# ---------------------------------------------------------------------------
+# #3/#4 — Marker tiering: STRONG markers fire alone; WEAK markers need header
+# ---------------------------------------------------------------------------
+# CodeRabbit #3: "access denied" and "reference #" are generic phrases that
+# appear in legitimate pages. At HTTP 200 they false-CHALLENGE without a
+# corroborating vendor header. R2 splits CHALLENGE_BODY_MARKERS into STRONG
+# (fire alone) and WEAK (need header hint). These tests pin the contract.
+#
+# t_strong            — GREEN (strong marker fires without header)
+# t_weak_no_header    — GREEN (weak marker without header is OK)
+# t_weak_with_header  — GREEN (weak marker + Akamai header → CHALLENGE)
+# t_reflection_guard  — GREEN (legit article text with "access denied" is OK)
+
+
+def test_strong_marker_alone_is_challenge() -> None:
+    """A body with ONLY a STRONG marker (e.g. cf-browser-verification) and NO
+    vendor header must be Verdict.CHALLENGE."""
+    body = '<html><body><div id="cf-browser-verification">Loading...</div></body></html>'
+    assert classify_response(status_code=200, body=body) is Verdict.CHALLENGE
+
+
+def test_weak_marker_without_header_is_ok() -> None:
+    """A 200 body with ONLY weak markers ("access denied", "reference #") and NO
+    Akamai/WAF header must be Verdict.OK — weak markers need corroboration."""
+    body = (
+        "<html><body>"
+        "<h1>Access denied</h1>"
+        "<p>Reference #12345. Please contact support.</p>"
+        "</body></html>"
+    )
+    assert classify_response(status_code=200, body=body) is Verdict.OK
+
+
+def test_weak_marker_with_corroborating_header_is_challenge() -> None:
+    """A 200 body with weak markers + a corroborating Akamai header
+    (Server: AkamaiGHost) must be Verdict.CHALLENGE."""
+    body = (
+        "<html><body>"
+        "<h1>Access denied</h1>"
+        "<p>Reference #12345. Please contact support.</p>"
+        "</body></html>"
+    )
+    headers = {"Server": "AkamaiGHost"}
+    assert classify_response(status_code=200, body=body, headers=headers) is Verdict.CHALLENGE
+
+
+def test_reflection_guard_legit_page_with_access_denied_text_is_ok() -> None:
+    """A legit 200 page whose body merely echoes "access denied" in article text
+    (no vendor header) must be Verdict.OK — attacker/self-DoS guard (#4)."""
+    body = (
+        "<html><body><article>"
+        "<h1>When to use access denied responses</h1>"
+        "<p>In HTTP, a 403 status means access denied to the resource.</p>"
+        "</article></body></html>"
+    )
+    assert classify_response(status_code=200, body=body) is Verdict.OK

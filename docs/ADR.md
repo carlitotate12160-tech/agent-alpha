@@ -164,7 +164,7 @@ agent_alpha/intelligence/
     ├── regional/   (erp_rce, his_sqli, egov_bypass, banking_portal)  # category templates, client-owned + SOW only
     ├── cms/        (wp_full_chain, laravel_debug, joomla_chain)
     ├── cloud/      (aws_metadata SSRF→IAM, gcs_bucket)
-    └── bypass/     (cf_curl_cffi, cf_camoufox/Turnstile, waf_tamper)
+    └── bypass/     (cf_curl_cffi, cf_camoufox/Turnstile [PLANNED], waf_tamper)
 ```
 
 Logic: SCOUT (Alpha) detects facts (e.g., Laravel 9.x + MySQL + /storage writable + no WAF). ANCHOR (Gamma) does not run generic scanner — ToolComposer.compose(base_template, context) generates exploit script specific to this target. Because execution is in Go, output can be a deployable single-binary. Template names denote system *categories* (banking portal, hospital information system, e-gov portal, ERP), never specific organizations; applied only to client-owned systems under signed SOW.
@@ -948,11 +948,13 @@ architecture: mixing capability with role) and pollutes the clean role taxonomy.
 **Placement.**
 - **PayloadGenerator** → the **LLM payload role** (DeepSeek, direct, §12.15) + **ToolComposer**.
   Invoked BY Gamma/Beta; never a standalone agent.
-- **Browser (Camoufox)** → a **shared capability** in the deterministic layer. Used by BOTH
-  Alpha (JS/SPA recon, client-rendered targets) AND Beta (anti-detect spray + Cloudflare/
-  Turnstile bypass). Built ONCE, injected into whoever needs it — never duplicated per agent.
-  Camoufox (anti-fingerprint Firefox fork) replaces Playwright — engine-level fingerprint
-  evasion (canvas, WebGL, font, screen) vs JS-layer patches; harder for CF/Turnstile to detect.
+- **Browser (Camoufox)** → a **shared capability** in the deterministic layer [PLANNED —
+  not yet implemented]. Used by BOTH Alpha (JS/SPA recon, client-rendered targets) AND Beta
+  (anti-detect spray + Cloudflare/Turnstile bypass). Built ONCE, **leased through the
+  Conductor authorization gate** — never injected directly agent-to-agent (consistent with
+  the non-negotiable single auth gate, §1). Camoufox (anti-fingerprint Firefox fork)
+  replaces Playwright — engine-level fingerprint evasion (canvas, WebGL, font, screen) vs
+  JS-layer patches; harder for CF/Turnstile to detect.
 - **Proxy** → a tool (rotation: residential/SOCKS5) PLUS an explicit **proxy-health / OPSEC
   check** (alive, not burned) that MUST run before any spray. Named as a tool, gated like one.
 

@@ -22,6 +22,7 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
+from agent_alpha.recon.response_classifier import VOLATILE_HEADERS
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
 
@@ -175,4 +176,97 @@ def test_different_ok_bodies_are_both_analyzed() -> None:
     )
     assert len(_dedup_events(alpha.event_store, eid)) == 0, (
         "different bodies incorrectly recorded as dedup"
+    )
+
+
+# ---------------------------------------------------------------------------
+# #2 — Curated-header dedup key: non-volatile security headers enter the key;
+#      volatile headers (CF-Ray, Date, Set-Cookie, Age, X-Request-Id) do NOT.
+# ---------------------------------------------------------------------------
+# CodeRabbit #2: dedup currently hashes only resp.text. Two URLs with identical
+# bodies but different WWW-Authenticate headers are wrongly deduped. R2 will
+# include curated (non-volatile) headers in the hash key.
+#
+# t_same_body_diff_auth       — RED until R2 (different auth header, same body →
+#                               currently deduped, test expects both analyzed)
+# t_same_body_volatile_headers — GREEN now (volatile-only difference → deduped;
+#                               stays GREEN after R2 because volatile headers
+#                               must not enter the key)
+
+
+def test_same_body_diff_auth_header_both_analyzed() -> None:
+    """Two in-scope 200 URLs with IDENTICAL body but DIFFERENT WWW-Authenticate
+    header must both be analyzed — the auth header is security-relevant and
+    must enter the dedup key.
+
+    RED until R2 implements curated-header dedup."""
+    same_body = (
+        "<!DOCTYPE html><html><head><title>Protected</title></head>"
+        "<body><h1>Protected Resource</h1>"
+        '<a href="/second-page">next</a></body></html>'
+    )
+    provider = _SpyProvider()
+    http = FakeHttpClient(
+        {
+            _SEED: FakeResponse(
+                200,
+                same_body,
+                {"Server": "nginx", "WWW-Authenticate": 'Digest realm="a"'},
+            ),
+            _SECOND: FakeResponse(
+                200,
+                same_body,
+                {"Server": "nginx", "WWW-Authenticate": 'Bearer realm="b"'},
+            ),
+        }
+    )
+    alpha, eid = _alpha(http, provider)
+
+    alpha.run_recon(eid, _SEED)
+
+    assert alpha._analyzable_probes == 2, (
+        "identical body with different WWW-Authenticate was deduped — "
+        f"_analyzable_probes = {alpha._analyzable_probes} (expected 2)"
+    )
+    assert len(_dedup_events(alpha.event_store, eid)) == 0, (
+        "identical body with different WWW-Authenticate incorrectly recorded as dedup"
+    )
+
+
+def test_same_body_volatile_headers_second_is_deduped() -> None:
+    """Two in-scope 200 URLs with identical body, differing ONLY in volatile
+    headers (CF-Ray, Date) — the second MUST still be deduped. Volatile headers
+    must never enter the dedup key (Bug #20)."""
+    same_body = (
+        "<!DOCTYPE html><html><head><title>Same</title></head>"
+        "<body><h1>Same page</h1><p>Identical body for volatile dedup test.</p>"
+        '<a href="/second-page">next</a></body></html>'
+    )
+    provider = _SpyProvider()
+    http = FakeHttpClient(
+        {
+            _SEED: FakeResponse(
+                200,
+                same_body,
+                {"Server": "nginx", "CF-Ray": "aaa-AAA", "Date": "Thu, 17 Jul 2026 10:00:00 GMT"},
+            ),
+            _SECOND: FakeResponse(
+                200,
+                same_body,
+                {"Server": "nginx", "CF-Ray": "bbb-BBB", "Date": "Thu, 17 Jul 2026 10:00:01 GMT"},
+            ),
+        }
+    )
+    alpha, eid = _alpha(http, provider)
+
+    alpha.run_recon(eid, _SEED)
+
+    assert len(provider.calls) == 1, (
+        "identical body with only volatile-header differences was NOT deduped — "
+        f"provider.complete() called {len(provider.calls)}x (expected 1). "
+        f"Volatile headers must not enter the dedup key (Bug #20). "
+        f"VOLATILE_HEADERS = {VOLATILE_HEADERS}"
+    )
+    assert len(_dedup_events(alpha.event_store, eid)) == 1, (
+        "second identical-body (volatile-only diff) did not record a dedup audit event"
     )
