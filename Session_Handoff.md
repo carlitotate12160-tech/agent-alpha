@@ -1,7 +1,7 @@
 # Agent-Alpha — Session Handoff (2026-07-18)
 
-Resume with: "lanjut Agent-Alpha — planner v1 sealed; pick spine (planner v2) or
-sellability (lock ADR §12.36 + slice-2a signed profile) or GAP-005/006 slice-2."
+Resume with: "lanjut Agent-Alpha — Bug #21 sealed; next = GAP-005 slice-2 (PolicyEnforcer
+wire) or Tier C GAP-004 D3/D2 (world-model → HTN planner)."
 
 ## Landed this arc (all merged, Oracle-green)
 - Bug #2 Odoo two-rule split + no-refetch core (#186).
@@ -14,6 +14,9 @@ sellability (lock ADR §12.36 + slice-2a signed profile) or GAP-005/006 slice-2.
 - Planner v1 (#193 + review fixes #194): objective-aware deterministic scoring
   (no CRC), GOAL_COMPLETED verified via is_met() (self-report removed +
   regression-guarded), pre-step resume completion. Bug #11 closed.
+- Bug #21 LLM-tier tool starvation SEALED (#196): exclude_tools forwarded to
+  SINGLE_LLM tier — prompt-level instruction + post-filter coercion + contract
+  guard (CodeRabbit). Single-file fix (orchestrator.py), zero caller change.
 
 ## Key doctrine reinforced (do not regress)
 - Green != proven. Every fix ships a test that FAILS if the bug returns
@@ -37,8 +40,8 @@ sellability (lock ADR §12.36 + slice-2a signed profile) or GAP-005/006 slice-2.
 ## Still open (tracked, non-blocking)
 - Verify S2: pgvector:pg16 digest actually pinned in docker-compose.yml + ci.yml;
   document "Fixed in —" residual CVEs + network-isolation compensating control.
-- Bug #17 (mod_autoindex sort), #19 (body-content classifier), #21 (LLM-tier
-  exclude_tools). GAP-003 IntelligenceBase (needs Bug #7 engagement-memory persist).
+- Bug #17 (mod_autoindex sort), #19 (body-content classifier). GAP-003
+  IntelligenceBase (needs Bug #7 engagement-memory persist).
 - Planner objective is lab-injected; production objective must come from the signed
   EngagementProfile (§12.36).
 
