@@ -152,6 +152,8 @@ def test_async_worker_runs_real_recon_pipeline(
         secrets_manager: object = None,
         publisher: object = None,
         session_store: object = None,
+        *,
+        policy: object = None,
     ) -> recon_runner.ReconPipeline:
         alpha = Alpha(
             authorization=auth_,

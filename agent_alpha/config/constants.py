@@ -28,6 +28,7 @@ __all__ = [
     "HTTP_REQUEST_TIMEOUT_SEC",
     "HTTP_DEFAULT_ACCEPT_HEADER",
     "DEFAULT_RATE_LIMIT_RPS",
+    "DEFAULT_OPSEC_PROFILE",
     "SOW_MAX_FILE_SIZE_MB",
     "SOW_HASH_ALGORITHM",
     "EVENT_SEQUENCE_GAP_ALLOWED",
@@ -144,6 +145,11 @@ HTTP_DEFAULT_ACCEPT_HEADER = "text/html,application/xhtml+xml,application/xml;q=
 # profile selection (policy.yaml normal=10/loud=50) overrides via the ctor when
 # that feature lands. Single source for the code-level default (anti-Lyndon #7).
 DEFAULT_RATE_LIMIT_RPS = 2.0
+# Default OPSEC profile name for recon — "announced" = honest identifying UA,
+# no evasion, fail-closed.  Per-engagement profile selection (slice-2b) will
+# override this via the ctor; until then all recon paths use this profile.
+# Single source for the profile name (anti-Lyndon #7).
+DEFAULT_OPSEC_PROFILE: str = "announced"
 SOW_MAX_FILE_SIZE_MB = 50
 SOW_HASH_ALGORITHM = "sha256"
 
