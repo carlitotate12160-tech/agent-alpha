@@ -130,7 +130,11 @@ def run_cognitive_loop(
                 session_store.update_scratchpad(engagement_id, updated_scratchpad)
                 if event_store is not None:
                     event_type, payload = session_store.snapshot_scratchpad_event(engagement_id)
-                    agent_name = rec.active_agent if rec else getattr(agent, "__class__", type(agent)).__name__
+                    agent_name = (
+                        rec.active_agent
+                        if rec
+                        else getattr(agent, "__class__", type(agent)).__name__
+                    )
                     event_store.append(
                         event_type=event_type,
                         engagement_id=engagement_id,

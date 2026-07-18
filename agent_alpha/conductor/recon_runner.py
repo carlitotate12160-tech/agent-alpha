@@ -220,7 +220,12 @@ def run_recon_for_engagement(
     backend (C1.8).
     """
     pipeline = build_recon_pipeline(
-        engagement_id, tenant_id, auth, store, secrets_manager=secrets_manager, session_store=session_store
+        engagement_id,
+        tenant_id,
+        auth,
+        store,
+        secrets_manager=secrets_manager,
+        session_store=session_store,
     )
     targets = resolve_recon_targets(record)
 

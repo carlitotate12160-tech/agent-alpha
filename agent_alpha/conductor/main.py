@@ -68,6 +68,7 @@ log_scrubber.install_logging_filter()
 
 _in_memory_session_store = InMemorySessionStore()
 
+
 def session_store_for(tenant_id: str | None) -> Any:
     if tenant_id and os.environ.get("AGENT_ALPHA_PG_DSN"):
         return RedisSessionStore(_redis_url, tenant_id)

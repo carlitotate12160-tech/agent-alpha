@@ -429,7 +429,9 @@ class Alpha:
             for href in self._extract_hrefs(resp.text, url):
                 self.enqueue_discovered_url(href)
 
-        return _finish(nodes_added, decision.cost_usd, f"ACT: {decision.tool} on {url} -> {nodes_added} nodes")
+        return _finish(
+            nodes_added, decision.cost_usd, f"ACT: {decision.tool} on {url} -> {nodes_added} nodes"
+        )
 
     # ── Private: tool handlers ──────────────────────────────────
 
