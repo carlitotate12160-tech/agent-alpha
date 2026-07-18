@@ -16,12 +16,33 @@ from __future__ import annotations
 import enum
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from agent_alpha.agents.objective import EngagementObjective
 from agent_alpha.config import constants
 
-if TYPE_CHECKING:
-    from agent_alpha.agents.objective import EngagementObjective
+
+def _resolve_objective(
+    objective: EngagementObjective | None, scratchpad: dict[str, Any] | None
+) -> EngagementObjective | None:
+    """ONE canonical typed objective. The explicit param wins; otherwise
+    reconstruct it from the session scratchpad dict (JSON/Redis form). Never
+    returns an untyped dict — is_met() and the scorer share a single typed
+    contract (anti-#6 duplicate representation)."""
+    if objective is not None:
+        return objective
+    if not scratchpad:
+        return None
+    raw = scratchpad.get("objective")
+    if isinstance(raw, EngagementObjective):
+        return raw
+    if isinstance(raw, dict) and raw.get("target_access_levels"):
+        return EngagementObjective(
+            target_access_levels=frozenset(raw["target_access_levels"]),
+            description=str(raw.get("description", "")),
+        )
+    return None
+
 
 # ── Stop reasons ────────────────────────────────────────────────
 
@@ -112,6 +133,18 @@ def run_cognitive_loop(
     Returns a :class:`LoopOutcome` describing why the loop stopped and how
     much work was done.
     """
+    # ONE canonical typed objective (param or scratchpad-reconstructed) + the
+    # graph the loop will verify completion against (the agent's own graph).
+    _initial_rec = (
+        session_store.get(engagement_id)
+        if (session_store is not None and engagement_id is not None)
+        else None
+    )
+    resolved_objective = _resolve_objective(
+        objective, _initial_rec.scratchpad if _initial_rec else None
+    )
+    graph_store = getattr(agent, "graph_store", None)
+
     iteration = 0
     total_cost_usd = 0.0
     total_nodes_discovered = 0
@@ -127,8 +160,8 @@ def run_cognitive_loop(
             rec = session_store.get(engagement_id)
             context = {"scratchpad": rec.scratchpad if rec else {}}
 
-        if objective is not None:
-            context["objective"] = objective
+        if resolved_objective is not None:
+            context["objective"] = resolved_objective
 
         result = agent.step(context)
 
@@ -156,18 +189,21 @@ def run_cognitive_loop(
         # Un-probed frontier size reported by the agent (0 if it does not report).
         work_remaining = int(result.get("work_remaining", 0) or 0)
 
-        if result.get("goal_completed"):
+        # GOAL_COMPLETED is VERIFIED by the loop via the typed objective against
+        # the graph — NEVER self-reported by the agent (anti false-success). It
+        # fires ONLY when an objective exists AND is_met()'s verified-graph query
+        # is satisfied (§12.29 D4). No objective → this never fires.
+        if (
+            resolved_objective is not None
+            and graph_store is not None
+            and resolved_objective.is_met(graph_store)
+        ):
             if event_store is not None and engagement_id is not None:
-                agent_name = (
-                    rec.active_agent if rec else getattr(agent, "__class__", type(agent)).__name__
-                )
                 event_store.append(
                     event_type="GoalCompleted",
                     engagement_id=engagement_id,
-                    agent=agent_name,
-                    payload={
-                        "description": objective.description if objective else "Objective met"
-                    },
+                    agent=(rec.active_agent if rec else type(agent).__name__),
+                    payload={"description": resolved_objective.description},
                 )
             return LoopOutcome(
                 stop_reason=StopReason.GOAL_COMPLETED,

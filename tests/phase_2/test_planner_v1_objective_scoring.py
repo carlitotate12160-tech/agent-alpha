@@ -112,6 +112,7 @@ def _first_selection(
     alpha._engagement_id = engagement_id
     alpha._work_queue = list(frontier)
     alpha._probed = set()
+    alpha._current_objective = objective
     return alpha._pop_unprobed()
 
 

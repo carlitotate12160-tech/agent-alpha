@@ -115,6 +115,7 @@ class Alpha:
         self._analyzable_probes: int = 0
         self._ran_campaigns: set[str] = set()
         self._body_hashes: set[str] = set()
+        self._current_objective: Any = None
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -150,6 +151,7 @@ class Alpha:
         self._analyzable_probes = 0
         self._ran_campaigns = set()
         self._body_hashes = set()
+        self._current_objective = None
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -243,6 +245,9 @@ class Alpha:
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
         scratchpad = context.get("scratchpad")
         sp: dict[str, Any] = dict(scratchpad) if isinstance(scratchpad, dict) else {}
+        # Consume the CANONICAL objective the loop passes in context — do NOT
+        # re-read an untyped scratchpad dict (single typed source of truth).
+        self._current_objective = context.get("objective")
         obs = sp.setdefault("observations", [])
         if not isinstance(obs, list):
             obs = []
@@ -873,12 +878,7 @@ class Alpha:
 
     def _pop_unprobed(self) -> str | None:
         """Pop the next URL from the work queue that hasn't been probed."""
-        objective = None
-        session_store = getattr(self, "session_store", None)
-        if session_store is not None:
-            record = session_store.get(self._engagement_id)
-            if record and record.scratchpad:
-                objective = record.scratchpad.get("objective")
+        objective = getattr(self, "_current_objective", None)
 
         if objective is None:
             # Fast-path FIFO (byte-for-byte backward-compat)
