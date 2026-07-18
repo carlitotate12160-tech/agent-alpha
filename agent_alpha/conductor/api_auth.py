@@ -8,6 +8,12 @@ import jwt as pyjwt
 from fastapi import HTTPException, Request, status
 
 from agent_alpha.config.constants import JWT_ALGORITHM, JWT_SECRET_ENV
+import re
+
+def valid_engagement_id(engagement_id: str) -> str:
+    if not re.match(r"^eng_[0-9a-f]{4,}$", engagement_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="engagement not found")
+    return engagement_id
 
 
 class JWTError(Exception):

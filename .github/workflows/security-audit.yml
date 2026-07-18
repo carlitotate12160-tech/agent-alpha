@@ -83,11 +83,14 @@ jobs:
       - name: Container scan (Trivy — CVE scan on Docker images used in CI)
         run: |
           export PATH="/tmp/secbin:$PATH"
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed --format sarif -o trivy-results.sarif pgvector/pgvector:pg16
+          # Digest-pinned to pg16-trixie (ARM64) with Go 1.25.12+ to fix CVE-2025-68121 (CRITICAL)
+          # and 14 HIGH Go stdlib CVEs. See docs/ADR.md §12.24 for CVE decision + residuals.
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --format sarif -o trivy-results.sarif pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --format sarif -o trivy-redis.sarif redis:7-alpine
           # Also print human-readable summary to job log
-          echo "### Trivy: pgvector/pgvector:pg16"
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16 || true
+          # FAIL on FIXED CVEs (drop || true) — future fixable CVEs should block CI
+          echo "### Trivy: pgvector/pgvector:pg16-trixie@sha256:d0b40f686243"
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
           echo "### Trivy: redis:7-alpine"
           trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
 

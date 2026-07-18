@@ -34,7 +34,9 @@ jobs:
 
     services:
       postgres:
-        image: pgvector/pgvector:pg16
+        # Digest-pinned to pg16-trixie (ARM64) with Go 1.25.12+ to fix CVE-2025-68121 (CRITICAL)
+        # and 14 HIGH Go stdlib CVEs. See docs/ADR.md §12.24 for CVE decision + residuals.
+        image: pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
         env:
           POSTGRES_USER: agent_alpha
           POSTGRES_PASSWORD: test-super-pw

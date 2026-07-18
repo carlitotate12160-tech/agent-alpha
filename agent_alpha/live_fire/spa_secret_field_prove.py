@@ -30,6 +30,7 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType
+from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.recon.js_secret_probe import _mask, verify_js_secret_leak
 from agent_alpha.security.secrets import SecretsManager
 
@@ -357,7 +358,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         # Network-resilience: ConnectError → FAIL, not crash
         creds_added = 0
-        detail = f"verify_js_secret_leak raised: {exc}"
+        # Allowlist-by-construction: record ONLY the exception class name,
+        # never str(exc) — exception messages from HTTP/vault/parsing libs may
+        # embed a raw secret from an un-enumerated source.
+        detail = f"verify_js_secret_leak raised: {type(exc).__name__}"
     else:
         detail = ""
 
@@ -402,7 +406,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Clause 7 (replay)   : {'PASS' if clause_7 else 'FAIL'}")
     print(f"  Clause 8 (env)      : {'PASS' if clause_8 else 'FAIL'}")
     if result.detail:
-        print(f"  Detail              : {result.detail}")
+        print(f"  Detail              : {redact_secrets(result.detail)}")
     print("-" * 64)
     verdict = "PROVEN" if result.proven else "FAIL"
     print(f"  Verdict: {verdict}")

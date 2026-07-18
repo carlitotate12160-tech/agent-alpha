@@ -21,7 +21,7 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor import recon_runner, routes_monologue
 from agent_alpha.conductor.advance import Dispatcher, advance_engagement
-from agent_alpha.conductor.api_auth import Principal, require_principal
+from agent_alpha.conductor.api_auth import Principal, require_principal, valid_engagement_id
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
@@ -436,9 +436,9 @@ def create_engagement(
 
 @engagements.post("/{engagement_id}/recon")
 def enable_recon(
-    engagement_id: str,
     body: dict[str, list[str]],
     principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, str]:
     try:
         ip_ranges = body["ip_ranges"]
@@ -470,9 +470,9 @@ def enable_recon(
 
 @engagements.post("/{engagement_id}/sow")
 def upload_sow(
-    engagement_id: str,
     file: UploadFile,
     principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, str]:
     max_bytes = SOW_MAX_FILE_SIZE_MB * 1024 * 1024
     content = file.file.read()
@@ -496,9 +496,9 @@ def upload_sow(
 
 @engagements.post("/{engagement_id}/run", status_code=202)
 def run_engagement(
-    engagement_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
     response: Response,
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, Any]:
     try:
         record = auth_for(principal.tenant_id).get_record(engagement_id)
@@ -535,8 +535,8 @@ def run_engagement(
 
 @engagements.get("/{engagement_id}/run-status")
 def get_run_status(
-    engagement_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, Any]:
     try:
         record = auth_for(principal.tenant_id).get_record(engagement_id)
@@ -561,8 +561,8 @@ def get_run_status(
 
 @engagements.get("/{engagement_id}/trace")
 def get_engagement_trace(
-    engagement_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, Any]:
     """A7 observability (slice A7-a): the per-engagement run trace.
 
@@ -627,9 +627,9 @@ def get_queue_health(
 
 @engagements.post("/{engagement_id}/stop")
 def emergency_stop(
-    engagement_id: str,
     body: dict[str, str],
     principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, Any]:
     try:
         reason = body["reason"]
@@ -658,8 +658,8 @@ def emergency_stop(
 
 @engagements.get("/{engagement_id}/state")
 def get_state(
-    engagement_id: str,
     principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, Any]:
     try:
         record = auth_for(principal.tenant_id).get_record(engagement_id)

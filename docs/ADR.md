@@ -1672,3 +1672,33 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 **Decision 3 — learning.** Successful patterns tracked in scratchpad (GAP-002) for reuse within the same engagement; proven patterns fed to IntelligenceBase (GAP-003) for cross-engagement (bridge to §8c).
 
 **Confidence ~75%** — within-engagement is cheaper than §8c (does not require cross-engagement data); requires an active lockout governor to be safe.
+
+---
+
+### 12.35 pgvector image digest pinning — CVE-2025-68121 + Go stdlib CVEs
+
+**Status:** ACCEPTED (2026-07-18). **Relates to:** infra/docker-compose.yml, .github/workflows/ci.yml, .github/workflows/security-audit.yml.
+
+**Problem.** The `pgvector/pgvector:pg16` image contains 15 CVEs in its Go stdlib components (crypto/tls, crypto/x509, net/url, net/mail, mime, os-symlink). The CRITICAL CVE-2025-68121 (incorrect certificate validation in crypto/tls during session resumption) is exploitable when Config.Clone mutates ClientCAs/RootCAs between handshakes. Our app is Python-only, but the image's Go components are still present and could be reachable if the DB is exposed.
+
+**Decision 1 — digest-pin to patched image.** Pin to `pgvector/pgvector:pg16-trixie@sha256:d0b40f686243` (ARM64) in both `infra/docker-compose.yml` and `.github/workflows/ci.yml`. The `pg16-trixie` variant is newer than `pg16` and includes Go 1.25.12+ (released 2026-07-07), which fixes CVE-2025-68121 and 14 HIGH-severity Go stdlib DoS CVEs.
+
+**Decision 2 — compensating control for residual CVEs.** The following CVEs have NO upstream patch yet (marked "Fixed in —" in NVD):
+- CVE-2026-32281 (crypto/x509)
+- CVE-2026-32283 (net/url)
+- CVE-2026-33814 (net/mail)
+- CVE-2026-39820 (mime)
+- CVE-2026-42499 (os-symlink)
+
+**Compensating control:** The PostgreSQL database is NOT internet-exposed — only the Python application connects on the private network (127.0.0.1 binding in docker-compose.yml). The Go stdlib DoS surface is not reachable by an external attacker. This is documented as a residual risk with a tracking note to re-bump when upstream patches land.
+
+**Decision 3 — CI gate tightening.** In `.github/workflows/security-audit.yml`, drop `|| true` from the pgvector Trivy scan so that FIXED CVEs (those with available patches) actually block CI. Keep `--ignore-unfixed` so the residual CVEs do not red the gate. This ensures future fixable CVEs are caught early.
+
+**Decision 4 — verification requirement.** Verification MUST be done on Oracle ARM64 only (arch match). Commands:
+```bash
+docker pull pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
+trivy image --severity CRITICAL,HIGH pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
+make check  # verify test suite still green against pinned image
+```
+
+**Confidence ~90%** — digest pin is a minimal, targeted fix; compensating control is sound (DB not internet-exposed); verification on Oracle ARM64 is required before this is considered complete.

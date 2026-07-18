@@ -12,10 +12,11 @@ from __future__ import annotations
 import dataclasses
 
 import anyio
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
+from typing import Annotated
 
 from agent_alpha.agents.monologue_stream import stream_monologue
-from agent_alpha.conductor.api_auth import principal_from_token
+from agent_alpha.conductor.api_auth import principal_from_token, valid_engagement_id
 from agent_alpha.conductor.monologue_transport import build_monologue_subscriber
 
 router = APIRouter()
@@ -25,7 +26,7 @@ subscriber_factory = build_monologue_subscriber
 
 
 @router.websocket("/engagements/{engagement_id}/monologue/ws")
-async def monologue_ws(websocket: WebSocket, engagement_id: str) -> None:
+async def monologue_ws(websocket: WebSocket, engagement_id: Annotated[str, Depends(valid_engagement_id)]) -> None:
     # Browsers can't set Authorization on a WS handshake → token via query param.
     try:
         principal = principal_from_token(websocket.query_params.get("token", ""))
