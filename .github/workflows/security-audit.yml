@@ -88,11 +88,15 @@ jobs:
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --format sarif -o trivy-results.sarif pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548
           trivy image --severity HIGH,CRITICAL --ignore-unfixed --format sarif -o trivy-redis.sarif redis:7-alpine
           # Also print human-readable summary to job log
-          # FAIL on FIXED CVEs (drop || true) — future fixable CVEs should block CI
+          # FAIL on FIXED CVEs (--exit-code 1) — future fixable CVEs should block CI.
+          # Run both scans first, then fail if either found fixable CVEs (so both
+          # results are visible in the log even when one fails).
+          TRIVY_FAIL=0
           echo "### Trivy: pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548"
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548 || TRIVY_FAIL=1
           echo "### Trivy: redis:7-alpine"
-          trivy image --severity HIGH,CRITICAL --ignore-unfixed redis:7-alpine || true
+          trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 redis:7-alpine || TRIVY_FAIL=1
+          if [ "$TRIVY_FAIL" -eq 1 ]; then exit 1; fi
 
       - name: Upload Trivy SARIF to Security tab
         if: always()
@@ -110,6 +114,7 @@ jobs:
 
       # --- Syft: SBOM generation → artifact + job summary ---
       - name: Generate SBOM (Syft — Software Bill of Materials)
+        if: ${{ !cancelled() }}
         run: |
           export PATH="/tmp/secbin:$PATH"
           syft dir:. --output spdx-json=sbom.spdx.json
@@ -122,6 +127,7 @@ jobs:
           echo "- CycloneDX: sbom.cyclonedx.json" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload SBOM artifact
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: sbom
@@ -132,6 +138,7 @@ jobs:
 
       # --- Nuclei: DAST scan → SARIF → Security tab + auto-Issue ---
       - name: DAST scan (Nuclei — scan beta lab app for web vulnerabilities)
+        if: ${{ !cancelled() }}
         run: |
           export PATH="/tmp/secbin:$PATH"
           # Beta lab app listens on port 80 by default; use port 5000 via override
