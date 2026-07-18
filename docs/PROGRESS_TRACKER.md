@@ -659,5 +659,5 @@ def task_recon(engagement_id: str, target: str):
 **Security hardening:** pgvector image digest pinning + Trivy --exit-code 1 + CI postgres 127.0.0.1 binding + Syft/Nuclei if:!cancelled() (#191, ADR §12.35)
 **Bug status:** Bug #2 DONE (#186), Bug #6 DONE (#181), Bug #10 DONE (#180), Bug #14 DONE (#181), Bug #18/#19/#20 DONE (#188), Bug #13 resolved. Bug #21 OPEN (LLM-tier tool re-selection)
 **ADR:** §12.26 (recon vector strategy) → §12.27 (CHALLENGE verdict) → §12.28 (record/replay) → §12.29-34 (cognition/evasion/verification) → §12.35 (wiring gate + pgvector) → §12.36 (EngagementProfile PROPOSED)
-**GAP status:** GAP-005/006 PARTIALLY WIRED (slice-1 blast-radius gate DONE #184, slice-2 agent execution path OPEN). GAP-002/003/004/007-013 remain (cognitive layer, Phase 4b/5/6)
+**GAP status:** GAP-002 CLOSED (#192), GAP-005/006 PARTIALLY WIRED (slice-1 blast-radius gate DONE #184, slice-2 agent execution path OPEN). GAP-003/004/007-013 remain (cognitive layer, Phase 4b/5/6)
 **Gamma/ANCHOR:** STILL STOP-gated — ToolComposer FIRST (blast-radius gate already wired, PolicyEnforcer already wired)

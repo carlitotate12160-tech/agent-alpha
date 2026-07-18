@@ -14,7 +14,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 |---|-----|----------|--------|--------|
 | 1 | CDN crawl loop | DONE | Low | — |
 | 10 | HTTP 415 not classified | FIXED | Low | WP recon |
-| 11 | Crawl not discriminating | High | Medium | LLM token waste |
+| 11 | Crawl not discriminating | DONE | Medium | LLM token waste | **DONE** (via objective path) |
 | 14 | default_creds rule greedy (Laravel) | FIXED | Low | DeepSeek analysis |
 | 2 | Odoo rule greedy | FIXED | Low | DeepSeek analysis |
 | 6 | Idempotency blocks LLM | FIXED | Medium | DeepSeek analysis |
@@ -50,6 +50,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
    fires only on `master_pwd`/`list_db`). F1 double-recon also eliminated in PR #186
    (`process_odoo_dbmanager_hit` classifies already-fetched body, no HTTP client).
 4. Bug #11 (crawl not discriminating) — priority queue + depth limit + path filter.
+   — **DONE**: Fixed via objective path scoring in scout agent (deterministic v1).
 5. Bug #6 (idempotency) — after #14 and #2 are fixed, idempotency no longer blocks the LLM.
    — **DONE**: Fixed in PR #181 (`decide_excluding` + `_ran_campaigns`) and confirmed
    stable in PR #186 (`odoo_fingerprint` recorded as run-once campaign).
@@ -132,7 +133,7 @@ After the Bug #2/#6 rule-tier fix: rule tier correctly skips `odoo_dbmanager_pro
 
 GAP di dokumen ini TIDAK diperlakukan seragam terhadap ADR:
 
-- **Ember A — wiring-backlog (BUKAN entri ADR; ADR sudah menyebut, hanya belum di-wire):** GAP-002 (Scratchpad/SessionStore, §12.11), GAP-003 (IntelligenceBase, §8c/§12.11), GAP-005 (PolicyEnforcer, §8o-5/§12.20-22 — **slice-1 DONE #184, slice-2 OPEN**), GAP-006 (Graph analytics→decision, §1/§6 — **slice-1 DONE #184, slice-2 OPEN**). Kerjakan sebagai wiring task; jangan tambah entri ADR (duplikasi).
+- **Ember A — wiring-backlog (BUKAN entri ADR; ADR sudah menyebut, hanya belum di-wire):** ~~GAP-002 (Scratchpad/SessionStore, §12.11)~~ — **CLOSED #192**, GAP-003 (IntelligenceBase, §8c/§12.11), GAP-005 (PolicyEnforcer, §8o-5/§12.20-22 — **slice-1 DONE #184, slice-2 OPEN**), GAP-006 (Graph analytics→decision, §1/§6 — **slice-1 DONE #184, slice-2 OPEN**). Kerjakan sebagai wiring task; jangan tambah entri ADR (duplikasi).
 - **Ember B — entri ADR baru (blueprint memang bolong):** GAP-004+010 → **§12.29**, GAP-008 → **§12.30**, GAP-009 → **§12.31**, GAP-011 → **§12.32**, GAP-012 → **§12.33**, GAP-013 → **§12.34**.
 - **Ember C — sudah future-phase (BUKAN GAP baru):** GAP-001 (playbook coverage, tunduk rubric §12.26), GAP-007 (OSINT, dekat §8o-3/§8e).
 
@@ -279,24 +280,27 @@ Setelah implementasi, re-test terhadap target yang sama:
 
 ---
 
-## GAP-002: Scratchpad/SessionStore — Ada Kode, Tidak Ter-wire
+## GAP-002: Scratchpad/SessionStore — CLOSED
 
-- **Status**: OPEN
-- **Severity**: High — agent berjalan tanpa working memory
+- **Status**: CLOSED — Wired in PR #192 (2026-07-18)
+- **Severity**: High — agent berjalan tanpa working memory (RESOLVED)
 - **Files**:
   - `agent_alpha/memory/session.py` — `SessionStore` Protocol, `InMemorySessionStore`, `RedisSessionStore` (239 lines, fully implemented)
   - `agent_alpha/conductor/main.py` — tidak ada instantiation `SessionStore`
   - `agent_alpha/conductor/recon_runner.py` — tidak menerima `SessionStore`
   - `agent_alpha/conductor/execute_agent.py` — tidak menerima `SessionStore`
   - `agent_alpha/agents/base.py:112` — `run_cognitive_loop` memanggil `agent.step({})` dengan context kosong
-- **Root cause**: `SessionStore` Protocol + `InMemorySessionStore` + `RedisSessionStore` fully implemented di `memory/session.py`. Grep `SessionStore|SessionRecord` di seluruh `agent_alpha/`: hanya 2 file match — `memory/session.py` (definisi) dan `events/store.py` (1 match, hanya EventType reference). **Tidak ada instantiation di conductor, recon_runner, execute_agent, atau agent manapun.** `conductor/main.py:62` meng-instantiate `PolicyEnforcer()` tapi TIDAK meng-instantiate `SessionStore`.
+- **Resolution (PR #192)**: `SessionStore` wired into production path:
+  - `main.py`: `_ensure_session()` helper + `session_store_for()` tenant-aware instantiation
+  - `run_cognitive_loop`: `session_store` + `event_store` + `engagement_id` params; context carries scratchpad
+  - `Alpha.scout`: `session_store` param, `_step_once` reads/writes scratchpad observations
+  - `Beta.strike`: `session_store` param
+  - `recon_runner`: `session_store` threaded through `build_recon_pipeline`
+  - `execute_agent`: `session_store` passed to `agent_factory`
+  - Scratchpad snapshot to event store per step (`SCRATCHPAD_SNAPSHOTTED`)
+  - Tests: `test_scratchpad_loop_wiring.py` (4 tests: accumulation, snapshot, backward-compat, tenant isolation)
 - **Dampak**: Agent berjalan tanpa working memory. Inner monologue tidak di-persist. Resume step-level tidak mungkin. Setiap engagement mulai dari blank state — tidak ada scratchpad yang mengalir antar step.
-- **Proposed fix**:
-  1. Instantiate `SessionStore` (Redis-backed untuk production, InMemory untuk test) di `conductor/main.py` bersama `PolicyEnforcer`.
-  2. Pass `SessionStore` ke `recon_runner.run_recon_for_engagement()` dan `execute_agent()`.
-  3. Di `run_cognitive_loop`, pass scratchpad dari `SessionStore.get(engagement_id)` ke `agent.step(context)` — context tidak lagi `{}`.
-  4. Di `agent.step()`, baca scratchpad untuk inner monologue; tulis update via `SessionStore.update_scratchpad()`.
-  5. Snapshot scratchpad ke event store via `SessionStore.snapshot_scratchpad_event()` setiap step untuk audit trail.
+- **Historical root cause (pre-fix)**: `SessionStore` Protocol + `InMemorySessionStore` + `RedisSessionStore` fully implemented di `memory/session.py` tapi tidak ada instantiation di conductor, recon_runner, execute_agent, atau agent manapun. `run_cognitive_loop` memanggil `agent.step({})` dengan context kosong.
 - **Cross-reference**: ADR §12.11 (SessionMemory). Bug #7 (Engagement Memory tidak persist) — terkait tapi berbeda: SessionMemory = volatile scratchpad, EngagementMemory = persistent cross-engagement learning.
 
 ---
@@ -328,7 +332,7 @@ Setelah implementasi, re-test terhadap target yang sama:
 - **Severity**: Critical
 - **ADR Reference**: `docs/ADR.md` §12.29 *"Goal-directed cognition: Objective + Planner/World-Model + goal-completion"*
 - **Summary**: Replaces the reactive 1-step cognitive loop with `EngagementObjective`, `Planner`/`Executor`, `WorldModel`, and a `GOAL_COMPLETED` stop condition.
-- **Prerequisites**: GAP-002 (scratchpad wiring), Bug #18/#19/#20 (graph quality).
+- **Prerequisites**: ~~GAP-002 (scratchpad wiring)~~ ✅ CLOSED #192, Bug #18/#19/#20 (graph quality).
 - **Note**: Full root-cause, proposed fix, and confidence notes are now in ADR §12.29.
 
 ---
@@ -409,7 +413,7 @@ Setelah implementasi, re-test terhadap target yang sama:
 - **Severity**: Medium
 - **ADR Reference**: `docs/ADR.md` §12.30 *"Bounded curiosity-driven exploration"*
 - **Summary**: Adds deterministic `curiosity_score(observation)` in ORIENT, bounded to existing capabilities and scope, feeding the planner/scratchpad.
-- **Prerequisites**: GAP-004 (planner), GAP-002 (scratchpad).
+- **Prerequisites**: GAP-004 (planner), ~~GAP-002 (scratchpad)~~ ✅ CLOSED #192.
 - **Note**: Full rationale and envelope rules are now in ADR §12.30.
 
 ---
@@ -464,7 +468,7 @@ Setelah implementasi, re-test terhadap target yang sama:
 - **Severity**: Low-Medium
 - **ADR Reference**: `docs/ADR.md` §12.34 *"Within-engagement credential mutation"*
 - **Summary**: `CredentialPatternMutator` extracts patterns from harvested credentials, generates bounded variants, and tries them only after literal reuse fails and under the lockout governor.
-- **Prerequisites**: GAP-002 (scratchpad pattern tracking).
+- **Prerequisites**: ~~GAP-002 (scratchpad pattern tracking)~~ ✅ CLOSED #192.
 - **Note**: Full mutation and gating rules are now in ADR §12.34.
 
 ---
@@ -475,16 +479,16 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 
 | # | GAP | Effort | Prerequisite | Dampak |
 |---|-----|--------|-------------|--------|
-| 1 | GAP-002 (Scratchpad wiring) | Low | — | Working memory untuk agent, prerequisite untuk GAP-004 |
+| 1 | ~~GAP-002 (Scratchpad wiring)~~ | Low | — | **CLOSED #192** — Working memory untuk agent, prerequisite untuk GAP-004 ✅ |
 | 2 | GAP-003 (IntelligenceBase wiring) | Low | Bug #7 (Engagement Memory persist) | Agent belajar dari engagement sebelumnya, fix confidence calibration |
 | 3 | GAP-005 (PolicyEnforcer wiring) | Medium | — | **slice-1 DONE #184** (blast gate). slice-2 OPEN: OPSEC, technique check, scope check ke agent path |
 | 4 | GAP-006 (Graph Analytics wiring) | Medium | GAP-005 (untuk blast-radius gate enforcement) | **slice-1 DONE #184** (blast radius → decision). slice-2 OPEN: critical paths → planner (needs GAP-004) |
-| 5 | GAP-004 (Planner/World Model) | High | GAP-002 (scratchpad), Bug #18/#19/#20 (graph quality) | Core agentic gap: reactive loop → planning agent |
+| 5 | GAP-004 (Planner/World Model) | High | ~~GAP-002~~ ✅ (scratchpad), Bug #18/#19/#20 (graph quality) | Core agentic gap: reactive loop → planning agent |
 | 6 | GAP-010 (Goal-completion detection) | Low | GAP-004 (objective definition) | Agent berhenti saat objective tercapai, bukan hanya saat budget habis |
 | 7 | GAP-009 (Cross-validation between tools) | Medium | GAP-003 (IntelligenceBase untuk FP rate) | Findings di-cross-validate sebelum confirmed, reduce false positives |
-| 8 | GAP-008 (Curiosity-driven exploration) | Medium | GAP-004 (planner), GAP-002 (scratchpad) | Agent mengejar anomali, bukan hanya tool-ranked path |
+| 8 | GAP-008 (Curiosity-driven exploration) | Medium | GAP-004 (planner), ~~GAP-002~~ ✅ (scratchpad) | Agent mengejar anomali, bukan hanya tool-ranked path |
 | 9 | GAP-007 (OSINT / external context) | High | — | Intelligence gathering sebelum technical recon |
-| 10 | GAP-013 (Credential pattern mutation) | Low | GAP-002 (scratchpad untuk pattern tracking) | Credential reuse tidak hanya literal, tapi generate varian dari pola |
+| 10 | GAP-013 (Credential pattern mutation) | Low | ~~GAP-002~~ ✅ (scratchpad untuk pattern tracking) | Credential reuse tidak hanya literal, tapi generate varian dari pola |
 | 11 | GAP-012 (Adaptive evasion) | Medium | GAP-005 (PolicyEnforcer untuk dynamic OPSEC) | Agent mengubah teknik saat terdeteksi, bukan catat dan lanjut |
 | 12 | GAP-011 (Authenticated crawl) | High | GAP-004 (planner untuk post-access objective), GAP-010 (goal-completion untuk next objective) | Re-discovery dengan sesi aktif: IDOR, broken access control, priv esc |
 

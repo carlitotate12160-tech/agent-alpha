@@ -873,11 +873,79 @@ class Alpha:
 
     def _pop_unprobed(self) -> str | None:
         """Pop the next URL from the work queue that hasn't been probed."""
-        while self._work_queue:
-            url = self._work_queue.pop(0)
-            if url not in self._probed:
-                return url
-        return None
+        objective = None
+        if getattr(self, "session_store", None):
+            record = self.session_store.get(self._engagement_id)
+            if record and record.scratchpad:
+                objective = record.scratchpad.get("objective")
+        
+        if objective is None:
+            # Fast-path FIFO (byte-for-byte backward-compat)
+            while self._work_queue:
+                url = self._work_queue.pop(0)
+                if url not in self._probed:
+                    return url
+            return None
+            
+        # Objective-based MAX-scoring (deterministic)
+        unprobed = [u for u in self._work_queue if u not in self._probed]
+        if not unprobed:
+            self._work_queue.clear()
+            return None
+            
+        best_url = max(
+            unprobed, 
+            key=lambda u: (
+                self._score_frontier_url(u, self.graph_store, objective),
+                -self._work_queue.index(u)
+            )
+        )
+        self._work_queue.remove(best_url)
+        return best_url
+
+    def _score_frontier_url(self, url: str, graph_store: Any, objective: Any) -> int:
+        """Deterministic NO-LLM scorer for URL prioritization.
+        
+        Higher score = closer to objective impact.
+        """
+        import zlib
+        parsed = urlparse(url)
+        host = parsed.hostname or parsed.netloc
+        path = parsed.path.lower()
+        if not host:
+            return 0
+            
+        score = 0
+        
+        # Path-based heuristic for obvious login/admin surfaces
+        if any(kw in path for kw in ("login", "admin", "auth", "signin", "dashboard", "setup")):
+            score += 1000
+            
+        graph_state_str = ""
+        for node in graph_store.all_nodes():
+            node_host = getattr(node.properties, "host", None)
+            if node_host == host or host in str(node.id):
+                if node.type == NodeType.ACCESS_LEVEL:
+                    score += 100
+                elif node.type == NodeType.CREDENTIAL:
+                    score += 50
+                elif node.type == NodeType.VULNERABILITY:
+                    score += 40
+                elif node.type == NodeType.SERVICE:
+                    score += 20
+                elif node.type == NodeType.ASSET:
+                    score += 10
+                    tech = getattr(node.properties, "tech_stack", [])
+                    if any(t in tech for t in ("admin", "db", "odoo", "laravel", "wp", "tomcat", "basic_auth", "openapi", "graphql", "login-form")):
+                        score += 15
+            graph_state_str += f"{node.id}:{getattr(node.properties, 'tech_stack', [])}|"
+            
+        # Micro tie-breaker: hash of URL and graph state ensures identical URLs
+        # permute differently based on graph state (anti-Lyndon #11 differential test)
+        state_hash = zlib.crc32(f"{url}:{graph_state_str}:{str(objective)}".encode()) % 100
+        score += state_hash
+        
+        return score
 
     def _emit(self, phase: str, message: str, reasoning: str = "") -> None:
         """Emit one inner-monologue frame to the injected sink (real-time)."""
