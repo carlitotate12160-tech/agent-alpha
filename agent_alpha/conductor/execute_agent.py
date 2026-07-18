@@ -112,6 +112,7 @@ def execute_agent(
     agent_factory: Callable[..., Any],
     timeout_s: float,
     advance_fn: Callable[..., Any] | None = None,
+    session_store: Any = None,
 ) -> ExecOutcome:
     """Execute an agent through the shared safety gates.
 
@@ -155,7 +156,7 @@ def execute_agent(
 
     # ── Step 5: Run the agent, status from REAL outcome (#2, CARDINAL) ────
     try:
-        runner = agent_factory(graph_store)
+        runner = agent_factory(graph_store, session_store)
         outcome: ExecOutcome = runner()
     except Exception as exc:
         _log.exception("Agent %s failed for engagement %s", agent_role, engagement_id)

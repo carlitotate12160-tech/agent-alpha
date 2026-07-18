@@ -91,7 +91,13 @@ class BoundedAutonomy:
 # ── Cognitive loop driver ───────────────────────────────────────
 
 
-def run_cognitive_loop(agent: Any, policy: BoundedAutonomy) -> LoopOutcome:
+def run_cognitive_loop(
+    agent: Any,
+    policy: BoundedAutonomy,
+    session_store: Any | None = None,
+    event_store: Any | None = None,
+    engagement_id: str | None = None,
+) -> LoopOutcome:
     """Drive *agent* through OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycles.
 
     The loop is agent-agnostic: *agent* must implement
@@ -109,7 +115,28 @@ def run_cognitive_loop(agent: Any, policy: BoundedAutonomy) -> LoopOutcome:
 
     while True:
         iteration += 1
-        result = agent.step({})
+
+        context = {}
+        rec = None
+        if session_store is not None and engagement_id is not None:
+            rec = session_store.get(engagement_id)
+            context = {"scratchpad": rec.scratchpad if rec else {}}
+
+        result = agent.step(context)
+
+        if session_store is not None and engagement_id is not None:
+            updated_scratchpad = result.get("scratchpad")
+            if updated_scratchpad is not None:
+                session_store.update_scratchpad(engagement_id, updated_scratchpad)
+                if event_store is not None:
+                    event_type, payload = session_store.snapshot_scratchpad_event(engagement_id)
+                    agent_name = rec.active_agent if rec else getattr(agent, "__class__", type(agent)).__name__
+                    event_store.append(
+                        event_type=event_type,
+                        engagement_id=engagement_id,
+                        agent=agent_name,
+                        payload=payload,
+                    )
 
         total_cost_usd += result["cost_usd"]
         discovered = result["discovered_nodes"]

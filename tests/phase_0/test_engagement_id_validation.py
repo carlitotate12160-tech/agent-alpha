@@ -5,6 +5,7 @@ Run on Oracle ARM64:
 """
 
 import os
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -26,7 +27,7 @@ def _auth(tenant_id: str = "test-tenant") -> dict[str, str]:
 
 def test_engagement_id_validation_valid_passes() -> None:
     client = TestClient(app)
-    
+
     create_resp = client.post(
         "/engagements",
         json={"client_id": "client_a", "target": "10.0.0.0/24"},
@@ -34,7 +35,7 @@ def test_engagement_id_validation_valid_passes() -> None:
     )
     assert create_resp.status_code == 200
     engagement_id = create_resp.json()["engagement_id"]
-    
+
     response = client.get(f"/engagements/{engagement_id}/state", headers=_auth())
     assert response.status_code == 200
 
@@ -47,10 +48,10 @@ def test_engagement_id_validation_valid_passes() -> None:
 ])
 def test_engagement_id_validation_invalid_returns_404(bad_id: str) -> None:
     client = TestClient(app)
-    
+
     response = client.get(f"/engagements/{bad_id}/state", headers=_auth())
     assert response.status_code == 404
-    
+
     response = client.post(
         f"/engagements/{bad_id}/stop",
         json={"reason": "abort", "issued_by": "operator"},

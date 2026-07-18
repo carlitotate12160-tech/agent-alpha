@@ -121,6 +121,7 @@ def build_recon_pipeline(
     store: EventStore,
     secrets_manager: Any = None,
     publisher: Any = None,
+    session_store: Any = None,
 ) -> ReconPipeline:
     """Construct a real recon pipeline (Alpha + its own graph) for one worker run.
 
@@ -153,6 +154,7 @@ def build_recon_pipeline(
         http_client=http_client,
         secrets_manager=secrets_manager,
         monologue=monologue_sink,
+        session_store=session_store,
     )
     return ReconPipeline(alpha=alpha, graph_store=graph_store)
 
@@ -208,6 +210,7 @@ def run_recon_for_engagement(
     store: EventStore,
     record: Any,
     secrets_manager: Any = None,
+    session_store: Any = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -217,7 +220,7 @@ def run_recon_for_engagement(
     backend (C1.8).
     """
     pipeline = build_recon_pipeline(
-        engagement_id, tenant_id, auth, store, secrets_manager=secrets_manager
+        engagement_id, tenant_id, auth, store, secrets_manager=secrets_manager, session_store=session_store
     )
     targets = resolve_recon_targets(record)
 

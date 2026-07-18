@@ -24,9 +24,6 @@ t3  _mask() OUTPUT never printed:
 from __future__ import annotations
 
 import re
-from unittest.mock import patch
-
-import pytest
 
 from agent_alpha.live_fire.spa_secret_field_prove import (
     SpaLabConfig,
@@ -34,7 +31,6 @@ from agent_alpha.live_fire.spa_secret_field_prove import (
     main,
 )
 from agent_alpha.recon.js_secret_probe import _mask
-
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -124,7 +120,7 @@ def test_exception_message_secret_never_in_stdout(capsys, tmp_path, monkeypatch)
     )
 
     # Run main — it should exit 1 (FAIL) since clause_8 fails on non-ARM64
-    exit_code = main([str(eng_yaml), "--expected", str(expected_json)])
+    main([str(eng_yaml), "--expected", str(expected_json)])
 
     captured = capsys.readouterr().out
     # The raw secret must NOT appear anywhere in stdout
@@ -237,7 +233,7 @@ def test_mask_output_never_in_stdout_success_path(capsys, tmp_path, monkeypatch)
         lambda d: None,
     )
 
-    exit_code = main([str(eng_yaml), "--expected", str(expected_json)])
+    main([str(eng_yaml), "--expected", str(expected_json)])
 
     captured = capsys.readouterr().out
 
