@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from agent_alpha.agents.objective import EngagementObjective
+from agent_alpha.agents.world_model import WorldModel
 from agent_alpha.config import constants
 
 
@@ -158,7 +159,7 @@ def run_cognitive_loop(
     if (
         resolved_objective is not None
         and graph_store is not None
-        and resolved_objective.is_met(graph_store)
+        and WorldModel(graph_store).is_objective_met(resolved_objective)
     ):
         if event_store is not None and engagement_id is not None:
             event_store.append(
@@ -224,7 +225,7 @@ def run_cognitive_loop(
         if (
             resolved_objective is not None
             and graph_store is not None
-            and resolved_objective.is_met(graph_store)
+            and WorldModel(graph_store).is_objective_met(resolved_objective)
         ):
             if event_store is not None and engagement_id is not None:
                 event_store.append(
