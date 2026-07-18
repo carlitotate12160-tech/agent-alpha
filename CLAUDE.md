@@ -137,53 +137,55 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 4 breadth OPEN + COGNITIVE SPINE landing. Planner v1 SEALED. Gamma STILL
-                 STOP-gated (ToolComposer + blast gate first).
-Last Decision  : Planner v1 (GAP-004/GAP-010, §12.29 D1/D4/D5) SEALED on Oracle (PR #193 + review
-                 fixes #194). next_action = f(graph, objective): FIFO frontier replaced by a
-                 DETERMINISTIC, NO-LLM, objective-aware scorer (target_access_levels drives
-                 ACCESS_LEVEL/CREDENTIAL weighting; FIFO tie-break; NO hash). GOAL_COMPLETED is
-                 VERIFIED by the loop via EngagementObjective.is_met(graph) on verified
-                 CREDENTIAL-ENABLES->ACCESS_LEVEL facts — agent SELF-REPORT path REMOVED and
-                 regression-guarded (a lying agent returning goal_completed=True is asserted
-                 ignored). ONE canonical typed objective resolved once (_resolve_objective, shape-
-                 validated) + pre-step is_met() for resume/handoff (0-iteration completion).
-                 Bug #11 CLOSED (crawl now discriminates via objective priority).
-                 --- Two CodeRabbit theaters caught + fixed the honest way this session: (1) CRC32
-                 %100 added to score to game the differential test; (2) is_met() dead + GOAL_COMPLETED
-                 self-reported. Both were green-but-proving-nothing; tests rewritten to fail if the
-                 bug returns (multi-host semantic differential; verified-graph is_met; self-report
-                 regression guard).
+Project Phase  : Phase 4 breadth CONSOLIDATED. git_exposure + backup_file + actuator = ONE
+                 data-driven path_probe catalog (_handle_path_probe), all FIELD-PROVEN.
+                 Bug #21 (LLM-tier tool starvation) SEALED. GAP-004 planner_v1 (D1 Objective +
+                 D4 goal-completion) LANDED. Gamma STILL STOP-gated.
+Last Decision  : Bug #21 SEALED on Oracle (#196/43942e3). Root cause: decide_excluding forwarded
+                 exclude_tools to RULE tier only, NOT to _build_tool_select_messages (LLM tier) →
+                 LLM re-selected same tool per same-fingerprint page, starving git/backup/actuator
+                 probes. Fix = Option C (defense in depth): (1) exclude_tools threaded into
+                 _build_tool_select_messages system prompt ("MUST NOT re-select"); (2) post-filter in
+                 _parse_tool_response coerces excluded/out-of-catalog → generic_http_probe; (3)
+                 CONTRACT GUARD (CodeRabbit) — if generic_http_probe itself in exclude_tools, raise
+                 ValueError → surfaced as OrientationError at boundary (anti-#3 fail-loud, NOT
+                 arbitrary fallback which risks false-action on offensive platform). Single-file fix
+                 (orchestrator.py) — scout already supplies exclude_tools=_ran_campaigns (scout.py:221),
+                 zero caller change (anti-#10). Verified: generic_http_probe never enters _ran_campaigns
+                 (not in _dispatch_registry; _handle_generic_probe never .add()) so guard is
+                 self-defending against latent cross-file coupling, not currently-reachable.
+                 342 tests green (phase_2+phase_4+alpha_vector_dispatch) incl. test_rule_llm_starvation_fix
+                 + make check clean, Oracle ARM64 Python 3.12.13.
+                 --- Planner v1 (GAP-004/GAP-010, §12.29 D1/D4/D5) SEALED earlier (#193 + #194).
+                 next_action = f(graph, objective): deterministic, no-LLM, objective-aware scorer.
+                 GOAL_COMPLETED verified via is_met(graph); self-report removed + regression-guarded.
+                 Bug #11 CLOSED.
 World-class spine (3/3 landed): §12.27 graph-hygiene (Bug #18 CHALLENGE + #20 dedup, #188/#189) ->
                  GAP-002 scratchpad WIRED (#192, event-sourced, tenant-scoped, non-island) ->
                  GAP-004 planner v1 (#193/#194). NEXT spine = planner v2 (§12.29 D2/D3 HTN
                  Planner/Executor + World-Model).
-Security hardening (this session): S1 secret-redaction in spa_secret_field_prove (allowlist:
-                 type(exc).__name__ + reuse redact_secrets SoT, NOT a denylist); S2 pgvector:pg16
-                 CVE bump (#190/#191 — VERIFY the digest is actually pinned in docker-compose+ci);
-                 S3 verify=False -> default-True + --no-verify (layer_v_runner); S4 engagement_id
-                 boundary regex (^eng_[0-9a-f]+$, log-injection closed at source).
-Open decisions / NEXT (pick one, spine vs sellability):
-  1. Planner v2 — HTN Planner/Executor + World-Model/belief-state (§12.29 D2/D3). Depth track.
-  2. Sellability — slice-2a signed EngagementProfile (ADR §12.36 is PROPOSED, LOCK it first;
-     default blast threshold = "high", client-calibrated, hard floor = always_forbidden +
-     out-of-scope DENY). Then wire the planner's objective FROM the signed profile (today it is
-     lab-injected via scratchpad).
-  3. GAP-005/006 slice-2 — PolicyEnforcer OPSEC/technique/scope per-tool in recon_runner/
-     execute_agent (slice-1 blast-gate at dispatch already wired #184/#185). Recommended order:
-     2a OPSEC (seam exists: HttpClient opsec=), then technique+scope.
+Security hardening (prior session): S1 secret-redaction (allowlist); S2 pgvector:pg16
+                 CVE bump (#190/#191); S3 verify=False -> default-True; S4 engagement_id
+                 boundary regex.
+Next Action    : Tier B (kill dead code, Lyndon #2): GAP-005 slice-2 — wire PolicyEnforcer
+                 (main.py:63, instantiated-but-unused) into execute_agent + recon_runner; enforce
+                 check_technique/check_scope/resolve_opsec_profile before tool exec. THEN Bug #7
+                 (EngagementMemory persist) → GAP-003 (IntelligenceBase; consumption may stay Phase-6
+                 deferred-by-design per engagement.py:230). THEN Tier C GAP-004: D3 World-Model/
+                 belief-state (substrate) → D2 Planner/Executor HTN (consumes world_model) → D5
+                 differential guard. D1/D4 already landed as planner_v1. D2 MUST NOT precede D3.
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest` 
                  or `make check`. Full suite ~1090+ green.
 Phase status (verified on Oracle):
   Phase 0-3 : DONE.
-  Phase 4   : breadth OPEN — 14 playbooks (git/backup/actuator via path_probe catalog;
+  Phase 4   : breadth CONSOLIDATED — 14 playbooks (git/backup/actuator via path_probe catalog;
               tomcat/basic_auth/s3/graphql/odoo via capability catalog; wp/laravel/js/etc).
   Cognitive : GAP-002 WIRED; GAP-004 planner v1 LANDED; GAP-003 IntelligenceBase OPEN;
               GAP-005/006 slice-2 OPEN.
 Bug ledger  : FIXED #2/#6/#14 (greedy rules + starvation), #10 (415), #18 (CF CHALLENGE),
-              #20 (identical-body dedup), #11 (crawl discrimination via planner). OPEN: #17
-              (mod_autoindex sort explosion), #19 (body-content classifier generalization),
-              #21 (LLM-tier exclude_tools not passed).
+              #20 (identical-body dedup), #11 (crawl discrimination via planner), #21 (LLM-tier
+              exclude_tools not passed). OPEN: #17 (mod_autoindex sort explosion), #19
+              (body-content classifier generalization).
 META (durable): status docs rot FAST. Before building anything, grep/trace the live path first —
               this session caught backup_file already-done, CRC theater, is_met dead-code, and
               self-report theater by verifying, not trusting the doc.
