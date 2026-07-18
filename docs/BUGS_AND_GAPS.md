@@ -132,7 +132,7 @@ After the Bug #2/#6 rule-tier fix: rule tier correctly skips `odoo_dbmanager_pro
 
 GAP di dokumen ini TIDAK diperlakukan seragam terhadap ADR:
 
-- **Ember A — wiring-backlog (BUKAN entri ADR; ADR sudah menyebut, hanya belum di-wire):** GAP-002 (Scratchpad/SessionStore, §12.11), GAP-003 (IntelligenceBase, §8c/§12.11), GAP-005 (PolicyEnforcer, §8o-5/§12.20-22), GAP-006 (Graph analytics→decision, §1/§6). Kerjakan sebagai wiring task; jangan tambah entri ADR (duplikasi).
+- **Ember A — wiring-backlog (BUKAN entri ADR; ADR sudah menyebut, hanya belum di-wire):** GAP-002 (Scratchpad/SessionStore, §12.11), GAP-003 (IntelligenceBase, §8c/§12.11), GAP-005 (PolicyEnforcer, §8o-5/§12.20-22 — **slice-1 DONE #184, slice-2 OPEN**), GAP-006 (Graph analytics→decision, §1/§6 — **slice-1 DONE #184, slice-2 OPEN**). Kerjakan sebagai wiring task; jangan tambah entri ADR (duplikasi).
 - **Ember B — entri ADR baru (blueprint memang bolong):** GAP-004+010 → **§12.29**, GAP-008 → **§12.30**, GAP-009 → **§12.31**, GAP-011 → **§12.32**, GAP-012 → **§12.33**, GAP-013 → **§12.34**.
 - **Ember C — sudah future-phase (BUKAN GAP baru):** GAP-001 (playbook coverage, tunduk rubric §12.26), GAP-007 (OSINT, dekat §8o-3/§8e).
 
@@ -333,17 +333,18 @@ Setelah implementasi, re-test terhadap target yang sama:
 
 ---
 
-## GAP-005: PolicyEnforcer — Ada Kode, Tidak Ter-wire di Production Path
+## GAP-005: PolicyEnforcer — Partially Wired (slice-1 done, slice-2 OPEN)
 
-- **Status**: OPEN
-- **Severity**: High — OPSEC, technique check, time-window, blast-radius gate — semua dead code di production
+- **Status**: PARTIALLY WIRED — slice-1 (blast-radius gate) DONE (#184), slice-2 (agent execution path) OPEN
+- **Severity**: High — OPSEC, technique check, scope check masih dead code di production agent path
 - **Files**:
   - `agent_alpha/conductor/policy.py` — `PolicyEnforcer` class (152 lines, fully implemented)
   - `agent_alpha/conductor/main.py:62` — `policy = PolicyEnforcer()` instantiated
   - `agent_alpha/conductor/main.py` — `policy` variable tidak pernah direferensikan lagi setelah line 62
   - `agent_alpha/live_fire/wp_chain_runner.py:253` — `PolicyEnforcer` dipakai di live-fire test path (bukan production)
   - `agent_alpha/conductor/authorization.py` — `policy.yaml:7` mengkonfigurasi `blast_radius_gate_before: ["ANCHOR", "HUNTER", "SCOUT_HUNTER"]` — gate tidak di-enforce
-- **Root cause**: `policy = PolicyEnforcer()` di `main.py:62` — instantiated. Grep `policy` di `main.py`: hanya 2 match — line 35 (import) dan line 62 (instantiation). **`policy` variable TIDAK pernah direferensikan lagi di main.py** — tidak di-pass ke function, tidak di-call. `PolicyEnforcer` DIgunakan di `live_fire/wp_chain_runner.py:253` untuk OPSEC profile resolution — tapi ini adalah **test/live-fire path, bukan production conductor path**. `policy.yaml:7` mengkonfigurasi `blast_radius_gate_before: ["ANCHOR", "HUNTER", "SCOUT_HUNTER"]` — **gate ini TIDAK di-enforce di kode manapun**.
+- **Slice-1 DONE (PR #184)**: `PolicyEnforcer.gate_before_agents()` + `assess_blast_gate()` wired into `advance_engagement()` via `_assess_blast_gate_for_dispatch()`. Blast-radius gate now parks offensive-tier agents when blast severity ≥ threshold.
+- **Slice-2 OPEN (agent execution path)**: `check_technique()`, `check_scope()`, `resolve_opsec_profile()` masih hanya dipanggil di `live_fire/wp_chain_runner.py:253` (test path). `policy = PolicyEnforcer()` di `main.py:63` instantiated tapi TIDAK di-pass ke `execute_agent()` atau `recon_runner`. Agent berjalan tanpa OPSEC/technique/scope guardrails.
 - **Dampak**: OPSEC profile (rate limit, user-agent rotation, timing), technique check (blocked techniques), scope check (out-of-scope targets), time-window enforcement, human approval gating, blast-radius gate — semua dead code di production path. Agent berjalan tanpa safety guardrails yang sudah diimplementasi.
 - **Proposed fix**:
   1. Pass `PolicyEnforcer` ke `execute_agent()` dan `recon_runner.run_recon_for_engagement()`.
@@ -361,10 +362,10 @@ Setelah implementasi, re-test terhadap target yang sama:
 
 ---
 
-## GAP-006: Attack Graph Analytics — Ada, Hanya Dipakai di Report, Bukan Decision
+## GAP-006: Attack Graph Analytics — Partially Wired (slice-1 done, slice-2 OPEN)
 
-- **Status**: OPEN
-- **Severity**: High — graph adalah storage untuk laporan, bukan input untuk decision
+- **Status**: PARTIALLY WIRED — slice-1 (blast-radius → decision) DONE (#184), slice-2 (critical paths → planner) OPEN (needs GAP-004)
+- **Severity**: Medium — blast-radius gate sudah aktif; critical paths untuk prioritisasi masih hanya di report
 - **Files**:
   - `agent_alpha/graph/narrative.py:44-80` — `find_critical_paths()` (graph path-finding ASSET→DATA/ACCESS_LEVEL)
   - `agent_alpha/graph/narrative.py:83-137` — `calculate_blast_radius()` (BFS reachable nodes + HVT identification)
@@ -476,8 +477,8 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 |---|-----|--------|-------------|--------|
 | 1 | GAP-002 (Scratchpad wiring) | Low | — | Working memory untuk agent, prerequisite untuk GAP-004 |
 | 2 | GAP-003 (IntelligenceBase wiring) | Low | Bug #7 (Engagement Memory persist) | Agent belajar dari engagement sebelumnya, fix confidence calibration |
-| 3 | GAP-005 (PolicyEnforcer wiring) | Medium | — | Safety guardrails aktif: OPSEC, technique check, scope check, blast-radius gate |
-| 4 | GAP-006 (Graph Analytics wiring) | Medium | GAP-005 (untuk blast-radius gate enforcement) | Graph analytics mengarahkan agent, blast-radius gate aktif |
+| 3 | GAP-005 (PolicyEnforcer wiring) | Medium | — | **slice-1 DONE #184** (blast gate). slice-2 OPEN: OPSEC, technique check, scope check ke agent path |
+| 4 | GAP-006 (Graph Analytics wiring) | Medium | GAP-005 (untuk blast-radius gate enforcement) | **slice-1 DONE #184** (blast radius → decision). slice-2 OPEN: critical paths → planner (needs GAP-004) |
 | 5 | GAP-004 (Planner/World Model) | High | GAP-002 (scratchpad), Bug #18/#19/#20 (graph quality) | Core agentic gap: reactive loop → planning agent |
 | 6 | GAP-010 (Goal-completion detection) | Low | GAP-004 (objective definition) | Agent berhenti saat objective tercapai, bukan hanya saat budget habis |
 | 7 | GAP-009 (Cross-validation between tools) | Medium | GAP-003 (IntelligenceBase untuk FP rate) | Findings di-cross-validate sebelum confirmed, reduce false positives |

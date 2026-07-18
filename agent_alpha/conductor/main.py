@@ -50,6 +50,7 @@ from agent_alpha.events.store import TransientStoreError
 from agent_alpha.events.trace import project_engagement_trace
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
 from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
@@ -64,6 +65,14 @@ secrets_mgr = SecretsManager()  # module default for the no-tenant path (in-memo
 secrets_provider = SecretsVaultProvider()  # per-tenant, lazy — mirrors store_provider
 log_scrubber = LogScrubber()
 log_scrubber.install_logging_filter()
+
+_in_memory_session_store = InMemorySessionStore()
+
+
+def session_store_for(tenant_id: str | None) -> Any:
+    if tenant_id and os.environ.get("AGENT_ALPHA_PG_DSN"):
+        return RedisSessionStore(_redis_url, tenant_id)
+    return _in_memory_session_store
 
 
 # C3: single source of truth for auth-event routing. Every synchronous route AND
@@ -115,6 +124,27 @@ engagements = APIRouter(
 
 # ── Celery task: auth gate + status, then runs the real Alpha→Omega recon ──
 # pipeline in-worker (recon_runner.run_recon_for_engagement). Non-blocking.
+
+
+def _ensure_session(
+    engagement_id: str, tenant_id: str | None, phase: str = "recon", agent: str = "alpha"
+) -> Any:
+    """Create a SessionRecord if one does not yet exist for this engagement."""
+    store = session_store_for(tenant_id)
+    if not store.exists(engagement_id):
+        store.set(
+            SessionRecord(
+                engagement_id=engagement_id,
+                target_scope={},
+                active_agent=agent,
+                current_phase=phase,
+                current_phase_iteration=0,
+                authorization={},
+                scratchpad={},
+                ttl_seconds=86400,
+            )
+        )
+    return store
 
 
 @celery_app.task(
@@ -180,6 +210,8 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             _record_refusal("not_found")
             return {"engagement_id": engagement_id, "status": "refused"}
 
+        session_store = _ensure_session(engagement_id, tenant_id)
+
         # Enforce tenant ownership in-worker when a tenant_id is provided.
         if tenant_id is not None and record.tenant_id is not None and record.tenant_id != tenant_id:
             _record_refusal("tenant_mismatch")
@@ -233,6 +265,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             target_store,
             record,
             secrets_manager=task_secrets,
+            session_store=session_store,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report
@@ -328,6 +361,8 @@ def run_agent_task(
         auth = AuthorizationStateMachine(event_store=target_store)
         record = auth.get_record(engagement_id)
 
+        session_store = _ensure_session(engagement_id, tenant_id, phase="execution", agent="agent")
+
         task_secrets: SecretsVault = secrets_mgr
         if tenant_id is not None:
             task_secrets = secrets_provider.for_tenant(tenant_id)
@@ -337,7 +372,7 @@ def run_agent_task(
         provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
         orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), provider)
 
-        def agent_factory(graph_store: Any) -> Callable[[], ExecOutcome]:
+        def agent_factory(graph_store: Any, session_store: Any = None) -> Callable[[], ExecOutcome]:
             if agent_role == a2a_pb2.BETA:
                 candidates = [
                     HttpFormApplicator(http_client=http_client),
@@ -357,6 +392,7 @@ def run_agent_task(
                     http_client=http_client,
                     secrets_manager=task_secrets,
                     cred_applicators=applicators,
+                    session_store=session_store,
                 )
 
                 def run_beta() -> ExecOutcome:
@@ -398,6 +434,7 @@ def run_agent_task(
             agent_factory=agent_factory,
             timeout_s=300.0,
             advance_fn=lambda eid, tid: advance_engagement_task.delay(eid, tid),
+            session_store=session_store,
         )
 
         return {"engagement_id": engagement_id, "status": "completed"}

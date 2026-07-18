@@ -146,7 +146,7 @@ def _has_challenge_header_hint(headers: dict[str, str] | None) -> bool:
     """
     if not headers:
         return False
-    headers_lower = {str(k).lower(): str(v).lower() for k, v in headers.items()}
+    headers_lower = {k.lower(): v.lower() for k, v in headers.items()}
     for name, substr in CHALLENGE_HEADER_HINTS:
         if name.endswith("*"):
             prefix = name[:-1]

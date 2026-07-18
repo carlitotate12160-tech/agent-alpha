@@ -77,6 +77,7 @@ class Alpha:
         secrets_manager: Any = None,
         monologue: MonologueSink | None = None,
         git_dumper: Any | None = None,
+        session_store: Any | None = None,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
@@ -86,6 +87,7 @@ class Alpha:
         self._secrets_manager = secrets_manager
         self.monologue: MonologueSink = monologue or NullMonologueSink()
         self._git_dumper = git_dumper or _default_git_dumper()
+        self.session_store = session_store
 
         # Dispatch registry: tool_name -> handler(resp, decision, url) -> int.
         # Canonical dispatch (anti-Lyndon #8: no growing if-chain).
@@ -160,7 +162,13 @@ class Alpha:
         policy = BoundedAutonomy(
             no_progress_threshold=constants.ALPHA_RECON_NO_PROGRESS_ITERS,
         )
-        run_cognitive_loop(self, policy)
+        run_cognitive_loop(
+            self,
+            policy,
+            session_store=self.session_store,
+            event_store=self.event_store,
+            engagement_id=engagement_id,
+        )
 
         # ── Determine status ────────────────────────────────────
         if self._analyzable_probes == 0:
@@ -233,11 +241,21 @@ class Alpha:
 
     def _step_once(self, context: dict[str, object]) -> dict[str, object]:
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
+        scratchpad = context.get("scratchpad")
+        sp: dict[str, Any] = dict(scratchpad) if isinstance(scratchpad, dict) else {}
+        obs = sp.setdefault("observations", [])
+        if not isinstance(obs, list):
+            obs = []
+            sp["observations"] = obs
+
+        def _finish(nodes: int, cost: float, note: str) -> dict[str, object]:
+            obs.append(note)
+            return {"discovered_nodes": nodes, "cost_usd": cost, "scratchpad": sp}
 
         # Pop an unprobed target; none left → no progress.
         url = self._pop_unprobed()
         if url is None:
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
+            return _finish(0, 0.0, "No unprobed URLs remaining")
 
         self._probed.add(url)
 
@@ -249,7 +267,7 @@ class Alpha:
             resp = self.http_client.get(url)
         except HttpClientError:
             self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
+            return _finish(0, 0.0, f"OBSERVE: {url} unreachable")
 
         # Classify the response through the ONE canonical classifier so a WAF/CF
         # block on ANY recon path is recorded as evidence and never dressed as
@@ -273,7 +291,7 @@ class Alpha:
                 "alpha",
                 {"host": host, "path": urlparse(url).path, "status_code": resp.status_code},
             )
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
+            return _finish(0, 0.0, f"OBSERVE: {url} WAF blocked")
 
         if verdict is Verdict.CHALLENGE:
             host = urlparse(url).hostname or urlparse(url).netloc
@@ -292,7 +310,7 @@ class Alpha:
                     "signal": "cf_challenge",
                 },
             )
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
+            return _finish(0, 0.0, f"OBSERVE: {url} CDN challenge")
 
         # NOTE: Verdict.EMPTY no longer short-circuits here. An empty body
         # still cannot match a body rule, but a HEADER rule (e.g.
@@ -311,7 +329,7 @@ class Alpha:
                 f"{url} returned HTTP 415 (unsupported media type); non-analyzable "
                 "origin rejection, not the target's content",
             )
-            return {"discovered_nodes": 0, "cost_usd": 0.0}
+            return _finish(0, 0.0, f"OBSERVE: {url} unsupported media type")
 
         # ── ORIENT / PLAN ───────────────────────────────────────
         observation: dict[str, Any] = {
@@ -344,7 +362,7 @@ class Alpha:
                     "alpha",
                     {"url": url, "reason": "identical_body", "hash": body_hash},
                 )
-                return {"discovered_nodes": 0, "cost_usd": 0.0}
+                return _finish(0, 0.0, f"OBSERVE: {url} identical body skipped")
             self._body_hashes.add(body_hash)
 
         if verdict in (Verdict.NOT_FOUND, Verdict.EMPTY):
@@ -360,7 +378,7 @@ class Alpha:
                     f"{url} returned HTTP {resp.status_code}; no rule match — "
                     "non-analyzable (LLM not consulted)",
                 )
-                return {"discovered_nodes": 0, "cost_usd": 0.0}
+                return _finish(0, 0.0, f"OBSERVE: {url} no rule match")
             self._emit(
                 "OBSERVE",
                 f"{url} returned HTTP {resp.status_code}; a deterministic rule "
@@ -380,7 +398,7 @@ class Alpha:
                     "ORIENT",
                     f"Could not orient on {url}: LLM decision failed; non-analyzable",
                 )
-                return {"discovered_nodes": 0, "cost_usd": 0.0}
+                return _finish(0, 0.0, f"ORIENT: {url} LLM decision failed")
 
         self._analyzable_probes += 1
         self._emit(
@@ -412,7 +430,9 @@ class Alpha:
             for href in self._extract_hrefs(resp.text, url):
                 self.enqueue_discovered_url(href)
 
-        return {"discovered_nodes": nodes_added, "cost_usd": decision.cost_usd}
+        return _finish(
+            nodes_added, decision.cost_usd, f"ACT: {decision.tool} on {url} -> {nodes_added} nodes"
+        )
 
     # ── Private: tool handlers ──────────────────────────────────
 

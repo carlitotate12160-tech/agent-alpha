@@ -167,6 +167,7 @@ class Beta:
         http_client: Any = None,
         secrets_manager: Any = None,
         cred_applicators: list[Any] | None = None,
+        session_store: Any | None = None,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
@@ -175,6 +176,7 @@ class Beta:
         self.http_client = http_client
         self._secrets_manager = secrets_manager
         self._cred_applicators = cred_applicators or []
+        self.session_store = session_store
 
         # Per-run state (initialised in run_strike).
         self._engagement_id: str = ""
@@ -221,7 +223,13 @@ class Beta:
         self._proof_artifacts = []
 
         # ── Drive the offensive body through the cognitive loop ──
-        run_cognitive_loop(self, BoundedAutonomy())
+        run_cognitive_loop(
+            self,
+            BoundedAutonomy(),
+            session_store=self.session_store,
+            event_store=self.event_store,
+            engagement_id=engagement_id,
+        )
 
         # ── False-success guard (anti-Lyndon #3): COMPLETE requires real,
         #    proven access — a non-"none" level AND at least one credential

@@ -1702,3 +1702,91 @@ make check  # verify test suite still green against pinned image
 ```
 
 **Confidence ~90%** — digest pin is a minimal, targeted fix; compensating control is sound (DB not internet-exposed); verification on Oracle ARM64 is required before this is considered complete.
+
+---
+
+### 12.36 Front-loaded signed EngagementProfile — PROPOSED (lock on confirm)
+
+**Status:** PROPOSED (2026-07-18). Renumber if §12.36 is taken.
+**Relates to:** §12.20–22 (Policy-as-Code / PolicyEnforcer), auth state machine
+(CREATED→RECON_ONLY→ACTIVE_APPROVED→OFFENSIVE_APPROVED), §1 (blast-radius gate),
+GAP-005 (PolicyEnforcer production wiring), Lyndon #4 (security-first) / #6 (one canonical type)
+/ #7 (single config source). **Non-negotiable preserved:** single auth gate in Conductor;
+event-sourced append-only state; agents autonomous AFTER authorized.
+
+**Problem.** Consent/authorization is fragmented: `policy.yaml` is GLOBAL/static, `Scope` is
+per-engagement, and per-engagement OPSEC/evasion/technique opt-ins have no signed capture. The
+product trend is toward many RUNTIME approval gates — bad UX AND legally weak (a mid-run "confirm"
+is ambiguous: what exactly was authorized?). Consent should be ONE signed act BEFORE Run, and the
+agent should then run autonomously within that envelope.
+
+**Decision 1 — EngagementProfile is the signed consent artifact.** At engagement creation the
+client selects, OVER THE EXISTING `policy.yaml` vocabulary, a per-engagement profile:
+- scope (domains / ip_ranges / exclusions / db_endpoints) — the `Scope` already captured;
+- opsec/stealth profile (quiet | normal | loud | announced | blend — already in `opsec_profiles`);
+- CF/WAF evasion (yes/no → drives `resolve_opsec_profile`'s existing evasion gate);
+- subdomain expansion (yes/no → gates passive_discovery/crt.sh);
+- technique opt-ins (from `excluded_techniques.require_explicit_opt_in`, e.g. T1003/T1055);
+- blast_threshold (Decision 4);
+- service selection.
+This IS the Rules of Engagement. It is attached to the engagement record (EXTENDS it — it does
+NOT create a second Scope, anti-#6).
+
+**Decision 2 — one signature, autonomous within the envelope.** Confirming the profile = the auth
+state transition (→ACTIVE_APPROVED / OFFENSIVE_APPROVED) WITH the RoE attached. The agent then runs
+autonomously inside the signed envelope with ZERO further human gates, except the single carve-out
+(Decision 4). "Non-bypassable auth gate" means the agent cannot act OUTSIDE the envelope — it does
+NOT mean repeated human clicks. This REDUCES gates; it does not add them.
+
+**Decision 3 — signature = tamper-evident, event-sourced, immutable.** Confirm produces
+`sha256(canonical_profile_json)` + principal/client identity + UTC timestamp, appended to the event
+store (append-only audit = existing non-negotiable). The signed profile is IMMUTABLE post-sign; any
+change is a NEW signed version + a NEW event that SUPERSEDES (never an in-place edit). A mutable DB
+boolean is NOT acceptable consent. This is the "strong digital-sign proof".
+
+**Decision 4 — the ONLY runtime human pause: blast-radius > signed threshold.**
+- Severity scale (grounded, `graph.narrative`): `low | medium | high | critical`, driven by reaching
+  high-value access (`root` / `domain_admin` / `db_root`).
+- **Default threshold = "high"** (current `constants.BLAST_GATE_SEVERITY_THRESHOLD`): proceed
+  autonomously for low/medium blast; PARK for human opt-in only when worst-case blast severity ≥ high
+  (the agent is about to reach / has reached crown-jewel access). This is the sweet spot for
+  "minimize gates" — routine offensive work is autonomous; only the genuinely high-impact moment (the
+  one a client wants to sign off on) pauses.
+- Client MAY set it in the signed profile: `medium` (more cautious) | `high` (default) |
+  `critical` (pause only on catastrophic) | `off` (log-only, full autonomy).
+- ELEVATING autonomy (`critical` / `off`) REQUIRES an explicit extra acknowledgment line captured in
+  the signed profile ("I authorize the agent to reach {high-value access} without pausing"). Higher
+  autonomy ⇒ stronger, explicitly-recorded consent.
+
+**Decision 5 — hard floor the profile can NEVER sign away.**
+- `excluded_techniques.always_forbidden` (T1485 Data Destruction, T1561 Disk Wipe, T1498/T1499 DoS)
+  stay forbidden regardless of blast setting — the `off` toggle NEVER re-enables irreversible actions.
+- Out-of-signed-scope target = hard DENY (not a pause, no interruption — the agent simply does not
+  touch it). `assert_pivot_target` / cohost default-DENY stays.
+- The auth-tier gate (OFFENSIVE_APPROVED + SOW + scope-verified) is unchanged. Profile autonomy is
+  bounded BELOW by these; it can only grant WITHIN what the tier + SOW already permit.
+
+**Decision 6 — fail-safe default.** No valid signed profile → engagement never reaches
+OFFENSIVE_APPROVED → offensive agents cannot run (structural, via the auth gate). Within an authorized
+engagement whose threshold is unset/unparseable → default to `high` (conservative), never `off`. A
+missing PolicyEnforcer builds the default (gate ON, never silently off — existing `advance.py`
+invariant).
+
+**Decision 7 — anti-Lyndon.** EngagementProfile = ONE canonical type on the engagement record (no
+duplicate Scope, #6). OPSEC / technique / scope / blast ALL resolve FROM this single signed source (no
+second config path, #7). Nothing here relaxes the auth gate or the event-sourced non-negotiable.
+Runtime gates go from "several" to "exactly one, client-calibrated" — this is a SIMPLIFICATION.
+
+**Confidence ~85%.** Vocabulary + seams are code-verified and already present: `policy.yaml`
+`opsec_profiles`, `PolicyEnforcer.resolve_opsec_profile` (evasion gate), `HttpClient(opsec=)`, `Scope`,
+`blast_gate.assess_blast_gate` (threshold=high), append-only event store. This UNIFIES them behind one
+signed profile — mostly wiring + one new canonical type, not a rewrite. Open: the profile schema field
+set + signature/versioning mechanics (slice-2a onward) and the "explicit acknowledgment for elevated
+autonomy" UX (product decision).
+
+**Slice order (implementation):**
+- 2a: EngagementProfile schema (selections over policy.yaml vocab) + capture at create_engagement +
+  sha256+identity+timestamp signature event (immutable) — the signed-consent FOUNDATION.
+- 2b: resolve OPSEC from the signed profile → HttpClient(opsec=) on the production recon path.
+- 2c: resolve technique opt-ins + per-tool scope (defense-in-depth) from the profile.
+- Blast threshold already wired (slice-1); 2a only makes it a PROFILE FIELD (default high preserved).

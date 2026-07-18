@@ -134,7 +134,7 @@ def _run(*, permitted=True, owner=TENANT, succeed=True, rebuilder=_rebuilder_wit
     store = FakeStore(seed)
     captured: dict = {}
 
-    def agent_factory(graph_store):
+    def agent_factory(graph_store, session_store=None):
         agent = FakeAgent(graph_store=graph_store, succeed=succeed)
         captured["agent"] = agent
         return agent.run  # zero-arg callable -> ExecOutcome (Q2 option A)

@@ -34,7 +34,7 @@ FINAL_STATUSES: Final[set[str]] = {"DONE", "FIXED", "CLOSED", "ADDRESSED", "TERA
 OPEN_STATUSES: Final[set[str]] = {"OPEN", "IN_PROGRESS"}
 
 # Status keywords that are allowed but have no strict reference requirement.
-ALLOWED_STATUSES: Final[set[str]] = {"LOCKED", "WONTFIX", "PROPOSED", "DRAFT"} | FINAL_STATUSES | OPEN_STATUSES
+ALLOWED_STATUSES: Final[set[str]] = {"LOCKED", "WONTFIX", "PROPOSED", "DRAFT", "PARTIALLY"} | FINAL_STATUSES | OPEN_STATUSES
 
 REF_PATTERNS: Final[list[re.Pattern[str]]] = [
     re.compile(r"closed by", re.IGNORECASE),

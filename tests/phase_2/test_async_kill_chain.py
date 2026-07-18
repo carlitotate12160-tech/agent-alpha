@@ -151,6 +151,7 @@ def test_async_worker_runs_real_recon_pipeline(
         store_: object,
         secrets_manager: object = None,
         publisher: object = None,
+        session_store: object = None,
     ) -> recon_runner.ReconPipeline:
         alpha = Alpha(
             authorization=auth_,
@@ -158,6 +159,7 @@ def test_async_worker_runs_real_recon_pipeline(
             event_store=store_,
             orchestrator=orchestrator,
             http_client=http_client,
+            session_store=session_store,
         )
         return recon_runner.ReconPipeline(alpha=alpha, graph_store=graph)
 
