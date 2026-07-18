@@ -11,8 +11,6 @@ an LLM judgement.
 
 from __future__ import annotations
 
-from typing import Any
-
 from agent_alpha.agents.base import BoundedAutonomy, StopReason, run_cognitive_loop
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore

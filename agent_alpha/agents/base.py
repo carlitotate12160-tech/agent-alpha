@@ -159,15 +159,15 @@ def run_cognitive_loop(
         if result.get("goal_completed"):
             if event_store is not None and engagement_id is not None:
                 agent_name = (
-                    rec.active_agent
-                    if rec
-                    else getattr(agent, "__class__", type(agent)).__name__
+                    rec.active_agent if rec else getattr(agent, "__class__", type(agent)).__name__
                 )
                 event_store.append(
                     event_type="GoalCompleted",
                     engagement_id=engagement_id,
                     agent=agent_name,
-                    payload={"description": objective.description if objective else "Objective met"},
+                    payload={
+                        "description": objective.description if objective else "Objective met"
+                    },
                 )
             return LoopOutcome(
                 stop_reason=StopReason.GOAL_COMPLETED,

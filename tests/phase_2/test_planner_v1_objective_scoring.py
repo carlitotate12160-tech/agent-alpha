@@ -7,11 +7,8 @@ FIFO fallback when no objective, and deterministic behavior.
 Anti-Lyndon #11: plans MUST emerge from f(graph, objective), never a static list.
 §12.30: deterministic signal, not improvisation — NO LLM in v1 scorer.
 """
+
 from __future__ import annotations
-
-from typing import Any
-
-import pytest
 
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.events.store import InMemoryEventStore
