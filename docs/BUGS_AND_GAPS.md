@@ -69,13 +69,13 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 14. Bug #9 (URL backslash normalization) — cleanup, low effort, low impact.
 15. Bug #17 (Apache mod_autoindex sort URL explosion) — filter sort query params in `_extract_hrefs()`, quick win.
 16. Bug #16 (runner script `Report.chains`) — fix local runner scripts so they do not crash at the end.
-17. Bug #21 (LLM-tier tool re-selection) — pass `exclude_tools` to LLM tier or post-filter LLM output. Fix after Bug #2/#6 rule-tier fix is confirmed stable.
+17. ~~Bug #21 (LLM-tier tool re-selection)~~ — **CLOSED #196** (pass `exclude_tools` to LLM tier + post-filter + contract guard).
 
 ---
 
 ## Bug #21: LLM-tier Tool Re-selection (exclude_tools Not Passed to LLM)
 
-- **Status**: OPEN (identified during live-fire test `quantum-laboratories.com`, 2026-07-16)
+- **Status**: CLOSED #196 (fixed: exclude_tools forwarded to LLM tier with prompt instruction + post-filter + contract guard)
 - **Priority**: High
 - **Effort**: Medium
 - **Blocks**: LLM token waste, tool diversification
