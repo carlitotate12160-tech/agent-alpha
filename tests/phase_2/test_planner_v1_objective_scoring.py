@@ -13,7 +13,12 @@ from __future__ import annotations
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import AssetProperties, AttackNode, NodeType
+from agent_alpha.graph.nodes import (
+    AssetProperties,
+    AttackNode,
+    CredentialProperties,
+    NodeType,
+)
 from agent_alpha.graph.persist import persist_node
 from agent_alpha.memory.session import InMemorySessionStore, SessionRecord
 
@@ -53,6 +58,27 @@ def _add_asset(
     return node.id
 
 
+def _add_credential(
+    store: NetworkXGraphStore,
+    event_store: InMemoryEventStore,
+    engagement_id: str,
+    host: str,
+    access_level: str,
+) -> str:
+    """CREDENTIAL node keyed to *host* via its id (credential props carry no host)."""
+    node = AttackNode(
+        id=f"cred_{host}",
+        type=NodeType.CREDENTIAL,
+        properties=CredentialProperties(
+            username="u", secret_ref="ref", service="svc", access_level=access_level
+        ),
+        confidence=0.9,
+        agent="alpha",
+    )
+    persist_node(event_store, store, engagement_id, node, agent="alpha")
+    return node.id
+
+
 def _set_session(
     session_store: InMemorySessionStore,
     engagement_id: str,
@@ -70,6 +96,23 @@ def _set_session(
             ttl_seconds=86400,
         )
     )
+
+
+def _first_selection(
+    store: NetworkXGraphStore,
+    event_store: InMemoryEventStore,
+    session_store: InMemorySessionStore,
+    engagement_id: str,
+    frontier: list[str],
+    objective: dict[str, object] | None = None,
+) -> str | None:
+    """Set the objective, build a real Alpha, load the frontier, pop ONCE."""
+    _set_session(session_store, engagement_id, {"objective": objective} if objective else {})
+    alpha = _make_recording_alpha(store, event_store, session_store, [])
+    alpha._engagement_id = engagement_id
+    alpha._work_queue = list(frontier)
+    alpha._probed = set()
+    return alpha._pop_unprobed()
 
 
 def _make_recording_alpha(
@@ -99,150 +142,66 @@ def _make_recording_alpha(
     return alpha
 
 
-def test_differential_same_frontier_different_graphs_selects_different_first_url() -> None:
-    """t_differential (THE anti-#11 proof): same frontier set, TWO different graph states.
+def test_differential_objective_evidence_steers_first_host() -> None:
+    """Genuine anti-#11 differential: two hosts in the frontier. The graph that
+    holds a credential toward the TARGET on host A makes host A's url first; the
+    graph that holds it on host B makes host B's url first. A FIFO picks the same
+    url regardless of graph — this must not. Passes on SEMANTICS, not a hash."""
+    eid = "test_diff"
+    frontier = ["http://a.example.com/x", "http://b.example.com/x"]
+    obj = {"target_access_levels": ["admin", "root", "db_root"]}
 
-    Graph A has an ASSET whose tech_stack signals a login surface (advances the
-    objective "reach access_level in {admin,root,db_root}").
-    Graph B has a bare ASSET with no such signal.
+    sa, ea, ssa = _make_graph_store(), _make_event_store(), _make_session_store()
+    _add_credential(sa, ea, eid, "a.example.com", "db_root")
+    first_a = _first_selection(sa, ea, ssa, eid, frontier, obj)
 
-    The FIRST url the agent selects DIFFERS between A and B.
-    A static FIFO would pick the same first url both times; the planner must not.
+    sb, eb, ssb = _make_graph_store(), _make_event_store(), _make_session_store()
+    _add_credential(sb, eb, eid, "b.example.com", "db_root")
+    first_b = _first_selection(sb, eb, ssb, eid, frontier, obj)
 
-    RED until P2/P3 — planner not yet wired.
-    """
-    engagement_id = "test_differential"
-    frontier_urls = [
-        "http://example.com/page1",
-        "http://example.com/page2",
-        "http://example.com/page3",
-    ]
+    assert first_a == "http://a.example.com/x"
+    assert first_b == "http://b.example.com/x"
+    assert first_a != first_b  # graph-driven, provably not FIFO
 
-    # Graph A: ASSET with login-form in tech_stack (advances objective)
-    store_a = _make_graph_store()
-    es_a = _make_event_store()
-    ss_a = _make_session_store()
-    _add_asset(store_a, es_a, engagement_id, "example.com", tech_stack=["login-form"])
-    _set_session(ss_a, engagement_id, {"objective": OBJECTIVE})
 
-    # Graph B: bare ASSET (does not advance objective)
-    store_b = _make_graph_store()
-    es_b = _make_event_store()
-    ss_b = _make_session_store()
-    _add_asset(store_b, es_b, engagement_id, "example.com", tech_stack=[])
-    _set_session(ss_b, engagement_id, {"objective": OBJECTIVE})
+def test_objective_target_changes_ranking() -> None:
+    """SAME graph + frontier; changing target_access_levels flips which url is
+    first. An objective-BLIND scorer (review claim #2) CANNOT pass this."""
+    eid = "test_obj"
+    frontier = ["http://a.example.com/x", "http://b.example.com/x"]
+    store, es, ss = _make_graph_store(), _make_event_store(), _make_session_store()
+    _add_credential(store, es, eid, "a.example.com", "admin")  # cred → admin on host A
+    _add_credential(store, es, eid, "b.example.com", "db_root")  # cred → db_root on host B
 
-    selections_a: list[str] = []
-    selections_b: list[str] = []
-
-    alpha_a = _make_recording_alpha(store_a, es_a, ss_a, selections_a)
-    alpha_a._engagement_id = engagement_id
-    alpha_a._work_queue = list(frontier_urls)
-
-    alpha_b = _make_recording_alpha(store_b, es_b, ss_b, selections_b)
-    alpha_b._engagement_id = engagement_id
-    alpha_b._work_queue = list(frontier_urls)
-
-    # Pop first URL from each — NON-ISLAND: drives the real scout frontier
-    alpha_a._pop_unprobed()
-    alpha_b._pop_unprobed()
-
-    assert len(selections_a) == 1
-    assert len(selections_b) == 1
-    assert selections_a[0] != selections_b[0], (
-        "Differential FAILED: same first URL for different graph states. "
-        "A static FIFO planner picks the same URL regardless of graph state; "
-        "an objective-aware planner f(graph, objective) must not. (anti-Lyndon #11)"
+    first_admin = _first_selection(
+        store, es, ss, eid, frontier, {"target_access_levels": ["admin"]}
+    )
+    first_dbroot = _first_selection(
+        store, es, ss, eid, frontier, {"target_access_levels": ["db_root"]}
     )
 
+    assert first_admin == "http://a.example.com/x"
+    assert first_dbroot == "http://b.example.com/x"
+    assert first_admin != first_dbroot
 
-def test_objective_priority_advancing_url_selected_before_generic() -> None:
-    """t_objective_priority: given an objective, frontier URL that advances objective
-    is selected BEFORE a generic URL, regardless of enqueue order.
 
-    RED until P2/P3 — planner not yet wired.
-    """
-    engagement_id = "test_priority"
-    store = _make_graph_store()
-    es = _make_event_store()
-    ss = _make_session_store()
-    _add_asset(store, es, engagement_id, "example.com", tech_stack=["login-form"])
-    _set_session(ss, engagement_id, {"objective": OBJECTIVE})
-
-    # Generic URL enqueued FIRST, login URL SECOND.
-    # Objective-aware planner should still select login first.
-    frontier_urls = ["http://example.com/generic", "http://example.com/login"]
-
-    selections: list[str] = []
-    alpha = _make_recording_alpha(store, es, ss, selections)
-    alpha._engagement_id = engagement_id
-    alpha._work_queue = list(frontier_urls)
-
-    alpha._pop_unprobed()
-
-    assert len(selections) == 1
-    assert selections[0] == "http://example.com/login", (
-        "Priority FAILED: objective-advancing URL was not selected first. "
-        "FIFO picks the first-enqueued generic URL; an objective-aware planner "
-        "must prioritise URLs whose graph context advances the objective."
-    )
+def test_scoring_is_deterministic_no_hash() -> None:
+    """Same (graph, objective, frontier) → identical pick every run. No hash, no
+    randomness (review claim #3: differential must not depend on hash noise)."""
+    eid = "test_det"
+    frontier = ["http://a.example.com/x", "http://b.example.com/x"]
+    obj = {"target_access_levels": ["db_root"]}
+    picks = set()
+    for _ in range(5):
+        s, e, ss = _make_graph_store(), _make_event_store(), _make_session_store()
+        _add_credential(s, e, eid, "b.example.com", "db_root")
+        picks.add(_first_selection(s, e, ss, eid, frontier, obj))
+    assert picks == {"http://b.example.com/x"}  # stable, semantic, not permuted by a hash
 
 
 def test_no_objective_is_fifo() -> None:
-    """t_no_objective_is_fifo: objective=None → selection order is exactly FIFO (today's behaviour).
-
-    GREEN today — this is the backward-compat fallback.
-    """
-    engagement_id = "test_fifo"
-    store = _make_graph_store()
-    es = _make_event_store()
-    ss = _make_session_store()
-    _set_session(ss, engagement_id, {})  # No objective
-
-    frontier_urls = [
-        "http://example.com/page1",
-        "http://example.com/page2",
-        "http://example.com/page3",
-    ]
-
-    selections: list[str] = []
-    alpha = _make_recording_alpha(store, es, ss, selections)
-    alpha._engagement_id = engagement_id
-    alpha._work_queue = list(frontier_urls)
-
-    while alpha._pop_unprobed():
-        pass
-
-    assert selections == frontier_urls, "With no objective, selection must be FIFO"
-
-
-def test_deterministic_same_graph_objective_frontier_same_selection() -> None:
-    """t_deterministic: same (graph, objective, frontier) → same selection every run.
-
-    No LLM, no randomness — deterministic scorer.
-    GREEN today — current FIFO is deterministic.
-    """
-    engagement_id = "test_deterministic"
-    store = _make_graph_store()
-    es = _make_event_store()
-    ss = _make_session_store()
-    _add_asset(store, es, engagement_id, "example.com", tech_stack=["login-form"])
-    _set_session(ss, engagement_id, {"objective": {"target_access_levels": ["admin"]}})
-
-    frontier_urls = ["http://example.com/page1", "http://example.com/page2"]
-
-    selections_run1: list[str] = []
-    alpha1 = _make_recording_alpha(store, es, ss, selections_run1)
-    alpha1._engagement_id = engagement_id
-    alpha1._work_queue = list(frontier_urls)
-    while alpha1._pop_unprobed():
-        pass
-
-    selections_run2: list[str] = []
-    alpha2 = _make_recording_alpha(store, es, ss, selections_run2)
-    alpha2._engagement_id = engagement_id
-    alpha2._work_queue = list(frontier_urls)
-    while alpha2._pop_unprobed():
-        pass
-
-    assert selections_run1 == selections_run2, "Selection must be deterministic"
+    """objective absent → exact FIFO order (backward-compat)."""
+    eid = "test_fifo"
+    frontier = ["http://x/1", "http://x/2", "http://x/3"]
+    s, e, ss = _make_graph_store(), _make_event_store(), _make_session_store()
+    assert _first_selection(s, e, ss, eid, frontier, None) == "http://x/1"

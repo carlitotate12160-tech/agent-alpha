@@ -905,63 +905,83 @@ class Alpha:
         return best_url
 
     def _score_frontier_url(self, url: str, graph_store: Any, objective: Any) -> int:
-        """Deterministic NO-LLM scorer for URL prioritization.
+        """Deterministic, NO-LLM frontier score = f(graph, objective).
 
-        Higher score = closer to objective impact.
+        Higher score = this URL's host graph-context advances the engagement
+        objective (reaching an access level in ``target_access_levels``).
+
+        PURE and REPRODUCIBLE: no hashing, no randomness, no LLM. Ties between
+        equal scores are broken by FIFO enqueue order in ``_pop_unprobed`` — NOT
+        here. The score is an explainable, objective-aware signal and MUST NOT
+        contain injected noise that could permute meaningful ranking
+        (anti-Lyndon #11 / #3: a differential passes because the SEMANTICS
+        changed, never because a hash did).
         """
-        import zlib
-
         parsed = urlparse(url)
         host = parsed.hostname or parsed.netloc
         path = parsed.path.lower()
         if not host:
             return 0
 
+        targets = self._objective_targets(objective)
         score = 0
 
-        # Path-based heuristic for obvious login/admin surfaces
+        # URL-only lead: an access surface advances ANY access objective. Kept
+        # below target-specific graph evidence so "we already hold a credential
+        # to the target on host X" outranks "host Y merely has a login page".
         if any(kw in path for kw in ("login", "admin", "auth", "signin", "dashboard", "setup")):
-            score += 1000
+            score += 80
 
-        graph_state_str = ""
         for node in graph_store.all_nodes():
             node_host = getattr(node.properties, "host", None)
-            if node_host == host or host in str(node.id):
-                if node.type == NodeType.ACCESS_LEVEL:
-                    score += 100
-                elif node.type == NodeType.CREDENTIAL:
-                    score += 50
-                elif node.type == NodeType.VULNERABILITY:
-                    score += 40
-                elif node.type == NodeType.SERVICE:
-                    score += 20
-                elif node.type == NodeType.ASSET:
-                    score += 10
-                    tech = getattr(node.properties, "tech_stack", [])
-                    if any(
-                        t in tech
-                        for t in (
-                            "admin",
-                            "db",
-                            "odoo",
-                            "laravel",
-                            "wp",
-                            "tomcat",
-                            "basic_auth",
-                            "openapi",
-                            "graphql",
-                            "login-form",
-                        )
-                    ):
-                        score += 15
-            graph_state_str += f"{node.id}:{getattr(node.properties, 'tech_stack', [])}|"
+            if not (node_host == host or host in str(node.id)):
+                continue
 
-        # Micro tie-breaker: hash of URL and graph state ensures identical URLs
-        # permute differently based on graph state (anti-Lyndon #11 differential test)
-        state_hash = zlib.crc32(f"{url}:{graph_state_str}:{str(objective)}".encode()) % 100
-        score += state_hash
+            if node.type == NodeType.ACCESS_LEVEL:
+                level = getattr(node.properties, "level", None)
+                # Objective-aware: reaching the TARGET level is the whole point.
+                score += 300 if level in targets else 40
+            elif node.type == NodeType.CREDENTIAL:
+                cred_level = getattr(node.properties, "access_level", None)
+                # A credential that ENABLES the target level is close to impact.
+                score += 150 if cred_level in targets else 50
+            elif node.type == NodeType.VULNERABILITY:
+                score += 40
+            elif node.type == NodeType.SERVICE:
+                score += 20
+            elif node.type == NodeType.ASSET:
+                score += 10
+                tech = getattr(node.properties, "tech_stack", []) or []
+                if any(
+                    t in tech
+                    for t in (
+                        "admin",
+                        "db",
+                        "odoo",
+                        "laravel",
+                        "wp",
+                        "tomcat",
+                        "basic_auth",
+                        "openapi",
+                        "graphql",
+                        "login-form",
+                    )
+                ):
+                    score += 15
 
         return score
+
+    @staticmethod
+    def _objective_targets(objective: Any) -> frozenset[str]:
+        """target_access_levels from an objective that may be a dict (scratchpad
+        JSON/Redis form) or an EngagementObjective dataclass."""
+        if objective is None:
+            return frozenset()
+        if isinstance(objective, dict):
+            raw = objective.get("target_access_levels") or ()
+        else:
+            raw = getattr(objective, "target_access_levels", ()) or ()
+        return frozenset(raw)
 
     def _emit(self, phase: str, message: str, reasoning: str = "") -> None:
         """Emit one inner-monologue frame to the injected sink (real-time)."""

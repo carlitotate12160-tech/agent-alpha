@@ -180,3 +180,56 @@ jobs:
           AGENT_ALPHA_REDIS_URL: "redis://localhost:6380/0"
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: .venv/bin/pytest tests/ -q --cov=agent_alpha --cov-report=term-missing --cov-fail-under=80
+
+      - name: CodeRabbit findings report (non-blocking)
+        # NON-BLOCKING: collect and display all CodeRabbit review findings
+        # so they are visible in CI logs. Does NOT fail the build.
+        # Runs only on PRs where CodeRabbit reviews exist.
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No PR number — skipping CodeRabbit report"
+            exit 0
+          fi
+
+          echo "=== CodeRabbit Findings Report (PR #$PR_NUMBER) ==="
+          echo ""
+
+          # Fetch all top-level review comments from CodeRabbit
+          COMMENTS=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER/comments" \
+            --jq '.[] | select(.user.login == "coderabbitai[bot]") | select(.in_reply_to_id == null) | .body' 2>/dev/null || true)
+
+          if [ -z "$COMMENTS" ]; then
+            echo "No CodeRabbit comments found."
+            exit 0
+          fi
+
+          # Display each finding with severity classification
+          TOTAL=0
+          CRITICAL=0
+          MAJOR=0
+          MINOR=0
+
+          while IFS= read -r comment; do
+            TOTAL=$((TOTAL + 1))
+            if echo "$comment" | grep -q "🔴 Critical"; then
+              CRITICAL=$((CRITICAL + 1))
+              echo "── 🔴 CRITICAL ──"
+            elif echo "$comment" | grep -q "🟠 Major"; then
+              MAJOR=$((MAJOR + 1))
+              echo "── 🟠 MAJOR ──"
+            elif echo "$comment" | grep -q "🟡 Minor"; then
+              MINOR=$((MINOR + 1))
+              echo "── 🟡 MINOR ──"
+            else
+              echo "── ℹ️ INFO ──"
+            fi
+            echo "$comment" | head -10
+            echo ""
+          done <<< "$COMMENTS"
+
+          echo "=== Summary: $TOTAL findings ($CRITICAL critical, $MAJOR major, $MINOR minor) ==="
+          echo "NOTE: CodeRabbit findings are informational only — they do not block merge."

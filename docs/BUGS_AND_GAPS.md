@@ -14,7 +14,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 |---|-----|----------|--------|--------|
 | 1 | CDN crawl loop | DONE | Low | — |
 | 10 | HTTP 415 not classified | FIXED | Low | WP recon |
-| 11 | Crawl not discriminating | DONE | Medium | LLM token waste | **DONE** (via objective path) |
+| 11 | Crawl not discriminating | **DONE** (via objective path) | Medium | LLM token waste |
 | 14 | default_creds rule greedy (Laravel) | FIXED | Low | DeepSeek analysis |
 | 2 | Odoo rule greedy | FIXED | Low | DeepSeek analysis |
 | 6 | Idempotency blocks LLM | FIXED | Medium | DeepSeek analysis |
