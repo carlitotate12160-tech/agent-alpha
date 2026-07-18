@@ -25,6 +25,7 @@ from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Report
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
+from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.config import constants
 from agent_alpha.events.store import EventStore
@@ -122,13 +123,27 @@ def build_recon_pipeline(
     secrets_manager: Any = None,
     publisher: Any = None,
     session_store: Any = None,
+    *,
+    policy: PolicyEnforcer | None = None,
 ) -> ReconPipeline:
     """Construct a real recon pipeline (Alpha + its own graph) for one worker run.
 
     Heavy deps are built in-process because Celery args are json-only (C1.7). This
     is exercised for real under C6b live-fire; hermetic tests monkeypatch this seam.
+
+    When *policy* is provided the pipeline resolves the default OPSEC profile
+    (constants.DEFAULT_OPSEC_PROFILE) with ``evasion_authorized=False`` (RECON_ONLY
+    = no spoofing without SOW, fail-closed) and injects the resulting UA / rate
+    limit into the HttpClient.  When *policy* is None the HttpClient uses its own
+    defaults — existing callers are unaffected.
     """
-    http_client = HttpClient(engagement_id=engagement_id)
+    # GAP-005 slice-2a: resolve OPSEC profile from policy when available.
+    opsec: dict[str, object] | None = None
+    if policy is not None:
+        opsec = policy.resolve_opsec_profile(
+            constants.DEFAULT_OPSEC_PROFILE, evasion_authorized=False
+        )
+    http_client = HttpClient(engagement_id=engagement_id, opsec=opsec)
     provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
     # Bug #14 root cause: Alpha is RECON_ONLY (§K9/§5) and must never even be
     # ABLE to load an access-phase rule (e.g. default_credentials_login,
@@ -211,6 +226,8 @@ def run_recon_for_engagement(
     record: Any,
     secrets_manager: Any = None,
     session_store: Any = None,
+    *,
+    policy: PolicyEnforcer | None = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -226,6 +243,7 @@ def run_recon_for_engagement(
         store,
         secrets_manager=secrets_manager,
         session_store=session_store,
+        policy=policy,
     )
     targets = resolve_recon_targets(record)
 

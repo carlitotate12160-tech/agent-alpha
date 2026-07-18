@@ -266,6 +266,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             record,
             secrets_manager=task_secrets,
             session_store=session_store,
+            policy=policy,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report
