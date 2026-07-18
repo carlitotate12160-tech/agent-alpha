@@ -10,10 +10,10 @@ read monologue:{their_tenant}:{engagement_id} — tenant isolation by constructi
 from __future__ import annotations
 
 import dataclasses
+from typing import Annotated
 
 import anyio
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
-from typing import Annotated
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from agent_alpha.agents.monologue_stream import stream_monologue
 from agent_alpha.conductor.api_auth import principal_from_token, valid_engagement_id
