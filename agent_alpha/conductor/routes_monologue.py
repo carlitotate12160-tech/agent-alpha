@@ -26,7 +26,9 @@ subscriber_factory = build_monologue_subscriber
 
 
 @router.websocket("/engagements/{engagement_id}/monologue/ws")
-async def monologue_ws(websocket: WebSocket, engagement_id: Annotated[str, Depends(valid_engagement_id)]) -> None:
+async def monologue_ws(
+    websocket: WebSocket, engagement_id: Annotated[str, Depends(valid_engagement_id)]
+) -> None:
     # Browsers can't set Authorization on a WS handshake → token via query param.
     try:
         principal = principal_from_token(websocket.query_params.get("token", ""))
