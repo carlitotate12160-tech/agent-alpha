@@ -25,6 +25,7 @@ from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
 from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.agents.monologue import MonologueSink, NullMonologueSink, ThoughtFrame
+from agent_alpha.agents.world_model import WorldModel
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
@@ -81,6 +82,7 @@ class Alpha:
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
+        self._world_model = WorldModel(graph_store)
         self.event_store = event_store
         self.orchestrator = orchestrator
         self.http_client = http_client
@@ -897,14 +899,14 @@ class Alpha:
         best_url = max(
             unprobed,
             key=lambda u: (
-                self._score_frontier_url(u, self.graph_store, objective),
+                self._score_frontier_url(u, objective),
                 -self._work_queue.index(u),
             ),
         )
         self._work_queue.remove(best_url)
         return best_url
 
-    def _score_frontier_url(self, url: str, graph_store: Any, objective: Any) -> int:
+    def _score_frontier_url(self, url: str, objective: Any) -> int:
         """Deterministic, NO-LLM frontier score = f(graph, objective).
 
         Higher score = this URL's host graph-context advances the engagement
@@ -932,7 +934,7 @@ class Alpha:
         if any(kw in path for kw in ("login", "admin", "auth", "signin", "dashboard", "setup")):
             score += 80
 
-        for node in graph_store.all_nodes():
+        for node in self._world_model.all_beliefs():
             node_host = getattr(node.properties, "host", None)
             if not (node_host == host or host in str(node.id)):
                 continue
