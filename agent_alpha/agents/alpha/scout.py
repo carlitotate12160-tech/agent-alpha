@@ -873,11 +873,115 @@ class Alpha:
 
     def _pop_unprobed(self) -> str | None:
         """Pop the next URL from the work queue that hasn't been probed."""
-        while self._work_queue:
-            url = self._work_queue.pop(0)
-            if url not in self._probed:
-                return url
-        return None
+        objective = None
+        session_store = getattr(self, "session_store", None)
+        if session_store is not None:
+            record = session_store.get(self._engagement_id)
+            if record and record.scratchpad:
+                objective = record.scratchpad.get("objective")
+
+        if objective is None:
+            # Fast-path FIFO (byte-for-byte backward-compat)
+            while self._work_queue:
+                url = self._work_queue.pop(0)
+                if url not in self._probed:
+                    return url
+            return None
+
+        # Objective-based MAX-scoring (deterministic)
+        unprobed = [u for u in self._work_queue if u not in self._probed]
+        if not unprobed:
+            self._work_queue.clear()
+            return None
+
+        best_url = max(
+            unprobed,
+            key=lambda u: (
+                self._score_frontier_url(u, self.graph_store, objective),
+                -self._work_queue.index(u),
+            ),
+        )
+        self._work_queue.remove(best_url)
+        return best_url
+
+    def _score_frontier_url(self, url: str, graph_store: Any, objective: Any) -> int:
+        """Deterministic, NO-LLM frontier score = f(graph, objective).
+
+        Higher score = this URL's host graph-context advances the engagement
+        objective (reaching an access level in ``target_access_levels``).
+
+        PURE and REPRODUCIBLE: no hashing, no randomness, no LLM. Ties between
+        equal scores are broken by FIFO enqueue order in ``_pop_unprobed`` — NOT
+        here. The score is an explainable, objective-aware signal and MUST NOT
+        contain injected noise that could permute meaningful ranking
+        (anti-Lyndon #11 / #3: a differential passes because the SEMANTICS
+        changed, never because a hash did).
+        """
+        parsed = urlparse(url)
+        host = parsed.hostname or parsed.netloc
+        path = parsed.path.lower()
+        if not host:
+            return 0
+
+        targets = self._objective_targets(objective)
+        score = 0
+
+        # URL-only lead: an access surface advances ANY access objective. Kept
+        # below target-specific graph evidence so "we already hold a credential
+        # to the target on host X" outranks "host Y merely has a login page".
+        if any(kw in path for kw in ("login", "admin", "auth", "signin", "dashboard", "setup")):
+            score += 80
+
+        for node in graph_store.all_nodes():
+            node_host = getattr(node.properties, "host", None)
+            if not (node_host == host or host in str(node.id)):
+                continue
+
+            if node.type == NodeType.ACCESS_LEVEL:
+                level = getattr(node.properties, "level", None)
+                # Objective-aware: reaching the TARGET level is the whole point.
+                score += 300 if level in targets else 40
+            elif node.type == NodeType.CREDENTIAL:
+                cred_level = getattr(node.properties, "access_level", None)
+                # A credential that ENABLES the target level is close to impact.
+                score += 150 if cred_level in targets else 50
+            elif node.type == NodeType.VULNERABILITY:
+                score += 40
+            elif node.type == NodeType.SERVICE:
+                score += 20
+            elif node.type == NodeType.ASSET:
+                score += 10
+                tech = getattr(node.properties, "tech_stack", []) or []
+                if any(
+                    t in tech
+                    for t in (
+                        "admin",
+                        "db",
+                        "odoo",
+                        "laravel",
+                        "wp",
+                        "tomcat",
+                        "basic_auth",
+                        "openapi",
+                        "graphql",
+                        "login-form",
+                    )
+                ):
+                    score += 15
+
+        return score
+
+    @staticmethod
+    def _objective_targets(objective: Any) -> frozenset[str]:
+        """target_access_levels from an objective that may be a dict (scratchpad
+        JSON/Redis form) or an EngagementObjective dataclass."""
+        if objective is None:
+            return frozenset()
+        if isinstance(objective, dict):
+            raw = objective.get("target_access_levels") or ()
+        else:
+            raw = getattr(objective, "target_access_levels", ()) or ()
+        return frozenset(raw)
 
     def _emit(self, phase: str, message: str, reasoning: str = "") -> None:
         """Emit one inner-monologue frame to the injected sink (real-time)."""

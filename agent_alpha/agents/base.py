@@ -16,9 +16,12 @@ from __future__ import annotations
 import enum
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent_alpha.config import constants
+
+if TYPE_CHECKING:
+    from agent_alpha.agents.objective import EngagementObjective
 
 # ── Stop reasons ────────────────────────────────────────────────
 
@@ -30,6 +33,7 @@ class StopReason(enum.Enum):
     TIME_BUDGET = "time_budget"
     COST_BUDGET = "cost_budget"
     NO_PROGRESS = "no_progress"
+    GOAL_COMPLETED = "goal_completed"
 
 
 # ── Loop outcome ────────────────────────────────────────────────
@@ -97,6 +101,7 @@ def run_cognitive_loop(
     session_store: Any | None = None,
     event_store: Any | None = None,
     engagement_id: str | None = None,
+    objective: EngagementObjective | None = None,
 ) -> LoopOutcome:
     """Drive *agent* through OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycles.
 
@@ -121,6 +126,9 @@ def run_cognitive_loop(
         if session_store is not None and engagement_id is not None:
             rec = session_store.get(engagement_id)
             context = {"scratchpad": rec.scratchpad if rec else {}}
+
+        if objective is not None:
+            context["objective"] = objective
 
         result = agent.step(context)
 
@@ -147,6 +155,25 @@ def run_cognitive_loop(
         total_nodes_discovered += discovered
         # Un-probed frontier size reported by the agent (0 if it does not report).
         work_remaining = int(result.get("work_remaining", 0) or 0)
+
+        if result.get("goal_completed"):
+            if event_store is not None and engagement_id is not None:
+                agent_name = (
+                    rec.active_agent if rec else getattr(agent, "__class__", type(agent)).__name__
+                )
+                event_store.append(
+                    event_type="GoalCompleted",
+                    engagement_id=engagement_id,
+                    agent=agent_name,
+                    payload={
+                        "description": objective.description if objective else "Objective met"
+                    },
+                )
+            return LoopOutcome(
+                stop_reason=StopReason.GOAL_COMPLETED,
+                iterations_run=iteration,
+                nodes_discovered=total_nodes_discovered,
+            )
 
         if discovered > 0:
             iters_without_progress = 0
