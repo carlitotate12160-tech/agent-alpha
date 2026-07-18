@@ -66,6 +66,8 @@ class CeleryTaskRevoker:
             try:
                 self._control.revoke(task_id, terminate=True, signal=_REVOKE_SIGNAL)
             except Exception:  # noqa: BLE001 — one broker hiccup must not stop the rest
+                # CodeQL [py/log-injection] false positive: engagement_id is boundary-validated
+                # (via valid_engagement_id dependency) to ^eng_[0-9a-f]{4,}$ before reaching this log.
                 _log.exception(
                     "revoke failed for task_id=%s (engagement_id=%s)", task_id, engagement_id
                 )

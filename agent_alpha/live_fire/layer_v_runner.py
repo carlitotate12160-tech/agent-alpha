@@ -273,6 +273,11 @@ def run_layer_v_live_fire(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Agent-Alpha Layer V live-fire")
     parser.add_argument("config", help="Path to layer v chain engagement YAML config")
+    parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        help="Skip TLS verification (for self-signed Caddy internal CA lab)",
+    )
     args = parser.parse_args(argv)
 
     config = load_layer_v_config(args.config)
@@ -283,7 +288,9 @@ def main(argv: list[str] | None = None) -> int:
 
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
-    http_client = HttpClient(engagement_id=config.client_id, verify=False)
+    # TLS verification is opt-out ONLY for self-owned lab_guard targets with self-signed certs;
+    # production recon uses the secure default (verify=True).
+    http_client = HttpClient(engagement_id=config.client_id, verify=not args.no_verify)
     secrets_manager = SecretsManager()
     playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
