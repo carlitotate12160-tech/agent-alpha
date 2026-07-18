@@ -241,7 +241,11 @@ class Alpha:
 
     def _step_once(self, context: dict[str, object]) -> dict[str, object]:
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
-        sp = dict(context.get("scratchpad") or {})
+        sp: dict[str, Any] = (
+            dict(context.get("scratchpad") or {})
+            if isinstance(context.get("scratchpad"), dict)
+            else {}
+        )
         obs = sp.setdefault("observations", [])
         if not isinstance(obs, list):
             obs = []
