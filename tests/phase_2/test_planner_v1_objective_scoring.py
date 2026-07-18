@@ -11,6 +11,7 @@ Anti-Lyndon #11: plans MUST emerge from f(graph, objective), never a static list
 from __future__ import annotations
 
 from agent_alpha.agents.alpha.scout import Alpha
+from agent_alpha.agents.objective import EngagementObjective
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
@@ -112,6 +113,15 @@ def _first_selection(
     alpha._engagement_id = engagement_id
     alpha._work_queue = list(frontier)
     alpha._probed = set()
+    # Exercise the CANONICAL typed path (production passes EngagementObjective, not a dict).
+    alpha._current_objective = (
+        EngagementObjective(
+            target_access_levels=frozenset(objective["target_access_levels"]),
+            description=str(objective.get("description", "")),
+        )
+        if objective
+        else None
+    )
     return alpha._pop_unprobed()
 
 
