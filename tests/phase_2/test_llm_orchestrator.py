@@ -183,3 +183,40 @@ def test_decide_excluding_differential_closes_starvation() -> None:
     decision_b = orch_b.decide_excluding(obs, exclude_tools=frozenset({"odoo_dbmanager_probe"}))
     assert decision_b.tool not in {"odoo_dbmanager_probe"}
     assert decision_b.tool == "generic_http_probe"  # post-filter coercion
+
+
+def test_contract_guard_raises_when_safe_fallback_excluded() -> None:
+    """T5: When generic_http_probe itself is in exclude_tools, the contract
+    guard raises ValueError at parse level and OrientationError at the public
+    boundary (decide_excluding).  Asserts the contract "return value is NEVER
+    in exclude_tools" holds even when the safe no-op is excluded."""
+    import pytest
+
+    from agent_alpha.llm.orchestrator import OrientationError
+
+    # Parse-level: ValueError — out-of-catalog tool coerced to generic_http_probe,
+    # which is itself excluded -> guard fires
+    with pytest.raises(ValueError, match="generic_http_probe"):
+        LLMOrchestrator._parse_tool_response(
+            '{"tool": "foobar"}',
+            exclude_tools=frozenset({"generic_http_probe"}),
+        )
+
+    # Public boundary: OrientationError (wraps ValueError)
+    provider = _StubProviderReturningExcluded("foobar")
+    orch = _orchestrator(provider)
+    obs = {"body": "Acme Bespoke Admin Panel", "headers": {}}
+    with pytest.raises(OrientationError, match="cannot produce a non-excluded tool"):
+        orch.decide_excluding(obs, exclude_tools=frozenset({"generic_http_probe"}))
+
+
+def test_coercion_still_works_when_generic_not_excluded() -> None:
+    """T6: When generic_http_probe is NOT in exclude_tools, an out-of-catalog
+    tool name is still coerced to generic_http_probe (coercion path intact,
+    no raise)."""
+    decision = LLMOrchestrator._parse_tool_response(
+        '{"tool": "foobar"}',
+        exclude_tools=frozenset({"odoo_dbmanager_probe"}),
+    )
+    assert decision.tool == "generic_http_probe"
+    assert decision.tier == constants.LLM_TIER_SINGLE

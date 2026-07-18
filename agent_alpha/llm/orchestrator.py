@@ -188,7 +188,9 @@ class LLMOrchestrator:
     ) -> PlaybookDecision:
         """Parse the provider's JSON response into a PlaybookDecision.
 
-        Raises ``ValueError`` on malformed JSON or missing ``"tool"`` key.
+        Raises ``ValueError`` on malformed JSON, missing ``"tool"`` key,
+        or when the safe fallback (``generic_http_probe``) is itself in
+        *exclude_tools* — no safe decision exists (anti-#3: fail loud).
         Out-of-catalog tool names are coerced to ``"generic_http_probe"``
         (the safe no-op) — never return a name outside RECON_TOOL_CATALOG.
         Tools in *exclude_tools* are also coerced to ``"generic_http_probe"``
@@ -203,8 +205,17 @@ class LLMOrchestrator:
             raise ValueError(f"LLM JSON response missing 'tool' key: {data!r}")
 
         tool = data["tool"]
+        # out-of-catalog OR already-run -> coerce to the safe no-op
         if tool not in RECON_TOOL_CATALOG or tool in exclude_tools:
             tool = "generic_http_probe"
+        # contract guard: if even the safe no-op is excluded, no safe
+        # decision exists.  Fail loud (anti-#3) rather than silently
+        # return an excluded tool.
+        if tool in exclude_tools:
+            raise ValueError(
+                f"LLM tier cannot produce a non-excluded tool; safe fallback "
+                f"'generic_http_probe' itself excluded (excluded={sorted(exclude_tools)})"
+            )
 
         return PlaybookDecision(
             tool=tool,
