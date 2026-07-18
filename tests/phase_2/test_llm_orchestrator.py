@@ -103,3 +103,83 @@ def test_decide_excluding_skips_already_run_tool_and_reaches_llm() -> None:
     )
     assert decision.tier == constants.LLM_TIER_SINGLE
     assert decision.tool == "generic_http_probe"
+
+
+# ---------------------------------------------------------------------------
+# Bug #21 — exclude_tools forwarded to SINGLE_LLM tier (prompt + post-filter)
+# ---------------------------------------------------------------------------
+
+
+def test_build_tool_select_messages_carries_exclude_tools() -> None:
+    """T1: When exclude_tools is non-empty, the system message contains the
+    excluded tool name inside a [HARD CONSTRAINT] block. The full catalog
+    remains present (defense in depth: prompt-level instruction)."""
+    obs = {"body": "Acme Bespoke Admin Panel", "headers": {}}
+    messages = LLMOrchestrator._build_tool_select_messages(
+        obs, exclude_tools=frozenset({"odoo_dbmanager_probe"})
+    )
+    system_msg = messages[0]["content"]
+    assert "odoo_dbmanager_probe" in system_msg
+    assert "HARD CONSTRAINT" in system_msg
+    assert "PERMANENTLY OFF-LIMITS" in system_msg
+    assert "MUST select a tool" in system_msg
+    # Catalog still present
+    from agent_alpha.config.constants import RECON_TOOL_CATALOG
+
+    for tool in RECON_TOOL_CATALOG:
+        assert tool in system_msg
+
+
+class _StubProviderReturningExcluded:
+    """Stub that returns a tool that is in the exclude set — tests post-filter."""
+
+    def __init__(self, tool: str) -> None:
+        self.tool = tool
+        self.calls = 0
+        self.model = constants.LLM_REASONING_PROVIDER
+
+    def complete(self, *args: object, **kwargs: object):
+        self.calls += 1
+        return type(
+            "R",
+            (),
+            {
+                "text": f'{{"tool": "{self.tool}"}}',
+                "usage_cost_usd": 0.002,
+                "model": constants.LLM_REASONING_PROVIDER,
+            },
+        )()
+
+
+def test_parse_tool_response_post_filters_excluded_tool() -> None:
+    """T2: Even if the LLM returns an excluded tool (negative constraint ignored),
+    the post-filter in _parse_tool_response coerces it to generic_http_probe
+    (correctness guarantee via defense in depth)."""
+    decision = LLMOrchestrator._parse_tool_response(
+        '{"tool": "odoo_dbmanager_probe"}',
+        exclude_tools=frozenset({"odoo_dbmanager_probe"}),
+    )
+    assert decision.tool == "generic_http_probe"
+    assert decision.tier == constants.LLM_TIER_SINGLE
+
+
+def test_decide_excluding_differential_closes_starvation() -> None:
+    """T3: Differential test proving Bug #21 starvation is closed. Same Odoo-fingerprint
+    observation: Call A with empty exclude → odoo_dbmanager_probe. Call B with
+    exclude={"odoo_dbmanager_probe"} → result.tool NOT in exclude_tools. This proves
+    a previously-run tool never returns from the LLM tier (starvation closed)."""
+    # Use a novel observation (no RULE match) to force LLM tier
+    obs = {"body": "Acme Bespoke Admin Panel", "headers": {}}
+
+    # Call A: empty exclusion → LLM returns odoo_dbmanager_probe (simulated)
+    provider_a = _StubProviderReturningExcluded("odoo_dbmanager_probe")
+    orch_a = _orchestrator(provider_a)
+    decision_a = orch_a.decide_excluding(obs, exclude_tools=frozenset())
+    assert decision_a.tool == "odoo_dbmanager_probe"
+
+    # Call B: exclude odoo_dbmanager_probe → post-filter coerces to generic_http_probe
+    provider_b = _StubProviderReturningExcluded("odoo_dbmanager_probe")
+    orch_b = _orchestrator(provider_b)
+    decision_b = orch_b.decide_excluding(obs, exclude_tools=frozenset({"odoo_dbmanager_probe"}))
+    assert decision_b.tool not in {"odoo_dbmanager_probe"}
+    assert decision_b.tool == "generic_http_probe"  # post-filter coercion
