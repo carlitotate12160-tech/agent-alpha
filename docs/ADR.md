@@ -1681,7 +1681,7 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Problem.** The `pgvector/pgvector:pg16` image contains 15 CVEs in its Go stdlib components (crypto/tls, crypto/x509, net/url, net/mail, mime, os-symlink). The CRITICAL CVE-2025-68121 (incorrect certificate validation in crypto/tls during session resumption) is exploitable when Config.Clone mutates ClientCAs/RootCAs between handshakes. Our app is Python-only, but the image's Go components are still present and could be reachable if the DB is exposed.
 
-**Decision 1 — digest-pin to patched image.** Pin to `pgvector/pgvector:pg16-trixie@sha256:d0b40f686243` (ARM64) in both `infra/docker-compose.yml` and `.github/workflows/ci.yml`. The `pg16-trixie` variant is newer than `pg16` and includes Go 1.25.12+ (released 2026-07-07), which fixes CVE-2025-68121 and 14 HIGH-severity Go stdlib DoS CVEs.
+**Decision 1 — digest-pin to patched image.** Pin to `pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548` (ARM64) in both `infra/docker-compose.yml` and `.github/workflows/ci.yml`. The `pg16-trixie` variant is newer than `pg16` and includes Go 1.25.12+ (released 2026-07-07), which fixes CVE-2025-68121 and 14 HIGH-severity Go stdlib DoS CVEs.
 
 **Decision 2 — compensating control for residual CVEs.** The following CVEs have NO upstream patch yet (marked "Fixed in —" in NVD):
 - CVE-2026-32281 (crypto/x509)
@@ -1696,8 +1696,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Decision 4 — verification requirement.** Verification MUST be done on Oracle ARM64 only (arch match). Commands:
 ```bash
-docker pull pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
-trivy image --severity CRITICAL,HIGH pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
+docker pull pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548
+trivy image --severity CRITICAL,HIGH pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548
 make check  # verify test suite still green against pinned image
 ```
 

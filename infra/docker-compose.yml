@@ -15,8 +15,8 @@ services:
     # Postgres 16 + pgvector. pgvector is reserved for the Phase 6 IntelligenceBase
     # (embeddings); harmless to have now. P2's event/engagement tables don't need it.
     # Digest-pinned to pg16-trixie (ARM64) with Go 1.25.12+ to fix CVE-2025-68121 (CRITICAL)
-    # and 14 HIGH Go stdlib CVEs. See docs/ADR.md §12.24 for CVE decision + residuals.
-    image: pgvector/pgvector:pg16-trixie@sha256:d0b40f686243
+    # and 14 HIGH Go stdlib CVEs. See docs/ADR.md §12.35 for CVE decision + residuals.
+    image: pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548
     env_file: .env
     ports:
       - "127.0.0.1:5432:5432"
