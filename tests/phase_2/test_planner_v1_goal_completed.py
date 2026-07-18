@@ -110,6 +110,18 @@ class _GraphMutatingAgent:
         return {"discovered_nodes": 1, "cost_usd": 0.0}
 
 
+class _SelfReportingAgent:
+    """Lies: returns goal_completed=True every step. Used to PROVE the loop
+    IGNORES self-reported completion. If the self-report path is ever
+    reintroduced, these tests FAIL (regression guard)."""
+
+    def __init__(self, graph_store: NetworkXGraphStore) -> None:
+        self.graph_store = graph_store
+
+    def step(self, context: dict[str, object]) -> dict[str, object]:
+        return {"discovered_nodes": 1, "cost_usd": 0.0, "goal_completed": True}
+
+
 def _event_types(event_store: InMemoryEventStore, engagement_id: str) -> list[str]:
     return [
         getattr(e, "event_type", getattr(e, "type", None))
@@ -168,16 +180,16 @@ def test_goal_completed_via_verified_graph_is_met() -> None:
     assert "GoalCompleted" in _event_types(es, eid)
 
 
-def test_no_objective_never_goal_completed_even_if_graph_matches() -> None:
-    """With NO objective, the loop must NEVER GOAL_COMPLETED, even if the graph
-    contains a satisfying chain (nothing to complete; anti self-report)."""
-    eid = "no_obj"
+def test_no_objective_ignores_self_reported_completion() -> None:
+    """Agent self-reports goal_completed=True every step, but there is NO objective →
+    the loop must NEVER GOAL_COMPLETED (proves the self-report path is dead)."""
+    eid = "no_obj_selfreport"
     store, es, ss = _make_graph_store(), _make_event_store(), _make_session_store()
-    _set_session(ss, eid, {})
-    agent = _GraphMutatingAgent(store, es, eid, level="db_root", complete_on=2)
+    _set_session(ss, eid, {})  # no objective
+    agent = _SelfReportingAgent(store)
     outcome = run_cognitive_loop(
         agent,
-        BoundedAutonomy(max_iterations=5),
+        BoundedAutonomy(max_iterations=3),
         session_store=ss,
         event_store=es,
         engagement_id=eid,
@@ -186,18 +198,39 @@ def test_no_objective_never_goal_completed_even_if_graph_matches() -> None:
     assert "GoalCompleted" not in _event_types(es, eid)
 
 
-def test_unmet_objective_does_not_goal_complete() -> None:
-    """Objective present but is_met() false (access level NOT verified / not the
-    target) → runs to a budget stop, never GOAL_COMPLETED."""
-    eid = "unmet"
+def test_unmet_objective_ignores_self_reported_completion() -> None:
+    """Objective present but is_met() False (empty graph), and the agent self-reports
+    goal_completed=True → the loop must NOT GOAL_COMPLETED."""
+    eid = "unmet_selfreport"
     store, es, ss = _make_graph_store(), _make_event_store(), _make_session_store()
-    _set_session(ss, eid, {"objective": {"target_access_levels": ["root"]}})
-    agent = _GraphMutatingAgent(store, es, eid, level="db_root", complete_on=1)
+    _set_session(ss, eid, {"objective": OBJECTIVE})  # unmet: no verified chain in graph
+    agent = _SelfReportingAgent(store)
     outcome = run_cognitive_loop(
         agent,
-        BoundedAutonomy(max_iterations=4),
+        BoundedAutonomy(max_iterations=3),
         session_store=ss,
         event_store=es,
         engagement_id=eid,
     )
     assert outcome.stop_reason != StopReason.GOAL_COMPLETED
+    assert "GoalCompleted" not in _event_types(es, eid)
+
+
+def test_pre_step_completion_on_resume() -> None:
+    """Objective ALREADY satisfied before the loop starts (resumed engagement or
+    handoff) → stop with ZERO iterations and emit GoalCompleted (§12.29 D4)."""
+    eid = "resume"
+    store, es, ss = _make_graph_store(), _make_event_store(), _make_session_store()
+    _add_verified_chain(store, es, eid, "db_root")  # pre-populate
+    _set_session(ss, eid, {"objective": OBJECTIVE})
+    agent = _GraphMutatingAgent(store, es, eid, level="db_root", complete_on=999)
+    outcome = run_cognitive_loop(
+        agent,
+        BoundedAutonomy(max_iterations=50),
+        session_store=ss,
+        event_store=es,
+        engagement_id=eid,
+    )
+    assert outcome.stop_reason == StopReason.GOAL_COMPLETED
+    assert outcome.iterations_run == 0
+    assert "GoalCompleted" in _event_types(es, eid)

@@ -25,10 +25,9 @@ from agent_alpha.config import constants
 def _resolve_objective(
     objective: EngagementObjective | None, scratchpad: dict[str, Any] | None
 ) -> EngagementObjective | None:
-    """ONE canonical typed objective. The explicit param wins; otherwise
-    reconstruct it from the session scratchpad dict (JSON/Redis form). Never
-    returns an untyped dict — is_met() and the scorer share a single typed
-    contract (anti-#6 duplicate representation)."""
+    """ONE canonical typed objective. Explicit param wins; else reconstruct from
+    the session scratchpad dict (JSON/Redis form). Invalid shapes → None (no
+    objective) rather than a corrupt one."""
     if objective is not None:
         return objective
     if not scratchpad:
@@ -36,11 +35,18 @@ def _resolve_objective(
     raw = scratchpad.get("objective")
     if isinstance(raw, EngagementObjective):
         return raw
-    if isinstance(raw, dict) and raw.get("target_access_levels"):
-        return EngagementObjective(
-            target_access_levels=frozenset(raw["target_access_levels"]),
-            description=str(raw.get("description", "")),
-        )
+    if isinstance(raw, dict):
+        levels = raw.get("target_access_levels")
+        # Must be a NON-EMPTY collection (explicitly NOT a str) of non-empty strings.
+        if (
+            isinstance(levels, (list, tuple, set, frozenset))
+            and len(levels) > 0
+            and all(isinstance(x, str) and x.strip() for x in levels)
+        ):
+            return EngagementObjective(
+                target_access_levels=frozenset(levels),
+                description=str(raw.get("description", "")),
+            )
     return None
 
 
@@ -144,6 +150,28 @@ def run_cognitive_loop(
         objective, _initial_rec.scratchpad if _initial_rec else None
     )
     graph_store = getattr(agent, "graph_store", None)
+
+    # Pre-step completion: if the objective is ALREADY satisfied (a resumed
+    # engagement, or a handoff where a prior phase achieved it), stop immediately
+    # with ZERO iterations — do not run a needless step (§12.29 D4). Mirrors the
+    # in-loop emit below.
+    if (
+        resolved_objective is not None
+        and graph_store is not None
+        and resolved_objective.is_met(graph_store)
+    ):
+        if event_store is not None and engagement_id is not None:
+            event_store.append(
+                event_type="GoalCompleted",
+                engagement_id=engagement_id,
+                agent=(_initial_rec.active_agent if _initial_rec else type(agent).__name__),
+                payload={"description": resolved_objective.description},
+            )
+        return LoopOutcome(
+            stop_reason=StopReason.GOAL_COMPLETED,
+            iterations_run=0,
+            nodes_discovered=0,
+        )
 
     iteration = 0
     total_cost_usd = 0.0
