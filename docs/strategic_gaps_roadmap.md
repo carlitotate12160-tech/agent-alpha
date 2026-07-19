@@ -1,5 +1,5 @@
 # Agent-Alpha — Strategic Gaps & Resolution Roadmap
-**Durable record. Source: architecture peer-review, 2026-07.**
+**Durable record (commit to `docs/`). Source: architecture peer-review, 2026-07.**
 
 > **Success condition (the ONLY bar):** Agent-Alpha finds something a conventional
 > scanner missed, **proves it's exploitable**, and produces a report a client would pay for.
@@ -45,11 +45,14 @@ already beyond a scanner; data-driven catalogs (learnable seed for the moat); ri
 
 ## Phased resolution (step-by-step, leverage-ranked)
 
-### Phase A — VALIDATE (cheapest; defines everything) ← NOW
+### Phase A — VALIDATE (cheapest; defines everything) ✅ DONE
 - **A1.** Success-condition validation harness: Alpha→Beta full chain **vs Nuclei baseline** on a
   SELF-OWNED vulnerable stack (WP/Odoo, planted leaked-cred→admin chain) behind a **real Cloudflare/WAF**.
   - Done = a report showing what Agent-Alpha proves that Nuclei does NOT (or the precise gap).
   - Outcome drives Phase B/C priority. Closes G15.
+  - **RESULT:** Mechanism GENUINE (chain proven via harvested cred, T1078+T1552.001). Real CF WAF
+    BLOCKS chain (403/challenge, 0 creds). Success condition NOT proved on real targets —
+    mechanism yes, REACH no. Evasion is now GATING blocker. See A1 outcome section below.
 
 ### Phase B — EXPLOITATION (the missing "prove exploitable")
 - **B1.** ToolComposer + blast-radius gate completion (Gamma prereq; blast-gate slice-1 done #184). Claude lane = gate; DeepSeek lane = destructive bodies.
@@ -77,3 +80,35 @@ Browser automation tooling (G10/G12), Go execution engine (G16), Omega client-gr
 2. Validate before building (Phase A gates B/C priority).
 3. One slice at a time, field-proven, single-source, anti-god-object.
 4. Gamma stays STOP-gated behind ToolComposer + blast-radius until B1 done.
+
+---
+
+## A1 VALIDATION OUTCOME + RE-RANK (2026-07, session decisions)
+**Decisions:** quantum-laboratories.com = self-owned lab (authorized). GTM = **ENTERPRISE-FIRST**.
+
+**A1 gave two decisive, honest signals:**
+- ✓ Mechanism GENUINE: self-owned chain proven via HARVESTED cred (edge_from_harvested_cred=True,
+  db_enumerated=True, verified admin; T1078+T1552.001). Concern "default-cred contamination" RESOLVED.
+- ✗ REAL Cloudflare WAF BLOCKS the whole chain (root=CHALLENGE, leak paths=403, chain_proven=False,
+  0 creds). The trycloudflare tunnel earlier was pass-through (false-negative). Against a real WAF
+  zone Agent-Alpha never reaches the leak.
+
+**Consequence (evidence-driven re-rank):** enterprise targets sit behind WAF → **evasion (G6/§12.33)
+is now the GATING blocker, UPSTREAM of Gamma** (cannot exploit a target you cannot reach). Success
+condition is NOT proved on real targets — mechanism is, reach is not.
+
+**Governance finding:** odoo_chain_runner (and peers) do NOT enforce lab_guard — pointed at an
+external domain with no gate. Close FIRST (assert_lab_only_target, fail-closed).
+**VERIFIED:** all 13 runners DO enforce assert_lab_only_target. Hole was in allowlist process
+(quantum-laboratories.com added on verbal confirmation). Process fix: allowlist changes require
+PR review + domain ownership proof.
+
+**Revised near-term order (enterprise-first):**
+0. Governance fix: lab_guard on all chain/live-fire runners. ✅ VERIFIED DONE
+1. Phase B-evasion: §12.33 BOUNDED curl_cffi TLS/JA3 impersonation, evasion-gated, lockout-bounded
+   (table-stakes to REACH WAF'd targets — commodity wrap, NOT the moat, NOT an 11-layer engine).
+   Re-run A1 vs the real-CF lab to prove reach.
+2. Phase B-Gamma: ToolComposer + blast-gate + ANCHOR (depth: turn "got admin login" into
+   proof-of-code-exec / real exploitability).
+3. Phase D moat (cross-engagement intelligence) + Phase C reasoning.
+Note: current stack IS viable TODAY for the un-WAF'd SME segment — a parallel revenue path if desired.

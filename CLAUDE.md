@@ -137,26 +137,32 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : COGNITION SPINE FIELD-SEALED (GAP-004 complete). RECON HARD-STOP.
+Project Phase  : A1 VALIDATION DONE — mechanism proven, REACH blocked by WAF. ENTERPRISE-FIRST GTM.
                  Alpha recon = objective-directed + belief-state + planner + Try-Harder +
                  profile-directed targeting. Gamma STILL STOP-gated.
-Last Decision  : This session sealed the full cognition spine + closed the recon rabbit-hole:
-                 Bug#21 LLM tool-starvation (#196/197); GAP-005 slice-2a OPSEC wiring (#198);
-                 GAP-004 D3 WorldModel belief-state (#199); D2-a Planner scorer extraction —
-                 scout -75 LOC (#201); D2-b Try-Harder dead-end recovery (#203); recon_lab +
-                 field-prove GREEDY-FAILS/PLANNER-WINS PROVEN True on real HTTP/TLS, provider-
-                 swap fix (#205); TargetProfile v1 profile-directed try_harder via existing
-                 PATH_PROBE_CATALOG.applies_to — closed the 57-probe shotgun (#206). All Oracle
-                 ARM64 green (1148 pass) + make check clean. CURATOR RULING: recon depth is now
-                 Lyndon #5 territory — TargetProfile was the LAST justified recon slice. No more
-                 fingerprint enrichment / WAF backoff / crawl-depth.
-Next Action    : VALIDATION-FIRST (do NOT build Gamma on faith). (1) Run success-condition
-                 validation: Alpha->Beta full chain vs Nuclei baseline on a SELF-OWNED vulnerable
-                 stack behind a REAL Cloudflare/WAF (real conditions + planted leaked-cred->admin
-                 chain). (2) If Agent-Alpha proves the chain Nuclei misses -> payable demonstrator,
-                 polish Omega report = first sellable milestone. (3) Else the gap defines the build.
-                 THEN Gamma prereq (ToolComposer + blast-radius gate, blast-gate slice-1 already
-                 #184). Bug#7->GAP-003 (cross-engagement moat) + GAP-005 2b/2c parallel/after.
+Last Decision  : A1 VALIDATION DONE (self-owned labs): mechanism GENUINE — cred-reuse chain proven
+                 via HARVESTED cred (edge_from_harvested_cred=True, db_enumerated=True, verified
+                 admin; T1078+T1552.001). BUT real Cloudflare WAF BLOCKS the whole chain
+                 (root=CHALLENGE, leak paths=403, chain_proven=False, 0 creds). Success condition
+                 NOT proved on real targets: mechanism yes, REACH no. GTM = ENTERPRISE-FIRST →
+                 evasion is now the GATING blocker, UPSTREAM of Gamma. GOVERNANCE HOLE found:
+                 odoo_chain_runner (+peers) do NOT enforce lab_guard (ran against an external
+                 domain ungated) — VERIFIED: all runners DO enforce assert_lab_only_target, hole
+                 was in allowlist process (quantum-laboratories.com added on verbal confirmation).
+                 Prior session: cognition spine sealed (GAP-004 complete), recon hard-stop,
+                 TargetProfile v1 (#206), 1148 tests green.
+Next Action    : (enterprise-first, re-ranked)
+                 0. GOVERNANCE FIX: enforce lab_guard (assert_lab_only_target) on ALL chain/live-
+                    fire runners, fail-closed. VERIFIED DONE — all 13 runners enforce. Process fix:
+                    allowlist changes require PR review + domain ownership proof.
+                 1. §12.33 BOUNDED adaptive evasion: wrap curl_cffi (TLS/JA3 impersonation),
+                    evasion_authorized-gated, planner-triggered on repeated BLOCKED, lockout-
+                    bounded (§12.22-D2). Commodity wrap = table-stakes to REACH WAF'd targets;
+                    NOT the moat, NOT an 11-layer engine. Then re-run A1 vs real-CF lab to prove
+                    reach.
+                 2. Gamma prereq (ToolComposer + blast-gate) → ANCHOR: depth of "prove exploitable".
+                 3. Moat: Bug#7→GAP-003 cross-engagement intelligence.
+                 See docs/AGENT_ALPHA_STRATEGIC_GAPS.md for the full G1–G17 + phased roadmap.
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest`
                  or `make check`. Full suite ~1148+ green.
 Phase status (verified on Oracle):
