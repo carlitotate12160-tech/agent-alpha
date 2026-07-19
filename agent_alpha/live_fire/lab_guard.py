@@ -63,6 +63,10 @@ LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
         # vs scanner harness (A1 success-condition). Same self-owned infra as
         # agentalpha.duckdns.org, fronted by a real CDN for WAF/challenge tests.
         "odoo.agentalpha.duckdns.org",
+        # Cloudflare quick tunnel — self-owned Odoo lab fronted by real CDN.
+        # Random subdomain on trycloudflare.com, changes per tunnel start.
+        # Added for A1 validation through real Cloudflare WAF conditions.
+        "responding-yards-adaptation-floors.trycloudflare.com",
         # Recon try-harder field-prove lab hosts
         "apex.recon.lab",
         "late.recon.lab",
