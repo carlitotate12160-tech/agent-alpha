@@ -25,12 +25,33 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
-from agent_alpha.live_fire.beta_runner import _NoLLMProvider
 from agent_alpha.live_fire.field_prove_common import credential_vaulted
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
+
+
+class _DeterministicStubProvider:
+    """Deterministic stub provider — mirrors the offline CI test.
+
+    Returns ``generic_http_probe`` for every orient call so boring roots
+    mint ASSET nodes → graph has hosts → try_harder seeds well-known paths.
+    The field-prove is rule-tier (backup_file leak), not LLM-quality.
+    """
+
+    model = "deepseek-v4-pro"
+
+    def complete(self, *a: object, **k: object) -> Any:
+        return type(
+            "R",
+            (),
+            {
+                "text": '{"tool": "generic_http_probe", "reasoning": "stub"}',
+                "usage_cost_usd": 0.0,
+                "model": "deepseek-v4-pro",
+            },
+        )()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -237,7 +258,9 @@ def main(argv: list[str] | None = None) -> int:
         assert_lab_only_target(domain)
 
     playbook_dir = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
-    orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
+    orchestrator = LLMOrchestrator(
+        PlaybookEngine.from_directory(playbook_dir), _DeterministicStubProvider()
+    )
 
     overall_proven = run_recon_tryhard_field_prove(
         config,

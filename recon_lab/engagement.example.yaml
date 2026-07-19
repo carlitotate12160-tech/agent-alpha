@@ -1,5 +1,6 @@
 # recon_lab engagement — mirror the EXACT schema of odoo_lab/layer_v_lab.yaml on commit.
 # Scope authorizes the recon.lab apex + siblings (all self-owned, in lab_guard allowlist).
+client_id: ci_recon_lab
 engagement_id: eng_recon_tryhard_lab
 apex: apex.recon.lab
 recon_url: https://apex.recon.lab/
