@@ -120,6 +120,7 @@ class Alpha:
         self._ran_campaigns: set[str] = set()
         self._body_hashes: set[str] = set()
         self._current_objective: Any = None
+        self._try_harder_fired: bool = False
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -156,6 +157,7 @@ class Alpha:
         self._ran_campaigns = set()
         self._body_hashes = set()
         self._current_objective = None
+        self._try_harder_fired = False
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -261,10 +263,12 @@ class Alpha:
             obs.append(note)
             return {"discovered_nodes": nodes, "cost_usd": cost, "scratchpad": sp}
 
-        # Pop an unprobed target; none left → no progress.
+        # Pop an unprobed target; none left → try harder, then dead-end.
         url = self._pop_unprobed()
         if url is None:
-            return _finish(0, 0.0, "No unprobed URLs remaining")
+            url = self._try_harder_recovery()
+            if url is None:
+                return _finish(0, 0.0, "No unprobed URLs remaining")
 
         self._probed.add(url)
 
@@ -879,6 +883,31 @@ class Alpha:
             self._work_queue.append(url)
 
     # ── Private: helpers ────────────────────────────────────────
+
+    def _try_harder_recovery(self) -> str | None:
+        """Try-Harder dead-end recovery (D2-b).
+
+        Deterministically recall un-probed well-known paths on hosts
+        discovered LATE (which ``run_recon`` never seeded). Fires ONCE per
+        run to guarantee termination. Returns a recovered URL or ``None``.
+        """
+        if self._try_harder_fired:
+            return None
+        self._try_harder_fired = True
+        candidates = self._planner.try_harder(
+            self._world_model,
+            self._current_objective,
+            self._probed,
+        )
+        new = 0
+        for c in candidates:
+            before = len(self._work_queue)
+            self.enqueue_discovered_url(c)  # scope-gated + dedup
+            if len(self._work_queue) > before:
+                new += 1
+        if new > 0:
+            return self._pop_unprobed()  # retry ONCE
+        return None
 
     def _pop_unprobed(self) -> str | None:
         """Pop the next URL from the work queue that hasn't been probed."""
