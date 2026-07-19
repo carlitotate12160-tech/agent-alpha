@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 from agent_alpha.config import constants
+from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
 
 if TYPE_CHECKING:
     from agent_alpha.agents.world_model import WorldModel
@@ -45,13 +46,21 @@ class Planner:
         objective: Any,  # noqa: ARG002 — reserved for D2-c scoring
         probed: set[str],
     ) -> list[str]:
-        """Recall un-probed well-known URLs on hosts known to the graph.
+        """Recall un-probed, profile-relevant URLs on hosts known to the graph.
 
         For every distinct host in ``world_model.all_beliefs()`` (via
-        ``node.properties.host``), build ``https://{host}{path}`` for every
-        path in ``constants.WELL_KNOWN_LEAK_PATHS`` +
-        ``constants.SURFACE_DISCOVERY_PATHS`` and return those NOT in
-        *probed*.  De-duplicated, stable insertion order.
+        ``node.properties.host``), query ``PATH_PROBE_CATALOG`` with each spec's
+        ``applies_to_stacks`` against the host's tech_stack labels (substring
+        match). Seeds:
+
+        * UNIVERSAL specs (``applies_to_stacks == frozenset()``) → always.
+        * Stack-specific specs → only if a host label contains a marker.
+        * ``constants.DEFAULT_LEAK_PATHS`` → when NO non-universal spec matched
+          (unknown / unfingerprinted hosts; includes ``.env.bak``).
+        * ``constants.SURFACE_DISCOVERY_PATHS`` → only if a host label
+          substring-matches ``constants.SURFACE_APPLIES_TO``.
+
+        Filters already-probed URLs.  De-duplicated, stable insertion order.
 
         **PURE**: no I/O, no mutation, no LLM.
 
@@ -59,25 +68,55 @@ class Planner:
         roots that mint no node are out of scope here — handled by §12.33
         (adaptive evasion), not D2-b.
         """
-        # Collect distinct hosts from the graph (stable insertion order).
-        hosts: dict[str, None] = {}
+        # Single pass: collect distinct hosts + their tech_stack labels.
+        host_stacks: dict[str, list[str]] = {}
         for node in world_model.all_beliefs():
             host = getattr(node.properties, "host", None)
-            if host and host not in hosts:
-                hosts[host] = None
-
-        # Build candidate URLs from the TWO canonical path catalogs.
-        paths: tuple[str, ...] = (
-            *constants.WELL_KNOWN_LEAK_PATHS,
-            *constants.SURFACE_DISCOVERY_PATHS,
-        )
+            if not host:
+                continue
+            if host not in host_stacks:
+                host_stacks[host] = []
+            stack = getattr(node.properties, "tech_stack", None) or []
+            for label in stack:
+                if isinstance(label, str) and label not in host_stacks[host]:
+                    host_stacks[host].append(label)
 
         seen: dict[str, None] = {}
-        for host in hosts:
-            for path in paths:
-                url = f"https://{host}{path}"
-                if url not in probed and url not in seen:
-                    seen[url] = None
+        for host, labels in host_stacks.items():
+            lower_labels = [lb.lower() for lb in labels]
+            non_universal_matched = False
+
+            for spec in PATH_PROBE_CATALOG:
+                if not spec.applies_to_stacks:
+                    # UNIVERSAL — always seed.
+                    for path in spec.paths:
+                        url = f"https://{host}{path}"
+                        if url not in probed and url not in seen:
+                            seen[url] = None
+                else:
+                    # Stack-specific — substring match.
+                    if any(
+                        marker in lb for marker in spec.applies_to_stacks for lb in lower_labels
+                    ):
+                        non_universal_matched = True
+                        for path in spec.paths:
+                            url = f"https://{host}{path}"
+                            if url not in probed and url not in seen:
+                                seen[url] = None
+
+            # Unknown host fallback: no non-universal spec matched.
+            if not non_universal_matched:
+                for path in constants.DEFAULT_LEAK_PATHS:
+                    url = f"https://{host}{path}"
+                    if url not in probed and url not in seen:
+                        seen[url] = None
+
+            # Surface discovery gated by SURFACE_APPLIES_TO.
+            if any(marker in lb for marker in constants.SURFACE_APPLIES_TO for lb in lower_labels):
+                for path in constants.SURFACE_DISCOVERY_PATHS:
+                    url = f"https://{host}{path}"
+                    if url not in probed and url not in seen:
+                        seen[url] = None
 
         return list(seen)
 

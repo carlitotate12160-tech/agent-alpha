@@ -64,8 +64,12 @@ class PathProbeSpec:
     paths: tuple[str, ...]  # SINGLE source: frontier seed AND the logical path set
     recover: RecoverStrategy
     vuln_suffix: str  # -> vuln:{host}:{vuln_suffix}
-    tech_stack: tuple[str, ...]
+    tech_stack: tuple[str, ...]  # label a HIT produces on the ASSET node
     leak_source: str
+    # Which host tech_stack labels make this probe WORTH TRYING.
+    # Empty = UNIVERSAL (applies to every host regardless of fingerprint).
+    # Matching is substring: host label "php/8.1" matches marker "php".
+    applies_to_stacks: frozenset[str] = frozenset()
     # Pre-recover confirm (mainly to gate the expensive DUMP). Empty = no gate
     # (DIRECT relies on extract_secrets yielding a secret as its own gate, anti-#3).
     signature_substrings: tuple[str, ...] = ()
@@ -92,6 +96,7 @@ PATH_PROBE_CATALOG: tuple[PathProbeSpec, ...] = (
         vuln_suffix="git_exposure",
         tech_stack=("git",),
         leak_source="git_exposure",
+        applies_to_stacks=frozenset(),  # UNIVERSAL — any stack can leak .git
         signature_substrings=("[core]",),
     ),
     PathProbeSpec(
@@ -102,6 +107,7 @@ PATH_PROBE_CATALOG: tuple[PathProbeSpec, ...] = (
         vuln_suffix="backup_file_leak",
         tech_stack=("web",),
         leak_source="backup_file",
+        applies_to_stacks=frozenset({"laravel", "wordpress", "php", "web"}),
     ),
     PathProbeSpec(
         name="actuator",
@@ -111,6 +117,7 @@ PATH_PROBE_CATALOG: tuple[PathProbeSpec, ...] = (
         vuln_suffix="actuator_exposure",
         tech_stack=("spring",),
         leak_source="actuator",
+        applies_to_stacks=frozenset({"spring", "tomcat", "java"}),
     ),
 )
 
