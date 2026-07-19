@@ -80,6 +80,7 @@ class Alpha:
         monologue: MonologueSink | None = None,
         git_dumper: Any | None = None,
         session_store: Any | None = None,
+        try_harder_enabled: bool = True,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
@@ -92,6 +93,7 @@ class Alpha:
         self.monologue: MonologueSink = monologue or NullMonologueSink()
         self._git_dumper = git_dumper or _default_git_dumper()
         self.session_store = session_store
+        self._try_harder_enabled = try_harder_enabled
 
         # Dispatch registry: tool_name -> handler(resp, decision, url) -> int.
         # Canonical dispatch (anti-Lyndon #8: no growing if-chain).
@@ -266,7 +268,8 @@ class Alpha:
         # Pop an unprobed target; none left → try harder, then dead-end.
         url = self._pop_unprobed()
         if url is None:
-            url = self._try_harder_recovery()
+            if self._try_harder_enabled:
+                url = self._try_harder_recovery()
             if url is None:
                 return _finish(0, 0.0, "No unprobed URLs remaining")
 

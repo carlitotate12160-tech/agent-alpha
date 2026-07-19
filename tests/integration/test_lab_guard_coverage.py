@@ -66,6 +66,7 @@ ATTACKER_HARNESSES: frozenset[str] = frozenset(
         "git_exposure_field_prove",
         "backup_file_field_prove",
         "actuator_field_prove",
+        "recon_tryhard_field_prove",
     }
 )
 

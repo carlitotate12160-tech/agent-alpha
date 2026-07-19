@@ -1,0 +1,26 @@
+# recon_lab engagement — mirror the EXACT schema of odoo_lab/layer_v_lab.yaml on commit.
+# Scope authorizes the recon.lab apex + siblings (all self-owned, in lab_guard allowlist).
+engagement_id: eng_recon_tryhard_lab
+apex: apex.recon.lab
+recon_url: https://apex.recon.lab/
+scope:
+  ip_ranges: []
+  domains:
+    - apex.recon.lab
+    - late.recon.lab
+    - waf.recon.lab
+    - decoy.recon.lab
+    - dead.recon.lab
+    - hardened.recon.lab
+  exclusions: []
+# Runner seeds these sibling ROOTS into the frontier (isolates the Try Harder differential
+# from discovery — discovery is NOT under test here, dead-end recovery is).
+seed_hosts:
+  - https://late.recon.lab/
+  - https://waf.recon.lab/
+  - https://decoy.recon.lab/
+  - https://dead.recon.lab/
+  - https://hardened.recon.lab/
+objective:
+  target_access_levels: ["db_root", "admin"]
+  description: "Recover leaked credentials from any in-scope host."

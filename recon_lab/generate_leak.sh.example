@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Copy this to generate_leak.sh and fill in real credentials.
+# generate_leak.sh is gitignored — it never enters version control.
+set -euo pipefail
+cd "$(dirname "$0")"
+cat > exposed/late/.env.bak <<'ENVBAK'
+APP_ENV=production
+APP_KEY=base64:REPLACE_WITH_REAL_KEY
+DB_CONNECTION=mysql
+DB_HOST=10.0.0.5
+DB_PORT=3306
+DB_DATABASE=recon_prod
+DB_USERNAME=REPLACE_WITH_REAL_USER
+DB_PASSWORD=REPLACE_WITH_REAL_PASS
+ENVBAK
+echo "generated exposed/late/.env.bak"
