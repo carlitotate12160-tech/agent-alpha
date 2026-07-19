@@ -1,0 +1,14 @@
+# A1 validation engagement config — copy to engagement.yaml and adjust.
+# Target: odoo.agentalpha.duckdns.org (self-owned, Cloudflare-fronted Odoo)
+#
+# Run:
+#   nuclei -u https://odoo.agentalpha.duckdns.org -j -o nuclei.jsonl
+#   python -m agent_alpha.live_fire.validation_vs_scanner engagement.yaml --nuclei nuclei.jsonl
+client_id: a1-validation
+scope:
+  ip_ranges: []
+  domains:
+    - odoo.agentalpha.duckdns.org
+  exclusions: []
+recon_url: https://odoo.agentalpha.duckdns.org
+entry_point: https://odoo.agentalpha.duckdns.org
