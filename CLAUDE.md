@@ -137,51 +137,34 @@ If yes → don't patch, redesign the interface.
 ## Current Project Status (Update This Every Major Session)
 
 ```
-Project Phase  : Phase 4 breadth CONSOLIDATED. git_exposure + backup_file + actuator = ONE
-                 data-driven path_probe catalog (_handle_path_probe), all FIELD-PROVEN.
-                 Bug #21 (LLM-tier tool starvation) SEALED. GAP-004 planner_v1 (D1 Objective +
-                 D4 goal-completion) LANDED. Gamma STILL STOP-gated.
-Last Decision  : Bug #21 SEALED on Oracle (#196/43942e3). Root cause: decide_excluding forwarded
-                 exclude_tools to RULE tier only, NOT to _build_tool_select_messages (LLM tier) →
-                 LLM re-selected same tool per same-fingerprint page, starving git/backup/actuator
-                 probes. Fix = Option C (defense in depth): (1) exclude_tools threaded into
-                 _build_tool_select_messages system prompt ("MUST NOT re-select"); (2) post-filter in
-                 _parse_tool_response coerces excluded/out-of-catalog → generic_http_probe; (3)
-                 CONTRACT GUARD (CodeRabbit) — if generic_http_probe itself in exclude_tools, raise
-                 ValueError → surfaced as OrientationError at boundary (anti-#3 fail-loud, NOT
-                 arbitrary fallback which risks false-action on offensive platform). Single-file fix
-                 (orchestrator.py) — scout already supplies exclude_tools=_ran_campaigns (scout.py:221),
-                 zero caller change (anti-#10). Verified: generic_http_probe never enters _ran_campaigns
-                 (not in _dispatch_registry; _handle_generic_probe never .add()) so guard is
-                 self-defending against latent cross-file coupling, not currently-reachable.
-                 342 tests green (phase_2+phase_4+alpha_vector_dispatch) incl. test_rule_llm_starvation_fix
-                 + make check clean, Oracle ARM64 Python 3.12.13.
-                 --- Planner v1 (GAP-004/GAP-010, §12.29 D1/D4/D5) SEALED earlier (#193 + #194).
-                 next_action = f(graph, objective): deterministic, no-LLM, objective-aware scorer.
-                 GOAL_COMPLETED verified via is_met(graph); self-report removed + regression-guarded.
-                 Bug #11 CLOSED.
-World-class spine (3/3 landed): §12.27 graph-hygiene (Bug #18 CHALLENGE + #20 dedup, #188/#189) ->
-                 GAP-002 scratchpad WIRED (#192, event-sourced, tenant-scoped, non-island) ->
-                 GAP-004 planner v1 (#193/#194). NEXT spine = planner v2 (§12.29 D2/D3 HTN
-                 Planner/Executor + World-Model).
-Security hardening (prior session): S1 secret-redaction (allowlist); S2 pgvector:pg16
-                 CVE bump (#190/#191); S3 verify=False -> default-True; S4 engagement_id
-                 boundary regex.
-Next Action    : Tier B (kill dead code, Lyndon #2): GAP-005 slice-2 — wire PolicyEnforcer
-                 (main.py:63, instantiated-but-unused) into execute_agent + recon_runner; enforce
-                 check_technique/check_scope/resolve_opsec_profile before tool exec. THEN Bug #7
-                 (EngagementMemory persist) → GAP-003 (IntelligenceBase; consumption may stay Phase-6
-                 deferred-by-design per engagement.py:230). THEN Tier C GAP-004: D3 World-Model/
-                 belief-state (substrate) → D2 Planner/Executor HTN (consumes world_model) → D5
-                 differential guard. D1/D4 already landed as planner_v1. D2 MUST NOT precede D3.
-Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest` 
-                 or `make check`. Full suite ~1090+ green.
+Project Phase  : COGNITION SPINE FIELD-SEALED (GAP-004 complete). RECON HARD-STOP.
+                 Alpha recon = objective-directed + belief-state + planner + Try-Harder +
+                 profile-directed targeting. Gamma STILL STOP-gated.
+Last Decision  : This session sealed the full cognition spine + closed the recon rabbit-hole:
+                 Bug#21 LLM tool-starvation (#196/197); GAP-005 slice-2a OPSEC wiring (#198);
+                 GAP-004 D3 WorldModel belief-state (#199); D2-a Planner scorer extraction —
+                 scout -75 LOC (#201); D2-b Try-Harder dead-end recovery (#203); recon_lab +
+                 field-prove GREEDY-FAILS/PLANNER-WINS PROVEN True on real HTTP/TLS, provider-
+                 swap fix (#205); TargetProfile v1 profile-directed try_harder via existing
+                 PATH_PROBE_CATALOG.applies_to — closed the 57-probe shotgun (#206). All Oracle
+                 ARM64 green (1148 pass) + make check clean. CURATOR RULING: recon depth is now
+                 Lyndon #5 territory — TargetProfile was the LAST justified recon slice. No more
+                 fingerprint enrichment / WAF backoff / crawl-depth.
+Next Action    : VALIDATION-FIRST (do NOT build Gamma on faith). (1) Run success-condition
+                 validation: Alpha->Beta full chain vs Nuclei baseline on a SELF-OWNED vulnerable
+                 stack behind a REAL Cloudflare/WAF (real conditions + planted leaked-cred->admin
+                 chain). (2) If Agent-Alpha proves the chain Nuclei misses -> payable demonstrator,
+                 polish Omega report = first sellable milestone. (3) Else the gap defines the build.
+                 THEN Gamma prereq (ToolComposer + blast-radius gate, blast-gate slice-1 already
+                 #184). Bug#7->GAP-003 (cross-engagement moat) + GAP-005 2b/2c parallel/after.
+Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest`
+                 or `make check`. Full suite ~1148+ green.
 Phase status (verified on Oracle):
   Phase 0-3 : DONE.
   Phase 4   : breadth CONSOLIDATED — 14 playbooks (git/backup/actuator via path_probe catalog;
               tomcat/basic_auth/s3/graphql/odoo via capability catalog; wp/laravel/js/etc).
-  Cognitive : GAP-002 WIRED; GAP-004 planner v1 LANDED; GAP-003 IntelligenceBase OPEN;
-              GAP-005/006 slice-2 OPEN.
+  Cognitive : GAP-002 WIRED; GAP-004 complete (D1/D2-a/D2-b/D3/D4/D5 all LANDED);
+              GAP-003 IntelligenceBase OPEN; GAP-005/006 slice-2a WIRED, 2b/2c OPEN.
 Bug ledger  : FIXED #2/#6/#14 (greedy rules + starvation), #10 (415), #18 (CF CHALLENGE),
               #20 (identical-body dedup), #11 (crawl discrimination via planner), #21 (LLM-tier
               exclude_tools not passed). OPEN: #17 (mod_autoindex sort explosion), #19
