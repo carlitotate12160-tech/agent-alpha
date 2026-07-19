@@ -42,7 +42,7 @@ class _DeterministicStubProvider:
 
     model = "deepseek-v4-pro"
 
-    def complete(self, *a: object, **k: object):
+    def complete(self, *a: object, **k: object) -> Any:
         return type(
             "R",
             (),
