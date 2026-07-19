@@ -54,6 +54,10 @@ class Planner:
         *probed*.  De-duplicated, stable insertion order.
 
         **PURE**: no I/O, no mutation, no LLM.
+
+        Scope: recovers hosts that produced a graph node. WAF'd/non-analyzable
+        roots that mint no node are out of scope here — handled by §12.33
+        (adaptive evasion), not D2-b.
         """
         # Collect distinct hosts from the graph (stable insertion order).
         hosts: dict[str, None] = {}

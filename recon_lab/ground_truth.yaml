@@ -3,6 +3,9 @@
 #
 # The whole point: late.recon.lab's leak is UNREACHABLE by greedy recon (its /.env.bak
 # is never seeded because it is a discovered-LATE sibling). Only Try Harder recovers it.
+#
+# Scope: recovers hosts that produced a graph node. WAF'd/non-analyzable roots that mint
+# no node are out of scope here — handled by §12.33 (adaptive evasion), not D2-b.
 
 differential:
   # Run A — Try Harder DISABLED (try_harder_enabled=False): greedy must MISS the leak.
