@@ -67,6 +67,8 @@ LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
         # Random subdomain on trycloudflare.com, changes per tunnel start.
         # Added for A1 validation through real Cloudflare WAF conditions.
         "responding-yards-adaptation-floors.trycloudflare.com",
+        # Self-owned lab/test environment — Quantum Laboratories
+        "quantum-laboratories.com",
         # Recon try-harder field-prove lab hosts
         "apex.recon.lab",
         "late.recon.lab",
