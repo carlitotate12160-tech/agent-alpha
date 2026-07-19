@@ -20,6 +20,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
+from agent_alpha.config import constants
+
 if TYPE_CHECKING:
     from agent_alpha.agents.world_model import WorldModel
 
@@ -34,6 +36,46 @@ class Planner:
     """
 
     __slots__ = ()
+
+    # ── D2-b: dead-end recovery ─────────────────────────────────
+
+    def try_harder(
+        self,
+        world_model: WorldModel,
+        objective: Any,  # noqa: ARG002 — reserved for D2-c scoring
+        probed: set[str],
+    ) -> list[str]:
+        """Recall un-probed well-known URLs on hosts known to the graph.
+
+        For every distinct host in ``world_model.all_beliefs()`` (via
+        ``node.properties.host``), build ``https://{host}{path}`` for every
+        path in ``constants.WELL_KNOWN_LEAK_PATHS`` +
+        ``constants.SURFACE_DISCOVERY_PATHS`` and return those NOT in
+        *probed*.  De-duplicated, stable insertion order.
+
+        **PURE**: no I/O, no mutation, no LLM.
+        """
+        # Collect distinct hosts from the graph (stable insertion order).
+        hosts: dict[str, None] = {}
+        for node in world_model.all_beliefs():
+            host = getattr(node.properties, "host", None)
+            if host and host not in hosts:
+                hosts[host] = None
+
+        # Build candidate URLs from the TWO canonical path catalogs.
+        paths: tuple[str, ...] = (
+            *constants.WELL_KNOWN_LEAK_PATHS,
+            *constants.SURFACE_DISCOVERY_PATHS,
+        )
+
+        seen: dict[str, None] = {}
+        for host in hosts:
+            for path in paths:
+                url = f"https://{host}{path}"
+                if url not in probed and url not in seen:
+                    seen[url] = None
+
+        return list(seen)
 
     def score(self, url: str, world_model: WorldModel, objective: Any) -> int:
         """Deterministic, NO-LLM frontier score = f(graph, objective).
