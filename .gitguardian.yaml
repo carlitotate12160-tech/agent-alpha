@@ -1,12 +1,12 @@
-# GitGuardian configuration
-# Ignore false positives for environment variable references in docker-compose.yml
-# These are not actual secrets but environment variable placeholders
-secrets-ignore:
-  - name: Generic Password
-    paths:
-      - "infra/docker-compose.yml"
-  - name: Username Password
-    paths:
-      - "tests/phase_4/test_git_exposure_probe.py"
-      - "tests/phase_4/test_git_exposure_wiring.py"
+# GitGuardian configuration (v2 format)
+# Ignore false positives for lab fixtures and test files with fake credentials.
+version: 2
+
+secret:
+  ignored_paths:
+    - "infra/docker-compose.yml"
+    - "tests/phase_4/test_git_exposure_probe.py"
+    - "tests/phase_4/test_git_exposure_wiring.py"
+    - "recon_lab/exposed/late/.env.bak"
+    - "recon_lab/exposed/decoy/.env.bak"
 

@@ -1,0 +1,35 @@
+# recon_lab ground truth — Try Harder (D2-b) field-prove.
+# Scored by recon_tryhard_field_prove.py against a TWO-RUN differential.
+#
+# The whole point: late.recon.lab's leak is UNREACHABLE by greedy recon (its /.env.bak
+# is never seeded because it is a discovered-LATE sibling). Only Try Harder recovers it.
+
+differential:
+  # Run A — Try Harder DISABLED (try_harder_enabled=False): greedy must MISS the leak.
+  greedy_only:
+    late_leak_credential_found: false
+  # Run B — Try Harder ENABLED (default): planner must WIN.
+  with_try_harder:
+    late_leak_credential_found: true
+    late_credential_vaulted: true        # field_prove_common.credential_vaulted() gate
+
+hosts:
+  late.recon.lab:
+    role: core-differential
+    leak_path: /.env.bak
+    leak_creds_added_min: 1              # (Run B only)
+    reached_by: try_harder              # NOT greedy seeding
+  decoy.recon.lab:
+    role: false-positive-trap
+    leak_path: /.env.bak                # exists but EMPTY
+    leak_creds_added_max: 0             # anti-#3: probed, mints nothing
+  waf.recon.lab:
+    role: cdn-challenge
+    expected_verdict: challenge          # Bug #18 classifier
+    leak_creds_added_max: 0
+  dead.recon.lab:
+    role: dead-sibling
+    reachable: false                     # 503 — non-analyzable, no crash
+  hardened.recon.lab:
+    role: true-negative
+    leak_creds_added_max: 0

@@ -59,6 +59,13 @@ LAB_TARGET_ALLOWLIST: frozenset[str] = frozenset(
         # individually, because parse_crtsh_names collapses "*." to the apex.
         "vuln.agentalpha.duckdns.org",
         "hardened.agentalpha.duckdns.org",
+        # Recon try-harder field-prove lab hosts
+        "apex.recon.lab",
+        "late.recon.lab",
+        "waf.recon.lab",
+        "decoy.recon.lab",
+        "dead.recon.lab",
+        "hardened.recon.lab",
     }
 )
 
