@@ -1,12 +1,15 @@
 # tests/phase_2/test_planner_try_harder.py
 """Planner.try_harder — deterministic dead-end recovery (GAP-004 D2-b).
 
-T1: greedy-fails / planner-wins — a discovered-late host gets its well-known
-    paths probed via try_harder, finding a leak the greedy loop missed.
+T1: greedy-fails / planner-wins — a discovered-late host gets its
+    profile-relevant leak paths probed via try_harder, finding a leak the
+    greedy loop missed.
 T2: termination — fully-probed graph → try_harder returns [] → dead-end.
 T3: scope — out-of-scope host in the graph → its paths are NOT enqueued.
-T4: single-source — try_harder references constants catalogs, not literals.
-T5: regression — covered by the full test suite (test_planner*, etc.).
+T4: single-source — try_harder references constants catalogs / TargetProfile,
+    not literals.
+T5: regression / narrowing — covered by the full test suite and explicit
+    probe-count + field-prove guards in this module.
 """
 
 from __future__ import annotations
@@ -50,18 +53,18 @@ def _wm_with_hosts(*hosts: str) -> WorldModel:
 # ── T1: greedy-fails / planner-wins ─────────────────────────────
 
 
-def test_try_harder_returns_unprobed_wellknown_for_late_host() -> None:
-    """A late-discovered host's well-known paths appear in try_harder output."""
+def test_try_harder_returns_unprobed_profile_relevant_for_late_host() -> None:
+    """A late-discovered host's profile-relevant paths appear in try_harder output."""
     planner = Planner()
     wm = _wm_with_hosts("late.example.com")
     probed: set[str] = set()
 
     result = planner.try_harder(wm, None, probed)
 
-    # Must include at least one well-known path for the late host.
+    # Must include at least one leak/surface path for the late host.
     assert len(result) > 0
     assert all("late.example.com" in u for u in result)
-    # Must include the canonical git-leak path.
+    # Must include the canonical git-leak path for unknown hosts via DEFAULT_LEAK_PATHS.
     assert "https://late.example.com/.git/config" in result
 
 
@@ -200,13 +203,20 @@ def test_try_harder_e2e_leak_found_at_dead_end() -> None:
 # ── T2: termination ─────────────────────────────────────────────
 
 
-def test_try_harder_returns_empty_when_all_probed() -> None:
+def test_try_harder_returns_empty_when_all_profile_relevant_probed() -> None:
     """Fully-probed graph → try_harder returns [] → loop terminates."""
     planner = Planner()
     wm = _wm_with_hosts("h.example.com")
 
-    # Pre-populate probed with ALL well-known paths for this host.
-    all_paths = (*constants.WELL_KNOWN_LEAK_PATHS, *constants.SURFACE_DISCOVERY_PATHS)
+    # Pre-populate probed with ALL paths that would be seeded for an unknown host:
+    # universal (GIT_LEAK_PATHS) + DEFAULT_LEAK_PATHS (superset includes git).
+    from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
+
+    all_paths: set[str] = set()
+    for spec in PATH_PROBE_CATALOG:
+        if not spec.applies_to_stacks:
+            all_paths.update(spec.paths)
+    all_paths.update(constants.DEFAULT_LEAK_PATHS)
     probed = {f"https://h.example.com{p}" for p in all_paths}
 
     result = planner.try_harder(wm, None, probed)
@@ -350,42 +360,76 @@ def test_try_harder_out_of_scope_host_not_enqueued() -> None:
     assert all("out-of-scope.invalid" not in u for u in alpha._probed)
 
 
-# ── T4: single-source ────────────────────────────────────────────
+# ── T4: single-source / structural ───────────────────────────────
 
 
 def test_try_harder_uses_constants_catalogs_only() -> None:
-    """try_harder references constants.WELL_KNOWN_LEAK_PATHS +
-    constants.SURFACE_DISCOVERY_PATHS — no literal path strings in planner.py.
+    """try_harder references PATH_PROBE_CATALOG + constants, not literal paths.
+
+    It must depend on the catalog for path selection and
+    constants.DEFAULT_LEAK_PATHS / SURFACE_APPLIES_TO for fallback/gating.
     """
     import inspect
 
     source = inspect.getsource(Planner.try_harder)
 
-    # Must reference the constant names.
-    assert "constants.WELL_KNOWN_LEAK_PATHS" in source or "WELL_KNOWN_LEAK_PATHS" in source
-    assert "constants.SURFACE_DISCOVERY_PATHS" in source or "SURFACE_DISCOVERY_PATHS" in source
+    # Must reference the catalog and constant names.
+    assert "PATH_PROBE_CATALOG" in source
+    assert "DEFAULT_LEAK_PATHS" in source
+    assert "SURFACE_APPLIES_TO" in source
+    assert "SURFACE_DISCOVERY_PATHS" in source
 
     # Must NOT contain literal well-known paths (no hardcoded /.git/config etc.).
     for path in constants.WELL_KNOWN_LEAK_PATHS[:3]:
         assert path not in source, f"Literal path {path!r} found in try_harder source"
     for path in constants.SURFACE_DISCOVERY_PATHS[:3]:
         assert path not in source, f"Literal path {path!r} found in try_harder source"
+    # Sanity: DEFAULT_LEAK_PATHS must include .env.bak.
+    assert "/.env.bak" in constants.DEFAULT_LEAK_PATHS
 
 
-def test_try_harder_output_count_matches_constants() -> None:
-    """For a single host with nothing probed, try_harder returns exactly
-    len(WELL_KNOWN_LEAK_PATHS) + len(SURFACE_DISCOVERY_PATHS) URLs
-    (minus any duplicates in the catalogs themselves)."""
+def test_try_harder_reduces_probe_count_with_profiles() -> None:
+    """Catalog-directed try_harder must probe strictly FEWER URLs than the
+    old all-WELL_KNOWN_LEAK_PATHS+SURFACE_DISCOVERY_PATHS shotgun for a
+    graph with fingerprinted hosts.
+    """
     planner = Planner()
-    wm = _wm_with_hosts("x.example.com")
+
+    # Manually attach tech_stack markers via ASSET nodes for three hosts so
+    # not all path-groups apply to each.
+    store = NetworkXGraphStore()
+    es = InMemoryEventStore()
+    for host, stack in (
+        ("laravel.example.com", ["php/8.1", "laravel"]),
+        ("tomcat.example.com", ["tomcat/9.0", "spring"]),
+        ("plain.example.com", ["nginx/1.24"]),
+    ):
+        node = AttackNode(
+            id=f"asset:{host}",
+            type=NodeType.ASSET,
+            properties=AssetProperties(host=host, tech_stack=stack),
+            confidence=0.5,
+            agent="alpha",
+        )
+        persist_node(es, store, "test_probes", node, agent="alpha")
+    wm_profiled = WorldModel(store)
+
     probed: set[str] = set()
 
-    result = planner.try_harder(wm, None, probed)
+    # New behaviour: per-host catalog-directed selection.
+    profiled_urls = set(planner.try_harder(wm_profiled, None, probed))
 
+    # Old behaviour (shotgun) for comparison: every host gets the full union.
     all_paths = [*constants.WELL_KNOWN_LEAK_PATHS, *constants.SURFACE_DISCOVERY_PATHS]
     unique_paths = list(dict.fromkeys(all_paths))
-    expected = [f"https://x.example.com{p}" for p in unique_paths]
-    assert result == expected
+    shotgun_urls = {
+        f"https://{host}{p}"
+        for host in ("laravel.example.com", "tomcat.example.com", "plain.example.com")
+        for p in unique_paths
+    }
+
+    # Catalog-directed must strictly reduce the number of probes.
+    assert len(profiled_urls) < len(shotgun_urls)
 
 
 # ── T5: structural ───────────────────────────────────────────────

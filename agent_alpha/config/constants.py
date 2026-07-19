@@ -66,6 +66,8 @@ __all__ = [
     "GIT_LEAK_PATHS",
     "WELL_KNOWN_LEAK_PATHS",
     "SURFACE_DISCOVERY_PATHS",
+    "DEFAULT_LEAK_PATHS",
+    "SURFACE_APPLIES_TO",
     "MIN_SAMPLES_BEFORE_SKIP",
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
@@ -299,6 +301,16 @@ SURFACE_DISCOVERY_PATHS: tuple[str, ...] = (
     "/graphql",
     "/graphiql",
 )
+# Small, high-signal default leak set for UNKNOWN / unfingerprinted hosts.
+# MUST include .env.bak so a boring generic host like late.recon.lab still
+# gets coverage (field-prove guard). Seeded by try_harder when NO catalog spec
+# (beyond universal) matches the host's tech_stack.
+DEFAULT_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, "/.env.bak", "/.env")
+
+# Tech-stack markers that gate SURFACE_DISCOVERY_PATHS in try_harder.
+# If a host has a tech_stack label whose substring matches one of these,
+# try_harder also seeds SURFACE_DISCOVERY_PATHS for that host.
+SURFACE_APPLIES_TO: frozenset[str] = frozenset({"openapi", "swagger", "graphql", "api"})
 # SINGLE source (anti-#7): BACKUP_FILE_PATHS is the one definition; this baseline
 # seed composes it — backup paths join the target-independent recon frontier so
 # Alpha.run_recon reaches the backup_file_probe vector without per-target hand-feed.
