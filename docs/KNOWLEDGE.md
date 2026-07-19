@@ -630,3 +630,22 @@ additional *reasoning* models (never payload models) per the original
 role split in K6. This is an explicit "not yet" gate, not a permanent
 exclusion — the team-level memory of this project tracks it as an open
 item on the horizon, not a blocker on current Phase 0/1/2 work.
+
+---
+
+## K22. Goal-Directed Cognition — Objective + WorldModel + Planner (ADR §12.29)
+
+Capability-level map of the cognition layer (design detail lives in ADR §12.29 D1-D5).
+
+- **EngagementObjective** (agents/objective.py) — typed goal; `is_met()` is verified-gated
+  (ACCESS_LEVEL verified=True reached via CREDENTIAL-ENABLES). [D1]
+- **WorldModel** (agents/world_model.py) — read-only belief split over the graph:
+  `verified_facts()` / `hypotheses()` / `all_beliefs()` / `is_objective_met()`. The planner
+  reads a CLEAN (verified) graph; hypotheses stay uncertain. Never writes. [D3]
+- **Planner** (agents/planner.py) — deterministic, NO-LLM frontier scorer `score(url, world_model,
+  objective)` extracted from scout. DECIDES only; Executor (D2-b) + HTN lookahead/simulation
+  (D2-c) will be added HERE, never in scout (anti-#8). [D2]
+- **StopReason.GOAL_COMPLETED** — loop-verified via is_met(), NEVER self-reported (anti-#3). [D4]
+
+**Status:** D1/D4 landed (#193/#194), D3 (#199), D2-a (#201). D2-b/c pending. Phase 4b.
+**Cross-ref:** ADR §12.29-34 (cognition/curiosity/verification/re-recon/evasion/cred-mutation).

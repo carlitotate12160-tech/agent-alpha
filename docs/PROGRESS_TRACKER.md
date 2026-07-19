@@ -20,7 +20,7 @@
 
 > **Phase 3 CLOSED 2026-07-05.** C1–C8 GREEN on Oracle. Cred-Reuse Chain + DB Chain CHAIN PROVEN. FP-Validation PASS (FP rate 0.0000). Exit-bar H closed: A7-a run-trace + GET /trace, A7-c queue-health + GET /health/queue, cohost_pivot default-DENY gate. Beta/STRIKE + auto-advance Celery chain sealed. WP + JS-secret + Laravel recon vectors field-proven.
 >
-> **Phase 4 IN PROGRESS.** Recon breadth largely sealed: Layer V (CT-source + bounded autonomy + crt.sh autonomous discovery), git_exposure FULLY SEALED, backup_file slice-1c field-proven (#159) + consolidated into path_probe engine (#161, F1 closed). Actuator /env probe (#168) + field-prove harness (#170-172). Header-fingerprint capability engine (#173). Surface-discovery frontier feeder — OpenAPI/Swagger (#174) + GraphQL (#175). CDN path filter (#178). HTTP 415 guard (#180). Bug #2/#6/#14 rule-LLM starvation fix (#181). ADR §12.29-34 translated (#182). Wiring gate ADR §12.35 + CI-enforced governance test (#183). Blast-radius gate + PolicyEnforcer WIRED into Conductor decision path (#184-185, GAP-005/006 CLOSED). Bug #2 Odoo two-rule split (#186). BUGS_AND_GAPS update (#187). REACH R3 CHALLENGE verdict + body dedup (#188-189). Security audit: reports to Security tab + auto-Issue + Nuclei port fix (#190). Security hardening: pgvector TLS + engagement (#191). ADR §12.36 EngagementProfile PROPOSED. Gamma STILL STOP-gated: ToolComposer FIRST (blast-radius gate already wired).
+> **Phase 4 IN PROGRESS.** Recon breadth largely sealed: Layer V (CT-source + bounded autonomy + crt.sh autonomous discovery), git_exposure FULLY SEALED, backup_file slice-1c field-proven (#159) + consolidated into path_probe engine (#161, F1 closed). Actuator /env probe (#168) + field-prove harness (#170-172). Header-fingerprint capability engine (#173). Surface-discovery frontier feeder — OpenAPI/Swagger (#174) + GraphQL (#175). CDN path filter (#178). HTTP 415 guard (#180). Bug #2/#6/#14 rule-LLM starvation fix (#181). ADR §12.29-34 translated (#182). Wiring gate ADR §12.35 + CI-enforced governance test (#183). Blast-radius gate + PolicyEnforcer WIRED into Conductor decision path (#184-185, GAP-005/006 CLOSED). Bug #2 Odoo two-rule split (#186). BUGS_AND_GAPS update (#187). REACH R3 CHALLENGE verdict + body dedup (#188-189). Security audit: reports to Security tab + auto-Issue + Nuclei port fix (#190). Security hardening: pgvector TLS + engagement (#191). ADR §12.36 EngagementProfile PROPOSED. Gamma STILL STOP-gated: ToolComposer FIRST (blast-radius gate already wired). Phase 4b cognition STARTED: Bug #21 sealed (#196), OPSEC 2a wired (#198), GAP-004 D3 WorldModel (#199) + D2-a Planner (#201).
 
 ---
 
@@ -116,6 +116,10 @@
 - **Security audit improvements** — Reports to Security tab + auto-Issue creation + Nuclei port fix (#190)
 - **Security hardening** — pgvector image digest pinning + Trivy --exit-code 1 + CI postgres 127.0.0.1 binding + Syft/Nuclei if:!cancelled() (#191, ADR §12.35)
 - **ADR §12.36** — Front-loaded signed EngagementProfile PROPOSED (consent artifact, blast threshold, autonomous within envelope)
+- **Bug #21 SEALED** — LLM-tier tool starvation fix: decide_excluding now forwards exclude_tools to _build_tool_select_messages (prompt) + post-filter in _parse_tool_response coerces excluded→generic_http_probe + contract guard raises when generic itself excluded (CodeRabbit). Single-file (orchestrator.py), scout already supplied exclude_tools (#196, merged #197)
+- **GAP-005 slice-2a** — PolicyEnforcer OPSEC profile wired into recon HttpClient: resolve_opsec_profile(announced, evasion_authorized=False, fail-closed) → HttpClient(opsec=) via recon_runner. scope-check NOT dead (authorization.is_in_scope already enforces); technique-check deferred (technique_id empty) (#198, GAP-005 slice-2b/2c parked)
+- **GAP-004 D3 — WorldModel** — Read-only belief-state substrate: verified_facts()/hypotheses()/all_beliefs()/is_objective_met(). Formalizes verified-vs-hypothesis boundary as ONE typed seam; routed through scout scorer + base goal-completion, behavior-preserving. Persist seam untouched (#199, §12.29 D3)
+- **GAP-004 D2-a — Planner extraction** — _score_frontier_url + _objective_targets moved OUT of scout into new planner.py (Planner.score). scout −75 lines (1025→950), anti-god-object. Executor (D2-b) + lookahead (D2-c) will grow in planner.py, never scout (#201, §12.29 D2)
 - **OPERATIONAL_REFERENCE.md** — Updated to v3.0 (reconciled with codebase)
 - **NEXT** — ToolComposer (Gamma prerequisite) + Gamma agent skeleton. Recon breadth largely saturated for known client base (WP/Laravel/Odoo/Spring)
 - **Gamma/ANCHOR** — STILL STOP-gated: ToolComposer FIRST (blast-radius gate already wired, PolicyEnforcer already wired); gate = Claude lane, destructive bodies = DeepSeek lane
@@ -644,20 +648,9 @@ def task_recon(engagement_id: str, target: str):
 
 ---
 
-**Dokumen ini diperbarui terakhir:** 2026-07-18
-**Phase saat ini:** Phase 4 (IN PROGRESS — Recon breadth sealed + bug fixes + blast-radius gate wired + security hardening)
-**Progress:** Phase 0 completed (7/7), Phase 1 completed (5/5), Phase 2 completed (12/12), Phase 3 CLOSED (C1–C8 + Exit-bar H), Phase 4 IN PROGRESS (Layer V + git_exposure + backup_file + path_probe engine + actuator + header-fingerprint + surface-discovery + GraphQL + bug fixes + blast-radius gate wired + REACH R3 CHALLENGE + security hardening)
-**Total tests:** 1000+ passed (random order, coverage 84%+)
-**Field-Prove:** DB Chain CHAIN PROVEN: True (db_root, critical) lawan real MySQL 8.4 di Oracle ARM64
-**FP-Validation:** TP=3, FP=0, FN=0, TN=3, FP rate=0.0000, Verdict=PASS — 6 lab targets (WP/Laravel/SPA × vuln/hardened) via DuckDNS + Caddy HTTPS di Oracle ARM64. MITRE: T1552.001 + T1592.002. Graph: 3 asset nodes, 3 vuln nodes, 3 credential nodes, 3 EXPLOITS edges, 3 LEADS_TO edges
-**Time-to-Proof:** EngagementMemory metrics (time_to_first_proof_s, time_to_first_exploit_s) + Omega PDF headline (format_duration) implemented
-**Layer V:** CT-source seam + bounded autonomy + Layer V-B live (crt.sh → autonomous discovery → odoo chain PROVEN: True)
-**git_exposure:** FULLY SEALED — GitDumper WRAP (#147) + field-prove on Oracle (vuln.git.lab CHAIN PROVEN: True) + routes through Alpha.run_recon (#154)
-**backup_file:** slice-1 module SEALED (#156) + slice-1b wiring SEALED (#158) + slice-1c field-prove (#159) → consolidated into path_probe engine (#161)
-**Blast-radius gate:** slice-1 WIRED into Conductor advance_engagement() (#184-185). GAP-005/006 PARTIALLY WIRED. assess_blast_gate active on decision path; slice-2 (OPSEC/technique/scope to agent path) still OPEN
-**REACH R3:** CHALLENGE verdict (CF/Sucuri/Imperva/Akamai) + identical-body SHA-256 dedup + greedy-rule FP guard (#188-189, ADR §12.27)
-**Security hardening:** pgvector image digest pinning + Trivy --exit-code 1 + CI postgres 127.0.0.1 binding + Syft/Nuclei if:!cancelled() (#191, ADR §12.35)
-**Bug status:** Bug #2 DONE (#186), Bug #6 DONE (#181), Bug #10 DONE (#180), Bug #14 DONE (#181), Bug #18/#19/#20 DONE (#188), Bug #13 resolved. Bug #21 OPEN (LLM-tier tool re-selection)
-**ADR:** §12.26 (recon vector strategy) → §12.27 (CHALLENGE verdict) → §12.28 (record/replay) → §12.29-34 (cognition/evasion/verification) → §12.35 (wiring gate + pgvector) → §12.36 (EngagementProfile PROPOSED)
-**GAP status:** GAP-002 CLOSED (#192), GAP-005/006 PARTIALLY WIRED (slice-1 blast-radius gate DONE #184, slice-2 agent execution path OPEN). GAP-003/004/007-013 remain (cognitive layer, Phase 4b/5/6)
-**Gamma/ANCHOR:** STILL STOP-gated — ToolComposer FIRST (blast-radius gate already wired, PolicyEnforcer already wired)
+**Dokumen ini diperbarui terakhir:** 2026-07-19
+
+> **Current live state: see `CLAUDE.md` "Current Project Status" (single source of truth).**
+> This tracker is the append-only historical log; it does NOT duplicate current-state.
+
+**Last logged:** 2026-07-19 — D2-a Planner (#201). Total tests: 1125 passed / 6 skipped, coverage 84%, Oracle ARM64.
