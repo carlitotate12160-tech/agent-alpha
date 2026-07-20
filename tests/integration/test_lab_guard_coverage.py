@@ -68,6 +68,7 @@ ATTACKER_HARNESSES: frozenset[str] = frozenset(
         "actuator_field_prove",
         "recon_tryhard_field_prove",
         "validation_vs_scanner",
+        "a1_validation_runner",
     }
 )
 

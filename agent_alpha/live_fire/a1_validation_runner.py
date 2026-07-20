@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 from agent_alpha.live_fire.validation_vs_scanner import (
     NucleiFinding,
@@ -46,14 +47,30 @@ A1_WEB_PATH = "/web"
 
 
 class ChallengeSolveResult(Protocol):
-    """Outcome of a browser_solve attempt against a CF challenge-gated URL."""
+    """Outcome of a browser_solve attempt against a CF challenge-gated URL.
 
-    status_code: int
-    body: str
-    headers: dict[str, str]
-    cleared_cookies: dict[str, str]
-    challenge_encountered: bool
-    challenge_solved: bool
+    Read-only carrier — members are properties so a frozen dataclass
+    (BrowserSolveResponse) structurally satisfies it (mypy: frozen attrs are
+    read-only; a plain ``x: T`` protocol member demands settable → mismatch).
+    """
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def body(self) -> str: ...
+
+    @property
+    def headers(self) -> dict[str, str]: ...
+
+    @property
+    def cleared_cookies(self) -> dict[str, str]: ...
+
+    @property
+    def challenge_encountered(self) -> bool: ...
+
+    @property
+    def challenge_solved(self) -> bool: ...
 
 
 class BrowserSolveTransport(Protocol):
@@ -255,3 +272,76 @@ def run_a1_validation(
     assert_valid_or_raise(result)
 
     return result
+
+
+# ── CLI entry point ───────────────────────────────────────────────────────────
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for A1 field-prove validation.
+
+    Without --browser-solve (9c), this RAISES _NoopBrowserSolve — no silent pass.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="A1 validation: Agent-Alpha chain vs Nuclei through real CF challenge"
+    )
+    parser.add_argument(
+        "--engagement-id",
+        required=True,
+        help="Engagement ID for the field-prove run",
+    )
+    parser.add_argument(
+        "--nuclei",
+        default=None,
+        help="Path to nuclei JSONL output (produced by operator)",
+    )
+    parser.add_argument(
+        "--target",
+        default=A1_TARGET,
+        help=f"Lab target (default: {A1_TARGET})",
+    )
+    parser.add_argument(
+        "--browser-solve",
+        default=None,
+        help=(
+            "DeepSeek browser_solve HTTP endpoint (9c). When omitted, "
+            "_NoopBrowserSolve is used and the run fails loud."
+        ),
+    )
+    args = parser.parse_args(argv)
+
+    solver: BrowserSolveTransport | None = None
+    if args.browser_solve:
+        solver = DeepSeekBrowserSolve(endpoint=args.browser_solve)
+    else:
+        solver = DeepSeekBrowserSolve.from_env()
+
+    try:
+        result = run_a1_validation(
+            engagement_id=args.engagement_id,
+            browser_solve=solver,  # 9c unbuilt → _NoopBrowserSolve raises
+            nuclei_jsonl_path=args.nuclei,
+            target=args.target,
+        )
+    except RuntimeError as e:
+        print(f"A1 VALIDATION FAILED: {e}")
+        return 1
+
+    print("=" * 72)
+    print("A1 VALIDATION RESULT")
+    print("=" * 72)
+    print(f"  valid_run                   : {result.valid_run}")
+    print(f"  challenge_encountered       : {result.challenge_encountered}")
+    print(f"  challenge_solved            : {result.challenge_solved}")
+    print(f"  chain_proven                : {result.chain_proven}")
+    print(f"  edge_from_harvested_cred    : {result.edge_from_harvested_cred}")
+    print(f"  nuclei_findings             : {result.nuclei_findings}")
+    print(f"  scanner_missed_exploitability: {result.scanner_missed_exploitability}")
+    print("=" * 72)
+    return 0 if result.chain_proven else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
