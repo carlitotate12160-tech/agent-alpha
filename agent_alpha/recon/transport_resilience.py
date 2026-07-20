@@ -260,8 +260,8 @@ class EvasionPlanner:
         if not self._governor.may_escalate(host):
             return None
 
-        # Gate 4: resolve technique from class.
-        technique_value = TECHNIQUE_FOR_MITIGATION_CLASS.get(mitigation_class.value, "none")
+        # Gate 4: resolve technique from class (fail-loud: missing key = bug).
+        technique_value = TECHNIQUE_FOR_MITIGATION_CLASS[mitigation_class.value]
         technique = EvasionTechnique(technique_value)
         if technique is EvasionTechnique.NONE:
             return None

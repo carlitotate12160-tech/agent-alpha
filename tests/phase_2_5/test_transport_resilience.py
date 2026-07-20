@@ -12,7 +12,10 @@ Run on Oracle ARM64 only:
 
 from __future__ import annotations
 
-from agent_alpha.config.constants import EVASION_MAX_ESCALATIONS_PER_HOST
+from agent_alpha.config.constants import (
+    EVASION_MAX_ESCALATIONS_PER_HOST,
+    TECHNIQUE_FOR_MITIGATION_CLASS,
+)
 from agent_alpha.recon.transport_resilience import (
     EvasionPlanner,
     EvasionTechnique,
@@ -156,3 +159,21 @@ def test_planner_not_authorized_returns_none() -> None:
     assert proposal is None
     # Governor untouched — no escalation recorded.
     assert gov.remaining(host) == EVASION_MAX_ESCALATIONS_PER_HOST
+
+
+# ── T9: Exhaustiveness — enum & map must be synchronized ──────────────────────
+
+
+def test_every_mitigation_class_has_a_technique() -> None:
+    """Exhaustiveness test: every MitigationClass must map to a valid EvasionTechnique.
+
+    This prevents drift (Lyndon #6/#7) and silent failures (Lyndon #3). If a new
+    MitigationClass is added but forgotten in TECHNIQUE_FOR_MITIGATION_CLASS, this
+    test fails immediately instead of silently defaulting to NONE at runtime.
+    """
+    # All enum values must have a mapping key.
+    assert set(TECHNIQUE_FOR_MITIGATION_CLASS) == {c.value for c in MitigationClass}
+
+    # All mapped values must be valid EvasionTechnique enum members.
+    for v in TECHNIQUE_FOR_MITIGATION_CLASS.values():
+        EvasionTechnique(v)  # raises ValueError if v is not a valid technique
