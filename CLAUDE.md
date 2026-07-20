@@ -162,7 +162,7 @@ Next Action    : (enterprise-first, re-ranked)
                     reach.
                  2. Gamma prereq (ToolComposer + blast-gate) → ANCHOR: depth of "prove exploitable".
                  3. Moat: Bug#7→GAP-003 cross-engagement intelligence.
-                 See docs/AGENT_ALPHA_STRATEGIC_GAPS.md for the full G1–G17 + phased roadmap.
+                 See docs/strategic_gaps_roadmap.md for the full G1–G17 + phased roadmap.
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest`
                  or `make check`. Full suite ~1148+ green.
 Phase status (verified on Oracle):
