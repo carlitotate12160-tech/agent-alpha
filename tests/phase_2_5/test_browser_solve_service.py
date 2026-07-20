@@ -206,7 +206,9 @@ def test_wait_for_challenge_clear_success() -> None:
     page = MagicMock()
     page.wait_for_selector = AsyncMock()
     page.wait_for_function = AsyncMock()
-    # _detect_challenge called at end — simulate challenge cleared
+    # query_selector called for Turnstile iframe detection AND _detect_challenge
+    # First call: Turnstile iframe (None = no iframe to click)
+    # Second call onwards: _detect_challenge selectors (None = challenge cleared)
     page.query_selector = AsyncMock(return_value=None)
     page.title = AsyncMock(return_value="Welcome to Alpha-AI")
 
@@ -218,8 +220,12 @@ def test_wait_for_challenge_clear_timeout() -> None:
     page = MagicMock()
     page.wait_for_selector = AsyncMock(side_effect=TimeoutError("timeout"))
     page.wait_for_function = AsyncMock(side_effect=TimeoutError("timeout"))
-    # _detect_challenge is called at end — simulate challenge still present
-    page.query_selector = AsyncMock(return_value=MagicMock())
+    # query_selector: first call returns a mock iframe (Turnstile detection),
+    # but content_frame returns None so no click happens.
+    # Later calls from _detect_challenge return a mock (challenge still present)
+    mock_iframe = MagicMock()
+    mock_iframe.content_frame = AsyncMock(return_value=None)
+    page.query_selector = AsyncMock(return_value=mock_iframe)
     page.title = AsyncMock(return_value="Just a moment...")
 
     result = asyncio.run(_wait_for_challenge_clear(page))
