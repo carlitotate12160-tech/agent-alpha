@@ -192,7 +192,18 @@ async def _get_browser() -> Any:
             # headless="virtual" uses Xvfb on Linux — some CF/Turnstile
             # challenges detect true headless mode; a virtual display
             # avoids that detection without needing a real GPU/display.
-            headless_mode = os.environ.get("BROWSER_SOLVE_HEADLESS", "virtual")
+            raw_headless = os.environ.get("BROWSER_SOLVE_HEADLESS", "virtual").strip().lower()
+            if raw_headless in {"true", "1", "yes"}:
+                headless_mode: bool | str = True
+            elif raw_headless in {"false", "0", "no"}:
+                headless_mode = False
+            else:
+                # Any unknown or unset value falls back to Camoufox's virtual
+                # display mode. This keeps Oracle behavior identical (no env
+                # set → "virtual") while allowing local experiments to
+                # explicitly opt into boolean headless modes.
+                headless_mode = "virtual"
+
             browser = await AsyncNewBrowser(
                 pw,
                 headless=headless_mode,
