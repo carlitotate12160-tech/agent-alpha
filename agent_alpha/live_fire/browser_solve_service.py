@@ -180,7 +180,11 @@ async def _get_browser() -> Any:
     async with _browser_lock:
         if _browser_state["browser"] is None:
             pw = await async_playwright().start()
-            browser = await AsyncNewBrowser(pw, headless=True)
+            # headless="virtual" uses Xvfb on Linux — some CF/Turnstile
+            # challenges detect true headless mode; a virtual display
+            # avoids that detection without needing a real GPU/display.
+            headless_mode = os.environ.get("BROWSER_SOLVE_HEADLESS", "virtual")
+            browser = await AsyncNewBrowser(pw, headless=headless_mode)
             _browser_state["playwright"] = pw
             _browser_state["browser"] = browser
         return _browser_state["browser"]
