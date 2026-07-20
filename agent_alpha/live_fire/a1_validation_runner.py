@@ -306,8 +306,9 @@ def main(argv: list[str] | None = None) -> int:
         "--browser-solve",
         default=None,
         help=(
-            "DeepSeek browser_solve HTTP endpoint (9c). When omitted, "
-            "_NoopBrowserSolve is used and the run fails loud."
+            "DeepSeek browser_solve HTTP endpoint URL (9c). When omitted, "
+            "falls back to A1_BROWSER_SOLVE_ENDPOINT env var. When neither "
+            "is set, _NoopBrowserSolve is used and the run fails loud."
         ),
     )
     args = parser.parse_args(argv)
