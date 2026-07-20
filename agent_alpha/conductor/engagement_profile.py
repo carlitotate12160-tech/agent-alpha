@@ -86,9 +86,7 @@ def assert_origin_authorized(
         is not in the profile's signed ``authorized_origins`.
     """
     if fronted_host not in lab_allowlist:
-        raise OriginNotAuthorizedError(
-            f"fronted host {fronted_host!r} not a proven-owned target"
-        )
+        raise OriginNotAuthorizedError(f"fronted host {fronted_host!r} not a proven-owned target")
     if origin_ip not in profile.authorized_origins:
         raise OriginNotAuthorizedError(
             f"origin {origin_ip!r} not in signed authorized_origins — hitting a client "
