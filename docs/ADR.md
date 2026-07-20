@@ -1649,7 +1649,12 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 **Problem.** When `Verdict.BLOCKED` (403/429/503) the agent only records and continues the same way (`scout.py`); `opsec_profile` = static preset (`policy.yaml`); `cf_curl_cffi`/`cf_camoufox` are mentioned in §12.22 but 0 files exist. Every subsequent request with the same fingerprint = more noise → lockout/SIEM risk.
 
-**Decision 1 — adaptive evasion layer.** After BLOCKED N times: auto-switch technique (lower rate, rotate UA, change TLS fingerprint). Threshold N in `constants.py` (anti-#7).
+**Decision 1 — adaptive evasion layer (REFINED 2026-07-20, field-proven vs alpha-ai.web.id).** After BLOCKED N times: auto-switch technique. Threshold N in `constants.py` (anti-#7). Evasion technique selection is CLASS-SCOPED, not universal:
+  - CHALLENGE (cf-mitigated:challenge) → browser_solve (9c)
+  - FINGERPRINT (403/JA3, no challenge) → tls_impersonate (9b)
+  - RULE_DENY (signature on .bak/.git/.env) → NOT evadable by transport. Lever = origin-direct (scoping, if origin IP in SOW) OR alternate recon vector, NEVER more evasion techniques.
+
+Implication: "evasion is THE gating blocker" (roadmap) holds ONLY for CHALLENGE/FINGERPRINT. A chain whose entry vector is RULE_DENY is not a transport-evasion problem. Field evidence: /wp-config.php.bak=RULE_DENY(ABORT), /web/login=CHALLENGE(browser_solve).
 
 **Decision 2 — implement `cf_curl_cffi` template.** TLS impersonation for CF (fulfilling §12.22 reference). Stays RECON_ONLY + scope-bounded; **evasion ≠ exploitation**.
 

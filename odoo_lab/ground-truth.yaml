@@ -28,3 +28,10 @@ hosts:
     db_source: enumerated
     expected_uid_min: 1
     expected_access_level: admin
+    leak_vectors:
+      - path: /wp-config.php.bak
+        mitigation_class: rule_deny
+        evasion: abort
+      - path: /web/assets/app.a1b2c3.js
+        mitigation_class: challenge
+        evasion: browser_solve
