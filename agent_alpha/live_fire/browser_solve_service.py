@@ -81,6 +81,11 @@ from pydantic import BaseModel
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 
 logger = logging.getLogger(__name__)
+if not logger.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(asctime)s [%(name)s] %(levelname)s: %(message)s"))
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
 
 async_playwright: Any = None
 try:
