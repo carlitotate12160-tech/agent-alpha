@@ -125,7 +125,7 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
     # CDN-fronted (Cloudflare-proxied) self-owned Odoo stack — A1 validation.
     LabHost("odoo.agentalpha.duckdns.org", "natanael", "dns-txt:agent-alpha=verified", "#207"),
     # External self-owned domain (alpha-ai.web.id) — Oracle ARM64 behind Cloudflare
-    LabHost("alpha-ai.web.id", "natanael", "dns-txt:agent-alpha-verification=agent-alpha-verified-2026-07-20", "#214"),
+    LabHost("alpha-ai.web.id", "natanael", "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa", "#214"),
     # Cloudflare quick tunnel — ephemeral, expires. Changes per tunnel start.
     LabHost(
         "responding-yards-adaptation-floors.trycloudflare.com",
