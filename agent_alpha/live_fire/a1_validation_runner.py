@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 from agent_alpha.live_fire.validation_vs_scanner import (
     NucleiFinding,
@@ -285,12 +286,26 @@ def main(argv: list[str] | None = None) -> int:
         default=A1_TARGET,
         help=f"Lab target (default: {A1_TARGET})",
     )
+    parser.add_argument(
+        "--browser-solve",
+        default=None,
+        help=(
+            "DeepSeek browser_solve HTTP endpoint (9c). When omitted, "
+            "_NoopBrowserSolve is used and the run fails loud."
+        ),
+    )
     args = parser.parse_args(argv)
+
+    solver: BrowserSolveTransport | None = None
+    if args.browser_solve:
+        solver = DeepSeekBrowserSolve(endpoint=args.browser_solve)
+    else:
+        solver = DeepSeekBrowserSolve.from_env()
 
     try:
         result = run_a1_validation(
             engagement_id=args.engagement_id,
-            browser_solve=None,  # 9c unbuilt → _NoopBrowserSolve raises
+            browser_solve=solver,  # 9c unbuilt → _NoopBrowserSolve raises
             nuclei_jsonl_path=args.nuclei,
             target=args.target,
         )
