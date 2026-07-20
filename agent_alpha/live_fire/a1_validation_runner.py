@@ -255,3 +255,62 @@ def run_a1_validation(
     assert_valid_or_raise(result)
 
     return result
+
+
+# ── CLI entry point ───────────────────────────────────────────────────────────
+
+
+def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for A1 field-prove validation.
+
+    Without --browser-solve (9c), this RAISES _NoopBrowserSolve — no silent pass.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="A1 validation: Agent-Alpha chain vs Nuclei through real CF challenge"
+    )
+    parser.add_argument(
+        "--engagement-id",
+        required=True,
+        help="Engagement ID for the field-prove run",
+    )
+    parser.add_argument(
+        "--nuclei",
+        default=None,
+        help="Path to nuclei JSONL output (produced by operator)",
+    )
+    parser.add_argument(
+        "--target",
+        default=A1_TARGET,
+        help=f"Lab target (default: {A1_TARGET})",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        result = run_a1_validation(
+            engagement_id=args.engagement_id,
+            browser_solve=None,  # 9c unbuilt → _NoopBrowserSolve raises
+            nuclei_jsonl_path=args.nuclei,
+            target=args.target,
+        )
+    except RuntimeError as e:
+        print(f"A1 VALIDATION FAILED: {e}")
+        return 1
+
+    print("=" * 72)
+    print("A1 VALIDATION RESULT")
+    print("=" * 72)
+    print(f"  valid_run                   : {result.valid_run}")
+    print(f"  challenge_encountered       : {result.challenge_encountered}")
+    print(f"  challenge_solved            : {result.challenge_solved}")
+    print(f"  chain_proven                : {result.chain_proven}")
+    print(f"  edge_from_harvested_cred    : {result.edge_from_harvested_cred}")
+    print(f"  nuclei_findings             : {result.nuclei_findings}")
+    print(f"  scanner_missed_exploitability: {result.scanner_missed_exploitability}")
+    print("=" * 72)
+    return 0 if result.chain_proven else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
