@@ -34,7 +34,7 @@ if [ ! -f certs/odoo-lab.crt ]; then
     -keyout certs/ca.key -out certs/ca.crt -subj "/CN=Agent-Alpha Odoo Lab CA"
   openssl req -newkey rsa:2048 -nodes -keyout certs/odoo-lab.key -out certs/odoo-lab.csr \
     -subj "/CN=*.odoo.lab"
-  printf "subjectAltName=DNS:*.odoo.lab,DNS:vuln.odoo.lab,DNS:hardened.odoo.lab" > certs/san.ext
+  printf "subjectAltName=DNS:*.odoo.lab,DNS:vuln.odoo.lab,DNS:hardened.odoo.lab,DNS:alpha-ai.web.id" > certs/san.ext
   openssl x509 -req -in certs/odoo-lab.csr -CA certs/ca.crt -CAkey certs/ca.key \
     -CAcreateserial -out certs/odoo-lab.crt -days 365 -extfile certs/san.ext
   cat certs/odoo-lab.crt certs/ca.crt > certs/odoo-lab-bundle.crt
