@@ -72,6 +72,9 @@ __all__ = [
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
     "RECON_TOOL_CATALOG",
+    "EVASION_CONSECUTIVE_BLOCKED_N",
+    "EVASION_MAX_ESCALATIONS_PER_HOST",
+    "TECHNIQUE_FOR_MITIGATION_CLASS",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -412,3 +415,20 @@ JS_SECRET_MIN_ENTROPY = 3.5
 
 # Minimum length for generic_assign captured values.
 JS_SECRET_MIN_LENGTH = 16
+
+# ── Transport Resilience / Adaptive Evasion (§12.33, §12.22 D2) ────
+# Consecutive BLOCKED verdicts on the same host before the Planner proposes
+# an evasion technique switch. Single source (anti-#7).
+EVASION_CONSECUTIVE_BLOCKED_N = 5
+# Maximum escalation attempts per host before the LockoutGovernor forces ABORT.
+# Bounded autonomy: the agent CANNOT retry indefinitely (§12.22 D2).
+EVASION_MAX_ESCALATIONS_PER_HOST = 3
+# Class-driven technique selection (anti-#11: class drives technique, NOT a
+# fixed ladder). Key = MitigationClass.value, value = EvasionTechnique.value.
+# "abort" → "none" means never escalate on that class.
+TECHNIQUE_FOR_MITIGATION_CLASS: dict[str, str] = {
+    "rate_limit": "rate_throttle",
+    "browser": "tls_impersonate",
+    "geo": "ua_rotate",
+    "abort": "none",
+}
