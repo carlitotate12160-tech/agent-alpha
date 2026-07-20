@@ -1650,15 +1650,36 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 **Problem.** When `Verdict.BLOCKED` (403/429/503) the agent only records and continues the same way (`scout.py`); `opsec_profile` = static preset (`policy.yaml`); `cf_curl_cffi`/`cf_camoufox` are mentioned in §12.22 but 0 files exist. Every subsequent request with the same fingerprint = more noise → lockout/SIEM risk.
 
 **Decision 1 — REFINED (2026-07-20, field-proven vs alpha-ai.web.id).** Evasion technique selection is CLASS-SCOPED (see `transport_resilience.py`), not universal:
-  - CHALLENGE   (cf-mitigated:challenge)      → browser_solve   (9c, camoufox/Turnstile)
+
+  Viability matrix (IP reputation doctrine):
+  - CHALLENGE + IP residential/clean  → browser_solve viable (9c)
+  - CHALLENGE + IP datacenter         → browser_solve NOT viable (ASN reputation dominates)
+                                         → origin-direct (if authorized) OR residential egress
   - FINGERPRINT (403/JA3, no challenge marker) → tls_impersonate (9b, curl_cffi)
   - RULE_DENY   (signature on .bak/.git/.env)  → NOT transport-evadable.
      Lever = origin-direct (scoping, if origin IP in SOW) OR alternate recon vector.
+
+  Rationale: Cloudflare managed challenge for datacenter ASN is background JS
+  fingerprinting with NO interactive widget (no Turnstile checkbox). Browser
+  automation cannot solve it regardless of fingerprint quality — rejection is
+  IP-reputation-driven, not fingerprint-driven. Verified empirically on Oracle
+  ARM64 (datacenter ASN): geoip=True + humanize=True + headless="virtual" +
+  Camoufox Firefox — CF still blocks with managed challenge (all selectors
+  "not found", no iframe, title="Just a moment..."). Interactive Turnstile
+  (checkbox widget) IS solvable — appears on residential/clean IPs where CF
+  deems the IP borderline. Industry confirmation: Strix, RedAmon, NodeZero —
+  none solve CF managed challenge from datacenter IP; they pivot to internal,
+  origin-direct, or ACME path bypass.
 
 Roadmap's "evasion = gating blocker upstream of Gamma" holds ONLY for CHALLENGE/FINGERPRINT.
 Field evidence (alpha-ai.web.id, real CF): /wp-config.php.bak=RULE_DENY(ABORT);
 /web, /web/login, /web/assets/*.js = CHALLENGE(browser_solve). 9b deferred — no
 FINGERPRINT vector present in the A1 lab (feature-before-need = Lyndon #1).
+
+A1 validation with challenge_solved=false from datacenter IP is EXPECTED (C7
+fail-loud), not a bug. Service mechanism (detect, attempt, report honestly) is
+proven. For real client engagements: client whitelists scanner IP OR provide
+residential proxy OR set CF to lower protection during pentest window.
 
 **Decision 2 — implement `cf_curl_cffi` template.** TLS impersonation for CF (fulfilling §12.22 reference). Stays RECON_ONLY + scope-bounded; **evasion ≠ exploitation**.
 
