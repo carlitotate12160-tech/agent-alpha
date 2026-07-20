@@ -1681,6 +1681,18 @@ fail-loud), not a bug. Service mechanism (detect, attempt, report honestly) is
 proven. For real client engagements: client whitelists scanner IP OR provide
 residential proxy OR set CF to lower protection during pentest window.
 
+**Decision 1 — EXTENDED (2026-07-20, field-proven: datacenter egress).**
+browser_solve is network-position-dependent: CHALLENGE is solvable from residential
+egress, NOT from a datacenter IP (ASN reputation dominates; no fingerprint beats it —
+field: Oracle IP → CF managed challenge, challenge_solved=False after 3 attempts).
+Reach strategy (scoping, NOT evasion — see reach_strategy.py):
+  RULE_DENY, or CHALLENGE-without-viable-solve → ORIGIN_DIRECT, gated by SIGNED
+  authorized_origins (§12.36). Hitting a client origin bypasses their WAF → requires
+  explicit front-loaded consent, event-sourced, fail-closed. Commercial CAPTCHA
+  solvers are FORBIDDEN: sending a client target to a 3rd party breaches engagement
+  confidentiality. Origin candidates come from discovery (CT/Shodan/DNS-history),
+  never hand-fed; candidate ≠ authorization.
+
 **Decision 2 — implement `cf_curl_cffi` template.** TLS impersonation for CF (fulfilling §12.22 reference). Stays RECON_ONLY + scope-bounded; **evasion ≠ exploitation**.
 
 **Decision 3 — dynamic OPSEC & tracking.** Wire to PolicyEnforcer (GAP-005): "5x failed → switch before lockout" (subject to lockout governor §12.22 Decision 2). Technique effectiveness tracked in scratchpad (GAP-002); alternative re-planning via Planner (§12.29).
