@@ -40,8 +40,9 @@ class MitigationClass(enum.StrEnum):
     """WHY the request was blocked — the class drives the technique (anti-#11)."""
 
     RATE_LIMIT = "rate_limit"
-    BROWSER = "browser"
-    GEO = "geo"
+    CHALLENGE = "challenge"
+    FINGERPRINT = "fingerprint"
+    RULE_DENY = "rule_deny"
     ABORT = "abort"
 
 
@@ -49,7 +50,7 @@ class EvasionTechnique(enum.StrEnum):
     """WHAT evasion technique the planner may propose for a given class."""
 
     RATE_THROTTLE = "rate_throttle"
-    UA_ROTATE = "ua_rotate"
+    BROWSER_SOLVE = "browser_solve"
     TLS_IMPERSONATE = "tls_impersonate"
     NONE = "none"
 
@@ -80,9 +81,9 @@ def classify_mitigation(
          evasion is futile and wastes opsec budget.
       2. status_code == 429 → RATE_LIMIT.
       3. Verdict == CHALLENGE, or headers contain ``cf-mitigated`` with value
-         containing "challenge" → BROWSER.
-      4. Default blocked (403/503 without further signal) → BROWSER.
-         Rationale: most CDN/WAF 403s are browser-verification challenges.
+         containing "challenge" → CHALLENGE (interactive browser challenge).
+      4. Default blocked (403/503 without challenge marker) → FINGERPRINT
+         (plain WAF/CDN 403/503 based on TLS fingerprint).
     """
     verdict = classify_response(
         status_code=status_code,
@@ -101,16 +102,16 @@ def classify_mitigation(
     if status_code == 429:
         return MitigationClass.RATE_LIMIT
 
-    # Rule 3: CF challenge header or CHALLENGE verdict.
+    # Rule 3: interactive challenge (body markers or CF-managed challenge).
     if verdict is Verdict.CHALLENGE:
-        return MitigationClass.BROWSER
+        return MitigationClass.CHALLENGE
     if headers:
         cf_mitigated = headers.get("cf-mitigated", headers.get("Cf-Mitigated", ""))
         if "challenge" in cf_mitigated.lower():
-            return MitigationClass.BROWSER
+            return MitigationClass.CHALLENGE
 
-    # Rule 4: default blocked → BROWSER (most 403/503 from CDN/WAF).
-    return MitigationClass.BROWSER
+    # Rule 4: default blocked (403/503 without challenge marker) → FINGERPRINT.
+    return MitigationClass.FINGERPRINT
 
 
 # ── Lockout Governor ──────────────────────────────────────────────────────────

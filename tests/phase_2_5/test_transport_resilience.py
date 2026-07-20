@@ -21,18 +21,18 @@ from agent_alpha.recon.transport_resilience import (
     classify_mitigation,
 )
 
-# ── T1: classify_mitigation — cf-mitigated challenge header → BROWSER ─────────
+# ── T1: classify_mitigation — cf-mitigated challenge header → CHALLENGE ───────
 
 
-def test_cf_mitigated_challenge_header_classifies_browser() -> None:
-    """A 403 with cf-mitigated: challenge header → MitigationClass.BROWSER."""
+def test_cf_mitigated_challenge_header_classifies_challenge() -> None:
+    """A 403 with cf-mitigated: challenge header → MitigationClass.CHALLENGE."""
     result = classify_mitigation(
         status_code=403,
         body="<html>Attention Required</html>",
         headers={"cf-mitigated": "challenge", "server": "cloudflare"},
         path="/api/users",
     )
-    assert result is MitigationClass.BROWSER
+    assert result is MitigationClass.CHALLENGE
 
 
 # ── T2: classify_mitigation — .bak path → ABORT ──────────────────────────────
@@ -112,27 +112,33 @@ def test_differential_rate_limit_produces_rate_throttle() -> None:
     assert proposal.mitigation_class is MitigationClass.RATE_LIMIT
 
 
-# ── T7: DIFFERENTIAL — BROWSER class → tls_impersonate technique ─────────────
+# ── T7: CF-managed challenge must never map to TLS impersonation ──────────────
 
 
-def test_differential_browser_produces_tls_impersonate() -> None:
-    """BROWSER class drives tls_impersonate technique (anti-#11 differential).
+def test_cf_managed_challenge_never_maps_to_tls() -> None:
+    """Cloudflare-managed challenge header → CHALLENGE → browser_solve, not TLS.
 
-    This proves that a DIFFERENT class produces a DIFFERENT technique — the
-    selection is class-driven, not a fixed escalation ladder.
+    Regression: cf-mitigated: challenge must NOT drive tls_impersonate. The
+    mitigation class stays CHALLENGE and maps to browser_solve.
     """
+    mitigation = classify_mitigation(
+        status_code=403,
+        body="<html>Attention Required</html>",
+        headers={"cf-mitigated": "challenge", "server": "cloudflare"},
+        path="/api/users",
+    )
+    assert mitigation is MitigationClass.CHALLENGE
+
     gov = LockoutGovernor()
     planner = EvasionPlanner(governor=gov, consecutive_threshold=1)
     host = "b.example.com"
 
     planner.record_blocked(host)
-    proposal = planner.evaluate(host, MitigationClass.BROWSER, evasion_authorized=True)
+    proposal = planner.evaluate(host, mitigation, evasion_authorized=True)
 
     assert proposal is not None
-    assert proposal.technique is EvasionTechnique.TLS_IMPERSONATE
-    assert proposal.mitigation_class is MitigationClass.BROWSER
-    # Anti-#11 proof: different class → different technique.
-    assert EvasionTechnique.TLS_IMPERSONATE is not EvasionTechnique.RATE_THROTTLE
+    assert proposal.technique is EvasionTechnique.BROWSER_SOLVE
+    assert proposal.technique is not EvasionTechnique.TLS_IMPERSONATE
 
 
 # ── T8: Planner — not authorized → None (fail-closed) ────────────────────────
@@ -145,7 +151,7 @@ def test_planner_not_authorized_returns_none() -> None:
     host = "c.example.com"
 
     planner.record_blocked(host)
-    proposal = planner.evaluate(host, MitigationClass.BROWSER, evasion_authorized=False)
+    proposal = planner.evaluate(host, MitigationClass.FINGERPRINT, evasion_authorized=False)
 
     assert proposal is None
     # Governor untouched — no escalation recorded.

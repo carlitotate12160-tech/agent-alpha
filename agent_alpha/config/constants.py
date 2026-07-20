@@ -428,7 +428,8 @@ EVASION_MAX_ESCALATIONS_PER_HOST = 3
 # "abort" → "none" means never escalate on that class.
 TECHNIQUE_FOR_MITIGATION_CLASS: dict[str, str] = {
     "rate_limit": "rate_throttle",
-    "browser": "tls_impersonate",
-    "geo": "ua_rotate",
+    "challenge": "browser_solve",
+    "fingerprint": "tls_impersonate",
+    "rule_deny": "none",
     "abort": "none",
 }
