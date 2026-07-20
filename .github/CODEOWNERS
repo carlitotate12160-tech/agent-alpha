@@ -1,0 +1,4 @@
+# CODEOWNERS — requires review for safety-critical files.
+# Changes to lab_guard.py require explicit review (safety control, never bypassed).
+
+agent_alpha/live_fire/lab_guard.py @carlitotate12160
