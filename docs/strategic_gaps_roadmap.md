@@ -104,9 +104,10 @@ external domain with no gate. Close FIRST (assert_lab_only_target, fail-closed).
 PR review + domain ownership proof.
 
 **Revised near-term order (enterprise-first):**
-0. Governance fix: lab_guard on all chain/live-fire runners. ✅ VERIFIED DONE
+0. Governance fix: lab_guard on all chain/live-fire runners. ✅ DONE (PR #215 merged, DNS TXT proof enforced)
 1. Phase B-evasion: §12.33 BOUNDED curl_cffi TLS/JA3 impersonation, evasion-gated, lockout-bounded
    (table-stakes to REACH WAF'd targets — commodity wrap, NOT the moat, NOT an 11-layer engine).
+   ✅ DONE (PR #218 + #219 merged — MitigationClass discriminator + LockoutGovernor + EvasionPlanner)
    Re-run A1 vs the real-CF lab to prove reach.
 2. Phase B-Gamma: ToolComposer + blast-gate + ANCHOR (depth: turn "got admin login" into
    proof-of-code-exec / real exploitability).
