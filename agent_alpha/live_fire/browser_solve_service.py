@@ -1,4 +1,4 @@
-"""browser_solve service — Playwright-backed CF/Turnstile solver (9c DeepSeek lane).
+"""browser_solve service — Camoufox-backed CF/Turnstile solver (9c DeepSeek lane).
 
 This is the **server side** of the 9c contract. It exposes an HTTP endpoint
 that the :class:`DeepSeekBrowserSolve` adapter (Claude lane) calls via POST.
@@ -12,7 +12,7 @@ Architecture:
                          │  browser_solve_service (this file)    │
                          │                                       │
                          │  0. assert_lab_only_target(url) FIRST  │
-                         │  1. Reuse persistent Chromium instance │
+                         │  1. Reuse persistent Camoufox instance │
                          │  2. New lightweight context per request│
                          │  3. Navigate to target URL             │
                          │  4. Detect CF challenge (Turnstile)    │
@@ -34,29 +34,30 @@ remove this check even if the only caller is trusted — belt-and-suspenders is
 the point.
 
 Stealth techniques applied:
-  - Chromium with --disable-blink-features=AutomationControlled
-  - Navigator webdriver / plugins / languages / chrome.runtime overrides
-  - Realistic User-Agent + viewport randomisation
-  - Optional ``playwright-stealth`` (soft dependency) for deeper patches
-    (WebGL vendor/renderer, iframe contentWindow, etc.) if installed —
-    the hand-rolled JS above is detectable by a `Function.prototype.toString`
-    check on the patched getters; playwright-stealth patches more of the
-    surface. For CF Turnstile specifically, a Firefox-based fingerprint
-    (e.g. camoufox) is a stronger drop-in replacement for the
-    ``pw.chromium.launch(...)`` call below if this JS-only approach proves
-    insufficient against a hardened Turnstile deployment.
+  - Camoufox (a hardened Firefox fork) for engine-level fingerprint evasion —
+    canvas, WebGL, audio, font, and screen noise are injected via native
+    patches rather than JS-layer property overrides. This avoids the
+    `Function.prototype.toString` tell that JS-only stealth patches
+    (playwright-stealth, hand-rolled navigator.webdriver overrides) leave
+    behind, and sidesteps the CDP-protocol artifacts Chromium automation
+    exposes even with those patches applied.
+  - A fresh per-context fingerprint identity (navigator, screen, WebGL,
+    fonts, audio/canvas noise seeds) is generated for every request via
+    ``camoufox.async_api.AsyncNewContext`` while the underlying Firefox
+    process is reused — see Performance below.
 
-Performance: a single Chromium process is lazily launched once and reused
-across requests (``_get_browser``) — only a lightweight ``BrowserContext`` is
-created/destroyed per solve, avoiding the ~1-3s cold-launch cost on
-constrained ARM64 hosts. Concurrent solves are bounded by ``_solve_semaphore``
-so a burst of requests cannot exhaust a small VM.
+Performance: a single Camoufox (Firefox) process is lazily launched once and
+reused across requests (``_get_browser``) — only a lightweight
+``BrowserContext`` (with its own randomised fingerprint) is created/destroyed
+per solve, avoiding the multi-second cold-launch cost on constrained ARM64
+hosts. Concurrent solves are bounded by ``_solve_semaphore`` so a burst of
+requests cannot exhaust a small VM.
 
-Run on Oracle ARM64:
+Run on Oracle ARM64 (Camoufox ships pre-built Firefox binaries for
+linux/arm64):
 
-    pip install playwright && playwright install chromium
-    # optional, more sophisticated stealth patches:
-    pip install playwright-stealth
+    pip install "camoufox[geoip]"
+    python -m camoufox fetch
     uvicorn agent_alpha.live_fire.browser_solve_service:app \\
         --host 127.0.0.1 --port 8080
 
@@ -70,7 +71,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import random
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -90,12 +90,15 @@ try:
 except ImportError:  # pragma: no cover — exercised only when playwright unavailable
     pass
 
-stealth_async: Any = None
+AsyncNewBrowser: Any = None
+AsyncNewContext: Any = None
 try:
-    from playwright_stealth import stealth_async as _stealth_async
+    from camoufox.async_api import AsyncNewBrowser as _AsyncNewBrowser
+    from camoufox.async_api import AsyncNewContext as _AsyncNewContext
 
-    stealth_async = _stealth_async
-except ImportError:  # pragma: no cover — optional, more sophisticated stealth
+    AsyncNewBrowser = _AsyncNewBrowser
+    AsyncNewContext = _AsyncNewContext
+except ImportError:  # pragma: no cover — exercised only when camoufox unavailable
     pass
 
 
@@ -141,47 +144,7 @@ class SolveResponse(BaseModel):
     challenge_solved: bool
 
 
-# ── Stealth configuration ─────────────────────────────────────────────────────
-
-_STEALTH_JS = """
-() => {
-    // Override navigator.webdriver
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-    // Override chrome.runtime to look real
-    window.chrome = { runtime: {} };
-
-    // Override permissions query
-    const originalQuery = window.navigator.permissions.query;
-    window.navigator.permissions.query = (parameters) =>
-        parameters.name === 'notifications'
-            ? Promise.resolve({ state: Notification.permission })
-            : originalQuery(parameters);
-
-    // Override plugins to look real
-    Object.defineProperty(navigator, 'plugins', {
-        get: () => [1, 2, 3, 4, 5],
-    });
-
-    // Override languages
-    Object.defineProperty(navigator, 'languages', {
-        get: () => ['en-US', 'en'],
-    });
-}
-"""
-
-_USER_AGENTS = [
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux aarch64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-]
-
-_VIEWPORTS = [
-    {"width": 1920, "height": 1080},
-    {"width": 1536, "height": 864},
-    {"width": 1440, "height": 900},
-    {"width": 1280, "height": 720},
-]
+# ── Challenge detection configuration ─────────────────────────────────────────
 
 # CF challenge selectors — covers Turnstile + managed challenge
 _CHALLENGE_SELECTORS = [
@@ -203,29 +166,21 @@ _POST_CHALLENGE_WAIT_SEC = 3
 
 
 async def _get_browser() -> Any:
-    """Lazily launch and cache a single persistent Chromium instance.
+    """Lazily launch and cache a single persistent Camoufox (Firefox) instance.
 
-    Reusing one browser process across requests avoids the ~1-3s cold-launch
-    cost per solve on constrained ARM64 hosts; only a lightweight
+    Reusing one browser process across requests avoids the multi-second
+    cold-launch cost per solve on constrained ARM64 hosts; only a lightweight
     ``BrowserContext`` (not the whole browser process) is created/destroyed
     per request in :func:`_solve_and_fetch`.
     """
-    if async_playwright is None:
+    if async_playwright is None or AsyncNewBrowser is None:
         raise RuntimeError(
-            "playwright is not installed. Run: pip install playwright && playwright install chromium"
+            'camoufox is not installed. Run: pip install "camoufox[geoip]" && python -m camoufox fetch'
         )
     async with _browser_lock:
         if _browser_state["browser"] is None:
             pw = await async_playwright().start()
-            browser = await pw.chromium.launch(
-                headless=True,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                ],
-            )
+            browser = await AsyncNewBrowser(pw, headless=True)
             _browser_state["playwright"] = pw
             _browser_state["browser"] = browser
         return _browser_state["browser"]
@@ -235,17 +190,17 @@ async def _get_browser() -> Any:
 
 
 async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
-    """Drive a stealth Playwright browser to solve CF challenge and fetch page.
+    """Drive a stealth Camoufox (Firefox) browser to solve CF challenge and fetch page.
 
     This function is the heart of the 9c service. It:
     0. Refuses any non-lab target BEFORE any network egress (defense-in-depth)
-    1. Reuses the persistent Chromium instance (lazy singleton)
-    2. Opens a fresh, lightweight BrowserContext for this request only
-    3. Injects stealth JS (+ optional playwright-stealth) before navigation
-    4. Navigates to the target URL
-    5. Detects CF challenge presence
-    6. Waits for challenge to auto-solve
-    7. Extracts final page content, cookies, and response headers
+    1. Reuses the persistent Camoufox (Firefox) instance (lazy singleton)
+    2. Opens a fresh, lightweight BrowserContext with its own randomised
+       fingerprint identity for this request only
+    3. Navigates to the target URL
+    4. Detects CF challenge presence
+    5. Waits for challenge to auto-solve
+    6. Extracts final page content, cookies, and response headers
 
     Concurrency is bounded by ``_solve_semaphore`` so a burst of requests
     cannot spawn unbounded contexts on a small host.
@@ -257,24 +212,19 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
 
     async with _solve_semaphore:
         browser = await _get_browser()
-        ua = random.choice(_USER_AGENTS)  # nosec B311 — fingerprint rotation, not crypto
-        viewport = random.choice(_VIEWPORTS)  # nosec B311 — fingerprint rotation, not crypto
 
-        context = await browser.new_context(
-            user_agent=ua,
-            viewport=viewport,
+        # AsyncNewContext generates a fresh fingerprint identity (navigator,
+        # screen, WebGL, fonts, audio/canvas noise seeds) for this request
+        # only; the underlying Firefox process above is reused.
+        context = await AsyncNewContext(
+            browser,
             locale="en-US",
             timezone_id="America/New_York",
             java_script_enabled=True,
             ignore_https_errors=True,
         )
         try:
-            # Inject stealth JS before every page load
-            await context.add_init_script(_STEALTH_JS)
-
             page = await context.new_page()
-            if stealth_async is not None:
-                await stealth_async(page)
 
             logger.info("browser_solve: navigating to %s (engagement=%s)", url, engagement_id)
 

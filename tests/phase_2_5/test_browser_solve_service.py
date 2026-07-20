@@ -1,13 +1,13 @@
 # tests/phase_2_5/test_browser_solve_service.py
-"""Tests for browser_solve_service (9c) — FastAPI + Playwright solver.
+"""Tests for browser_solve_service (9c) — FastAPI + Camoufox solver.
 
 Tests cover:
 - API contract: /solve and /health endpoints
 - Challenge detection logic
 - Response model validation
-- Error handling (playwright not installed)
+- Error handling (camoufox not installed)
 
-Playwright is mocked — no real browser is launched.
+Camoufox/Playwright is mocked — no real browser is launched.
 """
 
 from __future__ import annotations
@@ -50,10 +50,10 @@ def test_health_endpoint(client: TestClient) -> None:
     assert data["version"] == "9c"
 
 
-# ── /solve — mocked Playwright ────────────────────────────────────────────────
+# ── /solve — mocked Camoufox ──────────────────────────────────────────────────
 
 
-def _mock_playwright_response() -> dict:
+def _mock_camoufox_response() -> dict:
     return {
         "status_code": 200,
         "body": "<html><body>Hello from lab</body></html>",
@@ -66,7 +66,7 @@ def _mock_playwright_response() -> dict:
 
 @patch("agent_alpha.live_fire.browser_solve_service._solve_and_fetch")
 def test_solve_endpoint_success(mock_solve: MagicMock, client: TestClient) -> None:
-    mock_solve.return_value = SolveResponse(**_mock_playwright_response())
+    mock_solve.return_value = SolveResponse(**_mock_camoufox_response())
 
     resp = client.post(
         "/solve",
@@ -238,16 +238,18 @@ def test_solve_and_fetch_rejects_non_lab_target(mock_get_browser: MagicMock) -> 
     mock_get_browser.assert_not_called()
 
 
+@patch("agent_alpha.live_fire.browser_solve_service.AsyncNewContext", new_callable=AsyncMock)
 @patch("agent_alpha.live_fire.browser_solve_service._get_browser")
-def test_solve_and_fetch_allows_lab_target(mock_get_browser: MagicMock) -> None:
+def test_solve_and_fetch_allows_lab_target(
+    mock_get_browser: MagicMock, mock_new_context: AsyncMock
+) -> None:
     """A lab-allowlisted URL passes the guard and proceeds to the browser."""
     mock_browser = MagicMock()
     mock_context = AsyncMock()
     mock_page = AsyncMock()
     mock_response = MagicMock(status=200, headers={})
 
-    mock_browser.new_context = AsyncMock(return_value=mock_context)
-    mock_context.add_init_script = AsyncMock()
+    mock_new_context.return_value = mock_context
     mock_context.new_page = AsyncMock(return_value=mock_page)
     mock_context.cookies = AsyncMock(return_value=[])
     mock_context.close = AsyncMock()
@@ -281,22 +283,29 @@ def _reset_browser_state() -> None:
 def test_get_browser_raises_when_playwright_unavailable(
     _reset_browser_state: None,
 ) -> None:
-    with patch("agent_alpha.live_fire.browser_solve_service.async_playwright", None):
-        with pytest.raises(RuntimeError, match="playwright is not installed"):
+    with (
+        patch("agent_alpha.live_fire.browser_solve_service.async_playwright", None),
+        patch("agent_alpha.live_fire.browser_solve_service.AsyncNewBrowser", None),
+    ):
+        with pytest.raises(RuntimeError, match="camoufox is not installed"):
             asyncio.run(_get_browser())
 
 
 def test_get_browser_reuses_singleton(_reset_browser_state: None) -> None:
     mock_browser = AsyncMock()
     mock_pw_instance = AsyncMock()
-    mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
 
     mock_pw_factory = MagicMock()
     mock_pw_factory.return_value.start = AsyncMock(return_value=mock_pw_instance)
 
-    with patch("agent_alpha.live_fire.browser_solve_service.async_playwright", mock_pw_factory):
+    mock_new_browser = AsyncMock(return_value=mock_browser)
+
+    with (
+        patch("agent_alpha.live_fire.browser_solve_service.async_playwright", mock_pw_factory),
+        patch("agent_alpha.live_fire.browser_solve_service.AsyncNewBrowser", mock_new_browser),
+    ):
         browser1 = asyncio.run(_get_browser())
         browser2 = asyncio.run(_get_browser())
 
     assert browser1 is browser2
-    mock_pw_instance.chromium.launch.assert_called_once()
+    mock_new_browser.assert_called_once()
