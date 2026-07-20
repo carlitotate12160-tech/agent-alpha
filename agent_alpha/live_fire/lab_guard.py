@@ -54,63 +54,93 @@ class LabHost:
         if not self.ownership_proof:
             raise ValueError(f"LabHost {self.host!r}: ownership_proof must be non-empty")
 
+        # Validate proof format by host class
+        if self.host.endswith(".lab"):
+            # *.lab hosts must use localhost: proof
+            if not self.ownership_proof.startswith("localhost:"):
+                raise ValueError(
+                    f"LabHost {self.host!r}: *.lab hosts must use 'localhost:' proof, "
+                    f"got {self.ownership_proof!r}"
+                )
+        elif self.host.endswith(".trycloudflare.com"):
+            # Ephemeral hosts MUST have expires
+            if self.expires is None:
+                raise ValueError(
+                    f"LabHost {self.host!r}: ephemeral hosts must have expires set"
+                )
+            # Proof must be dns-txt or acme
+            if not (self.ownership_proof.startswith("dns-txt:") or
+                    self.ownership_proof.startswith("acme:")):
+                raise ValueError(
+                    f"LabHost {self.host!r}: ephemeral hosts must use 'dns-txt:' or "
+                    f"'acme:' proof, got {self.ownership_proof!r}"
+                )
+        else:
+            # Routable domains must use dns-txt or acme proof (no prose)
+            if not (self.ownership_proof.startswith("dns-txt:") or
+                    self.ownership_proof.startswith("acme:")):
+                raise ValueError(
+                    f"LabHost {self.host!r}: routable domains must use 'dns-txt:' or "
+                    f"'acme:' proof (prose-only proofs rejected), got {self.ownership_proof!r}"
+                )
+
 
 # ---------------------------------------------------------------------------
 # Single source of truth — _LAB_HOSTS.
 # LAB_TARGET_ALLOWLIST is DERIVED from this; callers are unchanged.
 # ---------------------------------------------------------------------------
 _LAB_HOSTS: tuple[LabHost, ...] = (
-    LabHost("agentalpha.duckdns.org", "natanael", "DuckDNS self-owned lab", "#207"),
+    LabHost("agentalpha.duckdns.org", "natanael", "dns-txt:agent-alpha=verified", "#207"),
     # WP lab (wp_lab/) — 6 vhosts on 127.0.0.1:443 via nginx
-    LabHost("vuln.wp.lab", "natanael", "wp_lab/ docker-compose", "#207"),
-    LabHost("rotated.wp.lab", "natanael", "wp_lab/ docker-compose", "#207"),
-    LabHost("decoy.wp.lab", "natanael", "wp_lab/ docker-compose", "#207"),
-    LabHost("waf.wp.lab", "natanael", "wp_lab/ docker-compose", "#207"),
-    LabHost("hardened.wp.lab", "natanael", "wp_lab/ docker-compose", "#207"),
-    LabHost("cotenant.wp.lab", "natanael", "wp_lab/ docker-compose", "#207"),
+    LabHost("vuln.wp.lab", "natanael", "localhost:wp_lab/", "#207"),
+    LabHost("rotated.wp.lab", "natanael", "localhost:wp_lab/", "#207"),
+    LabHost("decoy.wp.lab", "natanael", "localhost:wp_lab/", "#207"),
+    LabHost("waf.wp.lab", "natanael", "localhost:wp_lab/", "#207"),
+    LabHost("hardened.wp.lab", "natanael", "localhost:wp_lab/", "#207"),
+    LabHost("cotenant.wp.lab", "natanael", "localhost:wp_lab/", "#207"),
     # Laravel lab (targets/laravel-lab/) — 2 containers on :9090/:9091
-    LabHost("laravel-vuln.lab", "natanael", "targets/laravel-lab/", "#207"),
-    LabHost("laravel-hardened.lab", "natanael", "targets/laravel-lab/", "#207"),
+    LabHost("laravel-vuln.lab", "natanael", "localhost:targets/laravel-lab/", "#207"),
+    LabHost("laravel-hardened.lab", "natanael", "localhost:targets/laravel-lab/", "#207"),
     # SPA lab (js_lab/) — Caddy, 2 vhosts
-    LabHost("spa-vuln.lab", "natanael", "js_lab/ docker-compose", "#207"),
-    LabHost("spa-hardened.lab", "natanael", "js_lab/ docker-compose", "#207"),
+    LabHost("spa-vuln.lab", "natanael", "localhost:js_lab/", "#207"),
+    LabHost("spa-hardened.lab", "natanael", "localhost:js_lab/", "#207"),
     # Chain lab (infra/chain_lab_app.py) — mock server on :9201
-    LabHost("chain-lab.lab", "natanael", "infra/chain_lab_app.py", "#207"),
+    LabHost("chain-lab.lab", "natanael", "localhost:infra/chain_lab_app.py", "#207"),
     # Odoo lab (odoo_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
-    LabHost("odoo.lab", "natanael", "odoo_lab/ — Layer V root-only seal", "#207"),
-    LabHost("vuln.odoo.lab", "natanael", "odoo_lab/ docker-compose", "#207"),
-    LabHost("hardened.odoo.lab", "natanael", "odoo_lab/ docker-compose", "#207"),
+    LabHost("odoo.lab", "natanael", "localhost:odoo_lab/", "#207"),
+    LabHost("vuln.odoo.lab", "natanael", "localhost:odoo_lab/", "#207"),
+    LabHost("hardened.odoo.lab", "natanael", "localhost:odoo_lab/", "#207"),
     # Git exposure lab (git_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
-    LabHost("vuln.git.lab", "natanael", "git_lab/ docker-compose", "#207"),
-    LabHost("hardened.git.lab", "natanael", "git_lab/ docker-compose", "#207"),
+    LabHost("vuln.git.lab", "natanael", "localhost:git_lab/", "#207"),
+    LabHost("hardened.git.lab", "natanael", "localhost:git_lab/", "#207"),
     # Backup-file exposure lab (backup_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
-    LabHost("vuln.backup.lab", "natanael", "backup_lab/ docker-compose", "#207"),
-    LabHost("hardened.backup.lab", "natanael", "backup_lab/ docker-compose", "#207"),
+    LabHost("vuln.backup.lab", "natanael", "localhost:backup_lab/", "#207"),
+    LabHost("hardened.backup.lab", "natanael", "localhost:backup_lab/", "#207"),
     # Actuator exposure lab (actuator_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
-    LabHost("vuln.actuator.lab", "natanael", "actuator_lab/ docker-compose", "#207"),
-    LabHost("hardened.actuator.lab", "natanael", "actuator_lab/ docker-compose", "#207"),
+    LabHost("vuln.actuator.lab", "natanael", "localhost:actuator_lab/", "#207"),
+    LabHost("hardened.actuator.lab", "natanael", "localhost:actuator_lab/", "#207"),
     # Layer V-B — real-TLD self-owned lab (DuckDNS) for crt.sh-on-real-CT proof.
-    LabHost("vuln.agentalpha.duckdns.org", "natanael", "DuckDNS self-owned lab", "#207"),
-    LabHost("hardened.agentalpha.duckdns.org", "natanael", "DuckDNS self-owned lab", "#207"),
+    LabHost("vuln.agentalpha.duckdns.org", "natanael", "dns-txt:agent-alpha=verified", "#207"),
+    LabHost("hardened.agentalpha.duckdns.org", "natanael", "dns-txt:agent-alpha=verified", "#207"),
     # CDN-fronted (Cloudflare-proxied) self-owned Odoo stack — A1 validation.
-    LabHost("odoo.agentalpha.duckdns.org", "natanael", "DuckDNS self-owned lab + CF proxy", "#207"),
-    # External self-owned domain (deployed separately, not a repo lab directory).
-    LabHost("quantum-laboratories.com", "natanael", "Self-owned external domain", "#214"),
+    LabHost("odoo.agentalpha.duckdns.org", "natanael", "dns-txt:agent-alpha=verified", "#207"),
+    # External self-owned domain (alpha-ai.web.id) — Oracle ARM64 behind Cloudflare
+    LabHost("alpha-ai.web.id", "natanael", "dns-txt:agent-alpha-verification=agent-alpha-verified-2026-07-20", "#214"),
     # Cloudflare quick tunnel — ephemeral, expires. Changes per tunnel start.
     LabHost(
         "responding-yards-adaptation-floors.trycloudflare.com",
         "natanael",
-        "Cloudflare quick tunnel — self-owned Odoo lab",
+        "dns-txt:agent-alpha=verified",
         "#211",
         expires=_dt.date(2026, 7, 27),
     ),
     # Recon try-harder field-prove lab hosts
-    LabHost("apex.recon.lab", "natanael", "recon_lab/ docker-compose", "#207"),
-    LabHost("late.recon.lab", "natanael", "recon_lab/ docker-compose", "#207"),
-    LabHost("waf.recon.lab", "natanael", "recon_lab/ docker-compose", "#207"),
-    LabHost("decoy.recon.lab", "natanael", "recon_lab/ docker-compose", "#207"),
-    LabHost("dead.recon.lab", "natanael", "recon_lab/ docker-compose", "#207"),
-    LabHost("hardened.recon.lab", "natanael", "recon_lab/ docker-compose", "#207"),
+    LabHost("apex.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    LabHost("late.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    LabHost("waf.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    LabHost("decoy.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    LabHost("dead.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    LabHost("hardened.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
 )
 
 # Derived allowlist — backward compatible with all 13 callers.
