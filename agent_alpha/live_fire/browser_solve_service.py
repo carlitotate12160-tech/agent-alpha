@@ -157,9 +157,9 @@ _CHALLENGE_SELECTORS = [
 ]
 
 # Max wait for challenge to auto-solve (seconds)
-_CHALLENGE_TIMEOUT_SEC = 30
+_CHALLENGE_TIMEOUT_SEC = 60
 # Extra wait after challenge clears for page to settle
-_POST_CHALLENGE_WAIT_SEC = 3
+_POST_CHALLENGE_WAIT_SEC = 5
 
 
 # ── Persistent browser lifecycle ──────────────────────────────────────────────
@@ -180,7 +180,11 @@ async def _get_browser() -> Any:
     async with _browser_lock:
         if _browser_state["browser"] is None:
             pw = await async_playwright().start()
-            browser = await AsyncNewBrowser(pw, headless=True)
+            # headless="virtual" uses Xvfb on Linux — some CF/Turnstile
+            # challenges detect true headless mode; a virtual display
+            # avoids that detection without needing a real GPU/display.
+            headless_mode = os.environ.get("BROWSER_SOLVE_HEADLESS", "virtual")
+            browser = await AsyncNewBrowser(pw, headless=headless_mode)
             _browser_state["playwright"] = pw
             _browser_state["browser"] = browser
         return _browser_state["browser"]
@@ -297,8 +301,33 @@ async def _detect_challenge(page: Any) -> bool:
 
 
 async def _wait_for_challenge_clear(page: Any) -> bool:
-    """Wait for CF challenge to auto-solve. Returns True if cleared."""
-    # Wait for challenge selectors to disappear
+    """Wait for CF challenge to auto-solve. Returns True if cleared.
+
+    Tries multiple strategies in order:
+    1. Click the Turnstile checkbox widget if present (interactive mode)
+    2. Wait for challenge selectors to disappear
+    3. Wait for page title to change from "Just a moment..."
+    4. Re-check if challenge is still present
+    """
+    # Strategy 1: Try clicking the Turnstile checkbox widget
+    try:
+        turnstile_frame = await page.query_selector("iframe[src*='challenges.cloudflare.com']")
+        if turnstile_frame is not None:
+            frame = await turnstile_frame.content_frame()
+            if frame is not None:
+                checkbox = await frame.query_selector("input[type='checkbox']")
+                if checkbox is not None:
+                    await checkbox.click()
+                    logger.info("browser_solve: clicked Turnstile checkbox")
+                else:
+                    # Click the frame area itself — sometimes the checkbox
+                    # is not directly accessible but clicking the frame works
+                    await turnstile_frame.click()
+                    logger.info("browser_solve: clicked Turnstile iframe")
+    except Exception as e:
+        logger.debug("browser_solve: Turnstile click attempt failed: %s", e)
+
+    # Strategy 2: Wait for challenge selectors to disappear
     for selector in _CHALLENGE_SELECTORS:
         try:
             await page.wait_for_selector(
@@ -307,7 +336,7 @@ async def _wait_for_challenge_clear(page: Any) -> bool:
         except Exception:
             pass
 
-    # Wait for title to change from "Just a moment..."
+    # Strategy 3: Wait for title to change from "Just a moment..."
     try:
         await page.wait_for_function(
             "() => document.title && !document.title.toLowerCase().includes('just a moment')",
@@ -316,7 +345,7 @@ async def _wait_for_challenge_clear(page: Any) -> bool:
     except Exception:
         pass
 
-    # Verify challenge actually cleared — re-check detection
+    # Strategy 4: Verify challenge actually cleared — re-check detection
     still_challenged = await _detect_challenge(page)
     return not still_challenged
 

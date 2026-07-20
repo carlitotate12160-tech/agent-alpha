@@ -33,12 +33,14 @@ from typing import Any
 
 import httpx
 
-from agent_alpha.config import constants
-
 # ── Environment variable names ────────────────────────────────────────────────
 
 ENV_ENDPOINT = "A1_BROWSER_SOLVE_ENDPOINT"
 ENV_API_KEY = "A1_BROWSER_SOLVE_API_KEY"
+
+# Browser solving involves launching a real browser, navigating, and waiting
+# for CF challenge auto-solve — much slower than a simple HTTP GET.
+BROWSER_SOLVE_TIMEOUT_SEC = 120.0
 
 
 @dataclass(frozen=True)
@@ -86,7 +88,7 @@ class DeepSeekBrowserSolve:
         *,
         endpoint: str,
         api_key: str | None = None,
-        timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC,
+        timeout: float = BROWSER_SOLVE_TIMEOUT_SEC,
     ) -> None:
         if not endpoint:
             raise ValueError("DeepSeekBrowserSolve.endpoint must be non-empty")
@@ -95,9 +97,7 @@ class DeepSeekBrowserSolve:
         self._timeout = timeout
 
     @classmethod
-    def from_env(
-        cls, *, timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC
-    ) -> DeepSeekBrowserSolve | None:
+    def from_env(cls, *, timeout: float = BROWSER_SOLVE_TIMEOUT_SEC) -> DeepSeekBrowserSolve | None:
         """Build from environment variables.
 
         Reads ``A1_BROWSER_SOLVE_ENDPOINT`` (required) and
