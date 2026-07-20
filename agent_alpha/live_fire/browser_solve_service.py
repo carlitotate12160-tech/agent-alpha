@@ -257,8 +257,8 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
 
     async with _solve_semaphore:
         browser = await _get_browser()
-        ua = random.choice(_USER_AGENTS)
-        viewport = random.choice(_VIEWPORTS)
+        ua = random.choice(_USER_AGENTS)  # nosec B311 — fingerprint rotation, not crypto
+        viewport = random.choice(_VIEWPORTS)  # nosec B311 — fingerprint rotation, not crypto
 
         context = await browser.new_context(
             user_agent=ua,
