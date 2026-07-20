@@ -193,7 +193,12 @@ async def _get_browser() -> Any:
             # challenges detect true headless mode; a virtual display
             # avoids that detection without needing a real GPU/display.
             headless_mode = os.environ.get("BROWSER_SOLVE_HEADLESS", "virtual")
-            browser = await AsyncNewBrowser(pw, headless=headless_mode)
+            browser = await AsyncNewBrowser(
+                pw,
+                headless=headless_mode,
+                geoip=True,
+                humanize=True,
+            )
             _browser_state["playwright"] = pw
             _browser_state["browser"] = browser
         return _browser_state["browser"]
@@ -229,10 +234,11 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
         # AsyncNewContext generates a fresh fingerprint identity (navigator,
         # screen, WebGL, fonts, audio/canvas noise seeds) for this request
         # only; the underlying Firefox process above is reused.
+        # No hardcoded locale/timezone — geoip=True on the browser already
+        # derives locale + timezone from the exit IP, so hardcoding them
+        # here would create a mismatch that CF fingerprinting detects.
         context = await AsyncNewContext(
             browser,
-            locale="en-US",
-            timezone_id="America/New_York",
             java_script_enabled=True,
             ignore_https_errors=True,
             viewport={"width": 1920, "height": 1080},
@@ -256,6 +262,29 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
             challenge_solved = False
 
             if challenge_encountered:
+                # Diagnostic: log page title and what selectors match
+                try:
+                    diag_title = await page.title()
+                    logger.info("browser_solve: challenge page title: %s", diag_title)
+                except Exception:
+                    pass
+                for sel in _CHALLENGE_SELECTORS:
+                    try:
+                        el = await page.query_selector(sel)
+                        logger.info(
+                            "browser_solve: selector %s -> %s", sel, "FOUND" if el else "not found"
+                        )
+                    except Exception:
+                        logger.info("browser_solve: selector %s -> error", sel)
+                # Dump first 500 chars of body for debugging
+                try:
+                    body_snippet = await page.content()
+                    logger.info(
+                        "browser_solve: page HTML (first 500 chars): %s", body_snippet[:500]
+                    )
+                except Exception:
+                    pass
+
                 logger.info("browser_solve: CF challenge detected, attempting solve...")
                 # Try up to _MAX_SOLVE_ATTEMPTS rounds of click + wait
                 for attempt in range(_MAX_SOLVE_ATTEMPTS):
@@ -366,13 +395,15 @@ async def _wait_for_challenge_clear(page: Any) -> bool:
         try:
             await turnstile_locator.locator("input[type='checkbox']").click(timeout=5000)
             logger.info("browser_solve: clicked Turnstile checkbox via frame_locator")
-        except Exception:
+        except Exception as e1:
+            logger.info("browser_solve: frame_locator checkbox click failed: %s", e1)
             # Try clicking the body of the iframe (sometimes the checkbox
             # is wrapped or the click target is the container)
             try:
                 await turnstile_locator.locator("body").click(timeout=5000)
                 logger.info("browser_solve: clicked Turnstile iframe body")
-            except Exception:
+            except Exception as e2:
+                logger.info("browser_solve: frame_locator body click failed: %s", e2)
                 # Strategy 2: Click the iframe element directly by bounding box
                 iframe_element = await page.query_selector(
                     "iframe[src*='challenges.cloudflare.com']"
@@ -390,8 +421,12 @@ async def _wait_for_challenge_clear(page: Any) -> bool:
                             box["x"] + 30,
                             box["y"] + box["height"] / 2,
                         )
+                    else:
+                        logger.info("browser_solve: iframe found but no bounding box")
+                else:
+                    logger.info("browser_solve: no Turnstile iframe found on page")
     except Exception as e:
-        logger.debug("browser_solve: Turnstile click attempt failed: %s", e)
+        logger.info("browser_solve: Turnstile click attempt failed: %s", e)
 
     # Strategy 3: Wait for challenge selectors to disappear
     for selector in _CHALLENGE_SELECTORS:
