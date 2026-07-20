@@ -13,14 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from agent_alpha.live_fire.lab_guard import LAB_TARGET_ALLOWLIST
 
 # ── Exceptions ────────────────────────────────────────────────
 
 
-class OriginNotAuthorized(RuntimeError):
+class OriginNotAuthorizedError(RuntimeError):
     """Raised when an origin-direct request is refused by the gate."""
 
 
@@ -81,16 +81,16 @@ def assert_origin_authorized(
 
     Raises
     ------
-    OriginNotAuthorized
+    OriginNotAuthorizedError
         When the fronted host is not in the lab allowlist, or the origin IP
-        is not in the profile's signed ``authorized_origins``.
+        is not in the profile's signed ``authorized_origins`.
     """
     if fronted_host not in lab_allowlist:
-        raise OriginNotAuthorized(
+        raise OriginNotAuthorizedError(
             f"fronted host {fronted_host!r} not a proven-owned target"
         )
     if origin_ip not in profile.authorized_origins:
-        raise OriginNotAuthorized(
+        raise OriginNotAuthorizedError(
             f"origin {origin_ip!r} not in signed authorized_origins — hitting a client "
             f"origin bypasses their WAF; requires front-loaded consent (§12.36)."
         )

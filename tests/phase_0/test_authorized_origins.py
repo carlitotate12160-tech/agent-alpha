@@ -18,7 +18,7 @@ import pytest
 
 from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
-    OriginNotAuthorized,
+    OriginNotAuthorizedError,
     assert_origin_authorized,
 )
 
@@ -52,8 +52,8 @@ def test_authorized_origin_and_owned_host_passes() -> None:
 
 
 def test_origin_not_authorized_raises() -> None:
-    """Origin IP absent from signed authorized_origins → OriginNotAuthorized."""
-    with pytest.raises(OriginNotAuthorized, match="not in signed authorized_origins"):
+    """Origin IP absent from signed authorized_origins → OriginNotAuthorizedError."""
+    with pytest.raises(OriginNotAuthorizedError, match="not in signed authorized_origins"):
         assert_origin_authorized(
             origin_ip="198.51.100.99",
             fronted_host="lab.example.com",
@@ -67,7 +67,7 @@ def test_origin_not_authorized_raises() -> None:
 
 def test_fronted_host_not_in_allowlist_raises() -> None:
     """Fronted host not in the lab target allowlist → refused even with valid origin."""
-    with pytest.raises(OriginNotAuthorized, match="not a proven-owned target"):
+    with pytest.raises(OriginNotAuthorizedError, match="not a proven-owned target"):
         assert_origin_authorized(
             origin_ip="203.0.113.10",
             fronted_host="evil-client-site.com",
@@ -136,7 +136,7 @@ def test_empty_authorized_origins_refuses_all() -> None:
         targets=frozenset({"lab.example.com"}),
         # authorized_origins defaults to frozenset()
     )
-    with pytest.raises(OriginNotAuthorized, match="not in signed authorized_origins"):
+    with pytest.raises(OriginNotAuthorizedError, match="not in signed authorized_origins"):
         assert_origin_authorized(
             origin_ip="203.0.113.10",
             fronted_host="lab.example.com",
@@ -151,7 +151,7 @@ def test_empty_authorized_origins_refuses_all() -> None:
 def test_fronted_host_checked_before_origin() -> None:
     """When both fronted_host and origin are invalid, the fronted-host check
     fires first (the cheaper, more categorical refusal)."""
-    with pytest.raises(OriginNotAuthorized, match="not a proven-owned target"):
+    with pytest.raises(OriginNotAuthorizedError, match="not a proven-owned target"):
         assert_origin_authorized(
             origin_ip="198.51.100.99",
             fronted_host="not-a-lab.com",
