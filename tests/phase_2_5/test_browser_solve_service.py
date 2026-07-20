@@ -206,9 +206,13 @@ def test_wait_for_challenge_clear_success() -> None:
     page = MagicMock()
     page.wait_for_selector = AsyncMock()
     page.wait_for_function = AsyncMock()
-    # query_selector called for Turnstile iframe detection AND _detect_challenge
-    # First call: Turnstile iframe (None = no iframe to click)
-    # Second call onwards: _detect_challenge selectors (None = challenge cleared)
+    # frame_locator returns a mock that will fail to find checkbox/body
+    # (no Turnstile iframe to click) — falls through to wait strategies
+    mock_fl = MagicMock()
+    mock_fl.locator.return_value.click = AsyncMock(side_effect=Exception("no iframe"))
+    page.frame_locator = MagicMock(return_value=mock_fl)
+    # query_selector: Turnstile iframe not found (None), then _detect_challenge
+    # selectors also None = challenge cleared
     page.query_selector = AsyncMock(return_value=None)
     page.title = AsyncMock(return_value="Welcome to Alpha-AI")
 
@@ -220,12 +224,19 @@ def test_wait_for_challenge_clear_timeout() -> None:
     page = MagicMock()
     page.wait_for_selector = AsyncMock(side_effect=TimeoutError("timeout"))
     page.wait_for_function = AsyncMock(side_effect=TimeoutError("timeout"))
-    # query_selector: first call returns a mock iframe (Turnstile detection),
-    # but content_frame returns None so no click happens.
-    # Later calls from _detect_challenge return a mock (challenge still present)
+    # frame_locator: clicking checkbox and body both fail
+    mock_fl = MagicMock()
+    mock_fl.locator.return_value.click = AsyncMock(side_effect=Exception("cross-origin"))
+    page.frame_locator = MagicMock(return_value=mock_fl)
+    # query_selector: first call returns mock iframe with bounding box,
+    # later calls from _detect_challenge return mock (challenge still present)
     mock_iframe = MagicMock()
-    mock_iframe.content_frame = AsyncMock(return_value=None)
+    mock_iframe.bounding_box = AsyncMock(
+        return_value={"x": 100, "y": 200, "width": 300, "height": 65}
+    )
     page.query_selector = AsyncMock(return_value=mock_iframe)
+    page.mouse = MagicMock()
+    page.mouse.click = AsyncMock()
     page.title = AsyncMock(return_value="Just a moment...")
 
     result = asyncio.run(_wait_for_challenge_clear(page))
@@ -274,6 +285,86 @@ def test_solve_and_fetch_allows_lab_target(
     assert result.status_code == 200
     assert result.body == "<html>ok</html>"
     assert result.challenge_encountered is False
+    mock_context.close.assert_awaited_once()
+
+
+@patch("agent_alpha.live_fire.browser_solve_service._wait_for_challenge_clear")
+@patch("agent_alpha.live_fire.browser_solve_service._detect_challenge")
+@patch("agent_alpha.live_fire.browser_solve_service.AsyncNewContext", new_callable=AsyncMock)
+@patch("agent_alpha.live_fire.browser_solve_service._get_browser")
+def test_solve_and_fetch_retry_succeeds_on_third_attempt(
+    mock_get_browser: MagicMock,
+    mock_new_context: AsyncMock,
+    mock_detect: AsyncMock,
+    mock_wait: AsyncMock,
+) -> None:
+    """Retry loop: _wait_for_challenge_clear fails twice, succeeds on 3rd."""
+    mock_browser = MagicMock()
+    mock_context = AsyncMock()
+    mock_page = AsyncMock()
+    mock_response = MagicMock(status=200, headers={})
+
+    mock_new_context.return_value = mock_context
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.cookies = AsyncMock(return_value=[])
+    mock_context.close = AsyncMock()
+    mock_page.goto = AsyncMock(return_value=mock_response)
+    mock_page.content = AsyncMock(return_value="<html>solved</html>")
+
+    async def _fake_get_browser() -> MagicMock:
+        return mock_browser
+
+    mock_get_browser.side_effect = _fake_get_browser
+    mock_detect.return_value = True  # challenge detected
+    mock_wait.side_effect = [False, False, True]  # fail, fail, succeed
+
+    result = asyncio.run(_solve_and_fetch("https://alpha-ai.web.id/web", "eng-retry"))
+
+    assert result.challenge_encountered is True
+    assert result.challenge_solved is True
+    assert mock_wait.await_count == 3
+    # Page should be reloaded after solve
+    assert mock_page.goto.await_count >= 2  # initial + reload
+    mock_context.close.assert_awaited_once()
+
+
+@patch("agent_alpha.live_fire.browser_solve_service._wait_for_challenge_clear")
+@patch("agent_alpha.live_fire.browser_solve_service._detect_challenge")
+@patch("agent_alpha.live_fire.browser_solve_service.AsyncNewContext", new_callable=AsyncMock)
+@patch("agent_alpha.live_fire.browser_solve_service._get_browser")
+def test_solve_and_fetch_all_attempts_fail(
+    mock_get_browser: MagicMock,
+    mock_new_context: AsyncMock,
+    mock_detect: AsyncMock,
+    mock_wait: AsyncMock,
+) -> None:
+    """All 3 attempts fail — returns challenge_solved=False without raising."""
+    mock_browser = MagicMock()
+    mock_context = AsyncMock()
+    mock_page = AsyncMock()
+    mock_response = MagicMock(status=403, headers={})
+
+    mock_new_context.return_value = mock_context
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.cookies = AsyncMock(return_value=[])
+    mock_context.close = AsyncMock()
+    mock_page.goto = AsyncMock(return_value=mock_response)
+    mock_page.content = AsyncMock(return_value="<html>challenge</html>")
+
+    async def _fake_get_browser() -> MagicMock:
+        return mock_browser
+
+    mock_get_browser.side_effect = _fake_get_browser
+    mock_detect.return_value = True
+    mock_wait.return_value = False  # all attempts fail
+
+    result = asyncio.run(_solve_and_fetch("https://alpha-ai.web.id/web", "eng-fail"))
+
+    assert result.challenge_encountered is True
+    assert result.challenge_solved is False
+    assert mock_wait.await_count == 3
+    # No reload when not solved
+    assert mock_page.goto.await_count == 1  # initial only
     mock_context.close.assert_awaited_once()
 
 
