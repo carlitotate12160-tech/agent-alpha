@@ -82,15 +82,21 @@ from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 
 logger = logging.getLogger(__name__)
 
+async_playwright: Any = None
 try:
-    from playwright.async_api import async_playwright
-except ImportError:  # pragma: no cover — exercised only when playwright unavailable
-    async_playwright = None
+    from playwright.async_api import async_playwright as _async_playwright
 
+    async_playwright = _async_playwright
+except ImportError:  # pragma: no cover — exercised only when playwright unavailable
+    pass
+
+stealth_async: Any = None
 try:
-    from playwright_stealth import stealth_async
+    from playwright_stealth import stealth_async as _stealth_async
+
+    stealth_async = _stealth_async
 except ImportError:  # pragma: no cover — optional, more sophisticated stealth
-    stealth_async = None
+    pass
 
 
 # ── Persistent browser singleton (lazy — never launched at import/startup) ────
