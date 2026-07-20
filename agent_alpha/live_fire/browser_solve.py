@@ -95,7 +95,9 @@ class DeepSeekBrowserSolve:
         self._timeout = timeout
 
     @classmethod
-    def from_env(cls, *, timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC) -> DeepSeekBrowserSolve | None:
+    def from_env(
+        cls, *, timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC
+    ) -> DeepSeekBrowserSolve | None:
         """Build from environment variables.
 
         Reads ``A1_BROWSER_SOLVE_ENDPOINT`` (required) and
@@ -143,9 +145,7 @@ class DeepSeekBrowserSolve:
             challenge_encountered = bool(data.get("challenge_encountered"))
             challenge_solved = bool(data.get("challenge_solved"))
         except (KeyError, TypeError, ValueError) as exc:
-            raise RuntimeError(
-                "browser_solve endpoint response missing required fields"
-            ) from exc
+            raise RuntimeError("browser_solve endpoint response missing required fields") from exc
 
         # Normalise headers/cookies to str→str mappings.
         norm_headers: dict[str, str] = {
