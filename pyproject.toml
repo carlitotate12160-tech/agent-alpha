@@ -30,6 +30,7 @@ dependencies = [
     "pymysql>=1.1.0",
     "defusedxml>=0.7.1",
     "git-dumper",
+    "camoufox[geoip]>=0.4.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -103,6 +104,7 @@ ignore = [
 "agent_alpha/live_fire/odoo_chain_runner.py" = ["BLE001"]
 "agent_alpha/live_fire/wp_chain_runner.py" = ["BLE001"]
 "agent_alpha/live_fire/spa_secret_field_prove.py" = ["BLE001"]
+"agent_alpha/live_fire/browser_solve_service.py" = ["BLE001"]
 "agent_alpha/recon/git_exposure_probe.py" = ["BLE001"]
 
 [tool.ruff.lint.mccabe]
