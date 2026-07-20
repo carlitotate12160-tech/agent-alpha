@@ -47,14 +47,30 @@ A1_WEB_PATH = "/web"
 
 
 class ChallengeSolveResult(Protocol):
-    """Outcome of a browser_solve attempt against a CF challenge-gated URL."""
+    """Outcome of a browser_solve attempt against a CF challenge-gated URL.
 
-    status_code: int
-    body: str
-    headers: dict[str, str]
-    cleared_cookies: dict[str, str]
-    challenge_encountered: bool
-    challenge_solved: bool
+    Read-only carrier — members are properties so a frozen dataclass
+    (BrowserSolveResponse) structurally satisfies it (mypy: frozen attrs are
+    read-only; a plain ``x: T`` protocol member demands settable → mismatch).
+    """
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def body(self) -> str: ...
+
+    @property
+    def headers(self) -> dict[str, str]: ...
+
+    @property
+    def cleared_cookies(self) -> dict[str, str]: ...
+
+    @property
+    def challenge_encountered(self) -> bool: ...
+
+    @property
+    def challenge_solved(self) -> bool: ...
 
 
 class BrowserSolveTransport(Protocol):
