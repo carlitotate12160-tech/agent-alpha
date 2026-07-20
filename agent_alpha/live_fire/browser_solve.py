@@ -95,7 +95,7 @@ class DeepSeekBrowserSolve:
         self._timeout = timeout
 
     @classmethod
-    def from_env(cls, *, timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC) -> "DeepSeekBrowserSolve | None":
+    def from_env(cls, *, timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC) -> DeepSeekBrowserSolve | None:
         """Build from environment variables.
 
         Reads ``A1_BROWSER_SOLVE_ENDPOINT`` (required) and
