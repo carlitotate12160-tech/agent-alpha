@@ -156,10 +156,14 @@ _CHALLENGE_SELECTORS = [
     ".cf-browser-verification",
 ]
 
-# Max wait for challenge to auto-solve (seconds)
-_CHALLENGE_TIMEOUT_SEC = 60
+# Max wait for challenge to auto-solve per attempt (seconds)
+_CHALLENGE_TIMEOUT_SEC = 20
+# Max wait for page navigation (seconds)
+_NAV_TIMEOUT_SEC = 30
 # Extra wait after challenge clears for page to settle
 _POST_CHALLENGE_WAIT_SEC = 5
+# Max solve attempts before giving up
+_MAX_SOLVE_ATTEMPTS = 3
 
 
 # ── Persistent browser lifecycle ──────────────────────────────────────────────
@@ -234,9 +238,13 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
 
             logger.info("browser_solve: navigating to %s (engagement=%s)", url, engagement_id)
 
-            # Wait for network to be mostly idle so Turnstile iframe
-            # has time to render before we check for challenge.
-            response = await page.goto(url, wait_until="networkidle", timeout=60000)
+            # Use domcontentloaded + short settle wait instead of networkidle
+            # (networkidle can hang on persistent connections like websockets)
+            response = await page.goto(
+                url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_SEC * 1000
+            )
+            # Brief wait for Turnstile iframe to render
+            await asyncio.sleep(2)
 
             # Detect CF challenge
             challenge_encountered = await _detect_challenge(page)
@@ -244,9 +252,13 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
 
             if challenge_encountered:
                 logger.info("browser_solve: CF challenge detected, attempting solve...")
-                # Try up to 3 rounds of click + wait
-                for attempt in range(3):
-                    logger.info("browser_solve: solve attempt %d/3", attempt + 1)
+                # Try up to _MAX_SOLVE_ATTEMPTS rounds of click + wait
+                for attempt in range(_MAX_SOLVE_ATTEMPTS):
+                    logger.info(
+                        "browser_solve: solve attempt %d/%d",
+                        attempt + 1,
+                        _MAX_SOLVE_ATTEMPTS,
+                    )
                     challenge_solved = await _wait_for_challenge_clear(page)
                     if challenge_solved:
                         break
@@ -256,11 +268,25 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
                 if challenge_solved:
                     # Wait for page to settle after challenge clears
                     await asyncio.sleep(_POST_CHALLENGE_WAIT_SEC)
-                    # Reload to get the real page
-                    response = await page.goto(url, wait_until="networkidle", timeout=60000)
-                    logger.info("browser_solve: challenge solved, page reloaded")
+                    # Reload to get the real page — fallback to existing body
+                    # if reload times out (don't lose the solved state)
+                    try:
+                        response = await page.goto(
+                            url,
+                            wait_until="domcontentloaded",
+                            timeout=_NAV_TIMEOUT_SEC * 1000,
+                        )
+                        logger.info("browser_solve: challenge solved, page reloaded")
+                    except Exception as e:
+                        logger.warning(
+                            "browser_solve: reload failed after solve, using current page: %s",
+                            e,
+                        )
                 else:
-                    logger.warning("browser_solve: challenge did not solve after 3 attempts")
+                    logger.warning(
+                        "browser_solve: challenge did not solve after %d attempts",
+                        _MAX_SOLVE_ATTEMPTS,
+                    )
 
             # Extract final state
             body = await page.content()

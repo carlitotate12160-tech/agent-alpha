@@ -288,6 +288,86 @@ def test_solve_and_fetch_allows_lab_target(
     mock_context.close.assert_awaited_once()
 
 
+@patch("agent_alpha.live_fire.browser_solve_service._wait_for_challenge_clear")
+@patch("agent_alpha.live_fire.browser_solve_service._detect_challenge")
+@patch("agent_alpha.live_fire.browser_solve_service.AsyncNewContext", new_callable=AsyncMock)
+@patch("agent_alpha.live_fire.browser_solve_service._get_browser")
+def test_solve_and_fetch_retry_succeeds_on_third_attempt(
+    mock_get_browser: MagicMock,
+    mock_new_context: AsyncMock,
+    mock_detect: AsyncMock,
+    mock_wait: AsyncMock,
+) -> None:
+    """Retry loop: _wait_for_challenge_clear fails twice, succeeds on 3rd."""
+    mock_browser = MagicMock()
+    mock_context = AsyncMock()
+    mock_page = AsyncMock()
+    mock_response = MagicMock(status=200, headers={})
+
+    mock_new_context.return_value = mock_context
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.cookies = AsyncMock(return_value=[])
+    mock_context.close = AsyncMock()
+    mock_page.goto = AsyncMock(return_value=mock_response)
+    mock_page.content = AsyncMock(return_value="<html>solved</html>")
+
+    async def _fake_get_browser() -> MagicMock:
+        return mock_browser
+
+    mock_get_browser.side_effect = _fake_get_browser
+    mock_detect.return_value = True  # challenge detected
+    mock_wait.side_effect = [False, False, True]  # fail, fail, succeed
+
+    result = asyncio.run(_solve_and_fetch("https://alpha-ai.web.id/web", "eng-retry"))
+
+    assert result.challenge_encountered is True
+    assert result.challenge_solved is True
+    assert mock_wait.await_count == 3
+    # Page should be reloaded after solve
+    assert mock_page.goto.await_count >= 2  # initial + reload
+    mock_context.close.assert_awaited_once()
+
+
+@patch("agent_alpha.live_fire.browser_solve_service._wait_for_challenge_clear")
+@patch("agent_alpha.live_fire.browser_solve_service._detect_challenge")
+@patch("agent_alpha.live_fire.browser_solve_service.AsyncNewContext", new_callable=AsyncMock)
+@patch("agent_alpha.live_fire.browser_solve_service._get_browser")
+def test_solve_and_fetch_all_attempts_fail(
+    mock_get_browser: MagicMock,
+    mock_new_context: AsyncMock,
+    mock_detect: AsyncMock,
+    mock_wait: AsyncMock,
+) -> None:
+    """All 3 attempts fail — returns challenge_solved=False without raising."""
+    mock_browser = MagicMock()
+    mock_context = AsyncMock()
+    mock_page = AsyncMock()
+    mock_response = MagicMock(status=403, headers={})
+
+    mock_new_context.return_value = mock_context
+    mock_context.new_page = AsyncMock(return_value=mock_page)
+    mock_context.cookies = AsyncMock(return_value=[])
+    mock_context.close = AsyncMock()
+    mock_page.goto = AsyncMock(return_value=mock_response)
+    mock_page.content = AsyncMock(return_value="<html>challenge</html>")
+
+    async def _fake_get_browser() -> MagicMock:
+        return mock_browser
+
+    mock_get_browser.side_effect = _fake_get_browser
+    mock_detect.return_value = True
+    mock_wait.return_value = False  # all attempts fail
+
+    result = asyncio.run(_solve_and_fetch("https://alpha-ai.web.id/web", "eng-fail"))
+
+    assert result.challenge_encountered is True
+    assert result.challenge_solved is False
+    assert mock_wait.await_count == 3
+    # No reload when not solved
+    assert mock_page.goto.await_count == 1  # initial only
+    mock_context.close.assert_awaited_once()
+
+
 # ── persistent browser singleton (_get_browser) ─────────────────────────
 
 
