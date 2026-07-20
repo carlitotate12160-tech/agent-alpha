@@ -226,29 +226,41 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
             timezone_id="America/New_York",
             java_script_enabled=True,
             ignore_https_errors=True,
+            viewport={"width": 1920, "height": 1080},
+            screen={"width": 1920, "height": 1080},
         )
         try:
             page = await context.new_page()
 
             logger.info("browser_solve: navigating to %s (engagement=%s)", url, engagement_id)
 
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            # Wait for network to be mostly idle so Turnstile iframe
+            # has time to render before we check for challenge.
+            response = await page.goto(url, wait_until="networkidle", timeout=60000)
 
             # Detect CF challenge
             challenge_encountered = await _detect_challenge(page)
             challenge_solved = False
 
             if challenge_encountered:
-                logger.info("browser_solve: CF challenge detected, waiting for auto-solve...")
-                challenge_solved = await _wait_for_challenge_clear(page)
+                logger.info("browser_solve: CF challenge detected, attempting solve...")
+                # Try up to 3 rounds of click + wait
+                for attempt in range(3):
+                    logger.info("browser_solve: solve attempt %d/3", attempt + 1)
+                    challenge_solved = await _wait_for_challenge_clear(page)
+                    if challenge_solved:
+                        break
+                    # Human-like pause before retry
+                    await asyncio.sleep(2)
+
                 if challenge_solved:
                     # Wait for page to settle after challenge clears
                     await asyncio.sleep(_POST_CHALLENGE_WAIT_SEC)
                     # Reload to get the real page
-                    response = await page.goto(url, wait_until="domcontentloaded", timeout=60000)
+                    response = await page.goto(url, wait_until="networkidle", timeout=60000)
                     logger.info("browser_solve: challenge solved, page reloaded")
                 else:
-                    logger.warning("browser_solve: challenge did not auto-solve within timeout")
+                    logger.warning("browser_solve: challenge did not solve after 3 attempts")
 
             # Extract final state
             body = await page.content()
@@ -304,30 +316,53 @@ async def _wait_for_challenge_clear(page: Any) -> bool:
     """Wait for CF challenge to auto-solve. Returns True if cleared.
 
     Tries multiple strategies in order:
-    1. Click the Turnstile checkbox widget if present (interactive mode)
-    2. Wait for challenge selectors to disappear
-    3. Wait for page title to change from "Just a moment..."
-    4. Re-check if challenge is still present
+    1. Click the Turnstile checkbox via frame_locator (cross-origin safe)
+    2. Click the Turnstile iframe bounding box directly
+    3. Wait for challenge selectors to disappear
+    4. Wait for page title to change from "Just a moment..."
+    5. Re-check if challenge is still present
     """
-    # Strategy 1: Try clicking the Turnstile checkbox widget
+    # Strategy 1: Use frame_locator to click inside cross-origin iframe
+    # Playwright's frame_locator can interact with cross-origin frames
+    # where content_frame() + query_selector would fail.
     try:
-        turnstile_frame = await page.query_selector("iframe[src*='challenges.cloudflare.com']")
-        if turnstile_frame is not None:
-            frame = await turnstile_frame.content_frame()
-            if frame is not None:
-                checkbox = await frame.query_selector("input[type='checkbox']")
-                if checkbox is not None:
-                    await checkbox.click()
-                    logger.info("browser_solve: clicked Turnstile checkbox")
-                else:
-                    # Click the frame area itself — sometimes the checkbox
-                    # is not directly accessible but clicking the frame works
-                    await turnstile_frame.click()
-                    logger.info("browser_solve: clicked Turnstile iframe")
+        # Human-like delay before interacting
+        await asyncio.sleep(1)
+
+        # Try clicking the Turnstile checkbox via frame_locator
+        turnstile_locator = page.frame_locator("iframe[src*='challenges.cloudflare.com']")
+        # The checkbox is inside a label or div container
+        try:
+            await turnstile_locator.locator("input[type='checkbox']").click(timeout=5000)
+            logger.info("browser_solve: clicked Turnstile checkbox via frame_locator")
+        except Exception:
+            # Try clicking the body of the iframe (sometimes the checkbox
+            # is wrapped or the click target is the container)
+            try:
+                await turnstile_locator.locator("body").click(timeout=5000)
+                logger.info("browser_solve: clicked Turnstile iframe body")
+            except Exception:
+                # Strategy 2: Click the iframe element directly by bounding box
+                iframe_element = await page.query_selector(
+                    "iframe[src*='challenges.cloudflare.com']"
+                )
+                if iframe_element is not None:
+                    box = await iframe_element.bounding_box()
+                    if box is not None:
+                        # Click slightly left-center where checkbox usually is
+                        await page.mouse.click(
+                            box["x"] + 30,
+                            box["y"] + box["height"] / 2,
+                        )
+                        logger.info(
+                            "browser_solve: clicked Turnstile iframe at (%.0f, %.0f)",
+                            box["x"] + 30,
+                            box["y"] + box["height"] / 2,
+                        )
     except Exception as e:
         logger.debug("browser_solve: Turnstile click attempt failed: %s", e)
 
-    # Strategy 2: Wait for challenge selectors to disappear
+    # Strategy 3: Wait for challenge selectors to disappear
     for selector in _CHALLENGE_SELECTORS:
         try:
             await page.wait_for_selector(
@@ -336,7 +371,7 @@ async def _wait_for_challenge_clear(page: Any) -> bool:
         except Exception:
             pass
 
-    # Strategy 3: Wait for title to change from "Just a moment..."
+    # Strategy 4: Wait for title to change from "Just a moment..."
     try:
         await page.wait_for_function(
             "() => document.title && !document.title.toLowerCase().includes('just a moment')",
@@ -345,7 +380,7 @@ async def _wait_for_challenge_clear(page: Any) -> bool:
     except Exception:
         pass
 
-    # Strategy 4: Verify challenge actually cleared — re-check detection
+    # Strategy 5: Verify challenge actually cleared — re-check detection
     still_challenged = await _detect_challenge(page)
     return not still_challenged
 
