@@ -6,7 +6,7 @@
 3. assert_lab_only_target accepts a known lab host
 4. assert_lab_only_target rejects a non-lab target (fail-closed)
 5. assert_lab_only_target rejects an expired entry (fail-closed)
-6. quantum-laboratories.com is NOT in the allowlist (removed — no ownership proof)
+6. quantum-laboratories.com is IN the allowlist (re-added with ownership proof)
 7. assert_lab_only_target rejects empty/invalid target
 """
 
@@ -70,9 +70,9 @@ class TestAssertLabOnlyTarget:
                 allowlist=allowlist_with_expired,
             )
 
-    def test_quantum_laboratories_not_in_allowlist(self) -> None:
-        """quantum-laboratories.com must NOT be in the allowlist (removed — no proof)."""
-        assert "quantum-laboratories.com" not in LAB_TARGET_ALLOWLIST
+    def test_quantum_laboratories_in_allowlist(self) -> None:
+        """quantum-laboratories.com is in the allowlist with ownership proof."""
+        assert "quantum-laboratories.com" in LAB_TARGET_ALLOWLIST
 
     def test_rejects_empty_target(self) -> None:
         """An empty or invalid target must raise LabOnlyViolation."""

@@ -52,9 +52,7 @@ class LabHost:
 
     def __post_init__(self) -> None:
         if not self.ownership_proof:
-            raise ValueError(
-                f"LabHost {self.host!r}: ownership_proof must be non-empty"
-            )
+            raise ValueError(f"LabHost {self.host!r}: ownership_proof must be non-empty")
 
 
 # ---------------------------------------------------------------------------
@@ -96,6 +94,8 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
     LabHost("hardened.agentalpha.duckdns.org", "natanael", "DuckDNS self-owned lab", "#207"),
     # CDN-fronted (Cloudflare-proxied) self-owned Odoo stack — A1 validation.
     LabHost("odoo.agentalpha.duckdns.org", "natanael", "DuckDNS self-owned lab + CF proxy", "#207"),
+    # External self-owned domain (deployed separately, not a repo lab directory).
+    LabHost("quantum-laboratories.com", "natanael", "Self-owned external domain", "#214"),
     # Cloudflare quick tunnel — ephemeral, expires. Changes per tunnel start.
     LabHost(
         "responding-yards-adaptation-floors.trycloudflare.com",
