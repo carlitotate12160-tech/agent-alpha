@@ -20,3 +20,11 @@ hosts:
     leak_creds_added_max: 0
     chain_proven: false
     db_source: enumerated
+
+  alpha-ai.web.id:
+    leak_creds_added_min: 1
+    leak_creds_added_max: 1
+    chain_proven: true
+    db_source: enumerated
+    expected_uid_min: 1
+    expected_access_level: admin
