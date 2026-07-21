@@ -908,3 +908,110 @@ def test_probe_uses_no_follow_redirect() -> None:
 
     assert result.challenge_encountered is True
 
+
+# ── TLS posture: origin-direct login uses verify=False, front-door keeps default ──
+
+
+class _TlsSpyHttpClient:
+    """HTTP client that records verify kwarg on every get/post call.
+
+    Distinguishes front-door probe (/web) from origin-direct login requests
+    so the test can assert TLS posture scoping.
+    """
+
+    def __init__(self, *, probe_is_challenge: bool = True) -> None:
+        self._probe_is_challenge = probe_is_challenge
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []  # (method, url, kwargs)
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        self.calls.append(("GET", url, dict(kwargs)))
+        resp = MagicMock()
+        if url.endswith("/web"):
+            if self._probe_is_challenge:
+                resp.status_code = 403
+                resp.headers = dict(_CHALLENGE_HEADERS)
+                resp.text = "<html>challenge page</html>"
+            else:
+                resp.status_code = 200
+                resp.headers = {}
+                resp.text = "<html>ok</html>"
+        else:
+            resp.status_code = 200
+            resp.headers = {}
+            resp.text = '<html><input type="password" name="password"></html>'
+            if kwargs.get("cookies"):
+                resp.text = "<html>welcome admin</html>"
+        return resp
+
+    def post(self, url: str, **kwargs: Any) -> Any:
+        self.calls.append(("POST", url, dict(kwargs)))
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.text = "<html>welcome admin</html>"
+        resp.headers = {"set-cookie": "session=abc123; Path=/"}
+        return resp
+
+
+def test_origin_direct_login_uses_verify_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TLS posture scoping: origin-direct login GET/POST carry verify=False;
+    the front-door /web probe does NOT carry verify=False.
+
+    This closes the split-brain TLS gap: origin_direct_fetch already uses
+    verify=False, but the login path through _OriginDirectHttpClientWrapper
+    did not — the origin cert matches the domain, not the IP literal, so
+    verify=True always fails the TLS handshake on the login baseline GET.
+
+    Security note (CWE-295 pre-empt): verify=False is LAB-SCOPED, applying
+    only to origin-direct requests against a self-owned origin IP literal.
+    Production MUST use SNI-override domain-cert verification (ADR §12.33).
+    """
+    import agent_alpha.live_fire.a1_validation_runner as runner_mod
+    from agent_alpha.security.secrets import SecretsManager
+
+    monkeypatch.setattr(runner_mod, "origin_direct_fetch", _make_origin_direct_fetch_monkey())
+
+    origin_ip = "10.0.0.1"
+    target = "alpha-ai.web.id"
+    discovery = _StubOriginDiscovery([origin_ip])
+    profile = _make_profile(
+        engagement_id="test-tls-spy",
+        authorized_origins=frozenset({origin_ip}),
+    )
+    secrets_mgr = SecretsManager()
+    spy = _TlsSpyHttpClient(probe_is_challenge=True)
+
+    result = run_a1_validation(
+        engagement_id="test-tls-spy",
+        browser_solve=None,  # origin-direct, no solver needed
+        http_client=spy,
+        secrets_manager=secrets_mgr,
+        graph_store=MagicMock(),
+        origin_discovery=discovery,
+        engagement_profile=profile,
+        browser_solve_viable=False,
+    )
+
+    assert result.technique_used == "origin_direct"
+    assert result.chain_proven is True
+
+    # Partition calls into front-door probe vs origin-direct login
+    probe_calls = [(m, u, kw) for m, u, kw in spy.calls if u.endswith("/web")]
+    login_calls = [(m, u, kw) for m, u, kw in spy.calls if "/web/login" in u]
+
+    # Front-door probe (/web): verify should NOT be overridden (not in kwargs or True)
+    assert len(probe_calls) >= 1, "no front-door probe calls recorded"
+    for method, url, kw in probe_calls:
+        # The front-door probe goes through http_client directly (not wrapped),
+        # so 'verify' should not be in kwargs at all (uses instance default).
+        assert kw.get("verify") is not False, (
+            f"front-door probe {method} {url} incorrectly has verify=False: {kw}"
+        )
+
+    # Origin-direct login: verify MUST be False
+    assert len(login_calls) >= 1, "no origin-direct login calls recorded"
+    for method, url, kw in login_calls:
+        assert kw.get("verify") is False, (
+            f"origin-direct login {method} {url} missing verify=False: {kw}"
+        )

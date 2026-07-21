@@ -121,12 +121,19 @@ class _OriginDirectHttpClientWrapper:
         headers = dict(kwargs.get("headers") or {})
         headers["Host"] = self._host
         kwargs["headers"] = headers
+        # LAB-SCOPED TLS override (ADR §12.33): origin cert matches *domain*,
+        # NOT the origin IP literal → verify=True always fails the handshake.
+        # Production origin-direct MUST use SNI-override domain-cert verification
+        # (anti-MITM), NOT blanket verify=False.
+        kwargs["verify"] = False
         return self._inner.get(url, **kwargs)
 
     def post(self, url: str, **kwargs: Any) -> Any:
         headers = dict(kwargs.get("headers") or {})
         headers["Host"] = self._host
         kwargs["headers"] = headers
+        # LAB-SCOPED TLS override — see get() above.
+        kwargs["verify"] = False
         return self._inner.post(url, **kwargs)
 
 

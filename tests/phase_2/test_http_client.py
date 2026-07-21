@@ -102,3 +102,33 @@ def test_timeout_applied_to_request():
     # With MockTransport, it's instant, but the timeout is still configured.
     response = client.get("https://example.com")
     assert response.status_code == 200
+
+
+def test_get_verify_override_false_reaches_httpx():
+    """Per-call verify=False → httpx.Client built with verify=False.
+
+    Default call (verify omitted) keeps verify=True — backward-compat lock.
+    This proves the per-call TLS override seam used by origin-direct login.
+    """
+    from unittest.mock import patch
+
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text="ok"))
+    client = HttpClient(engagement_id="test-verify", transport=transport)
+
+    # 1. Default: verify=True (instance default, no override)
+    with patch("agent_alpha.agents.http_client.httpx.Client", wraps=httpx.Client) as mock_cls:
+        client.get("https://example.com")
+        _, kwargs = mock_cls.call_args
+        assert kwargs["verify"] is True, f"default verify should be True, got {kwargs['verify']}"
+
+    # 2. Override: verify=False per-call
+    with patch("agent_alpha.agents.http_client.httpx.Client", wraps=httpx.Client) as mock_cls:
+        client.get("https://example.com", verify=False)
+        _, kwargs = mock_cls.call_args
+        assert kwargs["verify"] is False, f"override verify should be False, got {kwargs['verify']}"
+
+    # 3. POST with verify=False
+    with patch("agent_alpha.agents.http_client.httpx.Client", wraps=httpx.Client) as mock_cls:
+        client.post("https://example.com/login", data={"user": "x"}, verify=False)
+        _, kwargs = mock_cls.call_args
+        assert kwargs["verify"] is False, "POST verify=False override did not reach httpx"
