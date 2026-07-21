@@ -25,3 +25,19 @@ class OriginDiscovery(Protocol):
         DNS history, etc.  In tests a stub injects a fixed list.
         """
         ...  # pragma: no cover
+
+
+class StaticOriginDiscovery:
+    """Fixed-list ``OriginDiscovery`` — lab/config stand-in for real
+    CT/Shodan/DNS-history discovery (e.g. A1 field-prove).
+
+    Authorization is NOT granted here: a returned candidate is only ACTED on
+    if it is also in the signed ``EngagementProfile.authorized_origins``
+    (Slice C, C9). This class merely stands in for the discovery step.
+    """
+
+    def __init__(self, candidates: list[str]) -> None:
+        self._candidates = list(candidates)
+
+    def candidates(self, fronted_host: str) -> list[str]:  # noqa: ARG002 (fixed lab list)
+        return list(self._candidates)

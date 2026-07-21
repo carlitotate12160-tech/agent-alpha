@@ -39,7 +39,7 @@ from agent_alpha.live_fire.validation_vs_scanner import (
     compare,
     parse_nuclei_jsonl,
 )
-from agent_alpha.recon.origin_discovery import OriginDiscovery
+from agent_alpha.recon.origin_discovery import OriginDiscovery, StaticOriginDiscovery
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
 from agent_alpha.recon.transport_resilience import MitigationClass, classify_mitigation
 
@@ -439,7 +439,12 @@ def run_a1_validation(
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for A1 field-prove validation.
 
-    Without --browser-solve (9c), this RAISES _NoopBrowserSolve — no silent pass.
+    Origin-direct: pass ``--origin <IP>``. A StaticOriginDiscovery + a signed
+    EngagementProfile (authorized_origins={IP}) are built and injected; the run
+    reaches the chain via origin-direct when the front door is CHALLENGE'd.
+
+    Without --origin AND without --browser-solve (9c), the browser-solve path
+    RAISES _NoopBrowserSolve — no silent pass.
     """
     import argparse
 
@@ -447,28 +452,32 @@ def main(argv: list[str] | None = None) -> int:
         description="A1 validation: Agent-Alpha chain vs Nuclei through real CF challenge"
     )
     parser.add_argument(
-        "--engagement-id",
-        required=True,
-        help="Engagement ID for the field-prove run",
+        "--engagement-id", required=True, help="Engagement ID for the field-prove run"
     )
     parser.add_argument(
-        "--nuclei",
-        default=None,
-        help="Path to nuclei JSONL output (produced by operator)",
+        "--nuclei", default=None, help="Path to nuclei JSONL output (produced by operator)"
     )
-    parser.add_argument(
-        "--target",
-        default=A1_TARGET,
-        help=f"Lab target (default: {A1_TARGET})",
-    )
+    parser.add_argument("--target", default=A1_TARGET, help=f"Lab target (default: {A1_TARGET})")
     parser.add_argument(
         "--browser-solve",
         default=None,
         help=(
-            "DeepSeek browser_solve HTTP endpoint URL (9c). When omitted, "
-            "falls back to A1_BROWSER_SOLVE_ENDPOINT env var. When neither "
-            "is set, _NoopBrowserSolve is used and the run fails loud."
+            "DeepSeek browser_solve HTTP endpoint URL (9c). When omitted, falls "
+            "back to A1_BROWSER_SOLVE_ENDPOINT env var. When neither is set and "
+            "no --origin is given, _NoopBrowserSolve is used and the run fails loud."
         ),
+    )
+    parser.add_argument(
+        "--origin",
+        default=None,
+        help=(
+            "Candidate origin IP for origin-direct reach (lab discovery stand-in). "
+            "MUST also be authorized: it is placed in the signed profile's "
+            "authorized_origins. Front door must be CHALLENGE'd for a valid run."
+        ),
+    )
+    parser.add_argument(
+        "--client-id", default="lab", help="Client ID for the (lab) signed engagement profile."
     )
     args = parser.parse_args(argv)
 
@@ -478,12 +487,26 @@ def main(argv: list[str] | None = None) -> int:
     else:
         solver = DeepSeekBrowserSolve.from_env()
 
+    origin_discovery: OriginDiscovery | None = None
+    engagement_profile: EngagementProfile | None = None
+    if args.origin:
+        origin_discovery = StaticOriginDiscovery([args.origin])
+        engagement_profile = EngagementProfile(
+            engagement_id=args.engagement_id,
+            client_id=args.client_id,
+            targets=frozenset({args.target}),
+            authorized_origins=frozenset({args.origin}),  # explicit signed consent
+        )
+
     try:
         result = run_a1_validation(
             engagement_id=args.engagement_id,
-            browser_solve=solver,  # 9c unbuilt → _NoopBrowserSolve raises
+            browser_solve=solver,  # origin-direct path never invokes it (no raise)
             nuclei_jsonl_path=args.nuclei,
             target=args.target,
+            origin_discovery=origin_discovery,
+            engagement_profile=engagement_profile,
+            browser_solve_viable=False,  # datacenter egress ⇒ origin-direct on CHALLENGE
         )
     except RuntimeError as e:
         print(f"A1 VALIDATION FAILED: {e}")
