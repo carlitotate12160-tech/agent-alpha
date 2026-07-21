@@ -251,6 +251,7 @@ def run_a1_validation(
     technique_used = "browser_solve"
     origin_authorized = False
     use_origin_direct = False
+    bundle_result: ChallengeSolveResult | _OriginDirectResult  # type: ignore[valid-type]
 
     if origin_discovery is not None and engagement_profile is not None:
         # C9: candidate ≠ authorization — filter against signed authorized_origins.
@@ -267,7 +268,7 @@ def run_a1_validation(
             browser_solve_viable=browser_solve_viable,
             authorized_origin=origin_ip,
         )
-        if strategy is ReachStrategy.ORIGIN_DIRECT:
+        if strategy is ReachStrategy.ORIGIN_DIRECT and origin_ip is not None:
             # C8: fail-closed — raises OriginNotAuthorizedError if origin
             # is not in signed authorized_origins.
             assert_origin_authorized(origin_ip, target, engagement_profile)
