@@ -142,6 +142,18 @@ Status: lihat Session_Handoff.md.
 
 ---
 
+## File & Test Naming Convention (do not regress)
+
+- Test files: `test_<component>.py` — SHORT, per module. NOT per-behavior.
+  ✅ test_a1_validation.py, test_reach_strategy.py, test_lab_guard.py
+  ❌ test_odoo_dbmanager_narrow_trigger.py, test_login_routes_via_origin_when_origin_direct.py
+- Behavior/scenario goes in the TEST FUNCTION name, not the filename.
+- One test file per component — consolidate; do NOT spawn a new file per fix.
+- Source modules: short domain nouns (reach_strategy.py, blast_gate.py), not sentences.
+- New files: convention applies immediately. Existing mass-rename = deferred (churn/blame loss).
+
+---
+
 ## Windsurf / Antigravity Prompt Format
 
 When writing prompts for IDE agents:
