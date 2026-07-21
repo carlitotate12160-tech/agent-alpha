@@ -1,3 +1,5 @@
+> SUPERSEDED by Session_Handoff.md — do not update; kept for history.
+
 # Agent-Alpha — Progress Tracker
 
 **Ringkasan kemajuan proyek Agent-Alpha.**
@@ -652,7 +654,7 @@ def task_recon(engagement_id: str, target: str):
 
 **Dokumen ini diperbarui terakhir:** 2026-07-19
 
-> **Current live state: see `CLAUDE.md` "Current Project Status" (single source of truth).**
+> **Current live state: see `Session_Handoff.md` (single source of truth for status).**
 > This tracker is the append-only historical log; it does NOT duplicate current-state.
 
 **Last logged:** 2026-07-19 — D2-a Planner (#201). Total tests: 1125 passed / 6 skipped, coverage 84%, Oracle ARM64.

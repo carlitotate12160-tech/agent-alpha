@@ -1,3 +1,5 @@
+> CANONICAL SOURCE: bugs + GAPs + build order. strategic_gaps_roadmap.md = leverage-narrative view (derived).
+
 # Bug List & Architectural GAPs — Index
 
 This document is the compact index. Detailed English bug descriptions are in `docs/BUGS.md`; raw engagement logs are in `docs/BUGS_AND_GAPS_APPENDIX.md`.

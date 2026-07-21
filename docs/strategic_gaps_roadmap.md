@@ -1,3 +1,5 @@
+> DERIVED / NARRATIVE VIEW from BUGS_AND_GAPS.md (G1–G17 ↔ GAP/Bug ids). Ledger of record = BUGS_AND_GAPS.md.
+
 # Agent-Alpha — Strategic Gaps & Resolution Roadmap
 **Durable record (commit to `docs/`). Source: architecture peer-review, 2026-07.**
 
@@ -37,6 +39,28 @@ crawl-depth (= Lyndon #5).**
 - G15. Validation self-referential (self-owned labs only) — never vs a real target + Nuclei baseline.
 - G16. Go execution engine (throughput/stealth) not built; all Python.
 - G17. Discipline's shadow: perfecting easy recon foundations = sophisticated avoidance of hard exploitation work.
+
+### Cross-reference: G-items → BUGS_AND_GAPS.md ledger ids
+
+| G-item | GAP/Bug id | Status |
+|--------|-----------|--------|
+| G1 | GAP-004 (§12.29) | LOCKED — D1/D2-a/D2-b/D3/D4/D5 LANDED |
+| G2 | GAP-001 | OPEN — playbook coverage rubric §12.26 |
+| G3 | GAP-006 (§1/§6) | slice-1 DONE #184; slice-2 OPEN (needs GAP-004) |
+| G4 | GAP-007 | OPEN — future phase |
+| G5 | — (no GAP id; adversary emulation = Phase E3) | OPEN |
+| G6 | GAP-012 (§12.33) | LOCKED — curl_cffi DONE #218+#219; 9c browser_solve PARKED (datacenter IP) |
+| G7 | — (no GAP id; human-in-the-loop = future enhancement) | OPEN |
+| G8 | GAP-001 | OPEN — same as G2 |
+| G9 | — (Gamma = Phase B1/B2) | OPEN — STOP-gated behind ToolComposer |
+| G10 | GAP-011 (§12.32) | LOCKED in ADR; implementation needs GAP-004 |
+| G11 | — (DeepSeek payload loop = Phase B3) | OPEN |
+| G12 | — (HTTP proxy = deferred/market-driven) | OPEN |
+| G13 | GAP-003 (§8c/§12.11) | OPEN — needs Bug #7 first |
+| G14 | — (Omega report = Phase B-dependent) | OPEN |
+| G15 | — (A1 validation = Phase A DONE) | DONE — mechanism proven, REACH blocked |
+| G16 | — (Go engine = Phase 7) | DEFERRED |
+| G17 | — (meta-pattern, no single GAP) | ONGOING — curator rule enforces |
 
 ## Strengths (keep — do not regress)
 Event-sourced + auth-gated + auditable governance (real edge for LEGAL red-team SaaS);
