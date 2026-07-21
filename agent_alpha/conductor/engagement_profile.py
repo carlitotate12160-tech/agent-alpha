@@ -24,6 +24,16 @@ class OriginNotAuthorizedError(RuntimeError):
     """Raised when an origin-direct request is refused by the gate."""
 
 
+class ProfileSignatureError(RuntimeError):
+    """Raised when an EngagementProfile's SHA-256 signature does not match.
+
+    Distinct from ``OriginNotAuthorizedError`` (gate authz refusal): this is an
+    integrity failure — the profile JSON was tampered with or corrupted after
+    signing. The profile cannot be trusted at all, whereas an authz refusal
+    simply means a *valid* profile does not authorize a given origin.
+    """
+
+
 # ── EngagementProfile ─────────────────────────────────────────
 
 
@@ -63,6 +73,58 @@ class EngagementProfile:
     def verify(self, expected_hash: str) -> bool:
         """Return True iff sha256() matches *expected_hash*."""
         return self.sha256() == expected_hash
+
+
+# ── Signed-profile serialisation / loader ─────────────────────
+
+
+def dump_signed_profile(profile: EngagementProfile) -> dict:
+    """Serialise *profile* to a signed envelope dict.
+
+    Returns ``{"profile": {...}, "sha256": "<hex>"}``.  Callers persist this
+    with ``json.dump`` — the resulting file is what ``--profile`` consumes.
+
+    This is the symmetric writer for ``load_signed_profile`` — a loader with
+    no writer is half-wired (anti-#2).
+    """
+    return {
+        "profile": {
+            "engagement_id": profile.engagement_id,
+            "client_id": profile.client_id,
+            "targets": sorted(profile.targets),
+            "authorized_origins": sorted(profile.authorized_origins),
+        },
+        "sha256": profile.sha256(),
+    }
+
+
+def load_signed_profile(path: str) -> EngagementProfile:
+    """Load and verify a signed EngagementProfile from *path*.
+
+    Format: ``{"profile": {engagement_id, client_id, targets[],
+    authorized_origins[]}, "sha256": "<hex>"}``.
+
+    Raises ``ProfileSignatureError`` when the recorded sha256 does not match
+    the profile's ``canonical_json`` — indicating the file was tampered with
+    or corrupted after signing.
+    """
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    profile_data = data["profile"]
+    profile = EngagementProfile(
+        engagement_id=profile_data["engagement_id"],
+        client_id=profile_data["client_id"],
+        targets=frozenset(profile_data.get("targets", [])),
+        authorized_origins=frozenset(profile_data.get("authorized_origins", [])),
+    )
+
+    if not profile.verify(data["sha256"]):
+        raise ProfileSignatureError(
+            "engagement profile signature mismatch — tampered or corrupt consent"
+        )
+
+    return profile
 
 
 # ── Origin-authorization gate (fail-closed) ───────────────────

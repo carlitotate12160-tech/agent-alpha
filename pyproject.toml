@@ -73,6 +73,8 @@ ignore = [
 "agent_alpha/agents/alpha/scout.py" = ["T201"]
 # js_lab generators are CLI scripts — print() is the intended output mechanism.
 "js_lab/generate_bundle*.py" = ["T201"]
+# scripts/ are CLI entry points — print() is the intended output mechanism.
+"scripts/*.py" = ["T201"]
 # lab_guard uses LabOnlyViolation (not Error suffix) as the canonical name
 # in the safety-guard contract — renamed would break the test import surface.
 "agent_alpha/live_fire/lab_guard.py" = ["N818"]

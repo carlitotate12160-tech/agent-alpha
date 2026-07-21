@@ -460,14 +460,22 @@ def run_a1_validation(
 def main(argv: list[str] | None = None) -> int:
     """CLI entry point for A1 field-prove validation.
 
-    Origin-direct: pass ``--origin <IP>``. A StaticOriginDiscovery + a signed
-    EngagementProfile (authorized_origins={IP}) are built and injected; the run
-    reaches the chain via origin-direct when the front door is CHALLENGE'd.
+    Origin-direct requires TWO independent inputs:
+      --origin <IP>       Discovery candidate (StaticOriginDiscovery).
+      --profile <path>    Signed consent (EngagementProfile loaded via
+                          load_signed_profile — SHA-256 verified).
+
+    Consent CANNOT be derived from discovery (CWE-862, CR-1).  If --origin is
+    given without --profile, the runner raises unless --lab-unsigned explicitly
+    opts in to an unsigned lab-only synth (with a LOUD warning).
 
     Without --origin AND without --browser-solve (9c), the browser-solve path
     RAISES _NoopBrowserSolve — no silent pass.
     """
     import argparse
+    import sys
+
+    from agent_alpha.conductor.engagement_profile import load_signed_profile
 
     parser = argparse.ArgumentParser(
         description="A1 validation: Agent-Alpha chain vs Nuclei through real CF challenge"
@@ -492,9 +500,27 @@ def main(argv: list[str] | None = None) -> int:
         "--origin",
         default=None,
         help=(
-            "Candidate origin IP for origin-direct reach (lab discovery stand-in). "
-            "MUST also be authorized: it is placed in the signed profile's "
-            "authorized_origins. Front door must be CHALLENGE'd for a valid run."
+            "Candidate origin IP for origin-direct reach (DISCOVERY ONLY). "
+            "Consent MUST come from a separate signed --profile — not from this flag."
+        ),
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help=(
+            "Path to a signed EngagementProfile JSON (produced by "
+            "scripts/sign_profile.py). SHA-256 verified on load — tampered "
+            "profiles are rejected."
+        ),
+    )
+    parser.add_argument(
+        "--lab-unsigned",
+        action="store_true",
+        default=False,
+        help=(
+            "Lab-only: synthesise an unsigned EngagementProfile from --origin "
+            "instead of requiring a signed --profile. NOT auth-honest — the run "
+            "CANNOT be used as a payable field-prove. For throwaway lab runs only."
         ),
     )
     parser.add_argument(
@@ -510,14 +536,40 @@ def main(argv: list[str] | None = None) -> int:
 
     origin_discovery: OriginDiscovery | None = None
     engagement_profile: EngagementProfile | None = None
+
     if args.origin:
+        # --origin is DISCOVERY ONLY.
         origin_discovery = StaticOriginDiscovery([args.origin])
-        engagement_profile = EngagementProfile(
-            engagement_id=args.engagement_id,
-            client_id=args.client_id,
-            targets=frozenset({args.target}),
-            authorized_origins=frozenset({args.origin}),  # explicit signed consent
-        )
+
+        if args.profile:
+            # --profile: load signed consent (SHA-256 verified).
+            engagement_profile = load_signed_profile(args.profile)
+        elif args.lab_unsigned:
+            # --lab-unsigned: LOUD warning — synthesise consent for lab-only runs.
+            print(
+                "=" * 72,
+                "⚠  WARNING: --lab-unsigned — this run is NOT auth-honest.",
+                "   Consent is synthesised from the discovery candidate.",
+                "   This run CANNOT be used as a payable field-prove.",
+                "   For auth-honest runs, use --profile <signed-profile.json>.",
+                "=" * 72,
+                sep="\n",
+                file=sys.stderr,
+            )
+            engagement_profile = EngagementProfile(
+                engagement_id=args.engagement_id,
+                client_id=args.client_id,
+                targets=frozenset({args.target}),
+                authorized_origins=frozenset({args.origin}),
+            )
+        else:
+            # --origin without --profile and without --lab-unsigned → refuse.
+            raise RuntimeError(
+                "origin-direct requires a signed --profile; consent cannot be "
+                "derived from the discovery candidate. Use "
+                "'scripts/sign_profile.py' to produce a signed profile, or pass "
+                "--lab-unsigned for throwaway lab runs (NOT auth-honest)."
+            )
 
     http_client = HttpClient(engagement_id=args.engagement_id)
 
