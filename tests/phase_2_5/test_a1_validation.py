@@ -460,11 +460,9 @@ def test_c9_unauthorized_candidate_no_origin_direct() -> None:
         authorized_origins=frozenset({"10.0.0.1"}),
     )
 
-    # browser_solve path: challenge not solved → no cred → chain_proven=False
-    # But C7 gate: challenge_encountered=True → valid_run, raises because
-    # challenge_encountered is True (valid run). Wait — the solver returns
-    # challenge_encountered=True, so assert_valid_or_raise won't raise.
-    # challenge_solved=False → no secrets → no chain. That's fine.
+    # browser_solve path: challenge not solved → no cred → chain_proven=False.
+    # The C7 gate is satisfied because the solver returns challenge_encountered=True,
+    # so assert_valid_or_raise won't raise. The chain safely terminates without secrets.
     result = run_a1_validation(
         engagement_id="test-c9",
         browser_solve=solver,
@@ -607,3 +605,113 @@ def test_c6_origin_direct_scanner_missed(
     assert result.chain_proven is True
     assert result.scanner_missed_exploitability is True
     assert result.technique_used == "origin_direct"
+
+
+# ── Differential: login routes via origin IP when origin-direct ───────────────
+
+
+class _OriginAwareFakeHttpClient:
+    """Fake http_client that models CF challenge on front-door but success on origin.
+
+    - GET/POST to https://{target}/web/login → 403 CHALLENGE (CF blocks front-door)
+    - GET/POST to https://{origin_ip}/web/login → 200 SUCCESS (origin bypasses CF)
+
+    This fake exposes the green≠proven gap: without the origin-direct login fix,
+    the runner sends login to the front-door URL (blocked by CF), so
+    chain_proven would be False even though technique_used='origin_direct'.
+    """
+
+    def __init__(self, target: str, origin_ip: str) -> None:
+        self._target = target
+        self._origin_ip = origin_ip
+        self.requests: list[tuple[str, str, dict[str, str]]] = []
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        headers = kwargs.get("headers") or {}
+        self.requests.append(("GET", url, dict(headers)))
+        resp = MagicMock()
+        if self._origin_ip in url:
+            resp.status_code = 200
+            if kwargs.get("cookies"):
+                resp.text = "<html>welcome admin</html>"
+            else:
+                resp.text = '<html><input type="password" name="password"></html>'
+            resp.headers = {}
+        else:
+            resp.status_code = 403
+            resp.text = "<html>Just a moment...</html>"
+            resp.headers = {"cf-mitigated": "challenge"}
+        return resp
+
+    def post(self, url: str, **kwargs: Any) -> Any:
+        headers = kwargs.get("headers") or {}
+        self.requests.append(("POST", url, dict(headers)))
+        resp = MagicMock()
+        if self._origin_ip in url:
+            resp.status_code = 200
+            resp.text = "<html>welcome admin</html>"
+            resp.headers = {"set-cookie": "session=abc123; Path=/"}
+        else:
+            resp.status_code = 403
+            resp.text = "<html>Just a moment...</html>"
+            resp.headers = {"cf-mitigated": "challenge"}
+        return resp
+
+
+def test_login_routes_via_origin_when_origin_direct(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Differential test: login MUST route via origin IP when origin-direct.
+
+    RED before the HttpFormApplicator origin-direct fix: login goes to
+    https://{target}/web/login → CF 403 → chain_proven=False.
+    GREEN after fix: login goes to https://{origin_ip}/web/login with
+    Host: {target} → 200 admin → chain_proven=True.
+
+    This proves the login hop honors origin-direct, not just the bundle fetch.
+    Without this test, a fake http_client that always returns 200 hides the break.
+    """
+    import agent_alpha.live_fire.a1_validation_runner as runner_mod
+    from agent_alpha.security.secrets import SecretsManager
+
+    monkeypatch.setattr(runner_mod, "origin_direct_fetch", _make_origin_direct_fetch_monkey())
+
+    target = "alpha-ai.web.id"
+    origin_ip = "10.0.0.1"
+    solver = _FakeOriginDirectBrowserSolve()
+    discovery = _StubOriginDiscovery([origin_ip])
+    profile = _make_profile(
+        engagement_id="test-login-od",
+        authorized_origins=frozenset({origin_ip}),
+    )
+    secrets_mgr = SecretsManager()
+    http = _OriginAwareFakeHttpClient(target, origin_ip)
+
+    result = run_a1_validation(
+        engagement_id="test-login-od",
+        browser_solve=solver,
+        http_client=http,
+        secrets_manager=secrets_mgr,
+        graph_store=MagicMock(),
+        origin_discovery=discovery,
+        engagement_profile=profile,
+        browser_solve_viable=False,
+    )
+
+    # Login MUST have gone to origin_ip, not target.
+    login_requests = [r for r in http.requests if "/web/login" in r[1]]
+    assert len(login_requests) > 0, "no login requests were made"
+    assert all(origin_ip in r[1] for r in login_requests), (
+        f"login went to front-door instead of origin: {login_requests}"
+    )
+
+    # Host header MUST be set to target domain.
+    for method, url, headers in login_requests:
+        assert headers.get("Host") == target, (
+            f"Host header not set to {target} on {method} {url}: {headers}"
+        )
+
+    # Chain must be proven — login succeeded via origin.
+    assert result.technique_used == "origin_direct"
+    assert result.chain_proven is True
+    assert result.edge_from_harvested_cred is True

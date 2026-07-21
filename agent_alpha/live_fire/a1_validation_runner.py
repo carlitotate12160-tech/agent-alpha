@@ -100,6 +100,32 @@ class _NoopBrowserSolve:
 # ── Origin-direct fetch (scoping, NOT evasion — §12.33) ───────────────────────
 
 
+class _OriginDirectHttpClientWrapper:
+    """Wraps an http_client to inject Host header for origin-direct login.
+
+    HttpFormApplicator calls http_client.get/post with the login URL — when
+    origin-direct, the URL points to the origin IP, so the Host header MUST
+    be set to the real domain. Without this, the origin server would reject
+    the request or route it to the wrong vhost.
+    """
+
+    def __init__(self, inner: Any, host: str) -> None:
+        self._inner = inner
+        self._host = host
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        headers = dict(kwargs.get("headers") or {})
+        headers["Host"] = self._host
+        kwargs["headers"] = headers
+        return self._inner.get(url, **kwargs)
+
+    def post(self, url: str, **kwargs: Any) -> Any:
+        headers = dict(kwargs.get("headers") or {})
+        headers["Host"] = self._host
+        kwargs["headers"] = headers
+        return self._inner.post(url, **kwargs)
+
+
 @dataclasses.dataclass(frozen=True)
 class _OriginDirectResult:
     """Result from an origin-direct fetch. Satisfies ChallengeSolveResult.
@@ -136,8 +162,11 @@ def origin_direct_fetch(
     import httpx
 
     url = f"https://{origin_ip}{path}"
-    with httpx.Client(verify=verify_tls, timeout=15.0) as client:
-        resp = client.get(url, headers={"Host": host})
+    try:
+        with httpx.Client(verify=verify_tls, timeout=15.0) as client:
+            resp = client.get(url, headers={"Host": host})
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"origin_direct_fetch failed for {host} via {origin_ip}: {exc}") from exc
     return _OriginDirectResult(
         status_code=resp.status_code,
         body=resp.text,
@@ -251,6 +280,7 @@ def run_a1_validation(
     technique_used = "browser_solve"
     origin_authorized = False
     use_origin_direct = False
+    origin_ip_used: str | None = None
     bundle_result: ChallengeSolveResult | _OriginDirectResult
 
     if origin_discovery is not None and engagement_profile is not None:
@@ -276,6 +306,7 @@ def run_a1_validation(
             technique_used = "origin_direct"
             origin_authorized = True
             use_origin_direct = True
+            origin_ip_used = origin_ip
             # ANTI-#3: challenge_solved stays False. Origin-direct BYPASSES
             # the challenge — it does NOT solve it. "Reached" ≠ "solved".
             # The honest story: "CF challenge NOT solved; bypassed via
@@ -334,12 +365,19 @@ def run_a1_validation(
         from agent_alpha.tools.contracts import ResourceBudget
         from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 
-        login_url = f"https://{target}{A1_LOGIN_PATH}"
+        # Origin-direct: login via origin IP with Host header (same as bundle fetch).
+        # Front-door: login via target domain directly.
+        if use_origin_direct and origin_ip_used is not None:
+            login_url = f"https://{origin_ip_used}{A1_LOGIN_PATH}"
+            login_client = _OriginDirectHttpClientWrapper(http_client, target)
+        else:
+            login_url = f"https://{target}{A1_LOGIN_PATH}"
+            login_client = http_client
 
         # Resolve the vaulted secret for the login attempt.
         if secrets_manager is not None and hits:
             secret = secrets_manager.retrieve(record.secret_id)
-            applicator = HttpFormApplicator(http_client=http_client)
+            applicator = HttpFormApplicator(http_client=login_client)
             budget = ResourceBudget(max_requests=5, max_seconds=30, max_cost_usd=0.0)
             auth_result = applicator.apply(
                 username="admin",
