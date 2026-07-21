@@ -2,34 +2,44 @@
 
 # Agent-Alpha — Session Handoff (2026-07-21)
 
-Resume with: "lanjut Agent-Alpha — A1-reach CODE COMPLETE (Slice A/B/C + origin-direct CLI sealed, PR #236 merged); 9c browser_solve PARKED; OPEN: CF-pin #7 + field-prove; 1246+ tests green."
+Resume with: "lanjut Agent-Alpha — A1-REACH SEALED (field-proven on Oracle: origin-direct CF bypass, chain_proven=True, nuclei=0, scanner_missed=True). NEXT = FORK: Omega payable report first (recommended), then Moat GAP-003, then Gamma. 578 green on the a1 suite."
 
 ## Current Project Status
 
 ```
-Project Phase  : A1-reach CODE COMPLETE — Slice A/B/C + a1_cli origin-direct CLI wiring SEALED
-                 (PR #236 merged, 1246+ green). 9c browser_solve PARKED (datacenter IP).
-                 Gamma STILL STOP-gated.
-Last Decision  : Origin-direct CLI + StaticOriginDiscovery + naming convention doctrine
-                 (PR #236). Trivy .trivyignore + Redis 8 upgrade (PR #234). Doc
-                 canonicalization — 8 docs bannered, status moved to Session_Handoff.md
-                 (PR #235). A1 VALIDATION DONE (self-owned labs): mechanism GENUINE —
-                 cred-reuse chain proven via HARVESTED cred (edge_from_harvested_cred=True,
-                 db_enumerated=True, verified admin; T1078+T1552.001). BUT real Cloudflare
-                 WAF BLOCKS the whole chain (root=CHALLENGE, leak paths=403,
-                 chain_proven=False, 0 creds). Success condition NOT proved on real targets:
-                 mechanism yes, REACH no. GOVERNANCE HOLE found + VERIFIED CLOSED: all 13
-                 runners enforce assert_lab_only_target. Process fix: allowlist changes
-                 require PR review + domain ownership proof.
-Next Action    : 1. #7 PIN CF WAF rule — deterministic CHALLENGE on /web* + leak paths (fix
-                    non-deterministic CF state; prerequisite for reproducible field-prove).
-                 2. Field-prove origin-direct:
-                    .venv312/bin/python3 -m agent_alpha.live_fire.a1_validation_runner \
-                      --engagement-id a1-fp --target alpha-ai.web.id --origin 168.110.192.62 --nuclei nuclei.jsonl
-                    → expect technique_used=origin_direct, chain_proven=True, scanner_missed=True.
-                 3. AFTER reach proven → FORK (product decision): Gamma (prove-exploitable
-                    depth) / Moat GAP-003 (cross-engagement intelligence) / Omega (payable
-                    client report).
+Project Phase  : A1-REACH SEALED — field-proven on Oracle against real Cloudflare
+                 (self-owned lab alpha-ai.web.id). Success-condition HIT: nuclei=0 →
+                 chain proven via HARVESTED cred → verified admin, via origin-direct CF
+                 bypass. 9c browser_solve PARKED (datacenter IP). Gamma STILL STOP-gated.
+Last Decision  : A1-reach chain closed end-to-end through five honest live-path gaps the
+                 unit tests had masked (green != proven; each surfaced only by the field-prove):
+                 (1) probe decoupled from browser_solve — OBSERVE via http_client, not solver
+                     (#238); (2) no-follow redirect seam on HttpClient — resolves CR CWE-918
+                     SSRF on the probe (#240); (3) consent-decouple — signed --profile +
+                     EngagementProfile.verify(), resolves CR CWE-862, C9 now a real filter
+                     (sign_profile writer added); (4) CLI deps wiring — main() constructs
+                     SecretsManager + NetworkXGraphStore + InMemoryEventStore; (5) origin-direct
+                     login TLS — per-call verify override, wrapper injects verify=False for the
+                     IP-literal origin (lab only; prod = SNI-override domain-cert, ADR §12.33).
+                 Field-prove result: valid_run=True, challenge_encountered=True,
+                 challenge_solved=False, chain_proven=True, edge_from_harvested_cred=True,
+                 nuclei_findings=0, scanner_missed_exploitability=True,
+                 technique_used=origin_direct, origin_authorized=True.
+                 GOVERNANCE: sealed via field-prove harness on self-owned infra, NOT the
+                 Conductor SOW path — REACH MECHANISM proven; production auth-gate
+                 (SOW->OFFENSIVE_APPROVED) = Phase-6 VERIFY.
+Next Action    : FORK opened (REACH sealed). Order chosen: Omega -> Moat GAP-003 -> Gamma,
+                 with commodity-wrap as continuous background (NOT a phase).
+                 1. OMEGA (payable client report) — turn the proven A1 chain into a client-
+                    facing deliverable: narrative + attack-flow (entry -> bypass -> harvest ->
+                    login -> admin) + reproducible proof artifacts. Lowest risk, converts the
+                    seal into revenue-demonstrable output. See Omega design notes (this arc).
+                 2. Moat GAP-003 IntelligenceBase (needs Bug #7 EngagementMemory persist).
+                    Includes the AI-native minimal-FP verifier: wrapped-tool breadth ->
+                    Claude context-triage -> DETERMINISTIC prove-or-kill -> attack graph
+                    (VERIFY tier / GAP-009). LLM never the final arbiter (anti-#3).
+                 3. Gamma (ToolComposer + blast-gate -> ANCHOR) — deepest, most dangerous;
+                    open only after a sellable loop exists.
                  See docs/strategic_gaps_roadmap.md for the full G1–G17 + phased roadmap.
 Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest`
                  or `make check`. Full suite 1246+ green.
@@ -39,15 +49,20 @@ Phase status (verified on Oracle):
               tomcat/basic_auth/s3/graphql/odoo via capability catalog; wp/laravel/js/etc).
   Cognitive : GAP-002 WIRED; GAP-004 complete (D1/D2-a/D2-b/D3/D4/D5 all LANDED);
               GAP-003 IntelligenceBase OPEN; GAP-005/006 slice-2a WIRED, 2b/2c OPEN.
-  A1-reach  : CODE COMPLETE — Slice A/B/C + origin-direct CLI wiring SEALED (PR #236).
-              9c browser_solve PARKED (datacenter IP → CF managed challenge, no widget).
+  A1-reach  : SEALED — field-proven on Oracle end-to-end (origin-direct CF bypass, cred
+              harvest -> login -> verified admin; nuclei=0, scanner_missed=True). 9c
+              browser_solve PARKED (datacenter IP -> CF managed challenge, no widget).
   Security  : Trivy .trivyignore for pgvector gosu CVEs + Redis 8 upgrade (PR #234).
               CodeQL: 6 low/medium alerts (log-injection + clear-text FP), all assessed.
 Bug ledger  : FIXED #2/#6/#14 (greedy rules + starvation), #10 (415), #18 (CF CHALLENGE),
               #20 (identical-body dedup), #11 (crawl discrimination via planner), #21 (LLM-tier
               exclude_tools not passed). OPEN: #17 (mod_autoindex sort explosion), #19
-              (body-content classifier generalization), #7 (CF WAF rule pin + engagement
-              memory persist).
+              (body-content classifier generalization), #7 (engagement memory persist —
+              Moat/GAP-003 prereq; canonical def = docs/BUGS_AND_GAPS.md). NOTE: "CF-pin"
+              is a repro/infra task (Cloudflare dashboard), NOT Bug #7 — do not merge.
+              RESOLVED this arc: CR CWE-918 (probe SSRF/no-follow), CR CWE-862 (consent
+              tautology -> signed --profile + verify), origin-direct TLS split-brain,
+              CLI dep under-wiring.
 META (durable): status docs rot FAST. Before building anything, grep/trace the live path first —
               this session caught backup_file already-done, CRC theater, is_met dead-code, and
               self-report theater by verifying, not trusting the doc.
