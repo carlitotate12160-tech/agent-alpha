@@ -53,6 +53,7 @@ class HttpClientProtocol(Protocol):
         *,
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
+        allow_redirects: bool = True,
     ) -> Any: ...
 
 
@@ -96,12 +97,17 @@ class HttpClient:
         *,
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
+        allow_redirects: bool = True,
     ) -> HttpResponse:
         """Issue a GET. ``headers``/``cookies`` (default None) let Beta apply a
         credential's auth context; omitting them reproduces the Phase-2 recon GET
-        exactly. Transport failures raise :class:`HttpClientError`; httpx never
+        exactly. ``allow_redirects=False`` is used by the A1 mitigation probe to
+        classify 3xx responses before auto-following to an off-scope destination.
+        Transport failures raise :class:`HttpClientError`; httpx never
         escapes this method."""
-        return self._request("GET", url, headers=headers, cookies=cookies)
+        return self._request(
+            "GET", url, headers=headers, cookies=cookies, allow_redirects=allow_redirects
+        )
 
     def post(
         self,
@@ -130,6 +136,7 @@ class HttpClient:
         cookies: dict[str, str] | None = None,
         data: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
+        allow_redirects: bool = True,
     ) -> HttpResponse:
         # RoE: block to honour the engagement rate limit before egress. Delays,
         # never drops (anti-Lyndon #3). Single chokepoint for every method (#7).
@@ -140,7 +147,7 @@ class HttpClient:
                 timeout=self.timeout,
                 transport=self._transport,
                 verify=self._verify,
-                follow_redirects=True,
+                follow_redirects=allow_redirects,
             ) as client:
                 response = client.request(
                     method,
