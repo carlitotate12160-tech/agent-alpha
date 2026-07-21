@@ -251,7 +251,7 @@ def run_a1_validation(
     technique_used = "browser_solve"
     origin_authorized = False
     use_origin_direct = False
-    bundle_result: ChallengeSolveResult | _OriginDirectResult  # type: ignore[valid-type]
+    bundle_result: ChallengeSolveResult | _OriginDirectResult
 
     if origin_discovery is not None and engagement_profile is not None:
         # C9: candidate ≠ authorization — filter against signed authorized_origins.
