@@ -1,3 +1,5 @@
+> CANONICAL SOURCE: durable doctrine ONLY (role, Lyndon patterns, non-negotiables). Status → Session_Handoff.md.
+
 # Instructions for Claude — Agent-Alpha Sessions
 
 ## Who You Are in This Project
@@ -134,51 +136,9 @@ If yes → don't patch, redesign the interface.
 
 ---
 
-## Current Project Status (Update This Every Major Session)
+## Current Project Status
 
-```
-Project Phase  : A1 VALIDATION DONE — mechanism proven, REACH blocked by WAF. ENTERPRISE-FIRST GTM.
-                 Alpha recon = objective-directed + belief-state + planner + Try-Harder +
-                 profile-directed targeting. Gamma STILL STOP-gated.
-Last Decision  : A1 VALIDATION DONE (self-owned labs): mechanism GENUINE — cred-reuse chain proven
-                 via HARVESTED cred (edge_from_harvested_cred=True, db_enumerated=True, verified
-                 admin; T1078+T1552.001). BUT real Cloudflare WAF BLOCKS the whole chain
-                 (root=CHALLENGE, leak paths=403, chain_proven=False, 0 creds). Success condition
-                 NOT proved on real targets: mechanism yes, REACH no. GTM = ENTERPRISE-FIRST →
-                 evasion is now the GATING blocker, UPSTREAM of Gamma. GOVERNANCE HOLE found:
-                 odoo_chain_runner (+peers) do NOT enforce lab_guard (ran against an external
-                 domain ungated) — VERIFIED: all runners DO enforce assert_lab_only_target, hole
-                 was in allowlist process (quantum-laboratories.com added on verbal confirmation).
-                 Prior session: cognition spine sealed (GAP-004 complete), recon hard-stop,
-                 TargetProfile v1 (#206), 1148 tests green.
-Next Action    : (enterprise-first, re-ranked)
-                 0. GOVERNANCE FIX: enforce lab_guard (assert_lab_only_target) on ALL chain/live-
-                    fire runners, fail-closed. VERIFIED DONE — all 13 runners enforce. Process fix:
-                    allowlist changes require PR review + domain ownership proof.
-                 1. §12.33 BOUNDED adaptive evasion: wrap curl_cffi (TLS/JA3 impersonation),
-                    evasion_authorized-gated, planner-triggered on repeated BLOCKED, lockout-
-                    bounded (§12.22-D2). Commodity wrap = table-stakes to REACH WAF'd targets;
-                    NOT the moat, NOT an 11-layer engine. Then re-run A1 vs real-CF lab to prove
-                    reach.
-                 2. Gamma prereq (ToolComposer + blast-gate) → ANCHOR: depth of "prove exploitable".
-                 3. Moat: Bug#7→GAP-003 cross-engagement intelligence.
-                 See docs/strategic_gaps_roadmap.md for the full G1–G17 + phased roadmap.
-Test env       : Oracle ARM64, Python 3.12.13, .venv312 — ALWAYS `.venv312/bin/python3 -m pytest`
-                 or `make check`. Full suite ~1148+ green.
-Phase status (verified on Oracle):
-  Phase 0-3 : DONE.
-  Phase 4   : breadth CONSOLIDATED — 14 playbooks (git/backup/actuator via path_probe catalog;
-              tomcat/basic_auth/s3/graphql/odoo via capability catalog; wp/laravel/js/etc).
-  Cognitive : GAP-002 WIRED; GAP-004 complete (D1/D2-a/D2-b/D3/D4/D5 all LANDED);
-              GAP-003 IntelligenceBase OPEN; GAP-005/006 slice-2a WIRED, 2b/2c OPEN.
-Bug ledger  : FIXED #2/#6/#14 (greedy rules + starvation), #10 (415), #18 (CF CHALLENGE),
-              #20 (identical-body dedup), #11 (crawl discrimination via planner), #21 (LLM-tier
-              exclude_tools not passed). OPEN: #17 (mod_autoindex sort explosion), #19
-              (body-content classifier generalization).
-META (durable): status docs rot FAST. Before building anything, grep/trace the live path first —
-              this session caught backup_file already-done, CRC theater, is_met dead-code, and
-              self-report theater by verifying, not trusting the doc.
-```
+Status: lihat Session_Handoff.md.
 
 ---
 

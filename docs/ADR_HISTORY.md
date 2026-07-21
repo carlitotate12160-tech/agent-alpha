@@ -1,3 +1,5 @@
+> ARCHIVE — append-only. Living decisions are in ADR.md.
+
 # Agent-Alpha — Architecture Decision Record & Phased Roadmap (HISTORICAL)
 
 > **DEPRECATED 2026-07-08.** This file is retained for history only. The canonical

@@ -1,3 +1,5 @@
+> DERIVED from ADR.md — regenerated, DO NOT hand-edit.
+
 # Agent-Alpha — ADR Summary (Decision Map)
 
 > **Purpose.** Token-cheap map of every architectural decision for Claude project

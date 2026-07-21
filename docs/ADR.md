@@ -1,3 +1,5 @@
+> CANONICAL SOURCE: architecture decisions (locked). History → ADR_HISTORY.md; summary → ADR_SUMMARY.md (derived).
+
 # Agent-Alpha — Architecture Decision Record & Phased Roadmap
 
 Architecture blueprint for Agent-Alpha: autonomous red-team platform Level 1-6 (SCOUT→STRIKE→ANCHOR→HUNTER→SCOUT-HUNTER→ROASTER) with non-bypassable authorization gate, multi-agent orchestration, and memory that makes it smarter across engagements.
