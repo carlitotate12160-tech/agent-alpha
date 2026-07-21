@@ -33,6 +33,8 @@ from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     assert_origin_authorized,
 )
+from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 from agent_alpha.live_fire.validation_vs_scanner import (
@@ -43,6 +45,7 @@ from agent_alpha.live_fire.validation_vs_scanner import (
 from agent_alpha.recon.origin_discovery import OriginDiscovery, StaticOriginDiscovery
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
 from agent_alpha.recon.transport_resilience import MitigationClass, classify_mitigation
+from agent_alpha.security.secrets import SecretsManager
 
 # ── Target constant ───────────────────────────────────────────────────────────
 
@@ -573,6 +576,12 @@ def main(argv: list[str] | None = None) -> int:
 
     http_client = HttpClient(engagement_id=args.engagement_id)
 
+    # Wire canonical stores for chain proof (cred minting → beta login → graph edge).
+    # These are the SAME types used by sibling field-prove runners (actuator, backup_file).
+    secrets_manager = SecretsManager()
+    graph_store = NetworkXGraphStore()
+    event_store = InMemoryEventStore()
+
     try:
         result = run_a1_validation(
             engagement_id=args.engagement_id,
@@ -583,6 +592,9 @@ def main(argv: list[str] | None = None) -> int:
             origin_discovery=origin_discovery,
             engagement_profile=engagement_profile,
             browser_solve_viable=False,  # datacenter egress ⇒ origin-direct on CHALLENGE
+            secrets_manager=secrets_manager,
+            graph_store=graph_store,
+            event_store=event_store,
         )
     except RuntimeError as e:
         print(f"A1 VALIDATION FAILED: {e}")
