@@ -28,6 +28,7 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     assert_origin_authorized,
@@ -207,8 +208,17 @@ def assert_valid_or_raise(r: A1Result) -> None:
     """
     if not r.challenge_encountered:
         raise RuntimeError(
-            "A1 INVALID: no CF challenge encountered — target is pass-through, "
-            "browser_solve was never exercised. Re-enable CF challenge and rerun."
+            "A1 INVALID: no CF challenge encountered — target is pass-through or CF "
+            "challenge is disabled on /web. Re-enable the CF challenge and rerun."
+        )
+
+    # Technique-aware validity: origin-direct must both observe a CF challenge at the
+    # front door and prove the leaked-cred→admin chain via the authorized origin.
+    if r.technique_used == "origin_direct" and not r.chain_proven:
+        raise RuntimeError(
+            "A1 INVALID: origin-direct run did not prove the leaked-cred→admin chain "
+            "despite a CF challenge at the front door. Investigate origin "
+            "authorization and beta login before claiming A1 reach."
         )
 
 
@@ -259,26 +269,32 @@ def run_a1_validation(
             no challenge was encountered (C7 gate).
         LabOnlyViolation: if target is not in the lab allowlist.
     """
-    # ── 0. Fail-loud default: no browser_solve → raise ────────────────────
+    # ── 0. Fail-loud default: no browser_solve → raise on browser-solve path ─────
     solver: BrowserSolveTransport = browser_solve or _NoopBrowserSolve()
 
     # ── 1. Lab-only guard — fail-closed on non-self-owned targets ─────────
     assert_lab_only_target(target)
 
-    # ── 2. Probe /web → classify mitigation class (C2) ────────────────────
+    # ── 2. Probe /web via plain HTTP → classify mitigation class (C2, OBSERVE) ──
+    if http_client is None:
+        raise RuntimeError("A1 requires http_client for the mitigation probe (OBSERVE step)")
+
     web_url = f"https://{target}{A1_WEB_PATH}"
-    probe_result = solver.solve_and_fetch(web_url, engagement_id=engagement_id)
+    # No-follow: a 302 from the allowlisted host must NOT auto-follow to an
+    # internal/off-scope destination before classification (CWE-918, CR-2).
+    # A 3xx response is seen as-is by classify_mitigation → None (not a
+    # challenge) → challenge_encountered=False → C7 correctly raises INVALID.
+    # Full scope-validating redirect policy deferred to GAP-005.
+    probe_resp = http_client.get(web_url, allow_redirects=False)
 
     mitigation_class = classify_mitigation(
-        status_code=probe_result.status_code,
-        body=probe_result.body,
-        headers=getattr(probe_result, "headers", {}) or {},
+        status_code=getattr(probe_resp, "status_code", 0),
+        body=getattr(probe_resp, "text", ""),
+        headers=getattr(probe_resp, "headers", {}) or {},
         path=A1_WEB_PATH,
     )
 
-    challenge_encountered = (
-        mitigation_class == MitigationClass.CHALLENGE and probe_result.challenge_encountered
-    )
+    challenge_encountered = mitigation_class == MitigationClass.CHALLENGE
 
     # ── 2b. Origin-direct reach strategy (optional) ───────────────────────
     technique_used = "browser_solve"
@@ -415,8 +431,13 @@ def run_a1_validation(
     scanner_missed = verdict.scanner_missed_exploitability
 
     # ── 8. Build result ───────────────────────────────────────────────────
+    if use_origin_direct:
+        valid_run = challenge_encountered and chain_proven
+    else:
+        valid_run = challenge_encountered
+
     result = A1Result(
-        valid_run=challenge_encountered,
+        valid_run=valid_run,
         challenge_encountered=challenge_encountered,
         challenge_solved=challenge_solved,
         chain_proven=chain_proven,
@@ -498,10 +519,13 @@ def main(argv: list[str] | None = None) -> int:
             authorized_origins=frozenset({args.origin}),  # explicit signed consent
         )
 
+    http_client = HttpClient(engagement_id=args.engagement_id)
+
     try:
         result = run_a1_validation(
             engagement_id=args.engagement_id,
             browser_solve=solver,  # origin-direct path never invokes it (no raise)
+            http_client=http_client,
             nuclei_jsonl_path=args.nuclei,
             target=args.target,
             origin_discovery=origin_discovery,
