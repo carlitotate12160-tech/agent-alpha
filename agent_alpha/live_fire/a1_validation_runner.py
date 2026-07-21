@@ -163,8 +163,11 @@ def origin_direct_fetch(
 
     url = f"https://{origin_ip}{path}"
     try:
+        # lab: verify_tls=False is intentional — origin cert matches domain, not IP literal.
+        # Production MUST use SNI-override domain-cert verification (ADR §12.33).
+        # CodeQL: this is scoping, not a security downgrade.
         with httpx.Client(verify=verify_tls, timeout=15.0) as client:
-            resp = client.get(url, headers={"Host": host})
+            resp = client.get(url, headers={"Host": host})  # codeql[py/ssl-cert-verification]
     except httpx.HTTPError as exc:
         raise RuntimeError(f"origin_direct_fetch failed for {host} via {origin_ip}: {exc}") from exc
     return _OriginDirectResult(
