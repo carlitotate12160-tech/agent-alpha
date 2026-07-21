@@ -19,7 +19,10 @@ import pytest
 from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     OriginNotAuthorizedError,
+    ProfileSignatureError,
     assert_origin_authorized,
+    dump_signed_profile,
+    load_signed_profile,
 )
 
 # ── Fixtures ──────────────────────────────────────────────────
@@ -158,3 +161,69 @@ def test_fronted_host_checked_before_origin() -> None:
             profile=_BASE_PROFILE,
             lab_allowlist=_TEST_ALLOWLIST,
         )
+
+
+# ── Signed-profile loader / writer tests (CR-1 — verify() actually called) ───
+
+
+def test_load_signed_profile_happy_path(tmp_path) -> None:
+    """Valid signed JSON (built via dump_signed_profile) → returns a verified
+    EngagementProfile with all fields intact."""
+    import json
+
+    profile = EngagementProfile(
+        engagement_id="eng-happy",
+        client_id="client-1",
+        targets=frozenset({"lab.example.com"}),
+        authorized_origins=frozenset({"203.0.113.10"}),
+    )
+    envelope = dump_signed_profile(profile)
+    path = tmp_path / "good.signed.json"
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    loaded = load_signed_profile(str(path))
+    assert loaded.engagement_id == "eng-happy"
+    assert loaded.client_id == "client-1"
+    assert loaded.targets == frozenset({"lab.example.com"})
+    assert loaded.authorized_origins == frozenset({"203.0.113.10"})
+
+
+def test_load_signed_profile_tamper_raises(tmp_path) -> None:
+    """Profile JSON whose authorized_origins was edited after signing (sha256
+    stale) → raises ProfileSignatureError."""
+    import json
+
+    profile = EngagementProfile(
+        engagement_id="eng-tamper",
+        client_id="client-1",
+        targets=frozenset({"lab.example.com"}),
+        authorized_origins=frozenset({"203.0.113.10"}),
+    )
+    envelope = dump_signed_profile(profile)
+
+    # Tamper: sneak in an extra origin AFTER signing.
+    envelope["profile"]["authorized_origins"].append("198.51.100.99")
+
+    path = tmp_path / "tampered.signed.json"
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    with pytest.raises(ProfileSignatureError, match="signature mismatch"):
+        load_signed_profile(str(path))
+
+
+def test_dump_load_roundtrip(tmp_path) -> None:
+    """dump_signed_profile → load_signed_profile returns an equal profile."""
+    import json
+
+    original = EngagementProfile(
+        engagement_id="eng-rt",
+        client_id="client-rt",
+        targets=frozenset({"t1.example.com", "t2.example.com"}),
+        authorized_origins=frozenset({"10.0.0.1", "10.0.0.2"}),
+    )
+    envelope = dump_signed_profile(original)
+    path = tmp_path / "roundtrip.signed.json"
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    loaded = load_signed_profile(str(path))
+    assert loaded == original
