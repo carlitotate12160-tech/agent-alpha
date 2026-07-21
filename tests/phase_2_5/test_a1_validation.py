@@ -28,6 +28,7 @@ import pytest
 from agent_alpha.conductor.engagement_profile import EngagementProfile
 from agent_alpha.live_fire.a1_validation_runner import (
     A1Result,
+    BrowserSolveTransport,
     _NoopBrowserSolve,
     assert_valid_or_raise,
     run_a1_validation,
@@ -113,14 +114,29 @@ class _FakeHttpClient:
     GET so that HttpFormApplicator's confirm step doesn't match baseline.
     """
 
-    def __init__(self, *, login_success: bool = True) -> None:
+    def __init__(self, *, login_success: bool = True, probe_is_challenge: bool = False) -> None:
         self._login_success = login_success
+        self._probe_is_challenge = probe_is_challenge
         self._baseline_body = '<html><input type="password" name="password"></html>'
         self._authed_body = "<html>welcome admin</html>"
         self._post_body = "<html>welcome admin</html>"
 
     def get(self, url: str, **kwargs: Any) -> Any:
         resp = MagicMock()
+
+        # Mitigation probe for /web: optionally simulate a CF challenge front-door.
+        if url.endswith("/web"):
+            if self._probe_is_challenge:
+                resp.status_code = 403
+                resp.headers = dict(_CHALLENGE_HEADERS)
+                resp.text = "<html>challenge page</html>"
+            else:
+                resp.status_code = 200
+                resp.headers = {}
+                resp.text = self._baseline_body
+            return resp
+
+        # Default behaviour for login URLs (HttpFormApplicator baseline/confirm).
         resp.status_code = 200
         resp.headers = {}
         if kwargs.get("cookies"):
@@ -170,14 +186,14 @@ def test_c2_challenge_response_classified_and_solver_invoked() -> None:
     result = run_a1_validation(
         engagement_id="test-eng",
         browser_solve=solver,
-        http_client=_FakeHttpClient(),
+        http_client=_FakeHttpClient(probe_is_challenge=True),
         secrets_manager=MagicMock(),
         graph_store=MagicMock(),
     )
     assert result.challenge_encountered is True
     assert len(solver.calls) >= 1  # solver was invoked
-    # /web probe happened
-    assert any("/web" in c for c in solver.calls)
+    # Bundle fetch happened via solver (probe used http_client)
+    assert any("/web/assets/" in c for c in solver.calls)
 
 
 # ── C3: post-solve bundle → credential minted, raw secret absent ──────────────
@@ -190,7 +206,7 @@ def test_c3_credential_minted_raw_secret_absent(tmp_path: pathlib.Path) -> None:
 
     secrets_mgr = SecretsManager()
     solver = _FakeBrowserSolve(challenge_solved=True)
-    http = _FakeHttpClient(login_success=True)
+    http = _FakeHttpClient(login_success=True, probe_is_challenge=True)
 
     result = run_a1_validation(
         engagement_id="test-eng-c3",
@@ -219,7 +235,7 @@ def test_c4_reused_cred_yields_admin_access() -> None:
 
     secrets_mgr = SecretsManager()
     solver = _FakeBrowserSolve(challenge_solved=True)
-    http = _FakeHttpClient(login_success=True)
+    http = _FakeHttpClient(login_success=True, probe_is_challenge=True)
 
     result = run_a1_validation(
         engagement_id="test-eng-c4",
@@ -242,7 +258,7 @@ def test_c5_chain_proven_and_edge_from_harvested() -> None:
 
     secrets_mgr = SecretsManager()
     solver = _FakeBrowserSolve(challenge_solved=True)
-    http = _FakeHttpClient(login_success=True)
+    http = _FakeHttpClient(login_success=True, probe_is_challenge=True)
 
     result = run_a1_validation(
         engagement_id="test-eng-c5",
@@ -265,7 +281,7 @@ def test_c6_scanner_missed_exploitability(tmp_path: pathlib.Path) -> None:
 
     secrets_mgr = SecretsManager()
     solver = _FakeBrowserSolve(challenge_solved=True)
-    http = _FakeHttpClient(login_success=True)
+    http = _FakeHttpClient(login_success=True, probe_is_challenge=True)
     nuclei_path = _make_nuclei_jsonl(tmp_path, [])
 
     result = run_a1_validation(
@@ -330,6 +346,33 @@ def test_c7_assert_valid_or_raise_directly() -> None:
         scanner_missed_exploitability=True,
     )
     assert_valid_or_raise(good_result)  # should not raise
+
+    # Technique-aware: origin_direct with challenge but chain NOT proven → raises
+    origin_direct_bad = A1Result(
+        valid_run=False,
+        challenge_encountered=True,
+        challenge_solved=False,
+        chain_proven=False,  # chain not proven despite challenge
+        edge_from_harvested_cred=False,
+        nuclei_findings=0,
+        scanner_missed_exploitability=False,
+        technique_used="origin_direct",
+    )
+    with pytest.raises(RuntimeError, match="origin-direct run did not prove the leaked-cred"):
+        assert_valid_or_raise(origin_direct_bad)
+
+    # Technique-aware: origin_direct with challenge AND chain proven → does NOT raise
+    origin_direct_good = A1Result(
+        valid_run=True,
+        challenge_encountered=True,
+        challenge_solved=False,  # bypass ≠ solve
+        chain_proven=True,
+        edge_from_harvested_cred=True,
+        nuclei_findings=0,
+        scanner_missed_exploitability=True,
+        technique_used="origin_direct",
+    )
+    assert_valid_or_raise(origin_direct_good)  # should not raise
 
 
 # ── Default: _NoopBrowserSolve → RAISES (no silent pass) ──────────────────────
@@ -466,6 +509,7 @@ def test_c9_unauthorized_candidate_no_origin_direct() -> None:
     result = run_a1_validation(
         engagement_id="test-c9",
         browser_solve=solver,
+        http_client=_FakeHttpClient(probe_is_challenge=True),
         origin_discovery=discovery,
         engagement_profile=profile,
     )
@@ -517,7 +561,7 @@ def test_origin_direct_happy_path(monkeypatch: pytest.MonkeyPatch) -> None:
     result = run_a1_validation(
         engagement_id="test-od-happy",
         browser_solve=solver,
-        http_client=_FakeHttpClient(login_success=True),
+        http_client=_FakeHttpClient(login_success=True, probe_is_challenge=True),
         secrets_manager=secrets_mgr,
         graph_store=MagicMock(),
         origin_discovery=discovery,
@@ -553,9 +597,16 @@ def test_origin_direct_challenge_solved_stays_false(
         authorized_origins=frozenset({"10.0.0.1"}),
     )
 
+    from agent_alpha.security.secrets import SecretsManager
+
+    secrets_mgr = SecretsManager()
+
     result = run_a1_validation(
         engagement_id="test-od-cs",
         browser_solve=solver,
+        http_client=_FakeHttpClient(login_success=True, probe_is_challenge=True),
+        secrets_manager=secrets_mgr,
+        graph_store=MagicMock(),
         origin_discovery=discovery,
         engagement_profile=profile,
         browser_solve_viable=False,
@@ -592,7 +643,7 @@ def test_c6_origin_direct_scanner_missed(
     result = run_a1_validation(
         engagement_id="test-c6-od",
         browser_solve=solver,
-        http_client=_FakeHttpClient(login_success=True),
+        http_client=_FakeHttpClient(login_success=True, probe_is_challenge=True),
         secrets_manager=secrets_mgr,
         graph_store=MagicMock(),
         nuclei_jsonl_path=nuclei_path,
@@ -715,3 +766,145 @@ def test_login_routes_via_origin_when_origin_direct(
     assert result.technique_used == "origin_direct"
     assert result.chain_proven is True
     assert result.edge_from_harvested_cred is True
+
+
+# ── Datacenter scenario: browser_solve=None, origin-direct only ───────────────
+
+
+def test_origin_direct_datacenter_no_solver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Datacenter scenario: browser_solve=None, browser_solve_viable=False,
+    origin ∈ signed authorized_origins.
+
+    GIVEN:
+      - browser_solve=None (defaults to _NoopBrowserSolve, which raises if called)
+      - browser_solve_viable=False
+      - origin ∈ signed authorized_origins
+      - http_client.get(/web) → 403 + CF challenge markers
+      - origin-direct bundle fetch yields the api_user/api_key secret
+
+    EXPECT:
+      - technique_used == "origin_direct"
+      - challenge_solved == False
+      - chain_proven == True
+      - edge_from_harvested_cred == True
+
+    ASSERT:
+      - The solver's solve_and_fetch was NEVER called (no-solver invariant).
+        This is proven by the test passing: _NoopBrowserSolve raises if called,
+        so reaching the assertions means it was never invoked.
+
+    This test MUST fail on the pre-fix code (dies at the probe because the old
+    code called solver.solve_and_fetch for the /web probe) and pass after.
+    """
+    import agent_alpha.live_fire.a1_validation_runner as runner_mod
+    from agent_alpha.security.secrets import SecretsManager
+
+    monkeypatch.setattr(runner_mod, "origin_direct_fetch", _make_origin_direct_fetch_monkey())
+
+    # browser_solve=None → defaults to _NoopBrowserSolve (fail-loud)
+    solver: BrowserSolveTransport | None = None
+    discovery = _StubOriginDiscovery(["10.0.0.1"])
+    profile = _make_profile(
+        engagement_id="test-dc-no-solver",
+        authorized_origins=frozenset({"10.0.0.1"}),
+    )
+    secrets_mgr = SecretsManager()
+
+    # http_client simulates CF challenge on /web probe
+    http = _FakeHttpClient(login_success=True, probe_is_challenge=True)
+
+    result = run_a1_validation(
+        engagement_id="test-dc-no-solver",
+        browser_solve=solver,  # None → _NoopBrowserSolve
+        http_client=http,
+        secrets_manager=secrets_mgr,
+        graph_store=MagicMock(),
+        origin_discovery=discovery,
+        engagement_profile=profile,
+        browser_solve_viable=False,
+    )
+
+    # Core invariants for origin-direct datacenter path
+    assert result.technique_used == "origin_direct"
+    assert result.challenge_solved is False
+    assert result.chain_proven is True
+    assert result.edge_from_harvested_cred is True
+    assert result.challenge_encountered is True
+    assert result.origin_authorized is True
+
+    # No-solver invariant: if _NoopBrowserSolve.solve_and_fetch was called,
+    # it would have raised RuntimeError("9c unbuilt: browser_solve transport not provided").
+    # The test reaching this point proves it was never called.
+
+
+# ── CWE-918: probe uses no-follow redirect (PR #238 CR-2) ────────────────────
+
+
+class _SpyHttpClient:
+    """HTTP client that records all get() kwargs so tests can assert
+    that allow_redirects=False was passed on the OBSERVE probe."""
+
+    def __init__(self, *, probe_is_challenge: bool = True) -> None:
+        self._probe_is_challenge = probe_is_challenge
+        self.get_calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get(self, url: str, **kwargs: Any) -> Any:
+        self.get_calls.append((url, dict(kwargs)))
+        resp = MagicMock()
+        if url.endswith("/web"):
+            if self._probe_is_challenge:
+                resp.status_code = 403
+                resp.headers = dict(_CHALLENGE_HEADERS)
+                resp.text = "<html>challenge page</html>"
+            else:
+                resp.status_code = 200
+                resp.headers = {}
+                resp.text = "<html>ok</html>"
+        else:
+            resp.status_code = 200
+            resp.headers = {}
+            resp.text = '<html><input type="password" name="password"></html>'
+            if kwargs.get("cookies"):
+                resp.text = "<html>welcome admin</html>"
+        return resp
+
+    def post(self, url: str, **kwargs: Any) -> Any:
+        resp = MagicMock()
+        resp.status_code = 200
+        resp.text = "<html>welcome admin</html>"
+        resp.headers = {"set-cookie": "session=abc123; Path=/"}
+        return resp
+
+
+def test_probe_uses_no_follow_redirect() -> None:
+    """CWE-918 (CR-2): the OBSERVE probe MUST call http_client.get() with
+    allow_redirects=False to prevent a 302 scope escape before classification.
+
+    A spy http_client records all kwargs; we assert the /web probe call
+    passed allow_redirects=False.
+    """
+    solver = _FakeBrowserSolve(challenge_encountered=True, challenge_solved=False)
+    spy = _SpyHttpClient(probe_is_challenge=True)
+
+    result = run_a1_validation(
+        engagement_id="test-no-follow",
+        browser_solve=solver,
+        http_client=spy,
+        secrets_manager=MagicMock(),
+        graph_store=MagicMock(),
+    )
+
+    # Find the /web probe call
+    web_probe_calls = [(url, kw) for url, kw in spy.get_calls if url.endswith("/web")]
+    assert len(web_probe_calls) >= 1, "OBSERVE probe never called http_client.get(/web)"
+
+    # The probe MUST have passed allow_redirects=False
+    for url, kw in web_probe_calls:
+        assert kw.get("allow_redirects") is False, (
+            f"OBSERVE probe to {url} did NOT pass allow_redirects=False: {kw}"
+        )
+
+    assert result.challenge_encountered is True
+
