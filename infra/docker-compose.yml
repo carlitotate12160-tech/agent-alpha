@@ -31,7 +31,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     # Password-protected + append-only persistence (durable across restarts —
     # which is the whole point of P2; the restart→replay test depends on it).
     env_file: .env

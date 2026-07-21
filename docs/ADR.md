@@ -1807,6 +1807,10 @@ validation runner (`a1_validation_runner.py`). Invariants:
 
 **Decision 3 — CI gate tightening.** In `.github/workflows/security-audit.yml`, drop `|| true` from the pgvector Trivy scan so that FIXED CVEs (those with available patches) actually block CI. Keep `--ignore-unfixed` so the residual CVEs do not red the gate. This ensures future fixable CVEs are caught early.
 
+**Decision 3b — .trivyignore for gosu Go stdlib CVEs (2026-07-21).** The pinned `pg16-trixie` image still bundles `gosu` built with Go 1.24.6. 16 CVEs in Go stdlib (1 CRITICAL + 15 HIGH) now have upstream fixes (Go 1.25.x / 1.26.x), but the pgvector maintainer has not rebuilt the image with a newer Go toolchain. Since `gosu` is a startup-only privilege-dropping helper (not a network service), and the DB is bound to 127.0.0.1, these CVEs are suppressed via `.trivyignore` with explicit CVE IDs. `--exit-code 1` remains active so any NEW fixable CVE (in PostgreSQL itself, not gosu) still blocks CI. Remove `.trivyignore` entries when pgvector publishes an image with Go >= 1.25.9.
+
+**Decision 3c — Redis upgrade 7→8 (2026-07-21).** Upgraded from `redis:7-alpine` to `redis:8-alpine` (8.8.0) in `infra/docker-compose.yml`, `.github/workflows/ci.yml`, and `.github/workflows/security-audit.yml`. Redis 8 is backward compatible for all commands used by the application (GET, SET, HGETALL, HSET, DELETE). Not yet digest-pinned (intentional — allows Trivy to scan latest image).
+
 **Decision 4 — verification requirement.** Verification MUST be done on Oracle ARM64 only (arch match). Commands:
 ```bash
 docker pull pgvector/pgvector:pg16-trixie@sha256:d0b40f6862437359b69f0ed790ce620d0226e220994c0e7349702d04dc1eb548
