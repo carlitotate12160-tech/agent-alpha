@@ -186,3 +186,46 @@ def test_cli_without_origin_stays_browser_solve(monkeypatch) -> None:
 
     assert captured["origin_discovery"] is None
     assert captured["engagement_profile"] is None
+
+
+# ── 6. CLI wires chain dependencies (guard test) ───────────────────────────────
+
+
+def test_cli_wires_chain_dependencies(monkeypatch, tmp_path) -> None:
+    """main() passes secrets_manager, graph_store, event_store to run_a1_validation.
+
+    This guard prevents the "CLI under-wired vs test-injected" pattern (Lyndon #2):
+    unit tests inject deps but the CLI never wires them → green ≠ proven.
+    The test FAILS if any dependency is None, PASSING only after main() correctly
+    constructs and passes all three.
+    """
+    from agent_alpha.events.store import InMemoryEventStore
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+    from agent_alpha.security.secrets import SecretsManager
+
+    captured: dict = {}
+    monkeypatch.setattr(runner, "run_a1_validation", _capture(captured))
+
+    profile_path = _write_signed_profile(tmp_path)
+
+    rc = runner.main(
+        [
+            "--engagement-id",
+            "e1",
+            "--target",
+            "lab.example",
+            "--origin",
+            "203.0.113.9",
+            "--profile",
+            profile_path,
+        ]
+    )
+
+    assert rc == 0
+    # Guard: all three dependencies must be NOT None and of the correct type.
+    assert captured["secrets_manager"] is not None
+    assert isinstance(captured["secrets_manager"], SecretsManager)
+    assert captured["graph_store"] is not None
+    assert isinstance(captured["graph_store"], NetworkXGraphStore)
+    assert captured["event_store"] is not None
+    assert isinstance(captured["event_store"], InMemoryEventStore)
