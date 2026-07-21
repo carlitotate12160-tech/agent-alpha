@@ -40,6 +40,8 @@ After the initial reply to your report, the security team will keep you informed
 
 ### Known Residual Risks
 
+**Category 1 — No upstream patch (5 CVEs):**
+
 The following CVEs have no upstream patch yet but are mitigated by compensating controls:
 
 - **CVE-2026-32281** (crypto/x509)
@@ -48,7 +50,11 @@ The following CVEs have no upstream patch yet but are mitigated by compensating 
 - **CVE-2026-39820** (mime)
 - **CVE-2026-42499** (os-symlink)
 
-**Compensating control**: The PostgreSQL database is NOT internet-exposed — only the Python application connects on the private network (127.0.0.1 binding). The Go stdlib DoS surface is not reachable by an external attacker. See `docs/ADR.md` §12.35 for details.
+**Category 2 — Upstream fix exists but image not rebuilt (16 CVEs, suppressed via `.trivyignore`):**
+
+The pinned `pgvector/pgvector:pg16-trixie` image bundles `gosu` with Go 1.24.6. 16 Go stdlib CVEs (1 CRITICAL + 15 HIGH) have fixes in Go 1.25.x+, but the pgvector maintainer has not rebuilt the image. Suppressed via `.trivyignore` with explicit CVE IDs. See ADR §12.35 Decision 3b.
+
+**Compensating control**: The PostgreSQL database is NOT internet-exposed — only the Python application connects on the private network (127.0.0.1 binding). `gosu` is a startup-only privilege helper, not a network service. The Go stdlib DoS surface is not reachable by an external attacker. See `docs/ADR.md` §12.35 for details.
 
 ## Security Architecture
 
