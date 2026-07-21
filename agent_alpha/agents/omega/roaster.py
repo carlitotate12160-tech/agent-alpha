@@ -11,7 +11,7 @@ Reuses the existing narrative builder ``agent_alpha.graph.narrative.to_narrative
 from __future__ import annotations
 
 import hashlib
-import pathlib
+import logging
 from dataclasses import dataclass
 
 from agent_alpha.config import constants
@@ -22,7 +22,10 @@ from agent_alpha.graph.narrative import (
     summarize_chain_finding,
     to_narrative,
 )
+from agent_alpha.graph.nodes import AttackEdge
 from agent_alpha.graph.store import GraphStore
+
+logger = logging.getLogger(__name__)
 
 
 def format_duration(seconds: float | None) -> str | None:
@@ -80,74 +83,11 @@ class Report:
     blast_radius: BlastRadius | None = None
     attack_flow_mermaid: str = ""
 
+    # Slice C: PDF export lives in omega_report_contract.md (narrative + flow + evidence).
+
     def time_to_proof_headline(self) -> str | None:
         """Sellable headline string, or None when no proof was produced."""
         return format_duration(self.time_to_first_proof_s)
-
-    def export_pdf(self, path: str | pathlib.Path) -> pathlib.Path:
-        """Render :attr:`narrative` to a PDF at *path* and return the path.
-
-        Uses reportlab so there is no system-level dependency on LaTeX or
-        wkhtmltopdf.  The resulting file is always non-empty.
-        """
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
-        from reportlab.lib.units import mm
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
-
-        out = pathlib.Path(path)
-        out.parent.mkdir(parents=True, exist_ok=True)
-
-        doc = SimpleDocTemplate(
-            str(out),
-            pagesize=A4,
-            leftMargin=20 * mm,
-            rightMargin=20 * mm,
-            topMargin=20 * mm,
-            bottomMargin=20 * mm,
-        )
-
-        styles = getSampleStyleSheet()
-        story: list[object] = []
-
-        # ── Title ───────────────────────────────────────────────
-        story.append(Paragraph("Agent-Alpha Report", styles["Title"]))
-        story.append(Spacer(1, 6 * mm))
-
-        # ── Time-to-proof headline (sellable metric) ────────────
-        headline = self.time_to_proof_headline()
-        if headline is not None:
-            story.append(Paragraph(f"Time to proof: {headline}", styles["Heading2"]))
-            story.append(Spacer(1, 4 * mm))
-
-        # ── MITRE ATT&CK section ───────────────────────────────
-        if self.mitre_techniques:
-            story.append(
-                Paragraph(
-                    f"MITRE ATT&amp;CK ({self.mitre_attack_version}): "
-                    f"{', '.join(self.mitre_techniques)}",
-                    styles["Normal"],
-                )
-            )
-            story.append(Spacer(1, 4 * mm))
-
-        # ── Key finding (cred-reuse chain) ──────────────────────
-        if self.chain_finding is not None:
-            cf = self.chain_finding
-            story.append(
-                Paragraph(f"Key finding — severity: {cf.severity.upper()}", styles["Heading2"])
-            )
-            story.append(Paragraph(cf.rationale, styles["Normal"]))
-            story.append(Spacer(1, 4 * mm))
-
-        # ── Narrative body ──────────────────────────────────────
-        for line in self.narrative.splitlines():
-            if line.strip():
-                story.append(Paragraph(line, styles["Normal"]))
-                story.append(Spacer(1, 2 * mm))
-
-        doc.build(story)
-        return out
 
 
 class Omega:
@@ -190,39 +130,65 @@ class Omega:
         blast_radius_result: BlastRadius | None = None
 
         if critical_paths:
-            # Use the first critical path (highest impact)
-            path = critical_paths[0]
-            for i in range(len(path) - 1):
-                from_node = path[i]
-                to_node = path[i + 1]
-                edge = self.graph_store.get_edge(from_node.id, to_node.id)
-                if edge is None:
-                    continue
-                critical_path_steps.append(
-                    PathStep(
-                        from_node=from_node.id,
-                        edge_technique_id=edge.technique_id or "",
-                        to_node=to_node.id,
-                        node_kind=to_node.type.value,
+            # Choose the highest-impact critical path by longest chain length.
+            non_empty_paths = [p for p in critical_paths if p]
+            if non_empty_paths:
+                non_empty_paths.sort(key=len, reverse=True)
+                path = non_empty_paths[0]
+
+                incoming_edges: dict[str, AttackEdge] = {}
+                edges_along_path: list[AttackEdge] = []
+
+                for i in range(len(path) - 1):
+                    from_node = path[i]
+                    to_node = path[i + 1]
+                    edge = self.graph_store.get_edge(from_node.id, to_node.id)
+                    if edge is None:
+                        logger.debug(
+                            "Omega.generate_report: missing edge between %s and %s on critical path",
+                            from_node.id,
+                            to_node.id,
+                        )
+                        continue
+                    edges_along_path.append(edge)
+                    if edge.technique_id:
+                        incoming_edges[to_node.id] = edge
+                    critical_path_steps.append(
+                        PathStep(
+                            from_node=from_node.id,
+                            edge_technique_id=edge.technique_id or "",
+                            to_node=to_node.id,
+                            node_kind=to_node.type.value,
+                        )
                     )
-                )
-                # Collect ProofArtifacts from both endpoint nodes
-                for node in (from_node, to_node):
+
+                if path and path[0].id not in incoming_edges and edges_along_path:
+                    # Attribute entry-node artifacts to the first edge on the path.
+                    incoming_edges[path[0].id] = edges_along_path[0]
+
+                seen_hashes: set[str] = set()
+                for node in path:
+                    incoming_edge = incoming_edges.get(node.id)
+                    technique_id = incoming_edge.technique_id if incoming_edge else ""
                     for artifact in node.proof_artifacts:
                         # SHA-256 of the storage_ref for deduplication
                         sha256 = hashlib.sha256(artifact.storage_ref.encode()).hexdigest()
+                        if sha256 in seen_hashes:
+                            continue
+                        seen_hashes.add(sha256)
                         evidence_items.append(
                             EvidenceItem(
-                                technique_id=edge.technique_id or "",
+                                technique_id=technique_id,
                                 description=artifact.description,
                                 artifact_ref=artifact.storage_ref,
                                 sha256=sha256,
                                 captured_at=artifact.captured_at,
                             )
                         )
-            # Compute blast radius from the entry node
-            if path:
-                blast_radius_result = self._compute_blast_radius(path[0].id)
+
+                # Compute blast radius from the entry node
+                if path:
+                    blast_radius_result = self._compute_blast_radius(path[0].id)
 
         return Report(
             narrative=narrative,

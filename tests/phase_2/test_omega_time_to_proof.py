@@ -7,9 +7,6 @@ All fields default to None for zero regression.
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 from agent_alpha.agents.omega.roaster import Omega, Report, format_duration
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 
@@ -59,31 +56,4 @@ def test_omega_generate_report_defaults_to_none() -> None:
     report = omega.generate_report("executive")
     assert report.time_to_first_proof_s is None
 
-
-def test_pdf_export() -> None:
-    """PDF export works with and without time-to-proof headline."""
-    # With metric
-    report = Report(
-        narrative="Test narrative body.",
-        mitre_techniques=[],
-        mitre_attack_version="v14",
-        time_to_first_proof_s=90.0,
-    )
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "report.pdf"
-        report.export_pdf(path)
-        assert path.exists()
-        assert path.stat().st_size > 0
-
-    # Without metric (None)
-    report = Report(
-        narrative="Test narrative body.",
-        mitre_techniques=[],
-        mitre_attack_version="v14",
-        time_to_first_proof_s=None,
-    )
-    with tempfile.TemporaryDirectory() as tmpdir:
-        path = Path(tmpdir) / "report.pdf"
-        report.export_pdf(path)
-        assert path.exists()
-        assert path.stat().st_size > 0
+    # PDF export is implemented in Slice C; Slice A tests focus on headline wiring only.
