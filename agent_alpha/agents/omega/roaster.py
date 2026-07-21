@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import typing
 from dataclasses import dataclass
 
 from agent_alpha.config import constants
@@ -51,6 +53,87 @@ class PathStep:
     edge_technique_id: str
     to_node: str
     node_kind: str
+
+
+def _sanitize_mermaid_id(raw_id: str) -> str:
+    """Sanitize a raw node ID for Mermaid syntax.
+
+    Only alphanumeric characters and underscores are kept.
+    Prevents raw URLs, spaces, quotes, or invalid Mermaid syntax.
+    """
+    clean = re.sub(r"[^a-zA-Z0-9_]", "_", raw_id)
+    clean = re.sub(r"_+", "_", clean).strip("_")
+    if not clean or clean[0].isdigit():
+        clean = f"node_{clean}"
+    return clean
+
+
+def _infer_node_kind(node_id: str) -> str:
+    """Infer node kind for nodes that never appeared as a to_node (e.g. entry node)."""
+    parts = re.split(r"[-_:]", node_id)
+    if parts and parts[0]:
+        candidate = parts[0].lower()
+        if candidate in {
+            "asset",
+            "credential",
+            "vulnerability",
+            "access_level",
+            "data",
+            "host",
+            "target",
+            "service",
+        }:
+            return candidate
+    return "asset"
+
+
+def render_attack_flow(
+    steps: tuple[PathStep, ...] | list[PathStep] | typing.Iterable[PathStep],
+) -> str:
+    """Render the critical path steps as a Mermaid attack-flow diagram.
+
+    CONSISTENCY INVARIANT: Renders strictly from the passed PathStep sequence.
+    Does NOT query the graph or re-run path-finding.
+
+    Returns:
+        A deterministic Mermaid ``graph LR`` string, or ``""`` if steps is empty.
+    """
+    steps_tuple = tuple(steps)
+    if not steps_tuple:
+        return ""
+
+    node_kinds: dict[str, str] = {}
+    distinct_node_ids: list[str] = []
+
+    for step in steps_tuple:
+        if step.from_node not in distinct_node_ids:
+            distinct_node_ids.append(step.from_node)
+        if step.to_node not in distinct_node_ids:
+            distinct_node_ids.append(step.to_node)
+
+        if step.node_kind:
+            node_kinds[step.to_node] = step.node_kind
+
+    lines = ["graph LR"]
+
+    for node_id in distinct_node_ids:
+        sanitized_id = _sanitize_mermaid_id(node_id)
+        kind = node_kinds.get(node_id)
+        if not kind:
+            kind = _infer_node_kind(node_id)
+        label = f"{kind}: {sanitized_id}"
+        lines.append(f'    {sanitized_id}["{label}"]')
+
+    for step in steps_tuple:
+        from_id = _sanitize_mermaid_id(step.from_node)
+        to_id = _sanitize_mermaid_id(step.to_node)
+        tech = step.edge_technique_id.strip() if step.edge_technique_id else ""
+        if tech:
+            lines.append(f"    {from_id} -->|{tech}| {to_id}")
+        else:
+            lines.append(f"    {from_id} --> {to_id}")
+
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True)
@@ -190,6 +273,9 @@ class Omega:
                 if path:
                     blast_radius_result = self._compute_blast_radius(path[0].id)
 
+        critical_path_tuple = tuple(critical_path_steps)
+        attack_flow_mermaid = render_attack_flow(critical_path_tuple)
+
         return Report(
             narrative=narrative,
             mitre_techniques=mitre_techniques,
@@ -197,10 +283,10 @@ class Omega:
             chain_finding=summarize_chain_finding(self.graph_store),
             time_to_first_proof_s=time_to_first_proof_s,
             blocked_hosts=blocked_hosts,
-            critical_path=tuple(critical_path_steps),
+            critical_path=critical_path_tuple,
             evidence=tuple(evidence_items),
             blast_radius=blast_radius_result,
-            attack_flow_mermaid="",  # Slice B: to be implemented
+            attack_flow_mermaid=attack_flow_mermaid,
         )
 
     def _compute_blast_radius(self, from_node_id: str) -> BlastRadius:
