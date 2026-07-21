@@ -75,8 +75,8 @@ class Report:
     chain_finding: ChainFinding | None = None
     time_to_first_proof_s: float | None = None
     blocked_hosts: tuple[str, ...] = ()
-    critical_path: list[PathStep] = ()
-    evidence: list[EvidenceItem] = ()
+    critical_path: tuple[PathStep, ...] = ()
+    evidence: tuple[EvidenceItem, ...] = ()
     blast_radius: BlastRadius | None = None
     attack_flow_mermaid: str = ""
 
