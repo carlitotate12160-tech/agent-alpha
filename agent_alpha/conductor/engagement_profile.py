@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from agent_alpha.live_fire.lab_guard import LAB_TARGET_ALLOWLIST
 
@@ -78,7 +79,7 @@ class EngagementProfile:
 # ── Signed-profile serialisation / loader ─────────────────────
 
 
-def dump_signed_profile(profile: EngagementProfile) -> dict:
+def dump_signed_profile(profile: EngagementProfile) -> dict[str, Any]:
     """Serialise *profile* to a signed envelope dict.
 
     Returns ``{"profile": {...}, "sha256": "<hex>"}``.  Callers persist this
