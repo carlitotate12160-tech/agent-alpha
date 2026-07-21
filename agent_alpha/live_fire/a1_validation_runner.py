@@ -24,9 +24,14 @@ CONSTRAINTS:
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from agent_alpha.conductor.engagement_profile import (
+    EngagementProfile,
+    assert_origin_authorized,
+)
 from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 from agent_alpha.live_fire.validation_vs_scanner import (
@@ -34,6 +39,8 @@ from agent_alpha.live_fire.validation_vs_scanner import (
     compare,
     parse_nuclei_jsonl,
 )
+from agent_alpha.recon.origin_discovery import OriginDiscovery
+from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
 from agent_alpha.recon.transport_resilience import MitigationClass, classify_mitigation
 
 # ── Target constant ───────────────────────────────────────────────────────────
@@ -90,6 +97,54 @@ class _NoopBrowserSolve:
         )
 
 
+# ── Origin-direct fetch (scoping, NOT evasion — §12.33) ───────────────────────
+
+
+@dataclasses.dataclass(frozen=True)
+class _OriginDirectResult:
+    """Result from an origin-direct fetch. Satisfies ChallengeSolveResult.
+
+    challenge_encountered and challenge_solved are ALWAYS False: origin-direct
+    bypasses the CDN front door — the challenge is never encountered, never
+    solved. Setting either to True would be Lyndon #3 (false success).
+    """
+
+    status_code: int
+    body: str
+    headers: dict[str, str]
+    cleared_cookies: dict[str, str] = dataclasses.field(default_factory=dict)
+    challenge_encountered: bool = False
+    challenge_solved: bool = False
+
+
+def origin_direct_fetch(
+    host: str,
+    origin_ip: str,
+    path: str = "/",
+    *,
+    verify_tls: bool = False,
+) -> _OriginDirectResult:
+    """Fetch via origin IP with Host header, bypassing CDN.
+
+    TLS verify=False for lab slice: origin cert matches *host* domain, NOT the
+    origin IP literal → naive verify=True always fails. Production origin-direct
+    against clients MUST use SNI-override domain-cert verification (anti-MITM)
+    — see ADR §12.33 verify-posture doctrine.
+
+    This is SCOPING (hitting the real server), NOT a security downgrade.
+    """
+    import httpx
+
+    url = f"https://{origin_ip}{path}"
+    with httpx.Client(verify=verify_tls, timeout=15.0) as client:
+        resp = client.get(url, headers={"Host": host})
+    return _OriginDirectResult(
+        status_code=resp.status_code,
+        body=resp.text,
+        headers=dict(resp.headers),
+    )
+
+
 # ── Result dataclass ──────────────────────────────────────────────────────────
 
 
@@ -108,6 +163,8 @@ class A1Result:
     edge_from_harvested_cred: bool
     nuclei_findings: int
     scanner_missed_exploitability: bool
+    technique_used: str = "browser_solve"  # "browser_solve" | "origin_direct"
+    origin_authorized: bool = False
 
 
 def assert_valid_or_raise(r: A1Result) -> None:
@@ -135,6 +192,9 @@ def run_a1_validation(
     event_store: Any | None = None,
     nuclei_jsonl_path: str | None = None,
     target: str = A1_TARGET,
+    origin_discovery: OriginDiscovery | None = None,
+    engagement_profile: EngagementProfile | None = None,
+    browser_solve_viable: bool = False,
 ) -> A1Result:
     """Run the A1 validation chain against a CF challenge-gated target.
 
@@ -187,16 +247,70 @@ def run_a1_validation(
         mitigation_class == MitigationClass.CHALLENGE and probe_result.challenge_encountered
     )
 
-    # ── 3. browser_solve /web/assets/app.a1b2c3.js → harvest bundle ───────
+    # ── 2b. Origin-direct reach strategy (optional) ───────────────────────
+    technique_used = "browser_solve"
+    origin_authorized = False
+    use_origin_direct = False
+
+    if origin_discovery is not None and engagement_profile is not None:
+        # C9: candidate ≠ authorization — filter against signed authorized_origins.
+        origin_ip = next(
+            (
+                ip
+                for ip in origin_discovery.candidates(target)
+                if ip in engagement_profile.authorized_origins
+            ),
+            None,
+        )
+        strategy = choose_reach(
+            mitigation_class,
+            browser_solve_viable=browser_solve_viable,
+            authorized_origin=origin_ip,
+        )
+        if strategy is ReachStrategy.ORIGIN_DIRECT:
+            # C8: fail-closed — raises OriginNotAuthorizedError if origin
+            # is not in signed authorized_origins.
+            assert_origin_authorized(origin_ip, target, engagement_profile)
+            bundle_result = origin_direct_fetch(target, origin_ip, A1_BUNDLE_PATH)
+            technique_used = "origin_direct"
+            origin_authorized = True
+            use_origin_direct = True
+            # ANTI-#3: challenge_solved stays False. Origin-direct BYPASSES
+            # the challenge — it does NOT solve it. "Reached" ≠ "solved".
+            # The honest story: "CF challenge NOT solved; bypassed via
+            # exposed origin" — that IS the payable finding.
+
+            # Typed event (audit-sensitive: hitting client origin bypasses WAF).
+            if event_store is not None:
+                from agent_alpha.events.event_types import EventType
+
+                event_store.append(
+                    EventType.ORIGIN_DIRECT_ATTEMPT,
+                    engagement_id,
+                    "alpha",
+                    {
+                        "host": target,
+                        "origin_ip": origin_ip,
+                        "authorized": True,
+                        "discovered_via": "origin_discovery",
+                    },
+                )
+
+    # ── 3. Fetch bundle (browser_solve path, only if NOT origin-direct) ───
     bundle_url = f"https://{target}{A1_BUNDLE_PATH}"
-    bundle_result = solver.solve_and_fetch(bundle_url, engagement_id=engagement_id)
+    if not use_origin_direct:
+        bundle_result = solver.solve_and_fetch(bundle_url, engagement_id=engagement_id)
 
     challenge_solved = bundle_result.challenge_solved
 
     # ── 4. scan_js_for_secrets extracts api_user/api_key ──────────────────
     from agent_alpha.recon.js_secret_probe import scan_js_for_secrets
 
-    hits = scan_js_for_secrets(bundle_result.body) if challenge_solved else []
+    # Origin-direct: bundle fetched successfully (no challenge), scan it.
+    # Browser-solve: scan only if challenge was solved.
+    hits = (
+        scan_js_for_secrets(bundle_result.body) if (challenge_solved or use_origin_direct) else []
+    )
 
     # ── 5. Mint vaulted credential (no raw secret in events) ─────────────
     cred_minted = False
@@ -266,6 +380,8 @@ def run_a1_validation(
         edge_from_harvested_cred=edge_from_harvested_cred,
         nuclei_findings=len(nuclei_findings),
         scanner_missed_exploitability=scanner_missed,
+        technique_used=technique_used,
+        origin_authorized=origin_authorized,
     )
 
     # ── 9. C7 gate: no challenge → raise, not pass ────────────────────────
@@ -340,6 +456,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  edge_from_harvested_cred    : {result.edge_from_harvested_cred}")
     print(f"  nuclei_findings             : {result.nuclei_findings}")
     print(f"  scanner_missed_exploitability: {result.scanner_missed_exploitability}")
+    print(f"  technique_used              : {result.technique_used}")
+    print(f"  origin_authorized           : {result.origin_authorized}")
     print("=" * 72)
     return 0 if result.chain_proven else 1
 
