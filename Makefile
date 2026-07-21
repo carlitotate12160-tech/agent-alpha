@@ -9,7 +9,7 @@ RUFF := $(VENV)/ruff
 MYPY := $(VENV)/mypy
 PYTEST := $(VENV)/pytest
 
-.PHONY: all check lint lint-fix typecheck quality test test-protected test-phase0 test-phase1 test-phase2 test-phase3 proto
+.PHONY: all check lint lint-fix typecheck quality test test-protected test-phase0 test-phase1 test-phase2 test-phase3 test-phase4 proto
 
 all: check test
 
@@ -51,7 +51,7 @@ quality:
 
 # ── Tests ──────────────────────────────────────
 
-test: test-protected test-phase0 test-phase1 test-phase2 test-phase3
+test: test-protected test-phase0 test-phase1 test-phase2 test-phase3 test-phase4
 
 test-protected:
 	@echo "━━━ PROTECTED CONTRACT TESTS (DO NOT MODIFY) ━━━"
@@ -72,3 +72,7 @@ test-phase2:
 test-phase3:
 	@echo "━━━ PHASE 3 TESTS ━━━"
 	$(PYTEST) tests/phase_3/ -v --tb=short
+
+test-phase4:
+	@echo "━━━ PHASE 4 TESTS ━━━"
+	$(PYTEST) tests/phase_4/ -v --tb=short
