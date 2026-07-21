@@ -69,6 +69,25 @@ Level 6 = full exfiltration with proof artifacts.
     = f(AttackGraph state), never a static pipeline. Enforce via differential test.
 ```
 
+## Independent Verification Axiom (durable)
+
+A verifier is meaningful ONLY if its failure mode DIFFERS from the finder's.
+- Re-running the same signal (e.g. graph-walk over what tools asserted) is NOT
+  verification — it is internal-consistency check with the same failure mode = #3.
+- Genuine verification = an independent signal: re-authenticate the credential,
+  re-fetch the ground truth. Different failure mode = real confirmation.
+- verified tri-state: unverified (asserted) < self_verified (finder re-checked, weak)
+  < cross_verified (independent oracle confirmed). Only cross_verified may back a
+  "proven" claim in a payable report.
+- ChainOracle = COMPOSITION of independent per-edge oracles (chain cross_verified iff
+  every edge cross_verified), NEVER a graph traversal.
+
+## Deferred work goes OUT, not half-scaffolded (extends Lyndon #2)
+
+A deferred feature is removed, not left as reserved-but-unused params (ARG002) or
+"will be added HERE" comments. Half-scaffolding is dead weight that looks like progress.
+Roadmap = menu, not a checklist to finish or build in parallel. One vertical slice at a time.
+
 ---
 
 ## Non-Negotiable Decisions (Already Final)
