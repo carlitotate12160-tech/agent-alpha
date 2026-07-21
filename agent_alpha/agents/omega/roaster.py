@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import pathlib
 from dataclasses import dataclass
-from typing import Any
 
 from agent_alpha.config import constants
 from agent_alpha.graph.narrative import (
@@ -23,7 +22,6 @@ from agent_alpha.graph.narrative import (
     summarize_chain_finding,
     to_narrative,
 )
-from agent_alpha.graph.nodes import ProofArtifact
 from agent_alpha.graph.store import GraphStore
 
 
@@ -45,6 +43,7 @@ class PathStep:
 
     Reuses canonical graph types; NOT a new domain type (anti-#6).
     """
+
     from_node: str
     edge_technique_id: str
     to_node: str
@@ -58,6 +57,7 @@ class EvidenceItem:
     Data comes straight from the redacted ProofArtifact. The vault holds
     the raw secret; this carries only the ref + description (anti-#3).
     """
+
     technique_id: str
     description: str
     artifact_ref: str
@@ -240,4 +240,5 @@ class Omega:
     def _compute_blast_radius(self, from_node_id: str) -> BlastRadius:
         """Compute blast radius from a node using the narrative module."""
         from agent_alpha.graph.narrative import calculate_blast_radius
+
         return calculate_blast_radius(self.graph_store, from_node_id)

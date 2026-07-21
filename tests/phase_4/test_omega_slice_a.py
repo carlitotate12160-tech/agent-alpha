@@ -9,15 +9,6 @@ from __future__ import annotations
 
 from agent_alpha.agents.omega.roaster import EvidenceItem, Omega, PathStep, Report
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import (
-    AccessLevelProperties,
-    AttackEdge,
-    AttackNode,
-    CredentialProperties,
-    NodeType,
-    ProofArtifact,
-    RelationshipType,
-)
 
 
 def test_report_has_critical_path_field() -> None:
@@ -83,53 +74,68 @@ def test_evidence_item_view_struct() -> None:
 def test_omega_generate_report_populates_critical_path() -> None:
     """Omega.generate_report() walks find_critical_paths() and populates critical_path."""
     graph = NetworkXGraphStore()
-    
+
     # Build a simple chain: asset -> credential -> access via events
-    graph.apply_event("NodeDiscovered", {
-        "id": "asset-1",
-        "type": "asset",
-        "properties": {"host": "example.com", "ip": "1.2.3.4"},
-        "confidence": 1.0,
-        "verified": False,
-    })
-    graph.apply_event("NodeDiscovered", {
-        "id": "cred-1",
-        "type": "credential",
-        "properties": {
-            "username": "admin",
-            "secret_ref": "vault://secret-1",
-            "service": "odoo",
-            "access_level": "admin",
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com", "ip": "1.2.3.4"},
+            "confidence": 1.0,
+            "verified": False,
         },
-        "confidence": 0.9,
-        "verified": False,
-    })
-    graph.apply_event("NodeDiscovered", {
-        "id": "access-1",
-        "type": "access_level",
-        "properties": {"level": "admin"},
-        "confidence": 0.8,
-        "verified": False,
-    })
-    
-    graph.apply_event("EdgeDiscovered", {
-        "source_id": "asset-1",
-        "target_id": "cred-1",
-        "relationship": "leads_to",
-        "confidence": 0.9,
-        "technique_id": "T1078",
-    })
-    graph.apply_event("EdgeDiscovered", {
-        "source_id": "cred-1",
-        "target_id": "access-1",
-        "relationship": "enables",
-        "confidence": 0.8,
-        "technique_id": "T1552.001",
-    })
-    
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred-1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault://secret-1",
+                "service": "odoo",
+                "access_level": "admin",
+            },
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "access-1",
+            "type": "access_level",
+            "properties": {"level": "admin"},
+            "confidence": 0.8,
+            "verified": False,
+        },
+    )
+
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "cred-1",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T1078",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "cred-1",
+            "target_id": "access-1",
+            "relationship": "enables",
+            "confidence": 0.8,
+            "technique_id": "T1552.001",
+        },
+    )
+
     omega = Omega(graph)
     report = omega.generate_report("executive")
-    
+
     # Critical path should have 2 steps
     assert len(report.critical_path) == 2
     assert report.critical_path[0].from_node == "asset-1"
@@ -143,63 +149,78 @@ def test_omega_generate_report_populates_critical_path() -> None:
 def test_omega_generate_report_populates_evidence_from_proof_artifacts() -> None:
     """Omega.generate_report() collects ProofArtifacts from critical path nodes."""
     graph = NetworkXGraphStore()
-    
+
     # Build asset node with proof artifact via event
-    graph.apply_event("NodeDiscovered", {
-        "id": "asset-1",
-        "type": "asset",
-        "properties": {"host": "example.com", "ip": "1.2.3.4"},
-        "confidence": 1.0,
-        "verified": False,
-        "proof_artifacts": [
-            {
-                "artifact_id": "artifact-1",
-                "type": "config_backup",
-                "storage_ref": "storage://backup-1",
-                "description": "wp-config.php.bak leak",
-                "captured_at": "2026-07-21T00:00:00Z",
-                "agent": "alpha",
-            }
-        ],
-    })
-    graph.apply_event("NodeDiscovered", {
-        "id": "cred-1",
-        "type": "credential",
-        "properties": {
-            "username": "admin",
-            "secret_ref": "vault://secret-1",
-            "service": "odoo",
-            "access_level": "admin",
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com", "ip": "1.2.3.4"},
+            "confidence": 1.0,
+            "verified": False,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-1",
+                    "type": "config_backup",
+                    "storage_ref": "storage://backup-1",
+                    "description": "wp-config.php.bak leak",
+                    "captured_at": "2026-07-21T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
         },
-        "confidence": 0.9,
-        "verified": False,
-    })
-    graph.apply_event("NodeDiscovered", {
-        "id": "access-1",
-        "type": "access_level",
-        "properties": {"level": "admin"},
-        "confidence": 0.8,
-        "verified": False,
-    })
-    
-    graph.apply_event("EdgeDiscovered", {
-        "source_id": "asset-1",
-        "target_id": "cred-1",
-        "relationship": "leads_to",
-        "confidence": 0.9,
-        "technique_id": "T1078",
-    })
-    graph.apply_event("EdgeDiscovered", {
-        "source_id": "cred-1",
-        "target_id": "access-1",
-        "relationship": "enables",
-        "confidence": 0.8,
-        "technique_id": "T1552.001",
-    })
-    
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred-1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault://secret-1",
+                "service": "odoo",
+                "access_level": "admin",
+            },
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "access-1",
+            "type": "access_level",
+            "properties": {"level": "admin"},
+            "confidence": 0.8,
+            "verified": False,
+        },
+    )
+
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "cred-1",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T1078",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "cred-1",
+            "target_id": "access-1",
+            "relationship": "enables",
+            "confidence": 0.8,
+            "technique_id": "T1552.001",
+        },
+    )
+
     omega = Omega(graph)
     report = omega.generate_report("executive")
-    
+
     # Evidence should include the artifact from the asset node
     assert len(report.evidence) >= 1
     evidence = report.evidence[0]
@@ -214,52 +235,67 @@ def test_omega_generate_report_populates_evidence_from_proof_artifacts() -> None
 def test_omega_generate_report_populates_blast_radius() -> None:
     """Omega.generate_report() computes blast_radius from entry node."""
     graph = NetworkXGraphStore()
-    
-    graph.apply_event("NodeDiscovered", {
-        "id": "asset-1",
-        "type": "asset",
-        "properties": {"host": "example.com", "ip": "1.2.3.4"},
-        "confidence": 1.0,
-        "verified": False,
-    })
-    graph.apply_event("NodeDiscovered", {
-        "id": "cred-1",
-        "type": "credential",
-        "properties": {
-            "username": "admin",
-            "secret_ref": "vault://secret-1",
-            "service": "odoo",
-            "access_level": "admin",
+
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com", "ip": "1.2.3.4"},
+            "confidence": 1.0,
+            "verified": False,
         },
-        "confidence": 0.9,
-        "verified": False,
-    })
-    graph.apply_event("NodeDiscovered", {
-        "id": "access-1",
-        "type": "access_level",
-        "properties": {"level": "admin"},
-        "confidence": 0.8,
-        "verified": False,
-    })
-    
-    graph.apply_event("EdgeDiscovered", {
-        "source_id": "asset-1",
-        "target_id": "cred-1",
-        "relationship": "leads_to",
-        "confidence": 0.9,
-        "technique_id": "T1078",
-    })
-    graph.apply_event("EdgeDiscovered", {
-        "source_id": "cred-1",
-        "target_id": "access-1",
-        "relationship": "enables",
-        "confidence": 0.8,
-        "technique_id": "T1552.001",
-    })
-    
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred-1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault://secret-1",
+                "service": "odoo",
+                "access_level": "admin",
+            },
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "access-1",
+            "type": "access_level",
+            "properties": {"level": "admin"},
+            "confidence": 0.8,
+            "verified": False,
+        },
+    )
+
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "cred-1",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T1078",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "cred-1",
+            "target_id": "access-1",
+            "relationship": "enables",
+            "confidence": 0.8,
+            "technique_id": "T1552.001",
+        },
+    )
+
     omega = Omega(graph)
     report = omega.generate_report("executive")
-    
+
     # Blast radius should be computed from the entry node
     assert report.blast_radius is not None
     assert report.blast_radius.from_node_id == "asset-1"
@@ -286,48 +322,57 @@ def test_redaction_guard_no_raw_secret_in_report() -> None:
 def test_provenance_guard_evidence_has_technique_id_and_artifact_ref() -> None:
     """PROVENANCE guard: every EvidenceItem has non-empty technique_id and artifact_ref."""
     graph = NetworkXGraphStore()
-    
-    graph.apply_event("NodeDiscovered", {
-        "id": "asset-1",
-        "type": "asset",
-        "properties": {"host": "example.com", "ip": "1.2.3.4"},
-        "confidence": 1.0,
-        "verified": False,
-        "proof_artifacts": [
-            {
-                "artifact_id": "artifact-1",
-                "type": "config_backup",
-                "storage_ref": "storage://backup-1",
-                "description": "wp-config.php.bak leak",
-                "captured_at": "2026-07-21T00:00:00Z",
-                "agent": "alpha",
-            }
-        ],
-    })
-    graph.apply_event("NodeDiscovered", {
-        "id": "cred-1",
-        "type": "credential",
-        "properties": {
-            "username": "admin",
-            "secret_ref": "vault://secret-1",
-            "service": "odoo",
-            "access_level": "admin",
+
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com", "ip": "1.2.3.4"},
+            "confidence": 1.0,
+            "verified": False,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-1",
+                    "type": "config_backup",
+                    "storage_ref": "storage://backup-1",
+                    "description": "wp-config.php.bak leak",
+                    "captured_at": "2026-07-21T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
         },
-        "confidence": 0.9,
-        "verified": False,
-    })
-    
-    graph.apply_event("EdgeDiscovered", {
-        "source_id": "asset-1",
-        "target_id": "cred-1",
-        "relationship": "leads_to",
-        "confidence": 0.9,
-        "technique_id": "T1078",
-    })
-    
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred-1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault://secret-1",
+                "service": "odoo",
+                "access_level": "admin",
+            },
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "cred-1",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T1078",
+        },
+    )
+
     omega = Omega(graph)
     report = omega.generate_report("executive")
-    
+
     # Every evidence item must have technique_id and artifact_ref
     for evidence in report.evidence:
         assert evidence.technique_id != "", f"Evidence missing technique_id: {evidence}"
@@ -338,10 +383,10 @@ def test_reproducibility_empty_graph() -> None:
     """REPRODUCIBILITY: empty graph produces empty critical_path and evidence."""
     graph = NetworkXGraphStore()
     omega = Omega(graph)
-    
+
     report1 = omega.generate_report("executive")
     report2 = omega.generate_report("executive")
-    
+
     assert report1.critical_path == report2.critical_path
     assert report1.evidence == report2.evidence
     assert report1.blast_radius == report2.blast_radius
@@ -351,7 +396,7 @@ def test_narrative_non_empty_for_all_styles() -> None:
     """narrative non-empty for each of executive|technical|remediation."""
     graph = NetworkXGraphStore()
     omega = Omega(graph)
-    
+
     for style in ["executive", "technical", "remediation"]:
         report = omega.generate_report(style)
         assert report.narrative != "", f"narrative empty for style={style}"
