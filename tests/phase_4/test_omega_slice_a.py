@@ -7,6 +7,8 @@ technique_id AND be backed by >= 1 ProofArtifact (anti-#3 at report level).
 
 from __future__ import annotations
 
+import hashlib
+
 from agent_alpha.agents.omega.roaster import EvidenceItem, Omega, PathStep, Report
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 
@@ -400,3 +402,296 @@ def test_narrative_non_empty_for_all_styles() -> None:
     for style in ["executive", "technical", "remediation"]:
         report = omega.generate_report(style)
         assert report.narrative != "", f"narrative empty for style={style}"
+
+
+def test_evidence_has_no_duplicates() -> None:
+    """Evidence bundle deduplicates identical ProofArtifacts by sha256."""
+    graph = NetworkXGraphStore()
+
+    # 3-node path: asset -> credential -> access_level, with the middle node
+    # carrying a single ProofArtifact.
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com", "ip": "1.2.3.4"},
+            "confidence": 1.0,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred-1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault://secret-1",
+                "service": "odoo",
+                "access_level": "admin",
+            },
+            "confidence": 0.9,
+            "verified": False,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-middle",
+                    "type": "config_backup",
+                    "storage_ref": "storage://middle-artifact",
+                    "description": "Middle node proof",
+                    "captured_at": "2026-07-21T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "access-1",
+            "type": "access_level",
+            "properties": {"level": "admin"},
+            "confidence": 0.8,
+            "verified": False,
+        },
+    )
+
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "cred-1",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T1000.001",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "cred-1",
+            "target_id": "access-1",
+            "relationship": "enables",
+            "confidence": 0.8,
+            "technique_id": "T1000.002",
+        },
+    )
+
+    omega = Omega(graph)
+    report = omega.generate_report("executive")
+
+    middle_sha = hashlib.sha256("storage://middle-artifact".encode()).hexdigest()
+    count = sum(1 for e in report.evidence if e.sha256 == middle_sha)
+    assert count == 1, "Middle-node artifact should appear exactly once in evidence bundle"
+
+
+def test_evidence_technique_attribution_correct() -> None:
+    """Evidence technique_ids follow the edge that actually reached each node."""
+    graph = NetworkXGraphStore()
+
+    # 2-edge path with distinct techniques and one artifact on each node.
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com", "ip": "1.2.3.4"},
+            "confidence": 1.0,
+            "verified": False,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-asset",
+                    "type": "screenshot",
+                    "storage_ref": "storage://asset-artifact",
+                    "description": "Asset evidence",
+                    "captured_at": "2026-07-21T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred-1",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "vault://secret-1",
+                "service": "odoo",
+                "access_level": "admin",
+            },
+            "confidence": 0.9,
+            "verified": False,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-cred",
+                    "type": "config_backup",
+                    "storage_ref": "storage://cred-artifact",
+                    "description": "Credential evidence",
+                    "captured_at": "2026-07-21T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "access-1",
+            "type": "access_level",
+            "properties": {"level": "admin"},
+            "confidence": 0.8,
+            "verified": False,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-access",
+                    "type": "screenshot",
+                    "storage_ref": "storage://access-artifact",
+                    "description": "Access evidence",
+                    "captured_at": "2026-07-21T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "cred-1",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T1111.001",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "cred-1",
+            "target_id": "access-1",
+            "relationship": "enables",
+            "confidence": 0.8,
+            "technique_id": "T2222.002",
+        },
+    )
+
+    omega = Omega(graph)
+    report = omega.generate_report("executive")
+
+    evidence_by_ref = {e.artifact_ref: e for e in report.evidence}
+
+    assert evidence_by_ref["storage://asset-artifact"].technique_id == "T1111.001"
+    assert evidence_by_ref["storage://cred-artifact"].technique_id == "T1111.001"
+    assert evidence_by_ref["storage://access-artifact"].technique_id == "T2222.002"
+
+
+def test_critical_path_selects_highest_impact() -> None:
+    """Omega ranks critical paths and chooses the highest-impact (longest) one."""
+    graph = NetworkXGraphStore()
+
+    # Two candidate paths from the same asset:
+    #   asset-1 -> data-short
+    #   asset-1 -> mid-1 -> mid-2 -> data-long  (longer, should be chosen)
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com", "ip": "1.2.3.4"},
+            "confidence": 1.0,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "data-short",
+            "type": "data",
+            "properties": {"data_type": "log", "sensitivity": "low"},
+            "confidence": 0.8,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "mid-1",
+            "type": "service",
+            "properties": {"name": "svc1"},
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "mid-2",
+            "type": "service",
+            "properties": {"name": "svc2"},
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "data-long",
+            "type": "data",
+            "properties": {"data_type": "db", "sensitivity": "high"},
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+
+    # Short path: length 2 (asset -> data-short)
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "data-short",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T3000.001",
+        },
+    )
+
+    # Longer path: length 4 (asset -> mid-1 -> mid-2 -> data-long)
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "mid-1",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T3000.002",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "mid-1",
+            "target_id": "mid-2",
+            "relationship": "lateral_move_to",
+            "confidence": 0.9,
+            "technique_id": "T3000.003",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "mid-2",
+            "target_id": "data-long",
+            "relationship": "leads_to",
+            "confidence": 0.9,
+            "technique_id": "T3000.004",
+        },
+    )
+
+    omega = Omega(graph)
+    report = omega.generate_report("executive")
+
+    # The selected critical_path should end at data-long (the longer chain).
+    assert report.critical_path, "critical_path should not be empty"
+    assert report.critical_path[-1].to_node == "data-long"

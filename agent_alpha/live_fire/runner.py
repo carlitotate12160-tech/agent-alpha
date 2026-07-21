@@ -230,10 +230,9 @@ def main(argv: list[str] | None = None) -> int:
     gt = ground_truth_from_config(config)
     score = score_findings(results, gt)
 
-    # ── Generate report ──────────────────────────────────────────
+    # ── Generate report (console-only in Slice A; PDF lives in Slice C) ─────
     report = Omega(graph_store).generate_report("technical")
     report_path = pathlib.Path("./report.pdf")
-    report.export_pdf(report_path)
 
     # ── Print scorecard ──────────────────────────────────────────
     print("=" * 60)
@@ -245,7 +244,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  MAX_FP_RATE:         {MAX_FP_RATE:.4f}")
     verdict = "PASS" if score.passed else "FAIL"
     print(f"  Verdict:             {verdict}")
-    print(f"  Report:              {report_path.resolve()}")
+    print(f"  Report target (PDF deferred to Slice C): {report_path.resolve()}")
     print("=" * 60)
 
     return 0 if score.passed else 1

@@ -226,12 +226,6 @@ def main(argv: list[str] | None = None) -> int:
         help="Run only the RECON leg (leak discovery). Do NOT escalate to ACTIVE cred-reuse.",
     )
     parser.add_argument(
-        "--report-pdf",
-        type=str,
-        default=None,
-        help="Path to export PDF report (default: ./report.pdf)",
-    )
-    parser.add_argument(
         "--opsec-profile",
         type=str,
         default=None,
@@ -377,15 +371,6 @@ def main(argv: list[str] | None = None) -> int:
         print("  WAF NOTE: One or more hosts returned 403 on backup path probes.")
         print("  These hosts are INCONCLUSIVE — recon was blocked by WAF/bot-protection.")
         print("  They are NOT reported as 'clean'. Recommend authenticated retest.")
-    print("=" * 64)
-
-    # ── PDF export ──────────────────────────────────────────────────────
-    report_path = pathlib.Path(args.report_pdf or "./report.pdf")
-    try:
-        report.export_pdf(report_path)
-        print(f"  PDF report exported: {report_path.resolve()}")
-    except Exception as exc:
-        print(f"  ! PDF export failed ({exc}) — console output above is the report.")
     print("=" * 64)
 
     return 0 if (result.chain_proven if not args.recon_only else result.leak_creds_added > 0) else 1

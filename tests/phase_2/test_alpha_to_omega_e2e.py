@@ -69,14 +69,6 @@ def test_report_is_mitre_mapped(populated_graph):
     assert report.mitre_attack_version == constants.MITRE_ATTACK_VERSION
 
 
-def test_report_exports_pdf(populated_graph, tmp_path: pathlib.Path):
-    report = Omega(populated_graph).generate_report(style="executive")
-    out = report.export_pdf(tmp_path / "report.pdf")
-    assert out.exists()
-    assert out.stat().st_size > 0
-    assert "pdf" in constants.REPORT_FORMATS
-
-
 def test_all_three_narrative_styles_render(populated_graph):
     omega = Omega(populated_graph)
     for style in ("executive", "technical", "remediation"):
