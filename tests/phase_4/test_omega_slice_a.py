@@ -480,7 +480,7 @@ def test_evidence_has_no_duplicates() -> None:
     omega = Omega(graph)
     report = omega.generate_report("executive")
 
-    middle_sha = hashlib.sha256("storage://middle-artifact".encode()).hexdigest()
+    middle_sha = hashlib.sha256(b"storage://middle-artifact").hexdigest()
     count = sum(1 for e in report.evidence if e.sha256 == middle_sha)
     assert count == 1, "Middle-node artifact should appear exactly once in evidence bundle"
 

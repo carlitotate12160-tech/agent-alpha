@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
     score = score_findings(results, gt)
 
     # ── Generate report (console-only in Slice A; PDF lives in Slice C) ─────
-    report = Omega(graph_store).generate_report("technical")
+    Omega(graph_store).generate_report("technical")
     report_path = pathlib.Path("./report.pdf")
 
     # ── Print scorecard ──────────────────────────────────────────

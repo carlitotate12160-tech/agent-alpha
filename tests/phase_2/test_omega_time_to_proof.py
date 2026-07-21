@@ -7,9 +7,6 @@ All fields default to None for zero regression.
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 from agent_alpha.agents.omega.roaster import Omega, Report, format_duration
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 
@@ -58,6 +55,5 @@ def test_omega_generate_report_defaults_to_none() -> None:
     omega = Omega(graph_store)
     report = omega.generate_report("executive")
     assert report.time_to_first_proof_s is None
-
 
     # PDF export is implemented in Slice C; Slice A tests focus on headline wiring only.

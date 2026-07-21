@@ -25,7 +25,6 @@ from agent_alpha.graph.narrative import (
 from agent_alpha.graph.nodes import AttackEdge
 from agent_alpha.graph.store import GraphStore
 
-
 logger = logging.getLogger(__name__)
 
 
