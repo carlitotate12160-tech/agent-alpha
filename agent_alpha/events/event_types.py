@@ -85,3 +85,10 @@ class EventType(enum.StrEnum):
     # ^ A recon probe received a 403 / challenge / block response. Recorded as
     # evidence so a WAF block is NEVER silently treated as "clean / not
     # vulnerable" (anti-false-negative). Carries {host, path, status_code}.
+
+    # ── Phase 2.5 (origin-direct reach — §12.33) ──────────────────
+    ORIGIN_DIRECT_ATTEMPT = "OriginDirectAttempt"
+    # ^ An origin-direct fetch was attempted: agent hit the origin IP directly,
+    # bypassing the CDN/WAF front door.  Audit-sensitive because it bypasses the
+    # client's WAF — requires signed authorized_origins consent (§12.36).
+    # Carries {host, origin_ip, authorized, discovered_via}.

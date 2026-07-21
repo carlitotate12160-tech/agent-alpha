@@ -91,6 +91,38 @@ The agent scaffolding around a reasoning model is the live model for our Cogniti
 
 **Convergence of both references:** LLM decides over state; deterministic tools execute; memory is persisted; sequencing is adaptive (never a fixed linear pipeline — see §12.0).
 
+### Reference #N — Strix (usestrix/strix): active-first open-source pentest agent
+
+**Date:** 2026-07-20. **Source:** field scan (~36K★, GPT-5 / Claude Sonnet 4.5 backed).
+
+What it is: autonomous AI pentest agents, ACTIVE-first ("run your code, hack it";
+dev/CI/PR-scan positioning). Toolkit: HTTP Interception Proxy, Browser Exploitation,
+Shell/Command Execution, Custom Exploit Runtime, Recon/OSINT. Graph-of-agents,
+parallel. Ships a reproducible PoC per finding ("won't report until exploited").
+
+CRIB (later, Phase-C active vuln classes + Gamma):
+  - HTTP Interception Proxy   → G12 (traffic manipulation; IDOR / business-logic)
+  - Browser Exploitation      → G10 (stateful/browser tool; IDOR / auth-flow)
+  - Custom Exploit Runtime + Shell → G9 / Gamma ANCHOR (exploitation primitive)
+  All land BEHIND our gates (OFFENSIVE_APPROVED + blast-radius; payloads = DeepSeek lane).
+  Strix has NO such gating — do not copy its ungated execution model.
+
+DO NOT CRIB:
+  - Targeting philosophy. Strix = active-first. Ours = passive-first (R2) + NodeZero HVT.
+    For LEGAL red-team (SEA/Indonesia), passive-first + minimal-RoE is the edge.
+  - Governance. Strix = ungated dev tool. Ours = event-sourced + auth-gated +
+    signed consent (§12.36) + blast-radius + auditable.
+
+NOT a differentiator: "prove exploitability via PoC" — Strix shares it (both
+NodeZero-aligned). Do not claim it as moat vs Strix.
+
+Moat delta (what actually separates us): governance + cross-engagement memory
+(GAP-003) + regional templates. NOT toolkit breadth.
+
+Competitive signal: pentest-agent toolkits are commoditizing (open-source, 36K★,
+LLM-backed). Reinforces §12.22 "wrap commodity, build the moat" — do NOT compete
+on toolkit breadth; win on governance + memory + passive-first + regional.
+
 ## 3. Agent Design — Conductor + Greek Alphabet
 
 ### Final naming
@@ -1698,6 +1730,45 @@ Reach strategy (scoping, NOT evasion — see reach_strategy.py):
 **Decision 3 — dynamic OPSEC & tracking.** Wire to PolicyEnforcer (GAP-005): "5x failed → switch before lockout" (subject to lockout governor §12.22 Decision 2). Technique effectiveness tracked in scratchpad (GAP-002); alternative re-planning via Planner (§12.29).
 
 **Confidence ~70%** — seam classifier/OPSEC code-verified; requires GAP-005 (PolicyEnforcer wired) + new template.
+
+**Decision 1 — EXTENDED (2026-07-21, origin-direct scoping refinement — SLICE C).**
+Origin-direct is CLASS-SCOPED + datacenter-egress aware, wired into the A1
+validation runner (`a1_validation_runner.py`). Invariants:
+
+  - **Front-door probe (C7 gate) preserved**: the front-door MUST show
+    CHALLENGE/blocked — origin-direct is never an alternative to a passing
+    front door. `challenge_encountered` is computed from the front-door probe,
+    not from the origin-direct result.
+  - **`challenge_solved` stays False on origin-direct (anti-#3)**: origin-direct
+    BYPASSES the challenge — it does NOT solve it. `"reached" ≠ "solved"`.
+    The honest story for Omega: "CF challenge NOT solved; bypassed via exposed
+    origin" — that IS the payable finding. Locked by test
+    `test_origin_direct_challenge_solved_stays_false`.
+  - **`choose_reach(mitigation, browser_solve_viable, authorized_origin)`**
+    selects ORIGIN_DIRECT only when browser_solve is not viable (datacenter ASN,
+    kwarg — not hardcoded) AND an authorized origin exists.
+  - **`assert_origin_authorized(origin, host, profile)` is fail-closed (C8)**:
+    raises `OriginNotAuthorizedError` if origin ∉ signed `authorized_origins`.
+  - **Discovery candidate ≠ authorization (C9)**: a candidate from
+    `OriginDiscovery.candidates()` is filtered against `authorized_origins`
+    BEFORE reaching `choose_reach`. Unauthorized candidates yield `origin=None`
+    → strategy stays DIRECT. Locked by `test_c9_unauthorized_candidate_no_origin_direct`.
+  - **`origin_direct_fetch`**: httpx GET to `https://<origin_ip>/<path>` with
+    `Host: <domain>` header. Origin IP is NEVER added to `_LAB_HOSTS`. No
+    commercial CAPTCHA solver.
+  - **Typed event**: `ORIGIN_DIRECT_ATTEMPT` (EventType) carries
+    `{host, origin_ip, authorized, discovered_via}` — audit-sensitive because
+    hitting a client origin bypasses their WAF.
+
+  TLS verify posture doctrine:
+  - **Lab slice**: `verify=False` — origin cert matches *domain*, not *IP*.
+    Naive `verify=True` always fails. Self-owned target, zero risk.
+  - **Production (client origin-direct)**: MUST use SNI-override domain-cert
+    verification (connect to IP, verify cert against domain via SNI/hostname
+    pin). httpx supports this via `httpx.Client(verify=ctx)` with a custom
+    SSLContext that sets `check_hostname=True, server_hostname=<domain>`.
+    Without this, origin-direct is a MITM gap (transparent proxy between agent
+    and origin). This is a product-hardening item, not a Slice C blocker.
 
 ---
 
