@@ -10,7 +10,7 @@ def _ok_result() -> A1Result:
     return A1Result(
         valid_run=True,
         challenge_encountered=True,
-        challenge_solved=False,          # origin-direct bypasses; never "solved" (anti-#3)
+        challenge_solved=False,  # origin-direct bypasses; never "solved" (anti-#3)
         chain_proven=True,
         edge_from_harvested_cred=True,
         nuclei_findings=0,
@@ -24,6 +24,7 @@ def _capture(store: dict) -> object:
     def _fake(**kwargs: object) -> A1Result:
         store.update(kwargs)
         return _ok_result()
+
     return _fake
 
 

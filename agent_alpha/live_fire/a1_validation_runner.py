@@ -451,8 +451,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="A1 validation: Agent-Alpha chain vs Nuclei through real CF challenge"
     )
-    parser.add_argument("--engagement-id", required=True, help="Engagement ID for the field-prove run")
-    parser.add_argument("--nuclei", default=None, help="Path to nuclei JSONL output (produced by operator)")
+    parser.add_argument(
+        "--engagement-id", required=True, help="Engagement ID for the field-prove run"
+    )
+    parser.add_argument(
+        "--nuclei", default=None, help="Path to nuclei JSONL output (produced by operator)"
+    )
     parser.add_argument("--target", default=A1_TARGET, help=f"Lab target (default: {A1_TARGET})")
     parser.add_argument(
         "--browser-solve",
@@ -472,7 +476,9 @@ def main(argv: list[str] | None = None) -> int:
             "authorized_origins. Front door must be CHALLENGE'd for a valid run."
         ),
     )
-    parser.add_argument("--client-id", default="lab", help="Client ID for the (lab) signed engagement profile.")
+    parser.add_argument(
+        "--client-id", default="lab", help="Client ID for the (lab) signed engagement profile."
+    )
     args = parser.parse_args(argv)
 
     solver: BrowserSolveTransport | None = None
