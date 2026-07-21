@@ -54,6 +54,7 @@ class HttpClientProtocol(Protocol):
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
         allow_redirects: bool = True,
+        verify: bool | None = None,
     ) -> Any: ...
 
 
@@ -98,15 +99,23 @@ class HttpClient:
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
         allow_redirects: bool = True,
+        verify: bool | None = None,
     ) -> HttpResponse:
         """Issue a GET. ``headers``/``cookies`` (default None) let Beta apply a
         credential's auth context; omitting them reproduces the Phase-2 recon GET
         exactly. ``allow_redirects=False`` is used by the A1 mitigation probe to
         classify 3xx responses before auto-following to an off-scope destination.
+        ``verify`` overrides TLS certificate verification per-call (None → fall
+        back to the instance default, typically True).
         Transport failures raise :class:`HttpClientError`; httpx never
         escapes this method."""
         return self._request(
-            "GET", url, headers=headers, cookies=cookies, allow_redirects=allow_redirects
+            "GET",
+            url,
+            headers=headers,
+            cookies=cookies,
+            allow_redirects=allow_redirects,
+            verify=verify,
         )
 
     def post(
@@ -117,12 +126,19 @@ class HttpClient:
         json_body: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
+        verify: bool | None = None,
     ) -> HttpResponse:
         """Issue a POST (e.g. a login form submission). Exactly one of ``data``
         (form-encoded) or ``json_body`` should be set. Same error contract as
         :meth:`get`."""
         return self._request(
-            "POST", url, headers=headers, cookies=cookies, data=data, json_body=json_body
+            "POST",
+            url,
+            headers=headers,
+            cookies=cookies,
+            data=data,
+            json_body=json_body,
+            verify=verify,
         )
 
     # ── internal ────────────────────────────────────────────────
@@ -137,16 +153,19 @@ class HttpClient:
         data: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
         allow_redirects: bool = True,
+        verify: bool | None = None,
     ) -> HttpResponse:
         # RoE: block to honour the engagement rate limit before egress. Delays,
         # never drops (anti-Lyndon #3). Single chokepoint for every method (#7).
         self._rate_limiter.acquire()
         merged_headers = {**self._headers, **(headers or {})}
+        # Per-call verify override: None → fall back to instance default (self._verify).
+        effective_verify = self._verify if verify is None else verify
         try:
             with httpx.Client(
                 timeout=self.timeout,
                 transport=self._transport,
-                verify=self._verify,
+                verify=effective_verify,
                 follow_redirects=allow_redirects,
             ) as client:
                 response = client.request(
