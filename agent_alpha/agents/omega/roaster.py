@@ -10,11 +10,20 @@ Reuses the existing narrative builder ``agent_alpha.graph.narrative.to_narrative
 
 from __future__ import annotations
 
+import hashlib
 import pathlib
 from dataclasses import dataclass
+from typing import Any
 
 from agent_alpha.config import constants
-from agent_alpha.graph.narrative import ChainFinding, summarize_chain_finding, to_narrative
+from agent_alpha.graph.narrative import (
+    BlastRadius,
+    ChainFinding,
+    find_critical_paths,
+    summarize_chain_finding,
+    to_narrative,
+)
+from agent_alpha.graph.nodes import ProofArtifact
 from agent_alpha.graph.store import GraphStore
 
 
@@ -31,6 +40,32 @@ def format_duration(seconds: float | None) -> str | None:
 
 
 @dataclass(frozen=True)
+class PathStep:
+    """Thin view struct for a single step on the critical path.
+
+    Reuses canonical graph types; NOT a new domain type (anti-#6).
+    """
+    from_node: str
+    edge_technique_id: str
+    to_node: str
+    node_kind: str
+
+
+@dataclass(frozen=True)
+class EvidenceItem:
+    """Thin view struct for evidence backing a risk claim.
+
+    Data comes straight from the redacted ProofArtifact. The vault holds
+    the raw secret; this carries only the ref + description (anti-#3).
+    """
+    technique_id: str
+    description: str
+    artifact_ref: str
+    sha256: str
+    captured_at: str
+
+
+@dataclass(frozen=True)
 class Report:
     """Immutable report produced by :class:`Omega`."""
 
@@ -40,6 +75,10 @@ class Report:
     chain_finding: ChainFinding | None = None
     time_to_first_proof_s: float | None = None
     blocked_hosts: tuple[str, ...] = ()
+    critical_path: list[PathStep] = ()
+    evidence: list[EvidenceItem] = ()
+    blast_radius: BlastRadius | None = None
+    attack_flow_mermaid: str = ""
 
     def time_to_proof_headline(self) -> str | None:
         """Sellable headline string, or None when no proof was produced."""
@@ -144,6 +183,47 @@ class Omega:
             {e.technique_id for e in self.graph_store.all_edges() if e.technique_id}
         )
 
+        # Slice A: critical path + evidence bundle
+        critical_paths = find_critical_paths(self.graph_store)
+        critical_path_steps: list[PathStep] = []
+        evidence_items: list[EvidenceItem] = []
+        blast_radius_result: BlastRadius | None = None
+
+        if critical_paths:
+            # Use the first critical path (highest impact)
+            path = critical_paths[0]
+            for i in range(len(path) - 1):
+                from_node = path[i]
+                to_node = path[i + 1]
+                edge = self.graph_store.get_edge(from_node.id, to_node.id)
+                if edge is None:
+                    continue
+                critical_path_steps.append(
+                    PathStep(
+                        from_node=from_node.id,
+                        edge_technique_id=edge.technique_id or "",
+                        to_node=to_node.id,
+                        node_kind=to_node.type.value,
+                    )
+                )
+                # Collect ProofArtifacts from both endpoint nodes
+                for node in (from_node, to_node):
+                    for artifact in node.proof_artifacts:
+                        # SHA-256 of the storage_ref for deduplication
+                        sha256 = hashlib.sha256(artifact.storage_ref.encode()).hexdigest()
+                        evidence_items.append(
+                            EvidenceItem(
+                                technique_id=edge.technique_id or "",
+                                description=artifact.description,
+                                artifact_ref=artifact.storage_ref,
+                                sha256=sha256,
+                                captured_at=artifact.captured_at,
+                            )
+                        )
+            # Compute blast radius from the entry node
+            if path:
+                blast_radius_result = self._compute_blast_radius(path[0].id)
+
         return Report(
             narrative=narrative,
             mitre_techniques=mitre_techniques,
@@ -151,4 +231,13 @@ class Omega:
             chain_finding=summarize_chain_finding(self.graph_store),
             time_to_first_proof_s=time_to_first_proof_s,
             blocked_hosts=blocked_hosts,
+            critical_path=tuple(critical_path_steps),
+            evidence=tuple(evidence_items),
+            blast_radius=blast_radius_result,
+            attack_flow_mermaid="",  # Slice B: to be implemented
         )
+
+    def _compute_blast_radius(self, from_node_id: str) -> BlastRadius:
+        """Compute blast radius from a node using the narrative module."""
+        from agent_alpha.graph.narrative import calculate_blast_radius
+        return calculate_blast_radius(self.graph_store, from_node_id)
