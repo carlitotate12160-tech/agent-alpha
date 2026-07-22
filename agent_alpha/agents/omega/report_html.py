@@ -62,7 +62,7 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
             '<svg viewBox="0 0 680 120" width="100%" style="display:block; margin:14px 0;" role="img" aria-label="Attack path diagram">\n'
             '  <rect x="0" y="0" width="680" height="120" rx="12" fill="#0f1620"/>\n'
             '  <text x="340" y="65" font-family="monospace" font-size="12" fill="#5b6779" text-anchor="middle">No critical attack path available.</text>\n'
-            '</svg>'
+            "</svg>"
         )
 
     # Extract distinct nodes in order
@@ -97,9 +97,11 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
     # Render timeline top markers
     for i, x in enumerate(x_coords):
         color = "#c0392b" if i == n_nodes - 1 else "#3a4557"
-        label = f"Step {i+1}" if i > 0 else "Entry"
-        svg_lines.append(f'    <circle cx="{x}" cy="30" r="2" fill="{color}"/><text x="{x}" y="20">{label}</text>')
-    svg_lines.append('  </g>')
+        label = f"Step {i + 1}" if i > 0 else "Entry"
+        svg_lines.append(
+            f'    <circle cx="{x}" cy="30" r="2" fill="{color}"/><text x="{x}" y="20">{label}</text>'
+        )
+    svg_lines.append("  </g>")
 
     # Render connector edges with technique labels
     for i, step in enumerate(path_tuple):
@@ -111,18 +113,28 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
         if i % 2 == 0:
             cy1, cy2 = 180, 180
             text_y = 198
-            path_d = f"M{x1},150 C{x1 + (x2 - x1)//3},{cy1} {x1 + 2*(x2 - x1)//3},{cy2} {x2},150"
+            path_d = (
+                f"M{x1},150 C{x1 + (x2 - x1) // 3},{cy1} {x1 + 2 * (x2 - x1) // 3},{cy2} {x2},150"
+            )
             stroke_color = "#5d7cae" if i == 0 else "#4a5568"
         else:
             cy1, cy2 = 120, 120
             text_y = 114
-            path_d = f"M{x1},150 C{x1 + (x2 - x1)//3},{cy1} {x1 + 2*(x2 - x1)//3},{cy2} {x2},150"
+            path_d = (
+                f"M{x1},150 C{x1 + (x2 - x1) // 3},{cy1} {x1 + 2 * (x2 - x1) // 3},{cy2} {x2},150"
+            )
             stroke_color = "#4a5568"
 
-        tech_color = "#c79a4b" if "T1552" in tech_id else ("#c76b5b" if "T1078" in tech_id else "#89a3c9")
+        tech_color = (
+            "#c79a4b" if "T1552" in tech_id else ("#c76b5b" if "T1078" in tech_id else "#89a3c9")
+        )
 
-        svg_lines.append(f'  <path d="{path_d}" fill="none" stroke="{stroke_color}" stroke-width="2"/>')
-        svg_lines.append(f'  <text x="{mid_x}" y="{text_y}" font-family="monospace" font-size="11" fill="{tech_color}" text-anchor="middle">{tech_id}</text>')
+        svg_lines.append(
+            f'  <path d="{path_d}" fill="none" stroke="{stroke_color}" stroke-width="2"/>'
+        )
+        svg_lines.append(
+            f'  <text x="{mid_x}" y="{text_y}" font-family="monospace" font-size="11" fill="{tech_color}" text-anchor="middle">{tech_id}</text>'
+        )
 
     # Render node circles and labels
     for i, (node_id, kind) in enumerate(zip(node_ids, node_kinds, strict=True)):
@@ -132,35 +144,45 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
 
         if i == n_nodes - 1:
             # Terminal node (COMPROMISED)
-            svg_lines.extend([
-                f'  <circle cx="{x}" cy="150" r="28" fill="#241416" stroke="#c0392b" stroke-width="2"/>',
-                f'  <rect x="{x-7}" y="151" width="14" height="11" rx="1.5" fill="none" stroke="#e5776a" stroke-width="1.5"/>',
-                f'  <path d="M{x-4},151 v-3 a4,4 0 0 1 8,0" fill="none" stroke="#e5776a" stroke-width="1.5"/>',
-                f'  <circle cx="{x}" cy="156" r="1.4" fill="#e5776a"/>',
-                f'  <text x="{x}" y="194" font-size="12" fill="#f0d0cb" text-anchor="middle" font-weight="500">{node_id_esc}</text>',
-                f'  <text x="{x}" y="207" font-size="10" fill="#c0392b" text-anchor="middle" font-weight="600" letter-spacing="0.5">COMPROMISED</text>',
-            ])
+            svg_lines.extend(
+                [
+                    f'  <circle cx="{x}" cy="150" r="28" fill="#241416" stroke="#c0392b" stroke-width="2"/>',
+                    f'  <rect x="{x - 7}" y="151" width="14" height="11" rx="1.5" fill="none" stroke="#e5776a" stroke-width="1.5"/>',
+                    f'  <path d="M{x - 4},151 v-3 a4,4 0 0 1 8,0" fill="none" stroke="#e5776a" stroke-width="1.5"/>',
+                    f'  <circle cx="{x}" cy="156" r="1.4" fill="#e5776a"/>',
+                    f'  <text x="{x}" y="194" font-size="12" fill="#f0d0cb" text-anchor="middle" font-weight="500">{node_id_esc}</text>',
+                    f'  <text x="{x}" y="207" font-size="10" fill="#c0392b" text-anchor="middle" font-weight="600" letter-spacing="0.5">COMPROMISED</text>',
+                ]
+            )
         else:
             # Intermediate / Entry node
-            stroke_col = "#5d6b80" if i == 0 else ("#c79a4b" if "cred" in kind or "vuln" in kind else "#5d7cae")
+            stroke_col = (
+                "#5d6b80"
+                if i == 0
+                else ("#c79a4b" if "cred" in kind or "vuln" in kind else "#5d7cae")
+            )
             bg_fill = "#1e1c14" if "cred" in kind or "vuln" in kind else "#16202e"
-            svg_lines.extend([
-                f'  <circle cx="{x}" cy="150" r="26" fill="{bg_fill}" stroke="{stroke_col}" stroke-width="2"/>',
-                f'  <circle cx="{x}" cy="150" r="8" fill="none" stroke="#aeb9c9" stroke-width="1.4"/>',
-                f'  <text x="{x}" y="192" font-size="12" fill="#e6eaf0" text-anchor="middle">{node_id_esc}</text>',
-                f'  <text x="{x}" y="206" font-size="11" fill="#7f8a9c" text-anchor="middle">{kind_esc}</text>',
-            ])
+            svg_lines.extend(
+                [
+                    f'  <circle cx="{x}" cy="150" r="26" fill="{bg_fill}" stroke="{stroke_col}" stroke-width="2"/>',
+                    f'  <circle cx="{x}" cy="150" r="8" fill="none" stroke="#aeb9c9" stroke-width="1.4"/>',
+                    f'  <text x="{x}" y="192" font-size="12" fill="#e6eaf0" text-anchor="middle">{node_id_esc}</text>',
+                    f'  <text x="{x}" y="206" font-size="11" fill="#7f8a9c" text-anchor="middle">{kind_esc}</text>',
+                ]
+            )
 
     # Node-type legend at bottom of panel
-    svg_lines.extend([
-        '  <g font-family="sans-serif" font-size="10" fill="#7f8a9c">',
-        '    <circle cx="50" cy="235" r="4" fill="#5d6b80"/><text x="58" y="238">Entry</text>',
-        '    <circle cx="120" cy="235" r="4" fill="#c79a4b"/><text x="128" y="238">Credential / Vuln</text>',
-        '    <circle cx="230" cy="235" r="4" fill="#5d7cae"/><text x="238" y="238">Asset / Pivot</text>',
-        '    <circle cx="330" cy="235" r="4" fill="#c0392b"/><text x="338" y="238">Objective (Compromised)</text>',
-        '  </g>',
-        '</svg>',
-    ])
+    svg_lines.extend(
+        [
+            '  <g font-family="sans-serif" font-size="10" fill="#7f8a9c">',
+            '    <circle cx="50" cy="235" r="4" fill="#5d6b80"/><text x="58" y="238">Entry</text>',
+            '    <circle cx="120" cy="235" r="4" fill="#c79a4b"/><text x="128" y="238">Credential / Vuln</text>',
+            '    <circle cx="230" cy="235" r="4" fill="#5d7cae"/><text x="238" y="238">Asset / Pivot</text>',
+            '    <circle cx="330" cy="235" r="4" fill="#c0392b"/><text x="338" y="238">Objective (Compromised)</text>',
+            "  </g>",
+            "</svg>",
+        ]
+    )
 
     return "\n".join(svg_lines)
 
@@ -198,9 +220,9 @@ def render_report_html(report: Report) -> str:
     if sev_table_rows:
         sev_table_html = (
             '  <table class="sev">\n'
-            '    <thead><tr><th>Finding</th><th>Technique</th><th>Severity</th></tr></thead>\n'
-            '    <tbody>\n' + "\n".join(sev_table_rows) + '\n    </tbody>\n'
-            '  </table>'
+            "    <thead><tr><th>Finding</th><th>Technique</th><th>Severity</th></tr></thead>\n"
+            "    <tbody>\n" + "\n".join(sev_table_rows) + "\n    </tbody>\n"
+            "  </table>"
         )
     else:
         sev_table_html = '<p class="no-data">No findings recorded in summary table.</p>'
@@ -219,9 +241,9 @@ def render_report_html(report: Report) -> str:
             finding_blocks.append(
                 f'  <div class="finding high">\n'
                 f'    <div class="hd"><h3>3.{idx} &nbsp; {desc_esc}</h3><span class="id sev-tag high">High</span></div>\n'
-                f'    <p>{desc_esc}</p>\n'
+                f"    <p>{desc_esc}</p>\n"
                 f'    <div class="proof mono">Technique {tech_esc} · Proof: {ref_esc} · sha256 {sha_esc}</div>\n'
-                f'  </div>'
+                f"  </div>"
             )
         findings_html = "\n".join(finding_blocks)
     else:
@@ -235,24 +257,26 @@ def render_report_html(report: Report) -> str:
         sev_class = b.severity.lower()
         count = b.reachable_count
         hvt_str = html.escape(", ".join(b.high_value_targets)) if b.high_value_targets else "None"
-        reachable_str = html.escape(", ".join(b.reachable_node_ids)) if b.reachable_node_ids else "None"
+        reachable_str = (
+            html.escape(", ".join(b.reachable_node_ids)) if b.reachable_node_ids else "None"
+        )
 
         blast_html = (
             '  <div class="two">\n'
-            '    <div>\n'
-            '      <h3>Reachable from this access</h3>\n'
+            "    <div>\n"
+            "      <h3>Reachable from this access</h3>\n"
             f'      <p>Severity <span class="sev-tag {sev_class}">{sev_label}</span>. '
             f'{count} node(s) reachable from entry point <span class="mono">{from_node}</span>. '
             f'High-value targets: <span class="mono">{hvt_str}</span>. '
             f'Reachable nodes: <span class="mono">{reachable_str}</span>.</p>\n'
-            '    </div>\n'
-            '    <div>\n'
-            '      <h3>Business impact</h3>\n'
-            '      <p>An administrative or critical foothold on the application exposes all data and '
-            'functions controlled by that role. Validated access paths bypass edge mitigations '
-            'and present direct risk to backend assets.</p>\n'
-            '    </div>\n'
-            '  </div>'
+            "    </div>\n"
+            "    <div>\n"
+            "      <h3>Business impact</h3>\n"
+            "      <p>An administrative or critical foothold on the application exposes all data and "
+            "functions controlled by that role. Validated access paths bypass edge mitigations "
+            "and present direct risk to backend assets.</p>\n"
+            "    </div>\n"
+            "  </div>"
         )
     else:
         blast_html = '  <p class="no-data">No blast radius calculated.</p>'
