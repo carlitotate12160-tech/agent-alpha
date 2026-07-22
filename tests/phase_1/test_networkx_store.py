@@ -302,7 +302,7 @@ def test_node_verified_sets_verified_true() -> None:
         verified=False,
     )
     store.apply_event("NodeDiscovered", node_to_dict(node))
-    store.apply_event("NodeVerified", {"node_id": "n1"})
+    store.apply_event("NodeVerified", {"node_id": "n1", "oracle": "TestOracle"})
     retrieved = store.get_node("n1")
     assert retrieved is not None
     assert retrieved.verified is True
@@ -313,7 +313,7 @@ def test_node_verified_sets_verified_true() -> None:
 def test_node_verified_nonexistent_no_op() -> None:
     store = NetworkXGraphStore()
     initial_count = store.node_count()
-    store.apply_event("NodeVerified", {"node_id": "nonexistent"})
+    store.apply_event("NodeVerified", {"node_id": "nonexistent", "oracle": "TestOracle"})
     assert store.node_count() == initial_count
 
 

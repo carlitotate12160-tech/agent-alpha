@@ -112,9 +112,13 @@ class AttackNode:
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("confidence must be between 0.0 and 1.0")
-        # Bidirectional sync: legacy verified=True without explicit tier → CROSS_VERIFIED.
+        # Legacy sync: verified=True without explicit tier → SELF_VERIFIED (tool
+        # self-report).  CROSS_VERIFIED is oracle-exclusive: it may ONLY originate
+        # from a provenance-checked NodeVerified event emitted by
+        # run_verification_pass.  Mapping legacy verified=True → CROSS_VERIFIED
+        # would auto-promote self-reports (theater).
         if self.verified and self.verification == VerificationTier.UNVERIFIED:
-            object.__setattr__(self, "verification", VerificationTier.CROSS_VERIFIED)
+            object.__setattr__(self, "verification", VerificationTier.SELF_VERIFIED)
         # Derive verified from verification (single source of truth).
         object.__setattr__(self, "verified", self.verification == VerificationTier.CROSS_VERIFIED)
 
@@ -177,9 +181,14 @@ def _reconstruct_node(raw: dict[str, Any]) -> AttackNode:
     proof_artifacts = [ProofArtifact(**a) for a in proof_artifacts_data]
 
     verification_raw = raw.get("verification")
-    verification = (
-        VerificationTier(verification_raw) if verification_raw else VerificationTier.UNVERIFIED
-    )
+    if verification_raw:
+        verification = VerificationTier(verification_raw)
+    elif raw.get("verified", False):
+        # Legacy payload: verified=True but no verification tier → SELF_VERIFIED
+        # (tool self-report).  NEVER CROSS_VERIFIED — that is oracle-exclusive.
+        verification = VerificationTier.SELF_VERIFIED
+    else:
+        verification = VerificationTier.UNVERIFIED
 
     return AttackNode(
         id=raw["id"],

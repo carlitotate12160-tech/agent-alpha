@@ -23,6 +23,7 @@ from agent_alpha.graph.nodes import (
     CredentialProperties,
     NodeType,
     RelationshipType,
+    VerificationTier,
 )
 from agent_alpha.graph.persist import persist_edge, persist_node
 
@@ -61,7 +62,7 @@ def test_split_verified_vs_hypothesis() -> None:
         properties=AccessLevelProperties(level="admin"),
         confidence=0.9,
         agent="test",
-        verified=True,
+        verification=VerificationTier.CROSS_VERIFIED,
     )
     unverified_node = AttackNode(
         id="asset_host",
@@ -150,7 +151,7 @@ def test_objective_boundary_unverified_then_verified() -> None:
     assert wm.is_objective_met(obj) is False, "unverified ACCESS_LEVEL must not satisfy objective"
 
     # Stage 2: verify the ACCESS_LEVEL via NodeVerified event
-    gs.apply_event("NodeVerified", {"node_id": "access_admin"})
+    gs.apply_event("NodeVerified", {"node_id": "access_admin", "oracle": "TestOracle"})
 
     wm2 = WorldModel(gs)
     assert wm2.is_objective_met(obj) is True, "verified ACCESS_LEVEL + ENABLES edge must satisfy"

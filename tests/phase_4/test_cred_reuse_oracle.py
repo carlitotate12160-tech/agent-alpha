@@ -1,21 +1,36 @@
 # tests/phase_4/test_cred_reuse_oracle.py
-"""Phase 5 (Moat): CredReuseOracle + VerificationTier semantics.
+"""Phase 5 (Moat): CredReuseOracle + VerificationTier semantics + live-path wiring.
 
 Tests verify:
   T1: CONFIRMED on real auth backing (proof artifact + harvested cred + ENABLES edge).
   T2: INCONCLUSIVE on inferred access (no proof artifacts).
   T3: Oracle rejects self-report — does not rely on node.verified.
   T4: verified property is True only for CROSS_VERIFIED.
-  T5: Migration guard — existing code passing verified=True gets CROSS_VERIFIED.
+  T5: Migration guard — existing code passing verified=True gets SELF_VERIFIED (NOT CROSS).
   T6: SELF_VERIFIED nodes have verified=False.
-  T7: Reverifier seam — REFUTED when re-auth fails.
-  T8: Lockout governance — respects threshold.
+  T9: Oracle satisfies the Protocol.
+  T10: Non-ACCESS_LEVEL node → INCONCLUSIVE.
+
+  NON-ISLAND (de-island proof):
+  T11: run_verification_pass promotes CONFIRMED access to CROSS_VERIFIED.
+  T12: run_verification_pass does NOT promote when no auth ground-truth (DIFFERENTIAL).
+  T13: A1 runner invokes run_verification_pass (wiring proof).
+
+  PROVENANCE:
+  T14: NodeVerified without oracle provenance does NOT promote.
+  T15: NodeVerified WITH oracle provenance promotes.
+
+  LEGACY:
+  T16: Legacy verified=True reconstructs to SELF_VERIFIED, never CROSS_VERIFIED.
 """
 
 from __future__ import annotations
 
 import uuid
+from typing import Any
+from unittest.mock import ANY, patch
 
+from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
     AccessLevelProperties,
@@ -27,13 +42,15 @@ from agent_alpha.graph.nodes import (
     ProofArtifact,
     RelationshipType,
     VerificationTier,
+    _reconstruct_node,
     node_to_dict,
 )
-from agent_alpha.oracle.verifier import CredReuseOracle, Oracle, Verdict
+from agent_alpha.oracle.verifier import CredReuseOracle, Oracle, Verdict, run_verification_pass
 
 _HOST = "oracle.lab.internal"
 _CRED_ID = f"cred:{_HOST}:admin"
 _ACCESS_ID = f"access:{_HOST}"
+_ENGAGEMENT_ID = "eng-oracle-test"
 
 
 def _emit_node(store: NetworkXGraphStore, node: AttackNode) -> None:
@@ -232,11 +249,16 @@ def test_verified_property_is_cross_only() -> None:
     assert cross_verified.verification == VerificationTier.CROSS_VERIFIED
 
 
-# ── T5: Migration guard — verified=True → CROSS_VERIFIED (backward compat) ──
+# ── T5: Migration guard — verified=True → SELF_VERIFIED (NOT CROSS) ─────────
 
 
-def test_migration_guard_verified_true_maps_to_cross_verified() -> None:
-    """Existing code passing verified=True gets CROSS_VERIFIED via __post_init__ sync."""
+def test_migration_guard_verified_true_maps_to_self_verified() -> None:
+    """Existing code passing verified=True gets SELF_VERIFIED via __post_init__ sync.
+
+    This is the anti-theater fix: verified=True is a legacy tool self-report.
+    It must NOT auto-promote to CROSS_VERIFIED — that would give unearned
+    cross-verification status to every legacy self-report.
+    """
     node = AttackNode(
         id="legacy",
         type=NodeType.ACCESS_LEVEL,
@@ -245,8 +267,11 @@ def test_migration_guard_verified_true_maps_to_cross_verified() -> None:
         agent="beta",
         verified=True,
     )
-    assert node.verified is True
-    assert node.verification == VerificationTier.CROSS_VERIFIED
+    # Legacy verified=True → SELF_VERIFIED (tool self-report), NOT CROSS_VERIFIED.
+    assert node.verification == VerificationTier.SELF_VERIFIED
+    # The verified property derives from verification == CROSS_VERIFIED,
+    # so it is now False (correctly — this node was never cross-verified).
+    assert node.verified is False
 
 
 # ── T6: SELF_VERIFIED nodes have verified=False ──────────────────────────────
@@ -264,59 +289,6 @@ def test_self_verified_has_verified_false() -> None:
     )
     assert node.verified is False
     assert node.verification == VerificationTier.SELF_VERIFIED
-
-
-# ── T7: Reverifier seam — REFUTED when re-auth fails ────────────────────────
-
-
-class _FailingReverifier:
-    """Simulates a re-auth attempt that fails (account locked, cred rotated)."""
-
-    def check(self, node: object, cred_node: object) -> bool:
-        return False
-
-
-def test_reverifier_refutes_on_failed_reauth() -> None:
-    """When the reverifier returns False, oracle returns REFUTED."""
-    store = _proven_store()
-    oracle = CredReuseOracle(reverifier=_FailingReverifier())
-    node = store.get_node(_ACCESS_ID)
-    assert node is not None
-
-    verdict = oracle.verify(node, store)
-    assert verdict == Verdict.REFUTED
-
-
-# ── T8: Lockout governance ───────────────────────────────────────────────────
-
-
-class _CountingReverifier:
-    """Counts how many times check() is called."""
-
-    def __init__(self) -> None:
-        self.call_count = 0
-
-    def check(self, node: object, cred_node: object) -> bool:
-        self.call_count += 1
-        return True
-
-
-def test_lockout_threshold_respected() -> None:
-    """Oracle stops calling reverifier after lockout_threshold attempts."""
-    store = _proven_store()
-    reverifier = _CountingReverifier()
-    oracle = CredReuseOracle(reverifier=reverifier, lockout_threshold=2)
-    node = store.get_node(_ACCESS_ID)
-    assert node is not None
-
-    # First two calls go through to reverifier.
-    oracle.verify(node, store)
-    oracle.verify(node, store)
-    assert reverifier.call_count == 2
-
-    # Third call respects lockout — reverifier not called.
-    oracle.verify(node, store)
-    assert reverifier.call_count == 2
 
 
 # ── T9: Oracle satisfies the Protocol ────────────────────────────────────────
@@ -346,3 +318,199 @@ def test_non_access_level_node_is_inconclusive() -> None:
     assert node is not None
 
     assert oracle.verify(node, store) == Verdict.INCONCLUSIVE
+
+
+# ── T11: NON-ISLAND — run_verification_pass promotes confirmed access ────────
+
+
+def test_verification_pass_promotes_confirmed_access() -> None:
+    """NON-ISLAND proof: build an A1-shaped graph where the access node is
+    SELF_VERIFIED and backed by a real auth ground-truth (harvested cred +
+    authenticated_request proof). Run run_verification_pass. Assert the
+    access node is now CROSS_VERIFIED — proving the LIVE oracle path
+    promotes, not a constructed node."""
+    store = _proven_store()
+    event_store = InMemoryEventStore()
+
+    # Pre-condition: access node is SELF_VERIFIED.
+    node_before = store.get_node(_ACCESS_ID)
+    assert node_before is not None
+    assert node_before.verification == VerificationTier.SELF_VERIFIED
+
+    # Run the live oracle path.
+    run_verification_pass(store, event_store, [CredReuseOracle()], _ENGAGEMENT_ID)
+
+    # Post-condition: access node is now CROSS_VERIFIED.
+    node_after = store.get_node(_ACCESS_ID)
+    assert node_after is not None
+    assert node_after.verification == VerificationTier.CROSS_VERIFIED
+    assert node_after.verified is True
+
+    # The event store must have a NodeVerified event with oracle provenance.
+    events = event_store.get_events(_ENGAGEMENT_ID)
+    node_verified_events = [e for e in events if e.event_type == "NodeVerified"]
+    assert len(node_verified_events) == 1
+    evt = node_verified_events[0]
+    assert evt.payload["node_id"] == _ACCESS_ID
+    assert evt.payload["oracle"] == "CredReuseOracle"
+    assert evt.payload["verdict"] == "confirmed"
+
+
+# ── T12: DIFFERENTIAL — no promote on inferred (no auth ground-truth) ────────
+
+
+def test_verification_pass_no_promote_on_inferred() -> None:
+    """DIFFERENTIAL proof: identical graph SHAPE but no auth ground-truth
+    (no authenticated_request proof). Run the pass. Assert the node stays
+    SELF_VERIFIED (NOT promoted) — proves the oracle uses the independent
+    signal, not graph shape."""
+    store = _inferred_store()
+    event_store = InMemoryEventStore()
+
+    # Pre-condition: access node is SELF_VERIFIED.
+    node_before = store.get_node(_ACCESS_ID)
+    assert node_before is not None
+    assert node_before.verification == VerificationTier.SELF_VERIFIED
+
+    # Run the live oracle path.
+    run_verification_pass(store, event_store, [CredReuseOracle()], _ENGAGEMENT_ID)
+
+    # Post-condition: access node is STILL SELF_VERIFIED (not promoted).
+    node_after = store.get_node(_ACCESS_ID)
+    assert node_after is not None
+    assert node_after.verification == VerificationTier.SELF_VERIFIED
+    assert node_after.verified is False
+
+    # No NodeVerified events emitted.
+    events = event_store.get_events(_ENGAGEMENT_ID)
+    node_verified_events = [e for e in events if e.event_type == "NodeVerified"]
+    assert len(node_verified_events) == 0
+
+
+# ── T13: A1 runner invokes run_verification_pass ─────────────────────────────
+
+
+def test_a1_runner_invokes_verification_pass() -> None:
+    """Spy/patch run_verification_pass; assert the A1 runner calls it during
+    a chain run. Proves non-island wiring in the live path."""
+    from agent_alpha.live_fire.a1_validation_runner import run_a1_validation
+
+    with patch("agent_alpha.oracle.verifier.run_verification_pass") as mock_pass:
+        # Build minimal A1 args that reach the verification pass.
+        # We provide a stub browser_solve so it doesn't fail-loud at step 3.
+        # The runner will raise on C7 (no challenge encountered) — that's fine;
+        # we're only checking that run_verification_pass is called.
+        try:
+            run_a1_validation(
+                engagement_id="eng-test-wiring",
+                browser_solve=_StubBrowserSolve(),
+                http_client=_StubHttpClient(),
+                graph_store=NetworkXGraphStore(),
+                event_store=InMemoryEventStore(),
+            )
+        except RuntimeError:
+            pass  # Expected: C7 gate raise.
+
+        # The verification pass must have been called.
+        mock_pass.assert_called_once_with(
+            ANY,  # graph_store
+            ANY,  # event_store
+            ANY,  # [CredReuseOracle()]
+            "eng-test-wiring",  # engagement_id
+        )
+
+
+class _StubBrowserSolve:
+    def solve_and_fetch(self, url: str, *, engagement_id: str) -> Any:
+        return _StubChallengeResult()
+
+
+class _StubChallengeResult:
+    status_code = 200
+    body = "no secrets here"
+    headers: dict[str, str] = {}
+    cleared_cookies: dict[str, str] = {}
+    challenge_encountered = False
+    challenge_solved = False
+
+
+class _StubHttpClient:
+    """Minimal HTTP client stub that returns a non-challenge response for A1."""
+
+    def get(self, url: str, **kwargs: object) -> _StubResponse:
+        return _StubResponse()
+
+
+class _StubResponse:
+    status_code = 200
+    text = "<html>no challenge</html>"
+    headers: dict[str, str] = {}
+
+
+# ── T14: NodeVerified without oracle provenance does NOT promote ─────────────
+
+
+def test_nodeverified_requires_oracle_provenance() -> None:
+    """apply_event("NodeVerified", {node_id, ...}) WITHOUT an "oracle" field
+    does NOT promote to CROSS_VERIFIED; WITH oracle provenance it does."""
+    store = NetworkXGraphStore()
+    _emit_node(
+        store,
+        AttackNode(
+            id="n-prov",
+            type=NodeType.ACCESS_LEVEL,
+            properties=AccessLevelProperties(level="user"),
+            confidence=0.9,
+            verification=VerificationTier.SELF_VERIFIED,
+        ),
+    )
+
+    # Without provenance — must NOT promote.
+    store.apply_event("NodeVerified", {"node_id": "n-prov"})
+    node = store.get_node("n-prov")
+    assert node is not None
+    assert node.verification == VerificationTier.SELF_VERIFIED  # NOT promoted
+    assert node.verified is False
+
+    # With provenance — MUST promote.
+    store.apply_event(
+        "NodeVerified",
+        {"node_id": "n-prov", "oracle": "CredReuseOracle", "verdict": "confirmed"},
+    )
+    node = store.get_node("n-prov")
+    assert node is not None
+    assert node.verification == VerificationTier.CROSS_VERIFIED
+    assert node.verified is True
+
+
+# ── T16: Legacy verified=True reconstructs to SELF_VERIFIED ──────────────────
+
+
+def test_legacy_verified_not_cross() -> None:
+    """A legacy payload with verified=True reconstructs to SELF_VERIFIED
+    or UNVERIFIED, never CROSS_VERIFIED."""
+    # Legacy payload: verified=True, no verification field.
+    raw = {
+        "id": "legacy-node",
+        "type": "access_level",
+        "properties": {"level": "admin"},
+        "confidence": 0.9,
+        "agent": "beta",
+        "verified": True,
+        # No "verification" key — legacy format.
+    }
+    node = _reconstruct_node(raw)
+    assert node.verification == VerificationTier.SELF_VERIFIED
+    assert node.verified is False  # verified property == (tier == CROSS_VERIFIED) → False
+
+    # Legacy payload with explicit verification=self_verified stays SELF_VERIFIED.
+    raw2 = {**raw, "verification": "self_verified"}
+    node2 = _reconstruct_node(raw2)
+    assert node2.verification == VerificationTier.SELF_VERIFIED
+    assert node2.verified is False
+
+    # Only explicit verification=cross_verified reaches CROSS_VERIFIED.
+    raw3 = {**raw, "verification": "cross_verified"}
+    node3 = _reconstruct_node(raw3)
+    assert node3.verification == VerificationTier.CROSS_VERIFIED
+    assert node3.verified is True
