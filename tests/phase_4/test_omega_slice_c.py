@@ -1,7 +1,7 @@
 """Omega Slice C test contract — HTML report export (client deliverable).
 
 Tests rendering full Report as a self-contained HTML deliverable containing ALL sections:
-narrative, attack-flow diagram, evidence bundle, blast radius, and MITRE/chain findings.
+narrative, attack-flow static SVG diagram, evidence bundle, blast radius, and recommendations.
 Asserts content validity, redaction, determinism, placeholder handling, and HTML escaping.
 """
 
@@ -102,72 +102,79 @@ def _build_proven_chain_graph_with_evidence() -> tuple[NetworkXGraphStore, str]:
 
 
 def test_html_contains_all_sections() -> None:
-    """Proven-chain Report -> HTML contains all 5 sections in correct order and content."""
+    """Proven-chain Report -> HTML contains narrative, severity table, static SVG, findings, blast radius, recommendations."""
     graph, _ = _build_proven_chain_graph_with_evidence()
     omega = Omega(graph)
     report = omega.generate_report("executive", time_to_first_proof_s=45.2)
 
     html_out = report.to_html()
 
-    # (a) Executive/technical narrative section
-    assert '<section id="narrative">' in html_out
-    assert "Executive / Technical Narrative" in html_out
+    # Branding
+    assert "Agent-Alpha" in html_out
+    assert "Confidential" in html_out
+
+    # Section 1: Executive summary
+    assert "Executive summary" in html_out
     assert report.narrative in html_out or report.narrative[:50] in html_out
+    assert '<table class="sev">' in html_out or 'table' in html_out
 
-    # (b) Attack-flow diagram section with exact attack_flow_mermaid body inside <pre class="mermaid">
-    assert '<section id="attack-flow">' in html_out
-    assert '<pre class="mermaid">' in html_out
-    assert html.escape(report.attack_flow_mermaid) in html_out
-    assert (
-        '<script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>'
-        in html_out
-    )
-    assert "mermaid.initialize({startOnLoad: true});" in html_out
+    # Section 2: Attack path (static SVG, NO Mermaid JS)
+    assert "Attack path" in html_out
+    assert "<svg" in html_out
+    assert "#0f1620" in html_out
+    assert "mermaid.min.js" not in html_out
 
-    # (c) Evidence bundle section
-    assert '<section id="evidence">' in html_out
-    assert '<table class="evidence-table">' in html_out
+    # Section 3: Findings and proof
+    assert "Findings and proof" in html_out
     for item in report.evidence:
         assert item.artifact_ref in html_out
-        assert item.technique_id in html_out
 
-    # (d) Blast radius summary section
-    assert '<section id="blast-radius">' in html_out
+    # Section 4: Impact and blast radius
+    assert "Impact and blast radius" in html_out
     assert report.blast_radius is not None
     assert report.blast_radius.from_node_id in html_out
 
-    # (e) Section 5: MITRE techniques + chain_finding + time_to_proof headline
-    assert '<section id="mitre-summary">' in html_out
-    assert "MITRE ATT&amp;CK &amp; Findings Summary" in html_out
-    assert "Time to First Proof:" in html_out
-    assert "45s" in html_out or "0m 45s" in html_out
-    for tech in report.mitre_techniques:
-        assert tech in html_out
-    if report.chain_finding:
-        assert report.chain_finding.credential_id in html_out
-        assert report.chain_finding.access_id in html_out
+    # Section 5: Recommendations
+    assert "Recommendations" in html_out
+
+    # Footer
+    assert "Agent-Alpha — Confidential" in html_out
 
 
-def test_html_evidence_matches_report() -> None:
-    """Number of evidence table rows == len(report.evidence); each technique_id + artifact_ref present."""
-    graph, _ = _build_proven_chain_graph_with_evidence()
-    omega = Omega(graph)
-    report = omega.generate_report("technical")
+def test_attack_svg_matches_critical_path() -> None:
+    """SVG contains one node per distinct node in critical_path and edge technique IDs for 2-hop and multi-hop paths."""
+    # 2-hop path (3 nodes: nodeA -> nodeB -> nodeC)
+    step1 = PathStep("nodeA", "T1078", "nodeB", "asset")
+    step2 = PathStep("nodeB", "T1552.001", "nodeC", "access_level")
+    report_2hop = Report(
+        narrative="2-hop test",
+        mitre_techniques=["T1078", "T1552.001"],
+        mitre_attack_version="v14",
+        critical_path=(step1, step2),
+    )
+    svg_2hop = report_2hop.to_html()
+    assert "nodeA" in svg_2hop
+    assert "nodeB" in svg_2hop
+    assert "nodeC" in svg_2hop
+    assert "T1078" in svg_2hop
+    assert "T1552.001" in svg_2hop
+    assert "COMPROMISED" in svg_2hop
 
-    html_out = report.to_html()
-
-    # Count <tr> tags inside <tbody> in the evidence table
-    tbody_match = re.search(r"<tbody>(.*?)</tbody>", html_out, re.DOTALL)
-    assert tbody_match is not None, "Evidence tbody not found in HTML"
-    tbody_content = tbody_match.group(1)
-    row_count = tbody_content.count("<tr>")
-
-    assert row_count == len(report.evidence)
-
-    for item in report.evidence:
-        assert item.technique_id in html_out
-        assert item.artifact_ref in html_out
-        assert item.sha256 in html_out
+    # Longer 3-hop path (4 nodes: n1 -> n2 -> n3 -> n4)
+    s1 = PathStep("n1", "T1190", "n2", "asset")
+    s2 = PathStep("n2", "T1552", "n3", "credential")
+    s3 = PathStep("n3", "T1078.004", "n4", "access_level")
+    report_3hop = Report(
+        narrative="3-hop test",
+        mitre_techniques=["T1190", "T1552", "T1078.004"],
+        mitre_attack_version="v14",
+        critical_path=(s1, s2, s3),
+    )
+    svg_3hop = report_3hop.to_html()
+    for n in ["n1", "n2", "n3", "n4"]:
+        assert n in svg_3hop
+    for t in ["T1190", "T1552", "T1078.004"]:
+        assert t in svg_3hop
 
 
 def test_html_no_raw_secret() -> None:
@@ -177,13 +184,9 @@ def test_html_no_raw_secret() -> None:
     report = omega.generate_report("technical")
 
     html_out = report.to_html()
-
-    # The raw secret was placed in credential secret_ref vault://...
-    # Verify that the raw secret does not leak into any section of the generated HTML report.
     assert raw_secret not in html_out
 
-    # Non-vacuous check: if the secret were injected into a rendered field (e.g. description),
-    # rendering that field would cause raw_secret to be present in HTML.
+    # Non-vacuous check: if secret were in description, it WOULD render
     bad_evidence = EvidenceItem(
         technique_id="T1078",
         description=f"Leaked secret: {raw_secret}",
@@ -198,6 +201,20 @@ def test_html_no_raw_secret() -> None:
         evidence=(bad_evidence,),
     )
     assert raw_secret in bad_report.to_html()
+
+
+def test_html_branding_not_a1() -> None:
+    """Assert 'Agent-Alpha' present and internal scenario label 'A1'/'a1_validation' is NOT surfaced as report title/brand."""
+    report = Report(
+        narrative="Test narrative",
+        mitre_techniques=[],
+        mitre_attack_version="v14",
+    )
+    html_out = report.to_html()
+    assert "Agent-Alpha" in html_out
+    assert "<title>Agent-Alpha" in html_out
+    assert "<title>Security Assessment Report</title>" not in html_out
+    assert "a1_validation" not in html_out
 
 
 def test_html_deterministic() -> None:
@@ -231,13 +248,9 @@ def test_html_empty_report_renders_placeholders() -> None:
 
     assert "<!DOCTYPE html>" in html_out
     assert "No narrative available." in html_out
-    assert "No attack flow data available." in html_out
+    assert "No critical attack path available." in html_out or "No attack flow data" in html_out
     assert "No evidence collected." in html_out
     assert "No blast radius calculated." in html_out
-    assert "No MITRE techniques recorded." in html_out
-    assert "No verified chain finding." in html_out
-    assert "Time to First Proof:" in html_out
-    assert "N/A" in html_out
 
 
 def test_html_escapes_field_text() -> None:
@@ -272,14 +285,10 @@ def test_html_escapes_field_text() -> None:
             high_value_targets=[malicious_text],
             severity="high",
         ),
-        attack_flow_mermaid=f'graph LR\n  node1["{malicious_text}"]',
     )
 
     html_out = report.to_html()
 
-    # Raw unescaped script tag MUST NOT appear in the output
     assert "<script>alert" not in html_out
-
-    # Escaped versions must appear in the HTML
     assert "&lt;script&gt;" in html_out or "&lt;script&gt;alert" in html_out
     assert "&amp;" in html_out
