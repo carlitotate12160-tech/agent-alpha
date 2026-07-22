@@ -178,9 +178,7 @@ def _reconstruct_node(raw: dict[str, Any]) -> AttackNode:
 
     verification_raw = raw.get("verification")
     verification = (
-        VerificationTier(verification_raw)
-        if verification_raw
-        else VerificationTier.UNVERIFIED
+        VerificationTier(verification_raw) if verification_raw else VerificationTier.UNVERIFIED
     )
 
     return AttackNode(
