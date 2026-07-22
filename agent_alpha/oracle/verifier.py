@@ -15,7 +15,7 @@ This module does NOT:
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Optional, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 class Verdict(StrEnum):
@@ -55,7 +55,7 @@ class CredReuseOracle:
     def __init__(
         self,
         *,
-        reverifier: Optional[Any] = None,
+        reverifier: Any | None = None,
         lockout_threshold: int = 3,
     ) -> None:
         self._reverifier = reverifier
@@ -85,10 +85,7 @@ class CredReuseOracle:
         # Find the backing CREDENTIAL via an incoming ENABLES edge.
         cred_node = None
         for edge in graph.all_edges():
-            if (
-                edge.target_id == node.id
-                and edge.relationship == RelationshipType.ENABLES
-            ):
+            if edge.target_id == node.id and edge.relationship == RelationshipType.ENABLES:
                 source = graph.get_node(edge.source_id)
                 if source and source.type == NodeType.CREDENTIAL:
                     cred_node = source
@@ -108,9 +105,7 @@ class CredReuseOracle:
             return Verdict.INCONCLUSIVE
 
         # At least one artifact must be an authenticated_request.
-        has_auth_proof = any(
-            a.type == "authenticated_request" for a in node.proof_artifacts
-        )
+        has_auth_proof = any(a.type == "authenticated_request" for a in node.proof_artifacts)
         if not has_auth_proof:
             return Verdict.INCONCLUSIVE
 
