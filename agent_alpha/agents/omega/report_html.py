@@ -282,17 +282,22 @@ def render_report_html(report: Report) -> str:
         blast_html = '  <p class="no-data">No blast radius calculated.</p>'
 
     # Metadata extraction for cover
-    target_host = "target-assessment"
-    if report.critical_path and report.critical_path[0].from_node:
-        target_host = report.critical_path[0].from_node
-    elif report.blast_radius and report.blast_radius.from_node_id:
-        target_host = report.blast_radius.from_node_id
+    # Use real engagement metadata if provided; fall back to derivation from graph internals
+    target_host = report.target if report.target else "target-assessment"
+    if not report.target:
+        if report.critical_path and report.critical_path[0].from_node:
+            target_host = report.critical_path[0].from_node
+        elif report.blast_radius and report.blast_radius.from_node_id:
+            target_host = report.blast_radius.from_node_id
 
     target_host_esc = html.escape(target_host)
-    engagement_id = "agent-alpha-engagement"
-    if report.chain_finding and report.chain_finding.credential_id:
-        engagement_id = f"eng-{report.chain_finding.credential_id}"
+    engagement_id = report.engagement_id if report.engagement_id else "agent-alpha-engagement"
+    if not report.engagement_id:
+        if report.chain_finding and report.chain_finding.credential_id:
+            engagement_id = f"eng-{report.chain_finding.credential_id}"
     engagement_id_esc = html.escape(engagement_id)
+    assessed_at = report.assessed_at if report.assessed_at else "21 July 2026"
+    assessed_at_esc = html.escape(assessed_at)
 
     time_headline = report.time_to_proof_headline()
     time_str = f" · Time to first proof: {html.escape(time_headline)}" if time_headline else ""
@@ -393,7 +398,7 @@ def render_report_html(report: Report) -> str:
     <table class="meta">
       <tr><td class="k">Target</td><td class="mono">{target_host_esc}</td></tr>
       <tr><td class="k">Engagement ID</td><td class="mono">{engagement_id_esc}</td></tr>
-      <tr><td class="k">Assessment date</td><td>21 July 2026</td></tr>
+      <tr><td class="k">Assessment date</td><td>{assessed_at_esc}</td></tr>
       <tr><td class="k">Overall risk</td><td><span class="sev-tag high">High</span></td></tr>
       <tr><td class="k">Prepared by</td><td>Agent-Alpha autonomous red-team platform</td></tr>
     </table>

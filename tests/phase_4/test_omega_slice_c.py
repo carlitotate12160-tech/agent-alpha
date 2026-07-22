@@ -292,3 +292,56 @@ def test_html_escapes_field_text() -> None:
     assert "<script>alert" not in html_out
     assert "&lt;script&gt;" in html_out or "&lt;script&gt;alert" in html_out
     assert "&amp;" in html_out
+
+
+def test_cover_uses_real_engagement_metadata() -> None:
+    """Report cover uses real engagement metadata (target, engagement_id, assessed_at) when provided."""
+    graph, _ = _build_proven_chain_graph_with_evidence()
+    omega = Omega(graph)
+
+    # Generate report with real engagement metadata
+    report = omega.generate_report(
+        "executive",
+        time_to_first_proof_s=45.2,
+        target="alpha-ai.web.id",
+        engagement_id="a1-fp",
+        assessed_at="21 July 2026",
+    )
+
+    html_out = report.to_html()
+
+    # Assert real metadata appears in cover
+    assert "alpha-ai.web.id" in html_out
+    assert "a1-fp" in html_out
+    assert "21 July 2026" in html_out
+
+    # Assert internal node ID (asset-1) is NOT shown as the Target
+    assert "Target</td><td class=\"mono\">asset-1" not in html_out
+    assert "Target</td><td class=\"mono\">asset-origin-1.2.3.4" not in html_out
+
+    # Assert footer also uses real metadata
+    assert "Engagement a1-fp · alpha-ai.web.id" in html_out
+
+
+def test_html_secret_in_rendered_field_appears() -> None:
+    """Secret placed in a rendered field (EvidenceItem.description) appears in HTML, proving renderer is pass-through."""
+    raw_secret = "SUPER_SECRET_VAULT_PASSWORD_12345"
+
+    # Secret in rendered field (description) SHOULD appear
+    evidence_with_secret = EvidenceItem(
+        technique_id="T1078",
+        description=f"Leaked secret: {raw_secret}",
+        artifact_ref="storage://test",
+        sha256="123",
+        captured_at="2026-07-21T00:00:00Z",
+    )
+
+    report = Report(
+        narrative="test",
+        mitre_techniques=[],
+        mitre_attack_version="v14",
+        evidence=(evidence_with_secret,),
+    )
+
+    html_out = report.to_html()
+    assert raw_secret in html_out
