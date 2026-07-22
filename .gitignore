@@ -58,6 +58,10 @@ client-target_recon.pdf
 client-target_*.pdf
 client-target_recon.pdf
 
+# Generated HTML reports (local only)
+*_report.html
+a1_report.html
+
 # Chain lab artifacts (local only)
 infra/chain_lab*
 
