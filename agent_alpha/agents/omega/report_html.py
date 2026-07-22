@@ -73,7 +73,7 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
         node_ids.append(step.to_node)
         node_kinds.append(step.node_kind or _infer_node_kind(step.to_node))
 
-    N = len(node_ids)
+    n_nodes = len(node_ids)
 
     # Dynamic positioning calculation
     svg_width = 680
@@ -81,11 +81,11 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
     margin_x = 70
     max_x = 610
 
-    if N == 1:
+    if n_nodes == 1:
         x_coords = [340]
     else:
-        step_x = (max_x - margin_x) / (N - 1)
-        x_coords = [int(round(margin_x + i * step_x)) for i in range(N)]
+        step_x = (max_x - margin_x) / (n_nodes - 1)
+        x_coords = [int(round(margin_x + i * step_x)) for i in range(n_nodes)]
 
     svg_lines = [
         f'<svg viewBox="0 0 {svg_width} {svg_height}" width="100%" style="display:block; margin:14px 0;" role="img" aria-label="Attack path diagram">',
@@ -125,12 +125,12 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
         svg_lines.append(f'  <text x="{mid_x}" y="{text_y}" font-family="monospace" font-size="11" fill="{tech_color}" text-anchor="middle">{tech_id}</text>')
 
     # Render node circles and labels
-    for i, (node_id, kind) in enumerate(zip(node_ids, node_kinds)):
+    for i, (node_id, kind) in enumerate(zip(node_ids, node_kinds, strict=True)):
         x = x_coords[i]
         node_id_esc = html.escape(node_id)
         kind_esc = html.escape(kind)
 
-        if i == N - 1:
+        if i == n_nodes - 1:
             # Terminal node (COMPROMISED)
             svg_lines.extend([
                 f'  <circle cx="{x}" cy="150" r="28" fill="#241416" stroke="#c0392b" stroke-width="2"/>',
