@@ -16,6 +16,7 @@ import re
 import typing
 from dataclasses import dataclass
 
+from agent_alpha.agents.omega.report_html import render_report_html
 from agent_alpha.config import constants
 from agent_alpha.graph.narrative import (
     BlastRadius,
@@ -167,10 +168,15 @@ class Report:
     attack_flow_mermaid: str = ""
 
     # Slice C: PDF export lives in omega_report_contract.md (narrative + flow + evidence).
+    # PDF = follow-up (mermaid->SVG fixes offline viewing and enables PDF export embedding).
 
     def time_to_proof_headline(self) -> str | None:
         """Sellable headline string, or None when no proof was produced."""
         return format_duration(self.time_to_first_proof_s)
+
+    def to_html(self) -> str:
+        """Render self as a single self-contained HTML client deliverable string."""
+        return render_report_html(self)
 
 
 class Omega:
