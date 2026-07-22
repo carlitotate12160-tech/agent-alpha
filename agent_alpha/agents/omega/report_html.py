@@ -96,7 +96,7 @@ def render_attack_path_svg(critical_path: tuple[PathStep, ...] | list[PathStep])
 
     # Render timeline top markers
     for i, x in enumerate(x_coords):
-        color = "#c0392b" if i == N - 1 else "#3a4557"
+        color = "#c0392b" if i == n_nodes - 1 else "#3a4557"
         label = f"Step {i+1}" if i > 0 else "Entry"
         svg_lines.append(f'    <circle cx="{x}" cy="30" r="2" fill="{color}"/><text x="{x}" y="20">{label}</text>')
     svg_lines.append('  </g>')
