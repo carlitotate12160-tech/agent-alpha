@@ -166,6 +166,9 @@ class Report:
     evidence: tuple[EvidenceItem, ...] = ()
     blast_radius: BlastRadius | None = None
     attack_flow_mermaid: str = ""
+    target: str = ""
+    engagement_id: str = ""
+    assessed_at: str = ""
 
     # Slice C: PDF export lives in omega_report_contract.md (narrative + flow + evidence).
     # PDF = follow-up (mermaid->SVG fixes offline viewing and enables PDF export embedding).
@@ -194,12 +197,19 @@ class Omega:
         *,
         time_to_first_proof_s: float | None = None,
         blocked_hosts: tuple[str, ...] = (),
+        target: str = "",
+        engagement_id: str = "",
+        assessed_at: str = "",
     ) -> Report:
         """Generate a :class:`Report` from the current graph state.
 
         *style* is one of ``"executive"``, ``"technical"``, or
         ``"remediation"`` — passed directly to
         :func:`~agent_alpha.graph.narrative.to_narrative`.
+
+        *target*, *engagement_id*, and *assessed_at* carry real engagement
+        metadata into the report. If empty, the renderer falls back to
+        deriving values from graph internals (for backward compatibility).
         """
         narrative = to_narrative(self.graph_store, style)  # type: ignore[arg-type]
 
@@ -293,6 +303,9 @@ class Omega:
             evidence=tuple(evidence_items),
             blast_radius=blast_radius_result,
             attack_flow_mermaid=attack_flow_mermaid,
+            target=target,
+            engagement_id=engagement_id,
+            assessed_at=assessed_at,
         )
 
     def _compute_blast_radius(self, from_node_id: str) -> BlastRadius:
