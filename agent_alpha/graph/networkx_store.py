@@ -10,6 +10,7 @@ from agent_alpha.graph.nodes import (
     AttackNode,
     NodeType,
     RelationshipType,
+    VerificationTier,
     _reconstruct_node,
 )
 
@@ -35,7 +36,9 @@ class NetworkXGraphStore:
             node_id = payload["node_id"]
             if node_id in self._graph:
                 existing = self._graph.nodes[node_id]["data"]
-                updated = dataclasses.replace(existing, verified=True)
+                updated = dataclasses.replace(
+                    existing, verification=VerificationTier.CROSS_VERIFIED
+                )
                 self._graph.nodes[node_id]["data"] = updated
 
     def get_node(self, node_id: str) -> AttackNode | None:

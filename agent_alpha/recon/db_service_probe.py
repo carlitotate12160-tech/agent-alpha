@@ -40,6 +40,7 @@ from agent_alpha.graph.nodes import (
     AttackNode,
     NodeType,
     ServiceProperties,
+    VerificationTier,
 )
 from agent_alpha.graph.persist import persist_node
 
@@ -172,7 +173,7 @@ def verify_in_scope_db_services(
             confidence=0.9,
             agent="alpha",
             timestamp_utc=now_utc,
-            verified=True,
+            verification=VerificationTier.SELF_VERIFIED,
         )
         persist_node(event_store, graph_store, engagement_id, service_node, agent="alpha")
 
@@ -193,7 +194,7 @@ def verify_in_scope_db_services(
                 confidence=existing_asset.confidence,
                 agent=existing_asset.agent,
                 timestamp_utc=now_utc,
-                verified=existing_asset.verified,
+                verification=existing_asset.verification,
             )
         else:
             rebuilt_asset = AttackNode(
