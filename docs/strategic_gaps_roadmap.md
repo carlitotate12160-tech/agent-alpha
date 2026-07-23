@@ -137,3 +137,121 @@ PR review + domain ownership proof.
    proof-of-code-exec / real exploitability).
 3. Phase D moat (cross-engagement intelligence) + Phase C reasoning.
 Note: current stack IS viable TODAY for the un-WAF'd SME segment — a parallel revenue path if desired.
+
+---
+
+## Moat Depth Roadmap (2026-07-23 update)
+
+> DERIVED leverage-narrative view. Canonical status → Session_Handoff.md.
+> Durable verification doctrine → CLAUDE.md + ADR §12.31.
+
+How Agent-Alpha deepens its defensibility — and the order that maximizes leverage for a solo
+engineer. This is a menu ordered by leverage, not a checklist to finish in parallel.
+
+### Two axes of "deepen" (do not conflate)
+
+1. **Kill-chain DEPTH** (how FAR): Alpha → Beta → Gamma → Delta → Epsilon. Today only recon +
+   initial-access are proven (depth ~2). Going deeper = exploitation → post-ex → lateral. This is
+   the DANGEROUS, gated lane (Gamma+).
+2. **Moat DEPTH vs competitors** (how uncopyable): verification, cross-engagement learning, tool
+   breadth. ORTHOGONAL to kill-chain — it makes what exists smarter / more trusted / broader.
+
+The A1 chain is depth-2 but a COMPLETE proof (leak → login → verified admin). The moat is already
+demonstrated; deepening moat makes it durable, deepening kill-chain makes the story go farther.
+
+### The Independent Verification Axiom (durable — the core moat principle)
+
+A verifier is meaningful ONLY if its failure mode DIFFERS from the finder's.
+- Re-running the same signal (e.g. a graph-walk over what tools asserted) is NOT verification —
+  same failure mode = internal-consistency check = #3 (false success) at the oracle level.
+- Genuine confirmation = an INDEPENDENT signal: re-authenticate the credential, re-fetch ground
+  truth. Different failure mode = real confirmation.
+- verified tri-state: `unverified` (asserted) < `self_verified` (finder re-checked, weak) <
+  `cross_verified` (independent oracle confirmed). Only `cross_verified` may back a "proven" claim
+  in a payable report.
+- **ChainOracle = COMPOSITION of independent per-edge oracles** (chain cross_verified iff every
+  edge cross_verified), NEVER a graph traversal.
+
+This is the single most important architectural insight of the moat: proof, not consistency.
+
+### The three moat tracks, ranked by leverage
+
+| Track | What | Leverage | Timing |
+|-------|------|----------|--------|
+| **2. Oracle / verified tier** | independent per-finding verification; "proven" = cross_verified | HIGHEST — deepest moat, synergistic with Omega | now (partly DONE) |
+| **1. Cross-engagement intelligence (GAP-003)** | agent learns across engagements | compounds, but SLOW — needs data volume | foundation now, decision-wiring after volume |
+| **3. ToolComposer / wrap commodity** | trufflehog/nuclei as graph-feeding tools | breadth, not moat | continuous background |
+
+Notes:
+- Track 1 needs DATA. Building the full IntelligenceBase decision-wiring before real engagements =
+  training a learner with ~0 data (feature-before-foundation). Land Bug #7 persist + outcome
+  tagging opportunistically; HOLD the decision-wiring until engagement volume exists.
+- Track 3's trufflehog live-validation is really a special case of Track 2 (prove-or-kill). Not a
+  separate phase.
+
+### Current status (what is already done)
+
+- Omega A/B/C: evidence bundle + attack-flow diagram + client-facing HTML report — DONE.
+- Track-2 slice: `AttackNode.verification` tri-state + `CredReuseOracle` with PROOF-BINDING
+  (subject_ref == enabling credential, access_level + target match) — DONE, non-island in the A1
+  runner, gate-ordered after C7. Report claims "proven" only on `cross_verified`.
+
+### The reality that emerged (autonomous-parity now gates everything)
+
+An island audit found the moat + reach capabilities are proven in the field-prove RUNNERS but NOT
+in the AUTONOMOUS path (Conductor → execute_agent → scout) a real engagement uses. Confirmed islands
+(0 calls in scout.py / execute_agent.py):
+- Reach (classify_mitigation, choose_reach, origin_direct_fetch, OriginDiscovery, browser_solve).
+- Oracle verification (run_verification_pass) — only in the A1 runner.
+- PolicyEnforcer scope/technique checks; OPSEC profile resolution — not in the agent path.
+- seed_frontier_from_passive() — passive discovery found subdomains never enter Alpha's frontier.
+
+DOCTRINE (now in CLAUDE.md + enforced via tests/governance/test_wiring_gate.py): a runner-scoped
+seal is an ISLAND until the AUTONOMOUS path calls it. Register each gap as tracked wiring-debt so CI
+fails until wired — do not rely on memory or docs.
+
+Consequence for the roadmap: bringing the autonomous path to PARITY with the runners is now the
+gate before any paid engagement — and therefore before further moat/kill-chain depth.
+
+### Root-cause collapse (do not whack-a-mole)
+
+The Laravel-not-detected / empty-WorldModel / 40-row block-detection findings collapse to ONE root:
+Alpha analyzes the defender's WAF page as if it were target content, with no autonomous reach.
+- REACT: reach in the autonomous loop (get real content → real nodes → WorldModel works → Laravel
+  detected).
+- RECOGNIZE: generalize block detection by STRUCTURAL content-authenticity ("real app vs
+  interstitial"), NOT per-vendor string lists (an unwinnable arms race) — plus missing status codes
+  (401/406/451/521-525, cf-mitigated) and a few mitigation classes (GEO_BLOCK, CONTENT_NEGOTIATION,
+  CONNECTION_FAIL).
+
+### Leverage-ordered sequence (current)
+
+1. **Autonomous-parity (pre-engagement, blocking):**
+   a. Reach → Alpha's autonomous loop (fatal — else Alpha stops at the client WAF).
+   b. Generalized block recognition (structural, not per-vendor).
+   c. run_verification_pass → execute_agent (so cross_verified fires autonomously, not only in the
+      runner).
+   d. seed_frontier_from_passive() + set objective in the client path.
+   e. Register all islands as tracked wiring-debt in test_wiring_gate.py.
+2. **§12.36 signed authorization gate** (legal prerequisite for any client + brings scope-check +
+   capability-gate + OPSEC into the autonomous path).
+3. **Re-prove A1 via the AUTONOMOUS path** (scout.run_recon, NOT the runner) — the real reach seal.
+4. **First real authorized engagement** (recon + initial-access + proof) → validate + get paid.
+5. **ChainOracle** = composition of independent per-edge oracles (finishes the verification moat).
+6. **GAP-011 authenticated re-recon** — deepen the chain (depth 2→3) WITHOUT the destructive lane:
+   after Beta gets admin, re-crawl with the active session → IDOR, broken access, hidden admin
+   functions. Still recon-tier, not Gamma.
+7. **Track-1 (IntelligenceBase)** decision-wiring — once engagement volume exists.
+8. **Gamma** (ToolComposer + blast-gate → destructive exploitation) — only after: sellable loop +
+   moat + §12.36 auth-gate live + client-pull for deeper exploitation. Never before the auth gate.
+9. **ToolComposer / trufflehog** — continuous background.
+
+### Gamma gating (non-negotiable)
+
+Gamma = destructive exploitation. It runs ONLY behind §12.36 OFFENSIVE_APPROVED + blast-radius gate.
+Building Gamma before the authorization gate exists = softening the gate on the most dangerous lane.
+Client-pull justifies Gamma, not speculative build.
+
+Confidence ~80% on ordering. The one shift vs the original brainstorm: autonomous-parity (item 1)
+was invisible until the island audit — it now precedes the moat-deepening, because a moat wired only
+into runners does not exist for real engagements.
