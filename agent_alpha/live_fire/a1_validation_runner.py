@@ -426,17 +426,6 @@ def run_a1_validation(
 
     chain_proven = cred_minted and access_level in ("user", "admin") and edge_from_harvested_cred
 
-    # ── 6b. Oracle verification pass — promote SELF_VERIFIED → CROSS_VERIFIED ──
-    # This is the live-path consumer that makes CROSS_VERIFIED reachable.
-    # The oracle independently confirms access claims backed by real auth events;
-    # promotion happens via event-sourced NodeVerified (not direct node mutation).
-    # NOTE (follow-up): production conductor/execute_agent chain must call the
-    # SAME run_verification_pass at chain completion — same function, one impl.
-    if graph_store is not None and event_store is not None:
-        from agent_alpha.oracle.verifier import CredReuseOracle, run_verification_pass
-
-        run_verification_pass(graph_store, event_store, [CredReuseOracle()], engagement_id)
-
     # Reuse the existing comparison logic for scanner_missed_exploitability.
     from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
 
@@ -471,6 +460,17 @@ def run_a1_validation(
 
     # ── 9. C7 gate: no challenge → raise, not pass ────────────────────────
     assert_valid_or_raise(result)
+
+    # ── 6b. Oracle verification pass — promote SELF_VERIFIED → CROSS_VERIFIED ──
+    # This is the live-path consumer that makes CROSS_VERIFIED reachable.
+    # The oracle independently confirms access claims backed by real auth events;
+    # promotion happens via event-sourced NodeVerified (not direct node mutation).
+    # NOTE (follow-up): production conductor/execute_agent chain must call the
+    # SAME run_verification_pass at chain completion — same function, one impl.
+    if graph_store is not None and event_store is not None:
+        from agent_alpha.oracle.verifier import CredReuseOracle, run_verification_pass
+
+        run_verification_pass(graph_store, event_store, [CredReuseOracle()], engagement_id)
 
     return result
 

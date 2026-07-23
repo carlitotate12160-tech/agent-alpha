@@ -132,9 +132,18 @@ class CredReuseOracle:
         if not node.proof_artifacts:
             return Verdict.INCONCLUSIVE
 
-        # At least one artifact must be an authenticated_request.
-        has_auth_proof = any(a.type == "authenticated_request" for a in node.proof_artifacts)
-        if not has_auth_proof:
+        # At least one artifact must be a bound authenticated_request.
+        has_bound_proof = False
+        for a in node.proof_artifacts:
+            if a.type == "authenticated_request":
+                # subject_ref must match the enabling credential's identity (id or secret_ref)
+                if a.subject_ref in (cred_node.id, cred_node.properties.secret_ref):
+                    # access_level and target must match this access node
+                    if a.access_level == getattr(node.properties, "level", "") and a.target in node.id:
+                        has_bound_proof = True
+                        break
+
+        if not has_bound_proof:
             return Verdict.INCONCLUSIVE
 
         # All independent checks pass: confirmed.

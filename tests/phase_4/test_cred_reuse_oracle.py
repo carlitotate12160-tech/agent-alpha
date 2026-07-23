@@ -107,6 +107,9 @@ def _proven_store() -> NetworkXGraphStore:
                     description="Verified admin access via cred reuse",
                     captured_at="2026-07-22T00:00:00Z",
                     agent="beta",
+                    subject_ref=_CRED_ID,
+                    target=_HOST,
+                    access_level="admin",
                 ),
             ],
         ),
@@ -158,9 +161,10 @@ def _inferred_store() -> NetworkXGraphStore:
 # ── T1: CONFIRMED on real auth backing ──────────────────────────────────────
 
 
-def test_confirmed_on_real_auth_backing() -> None:
+def test_oracle_confirms_only_bound_proof() -> None:
     """Oracle returns CONFIRMED when access node is backed by a real
-    authenticated_request proof + harvested credential with secret_ref."""
+    authenticated_request proof + harvested credential with secret_ref,
+    and the proof is properly bound to the credential and target."""
     store = _proven_store()
     oracle = CredReuseOracle()
     node = store.get_node(_ACCESS_ID)
@@ -168,6 +172,93 @@ def test_confirmed_on_real_auth_backing() -> None:
 
     verdict = oracle.verify(node, store)
     assert verdict == Verdict.CONFIRMED
+
+
+def test_oracle_rejects_unbound_proof() -> None:
+    """DIFFERENTIAL — must be able to FAIL. SAME graph shape but the proof's subject_ref is a DIFFERENT credential."""
+    store = NetworkXGraphStore()
+    _emit_node(store, AttackNode(id=_CRED_ID, type=NodeType.CREDENTIAL, properties=CredentialProperties(username="admin", secret_ref="vault://abc", service="http", access_level="admin"), confidence=0.85))
+    
+    # Access node has proof for a DIFFERENT credential
+    _emit_node(
+        store,
+        AttackNode(
+            id=_ACCESS_ID,
+            type=NodeType.ACCESS_LEVEL,
+            properties=AccessLevelProperties(level="admin", user_context="web"),
+            confidence=0.80,
+            verification=VerificationTier.SELF_VERIFIED,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=str(uuid.uuid4()),
+                    type="authenticated_request",
+                    storage_ref="event://proof-abc",
+                    description="Verified admin access via cred reuse",
+                    captured_at="2026-07-22T00:00:00Z",
+                    agent="beta",
+                    subject_ref="cred:some_other_host:admin", # Unbound / mismatched proof
+                    target=_HOST,
+                    access_level="admin",
+                )
+            ]
+        )
+    )
+    _emit_edge(store, AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"))
+
+    oracle = CredReuseOracle()
+    node = store.get_node(_ACCESS_ID)
+    assert node is not None
+    assert oracle.verify(node, store) == Verdict.INCONCLUSIVE
+
+
+def test_invalid_c7_run_emits_no_nodeverified() -> None:
+    """A run that fails assert_valid_or_raise leaves NO NodeVerified event and NO CROSS_VERIFIED node in the store."""
+    from agent_alpha.live_fire.a1_validation_runner import run_a1_validation
+
+    event_store = InMemoryEventStore()
+    graph_store = NetworkXGraphStore()
+
+    class _InvalidChallengeResult:
+        status_code = 200
+        body = "no challenge here"
+        headers: dict[str, str] = {}
+        cleared_cookies: dict[str, str] = {}
+        challenge_encountered = False
+        challenge_solved = False
+
+    class _MockSolver:
+        def solve_and_fetch(self, url: str, *, engagement_id: str) -> Any:
+            return _InvalidChallengeResult()
+
+    class _MockHttpClient:
+        def get(self, url: str, **kwargs: object) -> Any:
+            class Resp:
+                status_code = 200
+                text = "no challenge"
+                headers: dict[str, str] = {}
+            return Resp()
+        def post(self, url: str, **kwargs: object) -> Any:
+            return self.get(url, **kwargs)
+
+    try:
+        run_a1_validation(
+            engagement_id="eng-test-c7-fail",
+            browser_solve=_MockSolver(),
+            http_client=_MockHttpClient(),
+            graph_store=graph_store,
+            event_store=event_store,
+            target="alpha-ai.web.id",
+        )
+    except RuntimeError:
+        pass  # expected C7 fail
+
+    events = event_store.get_events("eng-test-c7-fail")
+    node_verified_events = [e for e in events if e.event_type == "NodeVerified"]
+    assert len(node_verified_events) == 0
+
+    access_nodes = graph_store.nodes_by_type(NodeType.ACCESS_LEVEL)
+    for n in access_nodes:
+        assert n.verification != VerificationTier.CROSS_VERIFIED
 
 
 # ── T2: INCONCLUSIVE on inferred access ─────────────────────────────────────
@@ -395,21 +486,19 @@ def test_a1_runner_invokes_verification_pass() -> None:
     a chain run. Proves non-island wiring in the live path."""
     from agent_alpha.live_fire.a1_validation_runner import run_a1_validation
 
-    with patch("agent_alpha.oracle.verifier.run_verification_pass") as mock_pass:
+    with patch("agent_alpha.oracle.verifier.run_verification_pass") as mock_pass, \
+         patch("agent_alpha.live_fire.a1_validation_runner.classify_mitigation") as mock_classify:
+        from agent_alpha.recon.transport_resilience import MitigationClass
+        mock_classify.return_value = MitigationClass.CHALLENGE
         # Build minimal A1 args that reach the verification pass.
-        # We provide a stub browser_solve so it doesn't fail-loud at step 3.
-        # The runner will raise on C7 (no challenge encountered) — that's fine;
-        # we're only checking that run_verification_pass is called.
-        try:
-            run_a1_validation(
-                engagement_id="eng-test-wiring",
-                browser_solve=_StubBrowserSolve(),
-                http_client=_StubHttpClient(),
-                graph_store=NetworkXGraphStore(),
-                event_store=InMemoryEventStore(),
-            )
-        except RuntimeError:
-            pass  # Expected: C7 gate raise.
+        # We provide a stub browser_solve and mock classify_mitigation to pass the C7 gate.
+        run_a1_validation(
+            engagement_id="eng-test-wiring",
+            browser_solve=_StubBrowserSolve(),
+            http_client=_StubHttpClient(),
+            graph_store=NetworkXGraphStore(),
+            event_store=InMemoryEventStore(),
+        )
 
         # The verification pass must have been called.
         mock_pass.assert_called_once_with(

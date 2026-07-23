@@ -113,7 +113,7 @@ def test_html_contains_all_sections() -> None:
     # Section 1: Executive summary
     assert "Executive summary" in html_out
     assert report.narrative in html_out or report.narrative[:50] in html_out
-    assert '<table class="sev">' in html_out or "table" in html_out
+    assert '<table class="sev">' in html_out
 
     # Section 2: Attack path (static SVG, NO Mermaid JS)
     assert "Attack path" in html_out

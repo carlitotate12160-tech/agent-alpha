@@ -38,6 +38,9 @@ class ProofArtifact:
     description: str
     captured_at: str
     agent: str
+    subject_ref: str = ""
+    target: str = ""
+    access_level: str = ""
 
 
 @dataclass
