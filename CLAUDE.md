@@ -144,6 +144,12 @@ If yes → don't patch, redesign the interface.
 ✅ Pair every decision with concrete code or schema
 ✅ Check phase exit criteria before discussing next phase
 ✅ Verify integration points (who calls this? what does this call?)
+✅ RUNNER-SEAL ≠ AUTONOMOUS-WIRED — a capability proven via a field-prove/lab runner is an
+   ISLAND until the AUTONOMOUS path uses it. Before claiming ANYTHING "sealed/wired", grep the
+   real live path (agents/*/scout.py, conductor/execute_agent.py, run_cognitive_loop) — NOT the
+   runner. If the autonomous path does not call it, it is Lyndon #2 for real engagements.
+   Register every such gap as tracked wiring-debt in tests/governance/test_wiring_gate.py so CI
+   fails until it is wired (do not rely on memory or docs — enforce it).
 ✅ Remind that Oracle ARM64 is the only valid test environment
 ✅ Keep A2A messages in structured English JSON
 ✅ Keep learning loop as data/playbook only, never code self-modification
