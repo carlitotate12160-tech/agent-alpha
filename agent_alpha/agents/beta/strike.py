@@ -41,6 +41,7 @@ from agent_alpha.graph.nodes import (
     NodeType,
     ProofArtifact,
     RelationshipType,
+    VerificationTier,
 )
 from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
@@ -438,14 +439,14 @@ class Beta:
                 confidence=result.confidence,
                 agent="beta",
                 timestamp_utc=now_utc,
-                verified=True,
+                verification=VerificationTier.SELF_VERIFIED,
             )
             persist_node(
                 self.event_store, self.graph_store, self._engagement_id, cred_node, agent="beta"
             )
             nodes_added += 1
 
-        # ACCESS_LEVEL node (verified).
+        # ACCESS_LEVEL node (self-verified by tool — oracle upgrades to CROSS_VERIFIED).
         access_node = AttackNode(
             id=f"access:{host}",
             type=NodeType.ACCESS_LEVEL,
@@ -462,11 +463,14 @@ class Beta:
                     captured_at=now_utc,
                     agent="beta",
                     artifact_id=str(uuid.uuid4()),
+                    subject_ref=cred_node_id,
+                    target=host,
+                    access_level=access_level,
                 ),
             ],
             agent="beta",
             timestamp_utc=now_utc,
-            verified=True,
+            verification=VerificationTier.SELF_VERIFIED,
         )
         persist_node(
             self.event_store, self.graph_store, self._engagement_id, access_node, agent="beta"

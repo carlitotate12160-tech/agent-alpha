@@ -21,6 +21,7 @@ from agent_alpha.graph.nodes import (
     CredentialProperties,
     NodeType,
     RelationshipType,
+    VerificationTier,
 )
 from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.memory.session import InMemorySessionStore, SessionRecord
@@ -63,7 +64,7 @@ def _add_verified_chain(
         id=f"access_{level}",
         type=NodeType.ACCESS_LEVEL,
         properties=AccessLevelProperties(level=level),
-        verified=True,
+        verification=VerificationTier.CROSS_VERIFIED,
         confidence=0.9,
         agent="alpha",
     )

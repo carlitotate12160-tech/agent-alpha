@@ -24,6 +24,7 @@ from agent_alpha.graph.nodes import (
     CredentialProperties,
     NodeType,
     RelationshipType,
+    VerificationTier,
     VulnerabilityProperties,
     node_to_dict,
 )
@@ -87,7 +88,7 @@ def _build_chain_store(access_level: str, *, access_verified: bool = True) -> Ne
             AccessLevelProperties(level=access_level, user_context="web"),
             0.80,
             agent="beta",
-            verified=access_verified,
+            verification=VerificationTier.CROSS_VERIFIED if access_verified else VerificationTier.UNVERIFIED,
         ),
     )
     _emit_edge(store, AttackEdge(_ASSET_ID, _VULN_ID, RelationshipType.EXPLOITS, 0.90))

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 from typing import Any, cast
 
 import networkx as nx
@@ -10,8 +11,11 @@ from agent_alpha.graph.nodes import (
     AttackNode,
     NodeType,
     RelationshipType,
+    VerificationTier,
     _reconstruct_node,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class NetworkXGraphStore:
@@ -33,9 +37,26 @@ class NetworkXGraphStore:
             self._graph.add_edge(edge.source_id, edge.target_id, data=edge)
         elif event_type == "NodeVerified":
             node_id = payload["node_id"]
+            # Provenance gate: only oracle-confirmed events may promote to
+            # CROSS_VERIFIED.  The primary guard is at EMISSION — only
+            # run_verification_pass emits NodeVerified, always with provenance.
+            # This consumption-side check is defense-in-depth.  Silent no-op
+            # (not raise) so event replay on legacy/malformed events does not
+            # crash; the invariant is enforced by not promoting.
+            oracle_name = payload.get("oracle")
+            if not oracle_name:
+                logger.warning(
+                    "NodeVerified event for %s lacks oracle provenance — "
+                    "skipping CROSS_VERIFIED promotion (defense-in-depth; "
+                    "primary guard is at emission via run_verification_pass)",
+                    node_id,
+                )
+                return
             if node_id in self._graph:
                 existing = self._graph.nodes[node_id]["data"]
-                updated = dataclasses.replace(existing, verified=True)
+                updated = dataclasses.replace(
+                    existing, verification=VerificationTier.CROSS_VERIFIED
+                )
                 self._graph.nodes[node_id]["data"] = updated
 
     def get_node(self, node_id: str) -> AttackNode | None:

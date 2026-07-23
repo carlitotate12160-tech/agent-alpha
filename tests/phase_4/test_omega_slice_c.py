@@ -7,9 +7,6 @@ Asserts content validity, redaction, determinism, placeholder handling, and HTML
 
 from __future__ import annotations
 
-import html
-import re
-
 from agent_alpha.agents.omega.report_html import render_report_html
 from agent_alpha.agents.omega.roaster import EvidenceItem, Omega, PathStep, Report
 from agent_alpha.graph.narrative import BlastRadius
@@ -73,7 +70,7 @@ def _build_proven_chain_graph_with_evidence() -> tuple[NetworkXGraphStore, str]:
             "type": "access_level",
             "properties": {"level": "admin"},
             "confidence": 0.8,
-            "verified": True,
+            "verification": "cross_verified",
         },
     )
 
@@ -116,7 +113,7 @@ def test_html_contains_all_sections() -> None:
     # Section 1: Executive summary
     assert "Executive summary" in html_out
     assert report.narrative in html_out or report.narrative[:50] in html_out
-    assert '<table class="sev">' in html_out or 'table' in html_out
+    assert '<table class="sev">' in html_out
 
     # Section 2: Attack path (static SVG, NO Mermaid JS)
     assert "Attack path" in html_out
@@ -316,8 +313,8 @@ def test_cover_uses_real_engagement_metadata() -> None:
     assert "21 July 2026" in html_out
 
     # Assert internal node ID (asset-1) is NOT shown as the Target
-    assert "Target</td><td class=\"mono\">asset-1" not in html_out
-    assert "Target</td><td class=\"mono\">asset-origin-1.2.3.4" not in html_out
+    assert 'Target</td><td class="mono">asset-1' not in html_out
+    assert 'Target</td><td class="mono">asset-origin-1.2.3.4' not in html_out
 
     # Assert footer also uses real metadata
     assert "Engagement a1-fp · alpha-ai.web.id" in html_out

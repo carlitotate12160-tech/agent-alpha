@@ -14,6 +14,12 @@ class NodeType(StrEnum):
     ACCESS_LEVEL = "access_level"
 
 
+class VerificationTier(StrEnum):
+    UNVERIFIED = "unverified"
+    SELF_VERIFIED = "self_verified"
+    CROSS_VERIFIED = "cross_verified"
+
+
 class RelationshipType(StrEnum):
     EXPLOITS = "exploits"
     ENABLES = "enables"
@@ -32,6 +38,9 @@ class ProofArtifact:
     description: str
     captured_at: str
     agent: str
+    subject_ref: str = ""
+    target: str = ""
+    access_level: str = ""
 
 
 @dataclass
@@ -101,10 +110,20 @@ class AttackNode:
     agent: str = ""
     timestamp_utc: str = ""
     verified: bool = False
+    verification: VerificationTier = VerificationTier.UNVERIFIED
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError("confidence must be between 0.0 and 1.0")
+        # Legacy sync: verified=True without explicit tier → SELF_VERIFIED (tool
+        # self-report).  CROSS_VERIFIED is oracle-exclusive: it may ONLY originate
+        # from a provenance-checked NodeVerified event emitted by
+        # run_verification_pass.  Mapping legacy verified=True → CROSS_VERIFIED
+        # would auto-promote self-reports (theater).
+        if self.verified and self.verification == VerificationTier.UNVERIFIED:
+            object.__setattr__(self, "verification", VerificationTier.SELF_VERIFIED)
+        # Derive verified from verification (single source of truth).
+        object.__setattr__(self, "verified", self.verification == VerificationTier.CROSS_VERIFIED)
 
 
 @dataclass
@@ -140,6 +159,7 @@ def node_to_dict(node: AttackNode) -> dict[str, Any]:
         "agent": node.agent,
         "timestamp_utc": node.timestamp_utc,
         "verified": node.verified,
+        "verification": node.verification.value,
     }
 
 
@@ -163,6 +183,16 @@ def _reconstruct_node(raw: dict[str, Any]) -> AttackNode:
     proof_artifacts_data = raw.get("proof_artifacts", [])
     proof_artifacts = [ProofArtifact(**a) for a in proof_artifacts_data]
 
+    verification_raw = raw.get("verification")
+    if verification_raw:
+        verification = VerificationTier(verification_raw)
+    elif raw.get("verified", False):
+        # Legacy payload: verified=True but no verification tier → SELF_VERIFIED
+        # (tool self-report).  NEVER CROSS_VERIFIED — that is oracle-exclusive.
+        verification = VerificationTier.SELF_VERIFIED
+    else:
+        verification = VerificationTier.UNVERIFIED
+
     return AttackNode(
         id=raw["id"],
         type=node_type,
@@ -172,4 +202,5 @@ def _reconstruct_node(raw: dict[str, Any]) -> AttackNode:
         agent=raw.get("agent", ""),
         timestamp_utc=raw.get("timestamp_utc", ""),
         verified=raw.get("verified", False),
+        verification=verification,
     )
