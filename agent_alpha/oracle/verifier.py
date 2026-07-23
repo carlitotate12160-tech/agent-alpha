@@ -139,7 +139,10 @@ class CredReuseOracle:
                 # subject_ref must match the enabling credential's identity (id or secret_ref)
                 if a.subject_ref in (cred_node.id, cred_node.properties.secret_ref):
                     # access_level and target must match this access node
-                    if a.access_level == getattr(node.properties, "level", "") and a.target in node.id:
+                    if (
+                        a.access_level == getattr(node.properties, "level", "")
+                        and a.target in node.id
+                    ):
                         has_bound_proof = True
                         break
 
