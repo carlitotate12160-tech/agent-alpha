@@ -17,6 +17,16 @@ import logging
 import secrets
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.domain_verification import (
+    DNSResolver,
+    DomainOwnershipError,
+    verify_domain_ownership,
+)
+from agent_alpha.conductor.engagement_profile import (
+    ConsentRecord,
+    EngagementProfile,
+    assert_not_guardrailed,
+)
 from agent_alpha.conductor.engagement_reducer import rebuild_engagement
 from agent_alpha.conductor.models import (
     EngagementNotFoundError,
@@ -453,3 +463,141 @@ class AuthorizationStateMachine:
                     ):
                         return parsed.value.subnet_of(cand.value)
         return False
+
+
+# ── §12.36 Signed EngagementProfile authorization ──────────────
+
+
+def authorize_engagement(
+    *,
+    engagement_id: str,
+    client_id: str,
+    targets: list[str],
+    scope_mode: str = "single",
+    authorized_origins: frozenset[str] | None = None,
+    allow_subdomain_enum: bool = False,
+    opsec_stealth: bool = False,
+    allow_evasion: bool = False,
+    include_root: bool = False,
+    authorization_level: str = "RECON_ONLY",
+    consent_items: frozenset[str] | None = None,
+    signed_by: str = "",
+    signed_at: str = "",
+    ownership_tokens: dict[str, str] | None = None,
+    dns_resolver: DNSResolver | None = None,
+    event_store: EventStore | None = None,
+) -> tuple[EngagementProfile, str]:
+    """Build, sign, and (optionally) persist a §12.36 EngagementProfile.
+
+    REQUIRES DNS-TXT ownership verification for every target. Fail-closed:
+    if any target fails ownership → raise, no profile.
+
+    Steps:
+    1. Guardrail check on every target (overrides consent).
+    2. DNS-TXT ownership verification for every target.
+    3. Construct EngagementProfile with all fields.
+    4. Sign (canonical_json → sha256).
+    5. Emit ENGAGEMENT_AUTHORIZED event (if event_store provided).
+
+    Parameters
+    ----------
+    ownership_tokens : dict[str, str] | None
+        Mapping of target → expected DNS-TXT token (e.g. {"example.com": "dns-txt:agent-alpha=abc123"}).
+        Every target MUST have an entry. Missing entry → raise.
+    dns_resolver : DNSResolver | None
+        Injectable DNS resolver. MUST be provided — None raises DomainOwnershipError.
+    event_store : EventStore | None
+        If provided, emits an ENGAGEMENT_AUTHORIZED event for audit trail.
+
+    Returns
+    -------
+    tuple[EngagementProfile, str]
+        The signed profile and its sha256 hash.
+
+    Raises
+    ------
+    GuardrailViolation
+        If any target is in a guarded TLD/domain.
+    DomainOwnershipError
+        If DNS-TXT ownership is not proven for a target, or no resolver injected.
+    ValueError
+        If targets is empty or ownership_tokens is missing a target.
+    """
+    if not targets:
+        raise ValueError("authorize_engagement: targets must be non-empty")
+
+    if ownership_tokens is None:
+        ownership_tokens = {}
+
+    # Step 1 — guardrail check on every target (overrides consent).
+    for target in targets:
+        assert_not_guardrailed(target)
+
+    # Step 2 — DNS-TXT ownership verification for every target.
+    verified_targets: list[str] = []
+    for target in targets:
+        token = ownership_tokens.get(target)
+        if token is None:
+            raise ValueError(f"authorize_engagement: no ownership token provided for {target!r}")
+        if not verify_domain_ownership(target, token, dns_resolver=dns_resolver):
+            raise DomainOwnershipError(
+                f"authorize_engagement: DNS-TXT ownership not proven for {target!r} "
+                f"(expected token: {token!r}). Target NOT added to scope."
+            )
+        verified_targets.append(target)
+
+    # Step 3 — construct EngagementProfile.
+    consent = ConsentRecord(
+        accepted_items=consent_items or frozenset(),
+        signed_by=signed_by,
+        signed_at=signed_at,
+    )
+
+    profile = EngagementProfile(
+        engagement_id=engagement_id,
+        client_id=client_id,
+        targets=frozenset(verified_targets),
+        authorized_origins=authorized_origins or frozenset(),
+        allow_evasion=allow_evasion,
+        scope_targets=frozenset(verified_targets),
+        scope_mode=scope_mode,
+        allow_subdomain_enum=allow_subdomain_enum,
+        opsec_stealth=opsec_stealth,
+        include_root=include_root,
+        authorization_level=authorization_level,
+        consent=consent,
+    )
+
+    # Step 4 — sign.
+    profile_hash = profile.sha256()
+
+    # Step 5 — emit event (if event_store provided).
+    if event_store is not None:
+        event_store.append(
+            event_type=EventType.ENGAGEMENT_AUTHORIZED,
+            engagement_id=engagement_id,
+            agent="CONDUCTOR",
+            payload={
+                "sha256": profile_hash,
+                "consent": consent.to_dict(),
+                "verified_targets": verified_targets,
+                "authorization_level": authorization_level,
+                "capabilities": {
+                    "allow_subdomain_enum": allow_subdomain_enum,
+                    "opsec_stealth": opsec_stealth,
+                    "allow_evasion": allow_evasion,
+                    "include_root": include_root,
+                },
+                "scope_mode": scope_mode,
+            },
+        )
+
+    _log.info(
+        "authorize_engagement: %s — %d targets verified, level=%s, hash=%s",
+        engagement_id,
+        len(verified_targets),
+        authorization_level,
+        profile_hash[:16],
+    )
+
+    return profile, profile_hash
