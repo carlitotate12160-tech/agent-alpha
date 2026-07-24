@@ -54,9 +54,11 @@ class StubDNSResolver:
 
 _VALID_DOMAIN = "quantum-laboratories.com"
 _VALID_TOKEN = "dns-txt:agent-alpha=verify-abc123"
-_VALID_DNS = StubDNSResolver({
-    "quantum-laboratories.com": ["agent-alpha=verify-abc123"],
-})
+_VALID_DNS = StubDNSResolver(
+    {
+        "quantum-laboratories.com": ["agent-alpha=verify-abc123"],
+    }
+)
 
 _CONSENT = ConsentRecord(
     accepted_items=frozenset({"scope_confirmed", "techniques_authorized"}),

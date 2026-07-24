@@ -64,7 +64,7 @@ def _parse_expected_token(expected_token: str) -> str:
     """
     token = expected_token.strip()
     if token.startswith("dns-txt:"):
-        token = token[len("dns-txt:"):]
+        token = token[len("dns-txt:") :]
     return token
 
 
@@ -107,9 +107,7 @@ def verify_domain_ownership(
 
     token = _parse_expected_token(expected_token)
     if not token:
-        raise DomainOwnershipError(
-            f"empty ownership token for {domain!r} — cannot verify"
-        )
+        raise DomainOwnershipError(f"empty ownership token for {domain!r} — cannot verify")
 
     txt_records = dns_resolver.resolve_txt(domain)
 

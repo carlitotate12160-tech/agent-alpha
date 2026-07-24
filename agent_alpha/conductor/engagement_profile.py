@@ -85,20 +85,45 @@ class ConsentRecord:
 # ── Target guardrail (defense-in-depth ABOVE consent) ─────────
 
 # Hard-blocked TLDs — ALWAYS refused, even with signed consent + ownership.
-_GUARDBRAIL_TLDS: frozenset[str] = frozenset({
-    ".gov", ".mil", ".edu", ".int",
-})
+_GUARDBRAIL_TLDS: frozenset[str] = frozenset(
+    {
+        ".gov",
+        ".mil",
+        ".edu",
+        ".int",
+    }
+)
 
 # Well-known big-tech / cloud / financial domains — ALWAYS refused.
-_GUARDBRAIL_DOMAINS: frozenset[str] = frozenset({
-    "google.com", "amazon.com", "microsoft.com", "apple.com",
-    "facebook.com", "meta.com", "twitter.com", "x.com",
-    "netflix.com", "cloudflare.com", "aws.amazon.com",
-    "github.com", "linkedin.com", "instagram.com",
-    "paypal.com", "stripe.com", "visa.com", "mastercard.com",
-    "bankofamerica.com", "wellsfargo.com", "chase.com",
-    "oracle.com", "ibm.com", "intel.com", "cisco.com",
-})
+_GUARDBRAIL_DOMAINS: frozenset[str] = frozenset(
+    {
+        "google.com",
+        "amazon.com",
+        "microsoft.com",
+        "apple.com",
+        "facebook.com",
+        "meta.com",
+        "twitter.com",
+        "x.com",
+        "netflix.com",
+        "cloudflare.com",
+        "aws.amazon.com",
+        "github.com",
+        "linkedin.com",
+        "instagram.com",
+        "paypal.com",
+        "stripe.com",
+        "visa.com",
+        "mastercard.com",
+        "bankofamerica.com",
+        "wellsfargo.com",
+        "chase.com",
+        "oracle.com",
+        "ibm.com",
+        "intel.com",
+        "cisco.com",
+    }
+)
 
 
 def _normalise_target(target: str) -> str:
@@ -331,8 +356,7 @@ def assert_target_in_scope(target: str, profile: EngagementProfile) -> None:
     host = _normalise_target(target)
     if host not in profile.scope_targets:
         raise TargetNotInScopeError(
-            f"target {host!r} not in signed scope_targets "
-            f"(scope={sorted(profile.scope_targets)})"
+            f"target {host!r} not in signed scope_targets (scope={sorted(profile.scope_targets)})"
         )
 
 

@@ -538,9 +538,7 @@ def authorize_engagement(
     for target in targets:
         token = ownership_tokens.get(target)
         if token is None:
-            raise ValueError(
-                f"authorize_engagement: no ownership token provided for {target!r}"
-            )
+            raise ValueError(f"authorize_engagement: no ownership token provided for {target!r}")
         if not verify_domain_ownership(target, token, dns_resolver=dns_resolver):
             raise DomainOwnershipError(
                 f"authorize_engagement: DNS-TXT ownership not proven for {target!r} "
