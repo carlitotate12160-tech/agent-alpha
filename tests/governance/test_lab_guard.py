@@ -17,10 +17,10 @@ import datetime as _dt
 import pytest
 
 from agent_alpha.live_fire.lab_guard import (
+    _LAB_HOSTS,
     LAB_TARGET_ALLOWLIST,
     LabHost,
     LabOnlyViolation,
-    _LAB_HOSTS,
     assert_lab_only_target,
 )
 

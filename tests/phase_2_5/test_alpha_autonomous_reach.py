@@ -35,7 +35,6 @@ from agent_alpha.conductor.engagement_profile import EngagementProfile
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.live_fire import a1_validation_runner
 from agent_alpha.recon.origin_discovery import StaticOriginDiscovery
 from agent_alpha.recon.reach_strategy import ReachStrategy
 from agent_alpha.recon.transport_resilience import MitigationClass

@@ -178,7 +178,7 @@ def test_oracle_rejects_unbound_proof() -> None:
     """DIFFERENTIAL — must be able to FAIL. SAME graph shape but the proof's subject_ref is a DIFFERENT credential."""
     store = NetworkXGraphStore()
     _emit_node(store, AttackNode(id=_CRED_ID, type=NodeType.CREDENTIAL, properties=CredentialProperties(username="admin", secret_ref="vault://abc", service="http", access_level="admin"), confidence=0.85))
-    
+
     # Access node has proof for a DIFFERENT credential
     _emit_node(
         store,

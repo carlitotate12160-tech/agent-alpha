@@ -15,17 +15,13 @@ from __future__ import annotations
 import json
 import pathlib
 
-import pytest
-
 from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
 from agent_alpha.live_fire.validation_vs_scanner import (
-    ComparisonVerdict,
     NucleiFinding,
     compare,
     format_report,
     parse_nuclei_jsonl,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────
 

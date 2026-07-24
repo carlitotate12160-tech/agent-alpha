@@ -973,7 +973,6 @@ def test_origin_direct_login_uses_verify_false(
     monkeypatch.setattr(runner_mod, "origin_direct_fetch", _make_origin_direct_fetch_monkey())
 
     origin_ip = "10.0.0.1"
-    target = "alpha-ai.web.id"
     discovery = _StubOriginDiscovery([origin_ip])
     profile = _make_profile(
         engagement_id="test-tls-spy",

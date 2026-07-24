@@ -1,6 +1,7 @@
 import dataclasses
 from typing import Any
 
+
 @dataclasses.dataclass(frozen=True)
 class OriginDirectResult:
     """Result from an origin-direct fetch. Satisfies ChallengeSolveResult.
