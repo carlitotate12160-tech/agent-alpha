@@ -530,9 +530,9 @@ def _make_origin_direct_fetch_monkey(bundle_body: str = _BUNDLE_BODY):
         *,
         verify_tls: bool = False,
     ):
-        from agent_alpha.live_fire.a1_validation_runner import _OriginDirectResult
+        from agent_alpha.recon.reach_transport import OriginDirectResult
 
-        return _OriginDirectResult(
+        return OriginDirectResult(
             status_code=200,
             body=bundle_body,
             headers={"content-type": "application/javascript"},
@@ -973,7 +973,6 @@ def test_origin_direct_login_uses_verify_false(
     monkeypatch.setattr(runner_mod, "origin_direct_fetch", _make_origin_direct_fetch_monkey())
 
     origin_ip = "10.0.0.1"
-    target = "alpha-ai.web.id"
     discovery = _StubOriginDiscovery([origin_ip])
     profile = _make_profile(
         engagement_id="test-tls-spy",

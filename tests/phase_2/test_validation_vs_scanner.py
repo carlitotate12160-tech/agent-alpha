@@ -15,17 +15,13 @@ from __future__ import annotations
 import json
 import pathlib
 
-import pytest
-
 from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
 from agent_alpha.live_fire.validation_vs_scanner import (
-    ComparisonVerdict,
     NucleiFinding,
     compare,
     format_report,
     parse_nuclei_jsonl,
 )
-
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -69,11 +65,13 @@ def _make_nuclei_line(
     matched_at: str = "https://odoo.lab:443",
 ) -> str:
     """Build a single Nuclei JSONL line."""
-    return json.dumps({
-        "template-id": template_id,
-        "info": {"severity": severity},
-        "matched-at": matched_at,
-    })
+    return json.dumps(
+        {
+            "template-id": template_id,
+            "info": {"severity": severity},
+            "matched-at": matched_at,
+        }
+    )
 
 
 # ── T1: parse_nuclei_jsonl ────────────────────────────────────────────
@@ -159,8 +157,7 @@ class TestHonestBothWays:
     def test_report_shows_both_nuclei_total_and_chain(self) -> None:
         chain = _proven_chain_result()
         nuclei = [
-            NucleiFinding(f"template-{i}", "info", f"https://odoo.lab/path-{i}")
-            for i in range(50)
+            NucleiFinding(f"template-{i}", "info", f"https://odoo.lab/path-{i}") for i in range(50)
         ]
         verdict = compare(chain, nuclei)
 

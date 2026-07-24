@@ -154,6 +154,10 @@ def test_async_worker_runs_real_recon_pipeline(
         session_store: object = None,
         *,
         policy: object = None,
+        origin_discovery: object = None,
+        browser_solve: object = None,
+        engagement_profile: object = None,
+        browser_solve_viable: bool = False,
     ) -> recon_runner.ReconPipeline:
         alpha = Alpha(
             authorization=auth_,

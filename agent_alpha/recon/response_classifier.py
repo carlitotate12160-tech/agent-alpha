@@ -55,14 +55,25 @@ class Verdict(enum.StrEnum):
 # STRONG body markers — lowercase-compared. A body containing any of these is a
 # CDN/WAF interstitial regardless of headers.  These are CDN-internal tokens
 # that never appear in legitimate page text (CodeRabbit #188).
+#
+# NOTE: ``challenge-platform`` is NOT here — CF injects that string into ALL
+# proxied sites via its analytics/beacon script, so it false-positives on
+# legitimate content.  It is handled separately with a body-size guard below.
 CHALLENGE_STRONG_MARKERS: frozenset[str] = frozenset(
     {
         "cf-browser-verification",
-        "challenge-platform",
         "_cf_chl_opt",
         "sucuri_cloudproxy",
     }
 )
+
+# ``challenge-platform`` is a CF-internal script path that appears in both
+# interstitial challenge pages AND legitimate CF-proxied sites (CF injects
+# it via its analytics/beacon script).  Only treat it as a strong marker
+# when the body is small enough to be an interstitial page.  Real content
+# pages are typically > 5 KB; CF interstitial pages are typically < 5 KB.
+_CHALLENGE_PLATFORM_MARKER = "challenge-platform"
+_CHALLENGE_MAX_INTERSTITIAL_BODY = 5000
 
 # WEAK body markers — require a corroborating :data:`CHALLENGE_HEADER_HINT`.
 # These are natural-language / brand-name strings ("just a moment",
@@ -127,12 +138,18 @@ _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES: frozenset[int] = frozenset({415})
 def _is_challenge(body: str, headers: dict[str, str] | None) -> bool:
     """Return True if body matches CHALLENGE rules.
 
-    Rule: CHALLENGE iff (any STRONG body marker) OR (any WEAK body marker AND
-    any header hint present).  ``headers=None`` is treated as no headers —
-    weak markers alone never trigger CHALLENGE.
+    Rule: CHALLENGE iff (any STRONG body marker) OR (``challenge-platform``
+    present AND body is small enough to be an interstitial) OR (any WEAK body
+    marker AND any header hint present).  ``headers=None`` is treated as no
+    headers — weak markers alone never trigger CHALLENGE.
     """
     body_lower = body.lower()
     if any(marker in body_lower for marker in CHALLENGE_STRONG_MARKERS):
+        return True
+    # challenge-platform: only strong for small (interstitial) bodies.
+    # CF injects this string into all proxied sites; a large body with this
+    # marker is real content, not a challenge page.
+    if _CHALLENGE_PLATFORM_MARKER in body_lower and len(body) < _CHALLENGE_MAX_INTERSTITIAL_BODY:
         return True
     if any(marker in body_lower for marker in CHALLENGE_WEAK_MARKERS):
         return _has_challenge_header_hint(headers)
