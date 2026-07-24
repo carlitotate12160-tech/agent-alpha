@@ -530,9 +530,9 @@ def _make_origin_direct_fetch_monkey(bundle_body: str = _BUNDLE_BODY):
         *,
         verify_tls: bool = False,
     ):
-        from agent_alpha.live_fire.a1_validation_runner import _OriginDirectResult
+        from agent_alpha.recon.reach_transport import OriginDirectResult
 
-        return _OriginDirectResult(
+        return OriginDirectResult(
             status_code=200,
             body=bundle_body,
             headers={"content-type": "application/javascript"},

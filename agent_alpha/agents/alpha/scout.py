@@ -44,6 +44,7 @@ from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
+from agent_alpha.recon.reach_transport import origin_direct_fetch
 from agent_alpha.recon.response_classifier import (  # noqa: F401
     VOLATILE_HEADERS,
     Verdict,
@@ -564,7 +565,6 @@ class Alpha:
         # 5. Dispatch
         if strategy is ReachStrategy.ORIGIN_DIRECT and authorized_origin is not None:
             from agent_alpha.conductor.engagement_profile import assert_origin_authorized
-            from agent_alpha.live_fire.a1_validation_runner import origin_direct_fetch
 
             # C8: fail-closed — raises OriginNotAuthorizedError if not authorized
             assert_origin_authorized(authorized_origin, host, self._engagement_profile)

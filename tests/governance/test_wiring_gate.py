@@ -55,6 +55,10 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
         ("tools/registry.py", "llm/orchestrator.py"),
         "GAP-003 / ADR §12.11 (cross-engagement learning)",
     ),
+    "run_verification_pass": (
+        ("conductor/main.py", "conductor/execute_agent.py"),
+        "WIRING-DEBT (close in slice-1): CROSS_VERIFIED must be reachable on the autonomous Conductor path",
+    ),
 }
 
 
@@ -76,3 +80,18 @@ def test_wiring_debt_is_tracked_until_resolved(
         f"Move it from WIRING_DEBT to WIRED_REQUIRED so the gate protects it from "
         f"regressing back to dead code."
     )
+
+
+def test_conductor_chain_calls_run_verification_pass():
+    """WIRING-DEBT (close in slice-1): CROSS_VERIFIED must be reachable on the
+    autonomous Conductor path, not only the a1 runner. Fails until conductor/
+    calls run_verification_pass post-Beta. Do NOT delete to make green — wire it."""
+    conductor_src = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in pathlib.Path("agent_alpha/conductor").rglob("*.py")
+    )
+    assert "run_verification_pass" in conductor_src, (
+        "run_verification_pass is not wired into the Conductor chain — autonomous "
+        "findings cannot reach CROSS_VERIFIED (Lyndon #2, runner-seal != wired)."
+    )
+
