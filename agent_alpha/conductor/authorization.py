@@ -17,18 +17,17 @@ import logging
 import secrets
 
 from agent_alpha.a2a import a2a_pb2
-from agent_alpha.conductor.engagement_profile import (
-    ConsentRecord,
-    EngagementProfile,
-    GuardrailViolation,
-    assert_not_guardrailed,
-)
-from agent_alpha.conductor.engagement_reducer import rebuild_engagement
 from agent_alpha.conductor.domain_verification import (
     DNSResolver,
     DomainOwnershipError,
     verify_domain_ownership,
 )
+from agent_alpha.conductor.engagement_profile import (
+    ConsentRecord,
+    EngagementProfile,
+    assert_not_guardrailed,
+)
+from agent_alpha.conductor.engagement_reducer import rebuild_engagement
 from agent_alpha.conductor.models import (
     EngagementNotFoundError,
     EngagementRecord,

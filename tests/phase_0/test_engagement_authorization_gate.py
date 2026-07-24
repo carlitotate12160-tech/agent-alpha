@@ -18,14 +18,13 @@ import pytest
 from agent_alpha.conductor.authorization import authorize_engagement
 from agent_alpha.conductor.domain_verification import (
     DomainOwnershipError,
-    DNSResolver,
 )
 from agent_alpha.conductor.engagement_profile import (
     AuthorizationLevelError,
     CapabilityNotAuthorizedError,
     ConsentRecord,
     EngagementProfile,
-    GuardrailViolation,
+    GuardrailError,
     TargetNotInScopeError,
     assert_authorization_level,
     assert_capability_authorized,
@@ -37,7 +36,6 @@ from agent_alpha.conductor.engagement_profile import (
 )
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
-
 
 # ── Test DNS resolver stub ─────────────────────────────────────
 
@@ -311,36 +309,36 @@ def test_level_gates_gamma_allowed_under_offensive() -> None:
 
 def test_guardrail_blocks_gov_tld() -> None:
     """A .gov target is blocked by assert_not_guardrailed even with consent."""
-    with pytest.raises(GuardrailViolation, match="guarded TLD"):
+    with pytest.raises(GuardrailError, match="guarded TLD"):
         assert_not_guardrailed("whitehouse.gov")
 
 
 def test_guardrail_blocks_mil_tld() -> None:
-    with pytest.raises(GuardrailViolation, match="guarded TLD"):
+    with pytest.raises(GuardrailError, match="guarded TLD"):
         assert_not_guardrailed("army.mil")
 
 
 def test_guardrail_blocks_edu_tld() -> None:
-    with pytest.raises(GuardrailViolation, match="guarded TLD"):
+    with pytest.raises(GuardrailError, match="guarded TLD"):
         assert_not_guardrailed("mit.edu")
 
 
 def test_guardrail_blocks_big_tech() -> None:
     """Well-known big-tech domain blocked even with full profile."""
-    with pytest.raises(GuardrailViolation, match="big-tech"):
+    with pytest.raises(GuardrailError, match="big-tech"):
         assert_not_guardrailed("google.com")
 
 
 def test_guardrail_blocks_big_tech_subdomain() -> None:
     """Subdomain of big-tech domain also blocked."""
-    with pytest.raises(GuardrailViolation, match="big-tech"):
+    with pytest.raises(GuardrailError, match="big-tech"):
         assert_not_guardrailed("cloud.aws.amazon.com")
 
 
 def test_guardrail_overrides_consent_in_authorize() -> None:
     """A .gov target is blocked by authorize_engagement EVEN with a fully
     signed, ownership-verified profile."""
-    with pytest.raises(GuardrailViolation):
+    with pytest.raises(GuardrailError):
         authorize_engagement(
             engagement_id="eng-001",
             client_id="client-1",
@@ -354,14 +352,14 @@ def test_guardrail_overrides_consent_in_authorize() -> None:
 
 
 def test_guardrail_overrides_consent_in_target_in_scope() -> None:
-    """assert_target_in_scope raises GuardrailViolation for .gov even if
+    """assert_target_in_scope raises GuardrailError for .gov even if
     the target is in scope_targets."""
     profile = EngagementProfile(
         engagement_id="eng-001",
         client_id="client-1",
         scope_targets=frozenset({"agency.gov"}),  # somehow in scope
     )
-    with pytest.raises(GuardrailViolation):
+    with pytest.raises(GuardrailError):
         assert_target_in_scope("agency.gov", profile)
 
 
@@ -433,7 +431,7 @@ def test_origin_authorized_with_scope_targets() -> None:
 
 def test_origin_authorized_lab_allowlist_still_works() -> None:
     """Lab allowlist path still works for field-prove harnesses."""
-    _TEST_ALLOWLIST = frozenset({"lab.example.com"})
+    _test_allowlist = frozenset({"lab.example.com"})
     profile = EngagementProfile(
         engagement_id="eng-001",
         client_id="client-1",
@@ -443,7 +441,7 @@ def test_origin_authorized_lab_allowlist_still_works() -> None:
         origin_ip="203.0.113.10",
         fronted_host="lab.example.com",
         profile=profile,
-        lab_allowlist=_TEST_ALLOWLIST,
+        lab_allowlist=_test_allowlist,
     )  # no raise
 
 

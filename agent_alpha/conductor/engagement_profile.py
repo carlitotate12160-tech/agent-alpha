@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any
 
 from agent_alpha.live_fire.lab_guard import LAB_TARGET_ALLOWLIST
 
@@ -47,7 +47,7 @@ class AuthorizationLevelError(RuntimeError):
     """Raised when the agent tier requires a higher authorization level."""
 
 
-class GuardrailViolation(RuntimeError):
+class GuardrailError(RuntimeError):
     """Raised when a target is blocked by the hard guardrail regardless of consent."""
 
 
@@ -121,11 +121,11 @@ def assert_not_guardrailed(target: str) -> None:
     """
     host = _normalise_target(target)
     if not host:
-        raise GuardrailViolation(f"empty/invalid target: {target!r}")
+        raise GuardrailError(f"empty/invalid target: {target!r}")
 
     for tld in _GUARDBRAIL_TLDS:
         if host.endswith(tld):
-            raise GuardrailViolation(
+            raise GuardrailError(
                 f"target {host!r} is in a guarded TLD ({tld}) — "
                 f"government/military/education/international targets are ALWAYS blocked."
             )
@@ -133,7 +133,7 @@ def assert_not_guardrailed(target: str) -> None:
     # Check exact match and subdomain match against blocked domains.
     for blocked in _GUARDBRAIL_DOMAINS:
         if host == blocked or host.endswith("." + blocked):
-            raise GuardrailViolation(
+            raise GuardrailError(
                 f"target {host!r} is a well-known big-tech/cloud/financial domain "
                 f"({blocked}) — ALWAYS blocked regardless of consent."
             )
@@ -295,7 +295,7 @@ def assert_origin_authorized(
         When the fronted host is not in the lab allowlist AND not in signed
         scope_targets, or the origin IP is not in the profile's signed
         ``authorized_origins``.
-    GuardrailViolation
+    GuardrailError
         When the fronted host is blocked by the hard guardrail.
     """
     assert_not_guardrailed(fronted_host)
@@ -325,7 +325,7 @@ def assert_target_in_scope(target: str, profile: EngagementProfile) -> None:
     Also checks the hard guardrail — guardrail violations override consent.
 
     Raises TargetNotInScopeError if target not in scope_targets.
-    Raises GuardrailViolation if target is in a guarded TLD/domain.
+    Raises GuardrailError if target is in a guarded TLD/domain.
     """
     assert_not_guardrailed(target)
     host = _normalise_target(target)
