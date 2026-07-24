@@ -86,6 +86,12 @@ class EventType(enum.StrEnum):
     # evidence so a WAF block is NEVER silently treated as "clean / not
     # vulnerable" (anti-false-negative). Carries {host, path, status_code}.
 
+    # ── Phase 6 (governance — §12.36 signed authorization gate) ───
+    ENGAGEMENT_AUTHORIZED = "EngagementAuthorized"
+    # ^ authorize_engagement(): a signed EngagementProfile was constructed after
+    # DNS-TXT ownership verification, consent acceptance, and guardrail check.
+    # Carries {sha256, consent, verified_targets, authorization_level, capabilities}.
+
     # ── Phase 2.5 (origin-direct reach — §12.33) ──────────────────
     ORIGIN_DIRECT_ATTEMPT = "OriginDirectAttempt"
     # ^ An origin-direct fetch was attempted: agent hit the origin IP directly,
