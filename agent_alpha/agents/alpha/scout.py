@@ -49,8 +49,8 @@ from agent_alpha.recon.response_classifier import (  # noqa: F401
     Verdict,
     classify_response,
 )
-from agent_alpha.recon.transport_resilience import classify_mitigation
 from agent_alpha.recon.surface_discovery import extract_api_surface
+from agent_alpha.recon.transport_resilience import classify_mitigation
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.laravel_env import iter_env_leaks
 from agent_alpha.tools.templates.cms.laravel_finding import LaravelFindingTemplate
@@ -341,31 +341,7 @@ class Alpha:
                 )
 
             if verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
-                host = urlparse(url).hostname or urlparse(url).netloc
-                is_challenge = verdict is Verdict.CHALLENGE
-                self._emit(
-                    "OBSERVE",
-                    f"{url} returned HTTP {resp.status_code}; "
-                    + ("CDN/WAF challenge" if is_challenge else "WAF/CF block")
-                    + " — non-analyzable",
-                )
-                waf_payload: dict[str, Any] = {
-                    "host": host,
-                    "path": urlparse(url).path,
-                    "status_code": resp.status_code,
-                }
-                if is_challenge:
-                    waf_payload["signal"] = "cf_challenge"
-                self.event_store.append(
-                    EventType.WAF_BLOCKED,
-                    self._engagement_id,
-                    "alpha",
-                    waf_payload,
-                )
-                return _finish(
-                    0, 0.0,
-                    f"OBSERVE: {url} " + ("CDN challenge" if is_challenge else "WAF blocked"),
-                )
+                return self._handle_waf_block(url, resp, verdict, obs, sp)
 
         # NOTE: Verdict.EMPTY no longer short-circuits here. An empty body
         # still cannot match a body rule, but a HEADER rule (e.g.
@@ -489,6 +465,43 @@ class Alpha:
             nodes_added, decision.cost_usd, f"ACT: {decision.tool} on {url} -> {nodes_added} nodes"
         )
 
+    # ── Private: WAF/CF block handling ───────────────────────────
+
+    def _handle_waf_block(
+        self,
+        url: str,
+        resp: Any,
+        verdict: Verdict,
+        obs: list[str],
+        sp: dict[str, Any],
+    ) -> dict[str, object]:
+        """Record a WAF/CF block as WAF_BLOCKED event and return a _finish result."""
+        host = urlparse(url).hostname or urlparse(url).netloc
+        is_challenge = verdict is Verdict.CHALLENGE
+        self._emit(
+            "OBSERVE",
+            f"{url} returned HTTP {resp.status_code}; "
+            + ("CDN/WAF challenge" if is_challenge else "WAF/CF block")
+            + " — non-analyzable",
+        )
+        waf_payload: dict[str, Any] = {
+            "host": host,
+            "path": urlparse(url).path,
+            "status_code": resp.status_code,
+        }
+        if is_challenge:
+            waf_payload["signal"] = "cf_challenge"
+        self.event_store.append(
+            EventType.WAF_BLOCKED,
+            self._engagement_id,
+            "alpha",
+            waf_payload,
+        )
+        obs.append(
+            f"OBSERVE: {url} " + ("CDN challenge" if is_challenge else "WAF blocked"),
+        )
+        return {"discovered_nodes": 0, "cost_usd": 0.0, "scratchpad": sp}
+
     # ── Private: reach strategy (Phase 2.5 — §12.33) ──────────────
 
     def _attempt_reach(self, url: str, resp: Any) -> Any | None:
@@ -529,11 +542,7 @@ class Alpha:
         if self._origin_discovery is not None:
             candidates = self._origin_discovery.candidates(host)
             authorized_origin = next(
-                (
-                    ip
-                    for ip in candidates
-                    if ip in self._engagement_profile.authorized_origins
-                ),
+                (ip for ip in candidates if ip in self._engagement_profile.authorized_origins),
                 None,
             )
 
@@ -600,9 +609,7 @@ class Alpha:
             )
 
             try:
-                result = self._browser_solve.solve_and_fetch(
-                    url, engagement_id=self._engagement_id
-                )
+                result = self._browser_solve.solve_and_fetch(url, engagement_id=self._engagement_id)
             except RuntimeError:
                 self._emit(
                     "OBSERVE",

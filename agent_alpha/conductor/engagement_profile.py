@@ -54,6 +54,7 @@ class EngagementProfile:
     client_id: str
     targets: frozenset[str] = frozenset()
     authorized_origins: frozenset[str] = frozenset()  # origin IPs client consented to hit direct
+    allow_evasion: bool = False  # client consented to browser_solve / evasion techniques
 
     # ── Signature helpers ─────────────────────────────────────
 
@@ -64,6 +65,7 @@ class EngagementProfile:
             "client_id": self.client_id,
             "targets": sorted(self.targets),
             "authorized_origins": sorted(self.authorized_origins),
+            "allow_evasion": self.allow_evasion,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
@@ -94,6 +96,7 @@ def dump_signed_profile(profile: EngagementProfile) -> dict[str, Any]:
             "client_id": profile.client_id,
             "targets": sorted(profile.targets),
             "authorized_origins": sorted(profile.authorized_origins),
+            "allow_evasion": profile.allow_evasion,
         },
         "sha256": profile.sha256(),
     }
@@ -118,6 +121,7 @@ def load_signed_profile(path: str) -> EngagementProfile:
         client_id=profile_data["client_id"],
         targets=frozenset(profile_data.get("targets", [])),
         authorized_origins=frozenset(profile_data.get("authorized_origins", [])),
+        allow_evasion=bool(profile_data.get("allow_evasion", False)),
     )
 
     if not profile.verify(data["sha256"]):
