@@ -177,7 +177,17 @@ def test_oracle_confirms_only_bound_proof() -> None:
 def test_oracle_rejects_unbound_proof() -> None:
     """DIFFERENTIAL — must be able to FAIL. SAME graph shape but the proof's subject_ref is a DIFFERENT credential."""
     store = NetworkXGraphStore()
-    _emit_node(store, AttackNode(id=_CRED_ID, type=NodeType.CREDENTIAL, properties=CredentialProperties(username="admin", secret_ref="vault://abc", service="http", access_level="admin"), confidence=0.85))
+    _emit_node(
+        store,
+        AttackNode(
+            id=_CRED_ID,
+            type=NodeType.CREDENTIAL,
+            properties=CredentialProperties(
+                username="admin", secret_ref="vault://abc", service="http", access_level="admin"
+            ),
+            confidence=0.85,
+        ),
+    )
 
     # Access node has proof for a DIFFERENT credential
     _emit_node(
@@ -196,12 +206,12 @@ def test_oracle_rejects_unbound_proof() -> None:
                     description="Verified admin access via cred reuse",
                     captured_at="2026-07-22T00:00:00Z",
                     agent="beta",
-                    subject_ref="cred:some_other_host:admin", # Unbound / mismatched proof
+                    subject_ref="cred:some_other_host:admin",  # Unbound / mismatched proof
                     target=_HOST,
                     access_level="admin",
                 )
-            ]
-        )
+            ],
+        ),
     )
     _emit_edge(store, AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"))
 
@@ -236,7 +246,9 @@ def test_invalid_c7_run_emits_no_nodeverified() -> None:
                 status_code = 200
                 text = "no challenge"
                 headers: dict[str, str] = {}
+
             return Resp()
+
         def post(self, url: str, **kwargs: object) -> Any:
             return self.get(url, **kwargs)
 
@@ -486,9 +498,12 @@ def test_a1_runner_invokes_verification_pass() -> None:
     a chain run. Proves non-island wiring in the live path."""
     from agent_alpha.live_fire.a1_validation_runner import run_a1_validation
 
-    with patch("agent_alpha.oracle.verifier.run_verification_pass") as mock_pass, \
-         patch("agent_alpha.live_fire.a1_validation_runner.classify_mitigation") as mock_classify:
+    with (
+        patch("agent_alpha.oracle.verifier.run_verification_pass") as mock_pass,
+        patch("agent_alpha.live_fire.a1_validation_runner.classify_mitigation") as mock_classify,
+    ):
         from agent_alpha.recon.transport_resilience import MitigationClass
+
         mock_classify.return_value = MitigationClass.CHALLENGE
         # Build minimal A1 args that reach the verification pass.
         # We provide a stub browser_solve and mock classify_mitigation to pass the C7 gate.

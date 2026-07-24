@@ -211,6 +211,7 @@ def test_alpha_autonomous_reach_origin_direct(monkeypatch: pytest.MonkeyPatch) -
         return _StubOriginDirectResult(body=_OK_BODY)
 
     from agent_alpha.recon import reach_transport
+
     monkeypatch.setattr(reach_transport, "origin_direct_fetch", _fake_origin_fetch)
 
     profile = _make_profile(authorized_origins=frozenset({_ORIGIN_IP}))
@@ -385,6 +386,7 @@ def test_reach_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
         return _StubOriginDirectResult(body=_CHALLENGE_BODY, status_code=403)
 
     from agent_alpha.recon import reach_transport
+
     monkeypatch.setattr(reach_transport, "origin_direct_fetch", _fake_origin_fetch)
 
     profile = _make_profile(authorized_origins=frozenset({_ORIGIN_IP}))

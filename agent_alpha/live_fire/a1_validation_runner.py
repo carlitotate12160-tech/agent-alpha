@@ -137,9 +137,6 @@ class _OriginDirectHttpClientWrapper:
         return self._inner.post(url, **kwargs)
 
 
-
-
-
 # ── Result dataclass ──────────────────────────────────────────────────────────
 
 

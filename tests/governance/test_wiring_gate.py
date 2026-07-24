@@ -87,11 +87,9 @@ def test_conductor_chain_calls_run_verification_pass():
     autonomous Conductor path, not only the a1 runner. Fails until conductor/
     calls run_verification_pass post-Beta. Do NOT delete to make green — wire it."""
     conductor_src = "\n".join(
-        p.read_text(encoding="utf-8")
-        for p in pathlib.Path("agent_alpha/conductor").rglob("*.py")
+        p.read_text(encoding="utf-8") for p in pathlib.Path("agent_alpha/conductor").rglob("*.py")
     )
     assert "run_verification_pass" in conductor_src, (
         "run_verification_pass is not wired into the Conductor chain — autonomous "
         "findings cannot reach CROSS_VERIFIED (Lyndon #2, runner-seal != wired)."
     )
-
