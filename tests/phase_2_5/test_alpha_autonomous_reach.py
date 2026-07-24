@@ -206,7 +206,9 @@ def test_alpha_autonomous_reach_origin_direct(monkeypatch: pytest.MonkeyPatch) -
     store = InMemoryEventStore()
 
     # Stub origin_direct_fetch to return the real content
-    def _fake_origin_fetch(host: str, origin_ip: str, path: str = "/", **kw: Any) -> _StubOriginDirectResult:
+    def _fake_origin_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
         return _StubOriginDirectResult(body=_OK_BODY)
 
     monkeypatch.setattr(a1_validation_runner, "origin_direct_fetch", _fake_origin_fetch)
@@ -306,39 +308,54 @@ def test_reach_is_differential() -> None:
     from agent_alpha.recon.reach_strategy import choose_reach
 
     # CHALLENGE + viable -> EVASION
-    assert choose_reach(
-        MitigationClass.CHALLENGE,
-        browser_solve_viable=True,
-        authorized_origin=None,
-    ) is ReachStrategy.EVASION
+    assert (
+        choose_reach(
+            MitigationClass.CHALLENGE,
+            browser_solve_viable=True,
+            authorized_origin=None,
+        )
+        is ReachStrategy.EVASION
+    )
 
     # CHALLENGE + not viable + origin -> ORIGIN_DIRECT
-    assert choose_reach(
-        MitigationClass.CHALLENGE,
-        browser_solve_viable=False,
-        authorized_origin=_ORIGIN_IP,
-    ) is ReachStrategy.ORIGIN_DIRECT
+    assert (
+        choose_reach(
+            MitigationClass.CHALLENGE,
+            browser_solve_viable=False,
+            authorized_origin=_ORIGIN_IP,
+        )
+        is ReachStrategy.ORIGIN_DIRECT
+    )
 
     # FINGERPRINT + origin -> ORIGIN_DIRECT
-    assert choose_reach(
-        MitigationClass.FINGERPRINT,
-        browser_solve_viable=False,
-        authorized_origin=_ORIGIN_IP,
-    ) is ReachStrategy.ORIGIN_DIRECT
+    assert (
+        choose_reach(
+            MitigationClass.FINGERPRINT,
+            browser_solve_viable=False,
+            authorized_origin=_ORIGIN_IP,
+        )
+        is ReachStrategy.ORIGIN_DIRECT
+    )
 
     # No mitigation -> DIRECT
-    assert choose_reach(
-        None,
-        browser_solve_viable=False,
-        authorized_origin=None,
-    ) is ReachStrategy.DIRECT
+    assert (
+        choose_reach(
+            None,
+            browser_solve_viable=False,
+            authorized_origin=None,
+        )
+        is ReachStrategy.DIRECT
+    )
 
     # CHALLENGE + not viable + no origin -> DIRECT (honest block)
-    assert choose_reach(
-        MitigationClass.CHALLENGE,
-        browser_solve_viable=False,
-        authorized_origin=None,
-    ) is ReachStrategy.DIRECT
+    assert (
+        choose_reach(
+            MitigationClass.CHALLENGE,
+            browser_solve_viable=False,
+            authorized_origin=None,
+        )
+        is ReachStrategy.DIRECT
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +376,9 @@ def test_reach_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
 
     calls_per_url: dict[str, int] = {}
 
-    def _fake_origin_fetch(host: str, origin_ip: str, path: str = "/", **kw: Any) -> _StubOriginDirectResult:
+    def _fake_origin_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
         url_key = f"{host}{path}"
         calls_per_url[url_key] = calls_per_url.get(url_key, 0) + 1
         # Return a challenge body — still blocked after origin-direct
