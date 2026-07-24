@@ -59,6 +59,18 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
         ("conductor/main.py", "conductor/execute_agent.py"),
         "WIRING-DEBT (close in slice-1): CROSS_VERIFIED must be reachable on the autonomous Conductor path",
     ),
+    "check_technique": (
+        ("conductor/execute_agent.py",),
+        "GAP-005 / OPSEC technique gate before offensive tool exec",
+    ),
+    "check_scope": (
+        ("conductor/execute_agent.py",),
+        "GAP-005 / scope gate before tool exec",
+    ),
+    "find_critical_paths": (
+        ("conductor/advance.py",),
+        "GAP-006 / attack-route prioritization (HVT), not report-only",
+    ),
 }
 
 
