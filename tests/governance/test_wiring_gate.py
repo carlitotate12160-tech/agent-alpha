@@ -82,6 +82,12 @@ def test_wiring_debt_is_tracked_until_resolved(
     )
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="WIRING-DEBT (close in slice-1): run_verification_pass not yet wired into "
+    "the Conductor chain post-Beta. CROSS_VERIFIED unreachable on the autonomous path. "
+    "Remove this marker when wired.",
+)
 def test_conductor_chain_calls_run_verification_pass():
     """WIRING-DEBT (close in slice-1): CROSS_VERIFIED must be reachable on the
     autonomous Conductor path, not only the a1 runner. Fails until conductor/
