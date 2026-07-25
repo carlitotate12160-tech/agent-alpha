@@ -169,14 +169,14 @@ def _resolve_in_scope_targets(
 
         targets = [web_target]
         base = web_target.rstrip("/")
-        
+
         for node in graph_store.nodes_by_type(NodeType.ASSET):
             props = node.properties
             if not isinstance(props, AssetProperties):
                 continue
             if "wp" in props.tech_stack:
                 targets.append(f"{base}/wp-login.php")
-                
+
         return list(dict.fromkeys(targets))
 
     asset_nodes = graph_store.nodes_by_type(NodeType.ASSET)
