@@ -22,7 +22,10 @@ from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor import recon_runner, routes_monologue
 from agent_alpha.conductor.advance import Dispatcher, advance_engagement
 from agent_alpha.conductor.api_auth import Principal, require_principal, valid_engagement_id
-from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
+from agent_alpha.conductor.applicator_factory import (
+    beta_web_applicators,
+    build_applicators_for_engagement,
+)
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.execute_agent import (
@@ -52,10 +55,6 @@ from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
-from agent_alpha.tools.internal.access.applicator import (
-    HttpFormApplicator,
-    WpLoginApplicator,
-)
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _log = logging.getLogger(__name__)
@@ -378,10 +377,7 @@ def run_agent_task(
 
         def agent_factory(graph_store: Any, session_store: Any = None) -> Callable[[], ExecOutcome]:
             if agent_role == a2a_pb2.BETA:
-                candidates = [
-                    HttpFormApplicator(http_client=http_client),
-                    WpLoginApplicator(http_client=http_client),
-                ]
+                candidates = beta_web_applicators(http_client)
                 applicators = build_applicators_for_engagement(
                     engagement_id=engagement_id,
                     auth=auth,
