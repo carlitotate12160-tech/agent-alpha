@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from unittest.mock import patch
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.advance import advance_engagement, decide_advance
@@ -186,14 +187,15 @@ def _handoff_events(next_role: int, from_agent: int = a2a_pb2.BETA) -> list[Fake
 def test_advance_parks_offensive_dispatch_on_high_blast() -> None:
     store = _high_blast_store()
     disp = FakeDispatcher()
-    decision = advance_engagement(
-        engagement_id="eng1",
-        auth=FakeAuth(),
-        event_store=FakeEventStore(_handoff_events(a2a_pb2.GAMMA)),
-        dispatcher=disp,
-        policy=FakePolicy(),
-        graph_rebuilder=lambda es, eid: store,
-    )
+    with patch("agent_alpha.conductor.advance.route_next", return_value=a2a_pb2.GAMMA):
+        decision = advance_engagement(
+            engagement_id="eng1",
+            auth=FakeAuth(),
+            event_store=FakeEventStore(_handoff_events(a2a_pb2.CONDUCTOR)),
+            dispatcher=disp,
+            policy=FakePolicy(),
+            graph_rebuilder=lambda es, eid: store,
+        )
     assert decision.action == "park_awaiting_approval"  # reached the gate via advance
     assert disp.calls == []  # NOT dispatched
 
@@ -201,13 +203,14 @@ def test_advance_parks_offensive_dispatch_on_high_blast() -> None:
 def test_advance_dispatches_offensive_when_blast_low() -> None:
     store = _low_blast_store()
     disp = FakeDispatcher()
-    decision = advance_engagement(
-        engagement_id="eng1",
-        auth=FakeAuth(),
-        event_store=FakeEventStore(_handoff_events(a2a_pb2.GAMMA)),
-        dispatcher=disp,
-        policy=FakePolicy(),
-        graph_rebuilder=lambda es, eid: store,
-    )
+    with patch("agent_alpha.conductor.advance.route_next", return_value=a2a_pb2.GAMMA):
+        decision = advance_engagement(
+            engagement_id="eng1",
+            auth=FakeAuth(),
+            event_store=FakeEventStore(_handoff_events(a2a_pb2.CONDUCTOR)),
+            dispatcher=disp,
+            policy=FakePolicy(),
+            graph_rebuilder=lambda es, eid: store,
+        )
     assert decision.action == "dispatch"
     assert disp.calls == [a2a_pb2.GAMMA]

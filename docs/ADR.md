@@ -1909,3 +1909,227 @@ autonomy" UX (product decision).
 - 2b: resolve OPSEC from the signed profile → HttpClient(opsec=) on the production recon path.
 - 2c: resolve technique opt-ins + per-tool scope (defense-in-depth) from the profile.
 - Blast threshold already wired (slice-1); 2a only makes it a PROFILE FIELD (default high preserved).
+
+---
+
+### 12.38 Origin-Scope by Ownership — PROPOSED
+
+**Status:** PROPOSED (Natanael greenlit the model 2026-07-25).
+**Lane:** Security-critical auth → Claude Opus (per model-routing table).
+**Lyndon check:** touches `engagement_profile` + `domain_verification` + `authorization`
++ `agents/alpha/scout` (reach) + `recon/origin_discovery` = **>2 files → interface
+redesign, NOT a patch (Step-5 rule).** Single canonical "origin authorization"
+concept — no second copy (anti-#6). Token format + TTL single-source (anti-#7).
+
+**Phase:** Phase-0/§12.36 auth foundation. Precedes every WAF-fronted engagement
+(ibudanbalita/CloudFront, cimbniaga/Imperva). Does NOT precede the niagamas WP spine
+(no CDN → no reach). Build order: **niagamas spine first, THIS second.**
+
+---
+
+#### Penjelasan sederhana (untuk klien / non-teknis)
+
+Klien memberikan URL saja (contoh: `https://ibudanbalita.com`). Sistem tidak butuh
+klien menyerahkan IP origin. Yang terjadi:
+
+1. **Klien kasih URL** → sistem buat challenge token unik untuk engagement ini.
+2. **Sistem tampilkan instruksi DNS-TXT** → klien tambah 1 record DNS di domain mereka
+   (bukti mereka punya domain itu — sama seperti Google Search Console / Let's Encrypt).
+3. **Klien confirm** → sistem cek DNS → cocok → domain terbukti milik klien.
+4. **Sistem auto-discover origin IP** (via CT logs, DNS history, dll) — klien TIDAK perlu
+   kasih IP.
+5. **Sistem verify origin** → cek apakah IP itu benar-benar serve domain klien (cert SAN
+   match) → kalau ya, origin-direct diizinkan.
+6. **Agen menembak origin** → bypass WAF/CDN → temukan vulnerability.
+
+Intinya: **klien cukup kasih URL + bukti kepemilikan DNS. Sisanya sistem yang kerjakan.**
+
+DNS-TXT dipilih karena ini standar industri (Google, Microsoft, Let's Encrypt) dan
+tidak memerlukan akses ke server klien — cukup akses ke DNS panel.
+
+---
+
+#### Problem
+
+Indonesian clients buy "prove our WAF/CDN is penetrable" and **refuse to hand over the
+origin IP** — the tool must discover it. Current gate `assert_origin_authorized` requires
+`origin_ip ∈ signed authorized_origins` (a hand-fed IP list). Client won't provide it →
+`authorized_origins` empty → ORIGIN_DIRECT can never fire → **core product ask is
+structurally blocked.** Fix is not a probe; it is the origin-authorization model.
+
+#### Decision
+
+Replace the hand-fed IP allowlist with a **two-proof runtime binding**. The client
+supplies only a URL. Authorization to hit a *discovered* origin IP is derived, never
+typed in.
+
+##### Proof-1 — Domain ownership (server-minted DNS-TXT)
+```
+1. Client: "test https://ibudanbalita.com; origin withheld."
+2. Conductor MINTS token  t = hmac(engagement_key, engagement_id || domain || nonce)
+   — server-side, bound to THIS engagement. (Caller never supplies the token — that
+   was deferred-#2; now mandatory. Caller-supplied token = client forges ownership of
+   a domain they don't control.)
+3. Conductor displays:  _agentalpha.<domain>  TXT  "agent-alpha=<t>"
+4. Client places the record, confirms.
+5. verify_domain_ownership(domain, "agent-alpha=<t>", resolver) is True
+   → domain enters signed scope_targets. Token t is logged (event-sourced).
+```
+`verify_domain_ownership` already exists (#252); the only change is the token is
+**minted+stored server-side and bound to engagement_id**, not passed in by the caller.
+
+##### Proof-2 — Origin binding (anti-collateral)
+New injectable seam `OriginBinder` (mirrors the `OriginDiscovery` seam pattern):
+```python
+class OriginBinder(Protocol):
+    def serves(self, origin_ip: str, fronted_host: str) -> bool:
+        """True IFF origin_ip demonstrably serves fronted_host:
+        fetch https://{origin_ip} with Host+SNI = fronted_host, verify=off, and
+        require cert SAN CONTAINS fronted_host  (strong)   OR
+        body-identity match to the owned site   (fallback, weaker).
+        Fail-closed: default _FailLoudBinder.serves() raises."""
+```
+A discovered neighbor domain `E` on the same shared IP fails `serves(ip, D)` because
+the cert/identity is for `E`, not `D`.
+
+##### Revised gate
+```python
+def assert_origin_authorized(origin_ip, fronted_host, profile, binder):
+    assert_not_guardrailed(fronted_host)                 # bank/gov TLD overrides all
+    if fronted_host not in profile.scope_targets:        # Proof-1 result (owned)
+        raise OriginNotAuthorizedError("fronted host not a proven-owned target")
+    if not profile.allow_evasion:                        # signed capability + consent
+        raise OriginNotAuthorizedError("evasion capability not consented (§12.36)")
+    if not binder.serves(origin_ip, fronted_host):       # Proof-2 (binding)
+        raise OriginNotAuthorizedError(
+            f"origin {origin_ip!r} not proven-bound to owned host {fronted_host!r} "
+            f"(cert SAN / identity mismatch) — refusing collateral hit")
+    # only now: origin-direct is authorized for this IP, this run
+```
+
+##### Schema change
+- `EngagementProfile.authorized_origins` (hand-fed signed IP set) → **removed as client
+  input.** Per-IP authorization is a RUNTIME decision (signed capability × live binding),
+  not a signed static list. The signed profile authorizes the *capability* (`allow_evasion`
+  + consent) and the *owned domains* (`scope_targets` + ownership token); the specific IP
+  is bound at run time.
+- `ownership_tokens: Mapping[str,str]` (domain → server-minted token) added, embedded in
+  the signed canonical JSON (mutation invalidates HMAC).
+
+#### Test contract (RED before the change)
+
+| # | Test | Asserts |
+|---|------|---------|
+| 1 CARDINAL | discovered IP serving a DIFFERENT domain (cohost neighbor) on shared host → `assert_origin_authorized` RAISES | Proof-2 closes collateral (fails today: no binding) |
+| 2 | caller-supplied token for a domain the client does NOT control → ownership False | server-minted, engagement-bound token |
+| 3 | token minted for engagement A, replayed in engagement B → rejected | token bound to engagement_id |
+| 4 happy | owned domain D + IP whose cert SAN ⊇ D → authorized; origin-direct fires | two-proof pass |
+| 5 | `allow_evasion=False` + both proofs → RAISES | capability gate independent of binding |
+| 6 | guarded TLD (bank) + both proofs → GuardrailError | guardrail overrides consent |
+
+#### Integration points
+- **Who calls it:** `scout._attempt_reach` step-5 (ORIGIN_DIRECT dispatch) calls
+  `binder.serves(...)` then `assert_origin_authorized(...)` before `origin_direct_fetch`.
+  Conductor authorize-flow mints token + `verify_domain_ownership` before signing.
+- **What it calls:** `verify_domain_ownership` (Proof-1), `OriginBinder.serves` (Proof-2,
+  new), `origin_discovery.candidates` (already wired-as-seam, currently injected None).
+- **Autonomous-wiring debt this closes:** `origin_discovery` + `binder` must be injected
+  into scout on the live path (both None/island today). Register in
+  `test_wiring_gate.py` until wired.
+
+#### Honest limits (do NOT oversell to clients)
+- This sells **origin-exposure bypass** ("your WAF is bypassable — origin reachable and
+  serving your domain"). It does **NOT** defeat a properly-configured interactive challenge
+  (browser_solve PARKED — datacenter-IP egress; needs residential/mobile proxy = INFRA, not
+  code). If cimbniaga's Imperva origin is not exposed, the honest verdict is "could not
+  bypass" (anti-#3, never fake success).
+
+---
+
+### 12.39 Alpha → Gamma (skip Beta): when direct exploitation routing is valid — ACCEPTED design-intent
+
+**Status:** ACCEPTED as design-intent (Natanael + architect, 2026-07-25). NOT implemented
+in slice-1a. The ALPHA→GAMMA routing branch is built WITH Gamma (roadmap #8) AND its
+verifying oracle (roadmap #5), never before.
+**Scope:** Conductor routing × verification-oracle layer × Gamma phase. Cross-cutting →
+recorded as an ADR (durable decision-data), NOT as a code comment in router.py (a comment
+referencing an unbuilt oracle tier is a half-scaffold, Lyndon #2).
+
+#### Context
+
+The kill chain is linear Alpha→Beta→Gamma. Beta/STRIKE = **initial access** — it converts
+a discovered credential / auth-surface into an authenticated session. For vulnerability
+classes that are exploitable **without any authentication** (Laravel/Ignition debug RCE,
+SQLi in a public form, Odoo `/web/database/manager` exposure, unauth deserialization,
+unauth file-upload→webshell, unauth public-CVE), Beta has no credential to reuse — it is
+dead weight, and forcing the chain through it delays or blocks the payable proof. For these
+classes, the exploitation IS the proof of the finding, so Alpha→Gamma direct is not an
+optimization — it is the value-producing path.
+
+#### Decision — Alpha may route directly to Gamma IFF ALL FOUR hold
+
+1. **No-auth exploitation.** The exploit primitive requires no credential/session. (If
+   auth is required → Beta first, then Gamma from the authenticated position.)
+2. **Confirmed primitive, not a fingerprint.** The vulnerable behaviour is
+   `cross_verified` (independent oracle confirmed the sink is reachable and behaves
+   vulnerable), NOT a version/banner match. A CVE version-match alone is a HYPOTHESIS →
+   stays a candidate finding, never an exploit dispatch. This is the hard gate.
+3. **Reach solved.** The vulnerable endpoint is actually reachable (not WAF/CDN-blocked, or
+   origin-direct authorized per the origin-scope-by-ownership ADR). Otherwise Gamma fires
+   into a WAF.
+4. **Auth + blast gate still enforced.** Skipping Beta skips ROUTING, never AUTHORIZATION.
+   Alpha→Gamma still requires OFFENSIVE_APPROVED + blast-radius gate pass + SOW. Routing
+   proposes; the auth/blast gates dispose. Never auto-promote tier.
+
+Router shape (built later, WITH Gamma + oracle):
+```
+route_next(from ALPHA):
+  confirmed unauth-exploitable vuln (requires_auth=False, verification==CROSS_VERIFIED)
+      and gamma_authorized                                  -> GAMMA   # skip Beta
+  confirmed unauth-exploitable vuln, gamma NOT authorized   -> OMEGA   # report "exploitable, pending offensive tier"
+  harvested credential + login surface                      -> BETA    # cred-mediated
+  fingerprint / version-match only (hypothesis)             -> OMEGA   # candidate, NOT an exploit dispatch
+  nothing                                                    -> OMEGA
+```
+
+#### The verification dependency (this is the anti-dead-code binding)
+
+Condition #2 requires a `cross_verified` stamp. Ground truth on main (HEAD 6da5512):
+
+| Verifier | Verifies | Status |
+|----------|----------|--------|
+| `CredReuseOracle` (oracle/verifier.py) | ACCESS_LEVEL nodes reached via credential reuse | **EXISTS but ISLAND** — only called in `a1_validation_runner.py`, not in conductor. Roadmap 1c wires `run_verification_pass → execute_agent`. Tracked as xfail in test_wiring_gate (our slice-1c). |
+| exploit-reachability oracle (for unauth SQLi/RCE/DB-manager) | that an unauth exploit primitive is real, not a fingerprint | **DOES NOT EXIST.** CredReuseOracle cannot do this (wrong finding type). |
+| `ChainOracle` | chain cross_verified iff EVERY edge cross_verified | **NOT BUILT** — roadmap #5 ("finishes the verification moat"). Deferred, NOT island. |
+
+**Consequence, explicit:** the ALPHA→GAMMA branch cannot be built until an
+**independent exploit-reachability oracle** exists to produce condition #2's
+`cross_verified` for unauth primitives. Building the routing branch before that oracle =
+a branch gated on a stamp nobody sets = dead branch, AND it invites the real disaster:
+dispatching Gamma off a fingerprint (condition #2 unmet) → honeypot / false-positive /
+outage / burned technique. So: **the routing skip is bound to the verification moat, not
+to the vuln class.**
+
+#### Constraint carried forward (so ChainOracle is not built as a fake verifier)
+
+When ChainOracle / the exploit-reachability oracle is built (roadmap #5), it MUST be a
+**COMPOSITION of independent per-edge oracles** — each re-checks ground truth with a
+failure mode DIFFERENT from the finder's. It must NEVER be a graph traversal over what the
+tools already asserted (that is an internal-consistency check with the same failure mode =
+Lyndon #3, false success at the oracle level). "Proven" in a payable report = cross_verified
+= an independent signal confirmed it, not the graph agreeing with itself.
+
+#### Tracked debt (enforce, do not rely on memory)
+
+- `run_verification_pass` island → wire into execute_agent post-Beta (slice-1c). Already an
+  xfail in `tests/governance/test_wiring_gate.py`; remove the marker when wired.
+- exploit-reachability oracle + ChainOracle → NOT in the wiring-gate (not built = not an
+  island). Tracked here + roadmap #5 as the prerequisite for the ALPHA→GAMMA routing branch.
+- ALPHA→GAMMA router branch → built in the Gamma phase (roadmap #8) ONLY after: sellable
+  Alpha→Beta→Omega loop proven + exploit-reachability oracle + ToolComposer + blast gate.
+
+#### Slice-1a stays clean
+
+`router.py` (slice-1a) implements ALPHA→{BETA, OMEGA} and BETA→{GAMMA, OMEGA} only. No
+ALPHA→GAMMA branch, no speculative comment referencing an unbuilt oracle. This ADR is the
+memory; the code carries only what is wired today.

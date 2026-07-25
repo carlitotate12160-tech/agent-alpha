@@ -1156,7 +1156,7 @@ class Alpha:
         handoff = a2a_pb2.HandoffPayload(
             status=status,
             findings_count=findings_count,
-            next_recommended=a2a_pb2.BETA,
+            next_recommended=a2a_pb2.CONDUCTOR,
             confidence=confidence,
         )
         return a2a_pb2.A2AMessage(
