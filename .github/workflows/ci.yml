@@ -64,24 +64,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      - name: Cache venv + pip
-        uses: actions/cache@v6
-        with:
-          path: |
-            .venv
-            ~/.cache/pip
-          key: venv-arm64-${{ hashFiles('pyproject.toml') }}
-          restore-keys: |
-            venv-arm64-
-
+      # No actions/cache — self-hosted runner has persistent disk.
+      # .venv survives between runs. The if-guard below skips install when it exists.
+      # Previous actions/cache packed/unpacked hundreds of MB every run = ~3 min overhead.
       - name: Create venv + install deps (Python 3.12)
         run: |
           if [ ! -f .venv/bin/python ]; then
             python3.12 -m venv .venv
             .venv/bin/pip install --upgrade pip
+            .venv/bin/pip install -e . --quiet
+            .venv/bin/pip install ruff mypy pytest grpcio-tools bandit pip-audit --quiet
+          else
+            echo "venv exists on persistent runner disk — skipping install"
           fi
-          .venv/bin/pip install -e . --quiet
-          .venv/bin/pip install ruff mypy pytest grpcio-tools bandit pip-audit --quiet
 
       - name: Generate A2A protobuf stubs (a2a_pb2 is generated, not committed)
         run: make proto
