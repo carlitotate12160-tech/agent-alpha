@@ -15,6 +15,7 @@ Test contract (CR-1 closure):
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -23,8 +24,16 @@ from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     dump_signed_profile,
 )
+from agent_alpha.security.secrets import get_profile_signing_key
 from agent_alpha.live_fire.a1_validation_runner import A1Result
 
+
+@pytest.fixture(autouse=True)
+def setup_env():
+    os.environ["PROFILE_SIGNING_KEY"] = (
+        "1234567890123456789012345678901234567890123456789012345678901234"
+    )
+    yield
 
 def _ok_result() -> A1Result:
     return A1Result(
@@ -58,7 +67,8 @@ def _write_signed_profile(tmp_path, **overrides) -> str:
     )
     defaults.update(overrides)
     profile = EngagementProfile(**defaults)
-    envelope = dump_signed_profile(profile)
+    key = get_profile_signing_key()
+    envelope = dump_signed_profile(profile, key=key)
     path = tmp_path / "profile.signed.json"
     path.write_text(json.dumps(envelope), encoding="utf-8")
     return str(path)
