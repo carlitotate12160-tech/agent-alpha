@@ -100,7 +100,11 @@ LLM_PAYLOAD_TRANSPORT = "direct"  # Payload MUST use direct provider API ONLY
 LLM_PAYLOAD_NEVER = [
     "gpt",
 ]  # HARD GUARD: never allow GPT for payload generation (ADR §12.10)
-LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6", "claude-sonnet-4-20250514"]  # Allowed payload providers
+LLM_PAYLOAD_ALLOWED = [
+    "deepseek-v4-pro",
+    "kimi-2.6",
+    "claude-sonnet-4-20250514",
+]  # Allowed payload providers
 # NOTE: there is intentionally no "TESTING_MODE" flag here. Payload-prompt
 # permissiveness must never vary by a boolean switch — see
 # config/payload_prompt_template.md ("Enforcement note"). The only thing

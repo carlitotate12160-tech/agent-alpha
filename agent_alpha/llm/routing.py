@@ -87,7 +87,12 @@ def _default_build(*, api_key: str, model: str) -> CompletionProvider:
     Claude models   → ClaudeProvider (api.anthropic.com)
     """
     model_lower = model.lower()
-    if "claude" in model_lower or "sonnet" in model_lower or "opus" in model_lower or "haiku" in model_lower:
+    if (
+        "claude" in model_lower
+        or "sonnet" in model_lower
+        or "opus" in model_lower
+        or "haiku" in model_lower
+    ):
         return ClaudeProvider(api_key=api_key, model=model)
     return DeepSeekProvider(api_key=api_key, model=model)
 
