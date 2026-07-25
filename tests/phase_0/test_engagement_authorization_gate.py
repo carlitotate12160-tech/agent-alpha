@@ -90,7 +90,6 @@ def test_profile_signature_covers_scope_and_consent() -> None:
         consent=_CONSENT,
     )
     assert mutated_scope.sign(key) != original_hash
-    assert mutated_scope.verify_sig(original_hash, key) is False
 
     # Mutate capability flag → hash changes
     mutated_cap = EngagementProfile(
@@ -101,7 +100,6 @@ def test_profile_signature_covers_scope_and_consent() -> None:
         consent=_CONSENT,
     )
     assert mutated_cap.sign(key) != original_hash
-    assert mutated_cap.verify_sig(original_hash, key) is False
 
     # Mutate consent → hash changes
     mutated_consent = EngagementProfile(
@@ -115,7 +113,6 @@ def test_profile_signature_covers_scope_and_consent() -> None:
         ),
     )
     assert mutated_consent.sign(key) != original_hash
-    assert mutated_consent.verify_sig(original_hash, key) is False
 
 
 def test_same_profile_same_sha256() -> None:

@@ -227,8 +227,8 @@ class EngagementProfile:
         return hmac.new(key, self.canonical_json().encode(), hashlib.sha256).hexdigest()
 
 
-def dump_signed_profile(profile: EngagementProfile, path: str, *, key: bytes) -> None:
-    """Serialize and sign the profile, saving to *path*."""
+def dump_signed_profile(profile: EngagementProfile, *, key: bytes) -> dict[str, Any]:
+    """Serialize and sign the profile, returning the envelope dict."""
     envelope = {
         "profile": {
             "engagement_id": profile.engagement_id,
@@ -246,9 +246,7 @@ def dump_signed_profile(profile: EngagementProfile, path: str, *, key: bytes) ->
         },
         "hmac": profile.sign(key),
     }
-
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(envelope, f, indent=2)
+    return envelope
 
 
 def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:

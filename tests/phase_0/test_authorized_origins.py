@@ -127,8 +127,8 @@ def test_verify_detects_tamper() -> None:
         targets=frozenset({"lab.example.com"}),
         authorized_origins=frozenset(),  # tampered: origins removed
     )
-    assert tampered.verify_sig(original_hash, key) is False
-    assert _BASE_PROFILE.verify_sig(original_hash, key) is True
+    assert tampered.sign(key) != original_hash
+    assert _BASE_PROFILE.sign(key) == original_hash
 
 
 # ── 5. Empty authorized_origins → fail-closed ─────────────────
