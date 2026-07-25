@@ -707,3 +707,17 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 > - SPA / Camoufox rendering (ADR §12.16.1) — shared capability untuk Alpha+Beta, belum dibangun
 > - Hypothesis→verify loop (ADR §8j-2 + §12.16.3) — prerequisite untuk external RAG, belum dibangun
 > - Engagement teardown/restore (ADR §12.22 Decision 3) — cleanup tool, build setelah IntelligenceBase
+
+---
+
+## Conductor refactor (pre-Gamma trigger)
+
+Deferred debts tracked here — enforce via review, don't rely on memory. The trigger is
+Gamma (3rd agent build) or when main.py next needs surgery. slice-1d is the safety net
+that makes the refactor safe.
+
+| id | Debt | Why it's deferred | TRIGGER |
+|----|------|-------------------|---------|
+| D1 | `main.py` = 724 LOC mixing 4 concerns (FastAPI API + 3 Celery tasks + agent construction + dep wiring). Split into `api.py` / `tasks.py` / agent-build. | Works, green; refactoring it pre-emptively = churn on the highest-stakes module. | Before Gamma (next agent), or when main.py next needs surgery. |
+| D2 | Agent construction is an inline closure (`agent_factory` in `run_agent_task`). Bloats per-agent. Extract to a role-keyed `AgentBuilder`/registry (anti-#8). | Only bloats at the 3rd agent build (Gamma). Extracting now = speculative (YAGNI). | Gamma (3rd agent). |
+| D3 | Alpha bypasses `execute_agent` (own `run_engagement_task` path) → duplicated setup (store/auth/secrets/session/http/orchestrator built twice) + the false "all agents" docstring (D3-a fixes the doc now). Give Beta a `build_strike_*` seam mirroring `build_recon_pipeline`, route Alpha through execute_agent. | Reconciling the two paths is a real change; not needed for slice-1d (module-symbol patch suffices). | Pre-Gamma refactor (with slice-1d as the safety net). |
