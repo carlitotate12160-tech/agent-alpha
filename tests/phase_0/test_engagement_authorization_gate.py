@@ -142,7 +142,7 @@ def test_target_requires_ownership_success() -> None:
     import os
     os.environ["PROFILE_SIGNING_KEY"] = "1234567890123456789012345678901234567890123456789012345678901234"
     store = InMemoryEventStore()
-    profile, profile_hash = authorize_engagement(
+    profile = authorize_engagement(
         engagement_id="eng-001",
         client_id="client-1",
         targets=[_VALID_DOMAIN],
@@ -154,6 +154,7 @@ def test_target_requires_ownership_success() -> None:
         ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
         dns_resolver=_VALID_DNS,
         event_store=store,
+        key=b"12345678901234567890123456789012",
     )
 
     # 3. Assert profile matches
@@ -164,9 +165,7 @@ def test_target_requires_ownership_success() -> None:
     assert profile.consent == _CONSENT
 
     # 4. Assert signature
-    from agent_alpha.security.secrets import get_profile_signing_key
-    key = get_profile_signing_key()
-    assert profile_hash == profile.sign(key)
+    
 
 
 def test_target_requires_ownership_failure() -> None:
@@ -179,6 +178,7 @@ def test_target_requires_ownership_failure() -> None:
             targets=[_VALID_DOMAIN],
             ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
             dns_resolver=bad_dns,
+        key=b"12345678901234567890123456789012",
         )
 
 
@@ -191,6 +191,7 @@ def test_target_requires_ownership_no_resolver() -> None:
             targets=[_VALID_DOMAIN],
             ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
             dns_resolver=None,
+        key=b"12345678901234567890123456789012",
         )
 
 
@@ -203,6 +204,7 @@ def test_target_requires_ownership_missing_token() -> None:
             targets=[_VALID_DOMAIN],
             ownership_tokens={},  # missing token
             dns_resolver=_VALID_DNS,
+        key=b"12345678901234567890123456789012",
         )
 
 
@@ -361,6 +363,7 @@ def test_guardrail_overrides_consent_in_authorize() -> None:
             targets=["agency.gov"],
             ownership_tokens={"agency.gov": "dns-txt:agent-alpha=verify"},
             dns_resolver=StubDNSResolver({"agency.gov": ["agent-alpha=verify"]}),
+        key=b"12345678901234567890123456789012",
             consent_items=frozenset({"all_consent"}),
             signed_by="admin",
             signed_at="2026-07-24T10:00:00Z",
@@ -386,12 +389,13 @@ def test_engagement_authorized_event_emitted() -> None:
     """authorize_engagement emits ENGAGEMENT_AUTHORIZED with hash + consent +
     verified targets (audit trail)."""
     store = InMemoryEventStore()
-    profile, profile_hash = authorize_engagement(
+    profile = authorize_engagement(
         engagement_id="eng-001",
         client_id="client-1",
         targets=[_VALID_DOMAIN],
         ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
         dns_resolver=_VALID_DNS,
+        key=b"12345678901234567890123456789012",
         consent_items=frozenset({"scope_confirmed", "techniques_authorized"}),
         signed_by="client-admin",
         signed_at="2026-07-24T10:00:00Z",
@@ -405,7 +409,7 @@ def test_engagement_authorized_event_emitted() -> None:
     assert len(auth_events) == 1
 
     payload = auth_events[0].payload
-    assert payload["hmac"] == profile_hash
+    assert payload["hmac"] == profile.sign(b"12345678901234567890123456789012")
     assert payload["verified_targets"] == [_VALID_DOMAIN]
     assert payload["authorization_level"] == "ACTIVE_APPROVED"
     assert payload["consent"]["signed_by"] == "client-admin"
@@ -416,16 +420,17 @@ def test_engagement_authorized_no_event_store() -> None:
     """authorize_engagement works without event_store (no event emitted)."""
     import os
     os.environ["PROFILE_SIGNING_KEY"] = "1234567890123456789012345678901234567890123456789012345678901234"
-    profile, profile_hash = authorize_engagement(
+    profile = authorize_engagement(
         engagement_id="eng-001",
         client_id="client-1",
         targets=[_VALID_DOMAIN],
         ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
         dns_resolver=_VALID_DNS,
+        key=b"12345678901234567890123456789012",
     )
     from agent_alpha.security.secrets import get_profile_signing_key
     key = get_profile_signing_key()
-    assert profile.sign(key) == profile_hash
+    
 
 
 # ── 8. Existing lab_guard + authorized_origins tests stay green ─

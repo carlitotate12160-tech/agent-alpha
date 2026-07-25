@@ -21,8 +21,8 @@ from agent_alpha.conductor.domain_verification import (
     DNSResolver,
     DomainOwnershipError,
     verify_domain_ownership,
+    _normalise_target,
 )
-from agent_alpha.security.secrets import get_profile_signing_key
 from agent_alpha.conductor.engagement_profile import (
     ConsentRecord,
     EngagementProfile,
@@ -510,7 +510,8 @@ def authorize_engagement(
     ownership_tokens: dict[str, str] | None = None,
     dns_resolver: DNSResolver | None = None,
     event_store: EventStore | None = None,
-) -> tuple[EngagementProfile, str]:
+    key: bytes,
+) -> EngagementProfile:
     """Build, sign, and (optionally) persist a §12.36 EngagementProfile.
 
     REQUIRES DNS-TXT ownership verification for every target. Fail-closed:
@@ -535,8 +536,8 @@ def authorize_engagement(
 
     Returns
     -------
-    tuple[EngagementProfile, str]
-        The signed profile and its HMAC-SHA-256 signature.
+    EngagementProfile
+        The signed profile object.
 
     Raises
     ------
@@ -570,12 +571,16 @@ def authorize_engagement(
         ownership_tokens = {}
 
     # Step 1 — guardrail check on every target (overrides consent).
-    for target in targets:
+    # Normalise targets first (#5).
+    normalised_targets: list[str] = []
+    for raw_target in targets:
+        target = _normalise_target(raw_target)
         assert_not_guardrailed(target)
+        normalised_targets.append(target)
 
     # Step 2 — DNS-TXT ownership verification for every target.
     verified_targets: list[str] = []
-    for target in targets:
+    for target in normalised_targets:
         token = ownership_tokens.get(target)
         if token is None:
             raise ValueError(f"authorize_engagement: no ownership token provided for {target!r}")
@@ -609,8 +614,7 @@ def authorize_engagement(
     )
 
     # Step 4 — sign.
-    signing_key = get_profile_signing_key()
-    profile_hash = profile.sign(signing_key)
+    profile_hash = profile.sign(key)
 
     # Step 5 — emit event (if event_store provided).
     if event_store is not None:
@@ -641,4 +645,4 @@ def authorize_engagement(
         profile_hash[:16],
     )
 
-    return profile, profile_hash
+    return profile

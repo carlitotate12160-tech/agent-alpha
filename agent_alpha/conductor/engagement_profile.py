@@ -218,6 +218,10 @@ class EngagementProfile:
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
+    def _sha256_of_canonical(self) -> str:
+        """Private helper returning the unkeyed SHA-256 of canonical JSON."""
+        return hashlib.sha256(self.canonical_json().encode()).hexdigest()
+
     def sign(self, key: bytes) -> str:
         """HMAC-SHA-256 of ``canonical_json`` keyed by server secret."""
         return hmac.new(key, self.canonical_json().encode(), hashlib.sha256).hexdigest()

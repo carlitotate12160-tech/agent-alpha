@@ -68,6 +68,11 @@ def _parse_expected_token(expected_token: str) -> str:
     return token
 
 
+def _normalise_target(raw: str) -> str:
+    """Strip whitespace, lowercase, and strip trailing dot (anti-SSR/trailing-dot)."""
+    return raw.strip().lower().rstrip(".")
+
+
 def verify_domain_ownership(
     domain: str,
     expected_token: str,
