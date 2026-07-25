@@ -79,7 +79,8 @@ def test_profile_signature_covers_scope_and_consent() -> None:
         scope_targets=frozenset({_VALID_DOMAIN}),
         consent=_CONSENT,
     )
-    original_hash = base.sha256()
+    key = b"A" * 32
+    original_hash = base.sign(key)
 
     # Mutate scope_targets → hash changes
     mutated_scope = EngagementProfile(
@@ -88,8 +89,8 @@ def test_profile_signature_covers_scope_and_consent() -> None:
         scope_targets=frozenset({_VALID_DOMAIN, "extra.com"}),
         consent=_CONSENT,
     )
-    assert mutated_scope.sha256() != original_hash
-    assert mutated_scope.verify(original_hash) is False
+    assert mutated_scope.sign(key) != original_hash
+    assert mutated_scope.verify_sig(original_hash, key) is False
 
     # Mutate capability flag → hash changes
     mutated_cap = EngagementProfile(
@@ -99,8 +100,8 @@ def test_profile_signature_covers_scope_and_consent() -> None:
         allow_evasion=True,
         consent=_CONSENT,
     )
-    assert mutated_cap.sha256() != original_hash
-    assert mutated_cap.verify(original_hash) is False
+    assert mutated_cap.sign(key) != original_hash
+    assert mutated_cap.verify_sig(original_hash, key) is False
 
     # Mutate consent → hash changes
     mutated_consent = EngagementProfile(
@@ -108,32 +109,29 @@ def test_profile_signature_covers_scope_and_consent() -> None:
         client_id="client-1",
         scope_targets=frozenset({_VALID_DOMAIN}),
         consent=ConsentRecord(
-            accepted_items=frozenset({"different_item"}),
+            accepted_items=frozenset({"scope_confirmed"}),
             signed_by="client-admin",
             signed_at="2026-07-24T10:00:00Z",
         ),
     )
-    assert mutated_consent.sha256() != original_hash
-    assert mutated_consent.verify(original_hash) is False
+    assert mutated_consent.sign(key) != original_hash
+    assert mutated_consent.verify_sig(original_hash, key) is False
 
 
 def test_same_profile_same_sha256() -> None:
-    """Identical profiles (including new fields) → identical hash."""
+    """Identical profile constructions yield the same HMAC signature."""
     a = EngagementProfile(
         engagement_id="eng-001",
         client_id="client-1",
         scope_targets=frozenset({_VALID_DOMAIN}),
-        allow_evasion=True,
-        consent=_CONSENT,
     )
     b = EngagementProfile(
         engagement_id="eng-001",
         client_id="client-1",
         scope_targets=frozenset({_VALID_DOMAIN}),
-        allow_evasion=True,
-        consent=_CONSENT,
     )
-    assert a.sha256() == b.sha256()
+    key = b"A" * 32
+    assert a.sign(key) == b.sign(key)
 
 
 # ── 2. Target requires ownership ───────────────────────────────
@@ -141,18 +139,34 @@ def test_same_profile_same_sha256() -> None:
 
 def test_target_requires_ownership_success() -> None:
     """authorize_engagement succeeds when DNS-TXT ownership is proven."""
+    import os
+    os.environ["PROFILE_SIGNING_KEY"] = "1234567890123456789012345678901234567890123456789012345678901234"
+    store = InMemoryEventStore()
     profile, profile_hash = authorize_engagement(
         engagement_id="eng-001",
         client_id="client-1",
         targets=[_VALID_DOMAIN],
+        include_root=False,
+        authorization_level="RECON_ONLY",
+        consent_items=_CONSENT.accepted_items,
+        signed_by=_CONSENT.signed_by,
+        signed_at=_CONSENT.signed_at,
         ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
         dns_resolver=_VALID_DNS,
-        consent_items=frozenset({"scope_confirmed"}),
-        signed_by="admin",
-        signed_at="2026-07-24T10:00:00Z",
+        event_store=store,
     )
+
+    # 3. Assert profile matches
+    assert profile.engagement_id == "eng-001"
+    assert profile.client_id == "client-1"
+    assert profile.targets == frozenset({_VALID_DOMAIN})
     assert profile.scope_targets == frozenset({_VALID_DOMAIN})
-    assert profile_hash == profile.sha256()
+    assert profile.consent == _CONSENT
+
+    # 4. Assert signature
+    from agent_alpha.security.secrets import get_profile_signing_key
+    key = get_profile_signing_key()
+    assert profile_hash == profile.sign(key)
 
 
 def test_target_requires_ownership_failure() -> None:
@@ -391,7 +405,7 @@ def test_engagement_authorized_event_emitted() -> None:
     assert len(auth_events) == 1
 
     payload = auth_events[0].payload
-    assert payload["sha256"] == profile_hash
+    assert payload["hmac"] == profile_hash
     assert payload["verified_targets"] == [_VALID_DOMAIN]
     assert payload["authorization_level"] == "ACTIVE_APPROVED"
     assert payload["consent"]["signed_by"] == "client-admin"
@@ -400,6 +414,8 @@ def test_engagement_authorized_event_emitted() -> None:
 
 def test_engagement_authorized_no_event_store() -> None:
     """authorize_engagement works without event_store (no event emitted)."""
+    import os
+    os.environ["PROFILE_SIGNING_KEY"] = "1234567890123456789012345678901234567890123456789012345678901234"
     profile, profile_hash = authorize_engagement(
         engagement_id="eng-001",
         client_id="client-1",
@@ -407,7 +423,9 @@ def test_engagement_authorized_no_event_store() -> None:
         ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
         dns_resolver=_VALID_DNS,
     )
-    assert profile.sha256() == profile_hash
+    from agent_alpha.security.secrets import get_profile_signing_key
+    key = get_profile_signing_key()
+    assert profile.sign(key) == profile_hash
 
 
 # ── 8. Existing lab_guard + authorized_origins tests stay green ─
@@ -489,11 +507,16 @@ def test_dump_load_roundtrip_with_new_fields(tmp_path) -> None:
             signed_at="2026-07-24T10:00:00Z",
         ),
     )
-    envelope = dump_signed_profile(original)
+    import os
+    from agent_alpha.security.secrets import get_profile_signing_key
+    os.environ["PROFILE_SIGNING_KEY"] = "A" * 64
+    key = get_profile_signing_key()
+
+    envelope = dump_signed_profile(original, key=key)
     path = tmp_path / "roundtrip.signed.json"
     path.write_text(json.dumps(envelope), encoding="utf-8")
 
-    loaded = load_signed_profile(str(path))
+    loaded = load_signed_profile(str(path), key=key)
     assert loaded == original
     assert loaded.scope_targets == frozenset({"t1.example.com"})
     assert loaded.allow_evasion is True

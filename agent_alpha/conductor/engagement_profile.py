@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 from dataclasses import dataclass, field
 from typing import Any
@@ -128,7 +129,7 @@ _GUARDBRAIL_DOMAINS: frozenset[str] = frozenset(
 
 def _normalise_target(target: str) -> str:
     """Strip to bare lowercase hostname for guardrail checks."""
-    host = target.strip().lower()
+    host = target.strip().lower().rstrip(".")
     if "://" in host:
         host = host.split("://", 1)[1]
     host = host.split("/", 1)[0]
@@ -217,22 +218,23 @@ class EngagementProfile:
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
-    def sha256(self) -> str:
-        """Hex digest of ``canonical_json``."""
-        return hashlib.sha256(self.canonical_json().encode()).hexdigest()
+    def sign(self, key: bytes) -> str:
+        """HMAC-SHA-256 of ``canonical_json`` keyed by server secret."""
+        return hmac.new(key, self.canonical_json().encode(), hashlib.sha256).hexdigest()
 
-    def verify(self, expected_hash: str) -> bool:
-        """Return True iff sha256() matches *expected_hash*."""
-        return self.sha256() == expected_hash
+    def verify_sig(self, sig: str, key: bytes) -> bool:
+        """Constant-time verify HMAC-SHA-256 signature."""
+        expected = self.sign(key)
+        return hmac.compare_digest(sig, expected)
 
 
 # ── Signed-profile serialisation / loader ─────────────────────
 
 
-def dump_signed_profile(profile: EngagementProfile) -> dict[str, Any]:
+def dump_signed_profile(profile: EngagementProfile, *, key: bytes) -> dict[str, Any]:
     """Serialise *profile* to a signed envelope dict.
 
-    Returns ``{"profile": {...}, "sha256": "<hex>"}``.  Callers persist this
+    Returns ``{"profile": {...}, "hmac": "<hex>"}``.  Callers persist this
     with ``json.dump`` — the resulting file is what ``--profile`` consumes.
 
     This is the symmetric writer for ``load_signed_profile`` — a loader with
@@ -253,17 +255,17 @@ def dump_signed_profile(profile: EngagementProfile) -> dict[str, Any]:
             "authorization_level": profile.authorization_level,
             "consent": profile.consent.to_dict(),
         },
-        "sha256": profile.sha256(),
+        "hmac": profile.sign(key),
     }
 
 
-def load_signed_profile(path: str) -> EngagementProfile:
+def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
     """Load and verify a signed EngagementProfile from *path*.
 
     Format: ``{"profile": {engagement_id, client_id, targets[],
-    authorized_origins[]}, "sha256": "<hex>"}``.
+    authorized_origins[]}, "hmac": "<hex>"}``.
 
-    Raises ``ProfileSignatureError`` when the recorded sha256 does not match
+    Raises ``ProfileSignatureError`` when the recorded hmac does not match
     the profile's ``canonical_json`` — indicating the file was tampered with
     or corrupted after signing.
     """
@@ -287,7 +289,12 @@ def load_signed_profile(path: str) -> EngagementProfile:
         consent=ConsentRecord.from_dict(consent_data) if consent_data else ConsentRecord(),
     )
 
-    if not profile.verify(data["sha256"]):
+    if "sha256" in data:
+        raise ProfileSignatureError("legacy unkeyed sha256 envelope rejected")
+    if "hmac" not in data:
+        raise ProfileSignatureError("missing hmac signature field")
+
+    if not profile.verify_sig(data["hmac"], key):
         raise ProfileSignatureError(
             "engagement profile signature mismatch — tampered or corrupt consent"
         )

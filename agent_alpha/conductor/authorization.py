@@ -22,6 +22,7 @@ from agent_alpha.conductor.domain_verification import (
     DomainOwnershipError,
     verify_domain_ownership,
 )
+from agent_alpha.security.secrets import get_profile_signing_key
 from agent_alpha.conductor.engagement_profile import (
     ConsentRecord,
     EngagementProfile,
@@ -56,6 +57,15 @@ __all__ = [
     "Scope",
     "STATE_RANK",
 ]
+
+
+class ConsentRequiredError(RuntimeError):
+    """Raised when elevated capabilities are requested without verified consent."""
+
+
+class InvalidOriginError(RuntimeError):
+    """Raised when an origin IP is invalid or not globally routable."""
+
 
 _log = logging.getLogger(__name__)
 
@@ -468,6 +478,20 @@ class AuthorizationStateMachine:
 # ── §12.36 Signed EngagementProfile authorization ──────────────
 
 
+def _validate_origins(origins: frozenset[str]) -> None:
+    """Validate all origins are globally routable (Anti-SSRF)."""
+    for origin in origins:
+        try:
+            ip = ipaddress.ip_address(origin)
+            if not ip.is_global:
+                raise InvalidOriginError(
+                    f"origin {origin!r} is not globally routable. "
+                    f"Loopback/private IPs are forbidden to prevent SSRF."
+                )
+        except ValueError:
+            raise InvalidOriginError(f"origin {origin!r} is not a valid IP address")
+
+
 def authorize_engagement(
     *,
     engagement_id: str,
@@ -512,10 +536,14 @@ def authorize_engagement(
     Returns
     -------
     tuple[EngagementProfile, str]
-        The signed profile and its sha256 hash.
+        The signed profile and its HMAC-SHA-256 signature.
 
     Raises
     ------
+    ConsentRequiredError
+        If elevated capabilities are requested without explicit consent.
+    InvalidOriginError
+        If an authorized origin is not globally routable.
     GuardrailViolation
         If any target is in a guarded TLD/domain.
     DomainOwnershipError
@@ -525,6 +553,18 @@ def authorize_engagement(
     """
     if not targets:
         raise ValueError("authorize_engagement: targets must be non-empty")
+
+    # Step 0 — Consent gate and Origin validation
+    if authorization_level in {"ACTIVE_APPROVED", "OFFENSIVE_APPROVED"} or allow_evasion or opsec_stealth:
+        if not consent_items or not signed_by or not signed_at:
+            raise ConsentRequiredError(
+                f"Elevated authorization (level={authorization_level}, evasion={allow_evasion}, "
+                f"stealth={opsec_stealth}) strictly requires explicit consent "
+                f"(items, signed_by, signed_at must be provided)."
+            )
+
+    if authorized_origins:
+        _validate_origins(authorized_origins)
 
     if ownership_tokens is None:
         ownership_tokens = {}
@@ -569,7 +609,8 @@ def authorize_engagement(
     )
 
     # Step 4 — sign.
-    profile_hash = profile.sha256()
+    signing_key = get_profile_signing_key()
+    profile_hash = profile.sign(signing_key)
 
     # Step 5 — emit event (if event_store provided).
     if event_store is not None:
@@ -578,7 +619,7 @@ def authorize_engagement(
             engagement_id=engagement_id,
             agent="CONDUCTOR",
             payload={
-                "sha256": profile_hash,
+                "hmac": profile_hash,
                 "consent": consent.to_dict(),
                 "verified_targets": verified_targets,
                 "authorization_level": authorization_level,

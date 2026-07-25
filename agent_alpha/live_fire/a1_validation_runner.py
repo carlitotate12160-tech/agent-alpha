@@ -32,6 +32,7 @@ from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     assert_origin_authorized,
+    load_signed_profile,
 )
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -45,7 +46,7 @@ from agent_alpha.live_fire.validation_vs_scanner import (
 from agent_alpha.recon.origin_discovery import OriginDiscovery, StaticOriginDiscovery
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
 from agent_alpha.recon.transport_resilience import MitigationClass, classify_mitigation
-from agent_alpha.security.secrets import SecretsManager
+from agent_alpha.security.secrets import SecretsManager, get_profile_signing_key
 
 # ── Target constant ───────────────────────────────────────────────────────────
 
@@ -530,7 +531,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Path to a signed EngagementProfile JSON (produced by "
-            "scripts/sign_profile.py). SHA-256 verified on load — tampered "
+            "scripts/sign_profile.py). HMAC-SHA-256 verified on load — tampered "
             "profiles are rejected."
         ),
     )
@@ -563,8 +564,9 @@ def main(argv: list[str] | None = None) -> int:
         origin_discovery = StaticOriginDiscovery([args.origin])
 
         if args.profile:
-            # --profile: load signed consent (SHA-256 verified).
-            engagement_profile = load_signed_profile(args.profile)
+            # --profile: load signed consent (HMAC-SHA-256 verified).
+            signing_key = get_profile_signing_key()
+            engagement_profile = load_signed_profile(args.profile, key=signing_key)
         elif args.lab_unsigned:
             # --lab-unsigned: LOUD warning — synthesise consent for lab-only runs.
             print(
@@ -582,6 +584,7 @@ def main(argv: list[str] | None = None) -> int:
                 client_id=args.client_id,
                 targets=frozenset({args.target}),
                 authorized_origins=frozenset({args.origin}),
+                authorization_level="RECON_ONLY",
             )
         else:
             # --origin without --profile and without --lab-unsigned → refuse.

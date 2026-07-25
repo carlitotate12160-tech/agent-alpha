@@ -18,7 +18,7 @@ Or write directly to a file:
         --output a1_profile.signed.json
 
 The output is the JSON consumed by ``a1_validation_runner --profile <path>``.
-The file contains the profile fields and a SHA-256 signature computed from the
+The file contains the profile fields and an HMAC-SHA-256 signature computed from the
 canonical JSON representation — any post-signing mutation will fail
 ``load_signed_profile()`` verification.
 """
@@ -33,6 +33,7 @@ from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     dump_signed_profile,
 )
+from agent_alpha.security.secrets import get_profile_signing_key
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -67,7 +68,8 @@ def main(argv: list[str] | None = None) -> int:
         authorized_origins=frozenset(args.authorized_origin),
     )
 
-    envelope = dump_signed_profile(profile)
+    signing_key = get_profile_signing_key()
+    envelope = dump_signed_profile(profile, key=signing_key)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

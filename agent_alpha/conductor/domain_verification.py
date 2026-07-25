@@ -111,9 +111,10 @@ def verify_domain_ownership(
 
     txt_records = dns_resolver.resolve_txt(domain)
 
-    # Check if any TXT record contains the expected token.
+    # Check if any TXT record exactly matches the expected token.
     for record in txt_records:
-        if token in record:
+        clean_record = record.strip(' \t"\'')
+        if clean_record == token:
             return True
 
     return False

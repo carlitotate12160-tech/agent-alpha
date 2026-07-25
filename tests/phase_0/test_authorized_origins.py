@@ -97,7 +97,8 @@ def test_authorized_origins_changes_sha256() -> None:
         targets=frozenset({"lab.example.com"}),
         authorized_origins=frozenset({"203.0.113.10", "198.51.100.5"}),
     )
-    assert profile_a.sha256() != profile_b.sha256()
+    key = b"A" * 32
+    assert profile_a.sign(key) != profile_b.sign(key)
 
 
 def test_same_profile_same_sha256() -> None:
@@ -112,20 +113,22 @@ def test_same_profile_same_sha256() -> None:
         client_id="client-42",
         authorized_origins=frozenset({"10.0.0.1"}),
     )
-    assert a.sha256() == b.sha256()
+    key = b"A" * 32
+    assert a.sign(key) == b.sign(key)
 
 
 def test_verify_detects_tamper() -> None:
     """verify() returns False when the hash doesn't match the current state."""
-    original_hash = _BASE_PROFILE.sha256()
+    key = b"A" * 32
+    original_hash = _BASE_PROFILE.sign(key)
     tampered = EngagementProfile(
         engagement_id="eng-001",
         client_id="client-42",
         targets=frozenset({"lab.example.com"}),
         authorized_origins=frozenset(),  # tampered: origins removed
     )
-    assert tampered.verify(original_hash) is False
-    assert _BASE_PROFILE.verify(original_hash) is True
+    assert tampered.verify_sig(original_hash, key) is False
+    assert _BASE_PROFILE.verify_sig(original_hash, key) is True
 
 
 # ── 5. Empty authorized_origins → fail-closed ─────────────────
@@ -177,11 +180,12 @@ def test_load_signed_profile_happy_path(tmp_path) -> None:
         targets=frozenset({"lab.example.com"}),
         authorized_origins=frozenset({"203.0.113.10"}),
     )
-    envelope = dump_signed_profile(profile)
+    key = b"A" * 32
+    envelope = dump_signed_profile(profile, key=key)
     path = tmp_path / "good.signed.json"
     path.write_text(json.dumps(envelope), encoding="utf-8")
 
-    loaded = load_signed_profile(str(path))
+    loaded = load_signed_profile(str(path), key=key)
     assert loaded.engagement_id == "eng-happy"
     assert loaded.client_id == "client-1"
     assert loaded.targets == frozenset({"lab.example.com"})
@@ -199,7 +203,8 @@ def test_load_signed_profile_tamper_raises(tmp_path) -> None:
         targets=frozenset({"lab.example.com"}),
         authorized_origins=frozenset({"203.0.113.10"}),
     )
-    envelope = dump_signed_profile(profile)
+    key = b"A" * 32
+    envelope = dump_signed_profile(profile, key=key)
 
     # Tamper: sneak in an extra origin AFTER signing.
     envelope["profile"]["authorized_origins"].append("198.51.100.99")
@@ -208,7 +213,7 @@ def test_load_signed_profile_tamper_raises(tmp_path) -> None:
     path.write_text(json.dumps(envelope), encoding="utf-8")
 
     with pytest.raises(ProfileSignatureError, match="signature mismatch"):
-        load_signed_profile(str(path))
+        load_signed_profile(str(path), key=key)
 
 
 def test_dump_load_roundtrip(tmp_path) -> None:
@@ -221,9 +226,10 @@ def test_dump_load_roundtrip(tmp_path) -> None:
         targets=frozenset({"t1.example.com", "t2.example.com"}),
         authorized_origins=frozenset({"10.0.0.1", "10.0.0.2"}),
     )
-    envelope = dump_signed_profile(original)
+    key = b"A" * 32
+    envelope = dump_signed_profile(original, key=key)
     path = tmp_path / "roundtrip.signed.json"
     path.write_text(json.dumps(envelope), encoding="utf-8")
 
-    loaded = load_signed_profile(str(path))
+    loaded = load_signed_profile(str(path), key=key)
     assert loaded == original
