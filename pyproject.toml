@@ -68,7 +68,8 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 # live_fire scripts are CLI entry points — print() is the intended output mechanism.
 "agent_alpha/live_fire/*.py" = ["T201"]
-"wp_lab/*.py" = ["T201"]
+"wp_lab/*.py" = ["T201", "BLE001"]
+"ct_preflight.py" = ["T201"]
 # scout uses print() to stderr for real-time monologue output (CLI observable).
 "agent_alpha/agents/alpha/scout.py" = ["T201"]
 # js_lab generators are CLI scripts — print() is the intended output mechanism.

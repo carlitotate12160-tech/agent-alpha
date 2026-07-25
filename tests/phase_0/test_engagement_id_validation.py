@@ -15,6 +15,7 @@ os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-m
 
 jwt = pytest.importorskip("jwt")
 
+
 def _token(tenant_id: str, sub: str = "tester") -> str:
     return jwt.encode(
         {"tenant_id": tenant_id, "sub": sub},
@@ -22,8 +23,10 @@ def _token(tenant_id: str, sub: str = "tester") -> str:
         algorithm="HS256",
     )
 
+
 def _auth(tenant_id: str = "test-tenant") -> dict[str, str]:
     return {"Authorization": f"Bearer {_token(tenant_id)}"}
+
 
 def test_engagement_id_validation_valid_passes() -> None:
     client = TestClient(app)
@@ -39,13 +42,17 @@ def test_engagement_id_validation_valid_passes() -> None:
     response = client.get(f"/engagements/{engagement_id}/state", headers=_auth())
     assert response.status_code == 200
 
-@pytest.mark.parametrize("bad_id", [
-    "eng_abc%0Ainjected",
-    "../x",
-    "eng_ZZZ",
-    "eng_123", # wait, {4,} requires at least 4 hex chars. 123 is 3.
-    "eng_xyz!",
-])
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "eng_abc%0Ainjected",
+        "../x",
+        "eng_ZZZ",
+        "eng_123",  # wait, {4,} requires at least 4 hex chars. 123 is 3.
+        "eng_xyz!",
+    ],
+)
 def test_engagement_id_validation_invalid_returns_404(bad_id: str) -> None:
     client = TestClient(app)
 

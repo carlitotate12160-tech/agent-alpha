@@ -215,49 +215,6 @@ class EngagementProfile:
             "include_root": self.include_root,
             "authorization_level": self.authorization_level,
             "consent": self.consent.to_dict(),
-        }
-        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
-
-    def _sha256_of_canonical(self) -> str:
-        """Private helper returning the unkeyed SHA-256 of canonical JSON."""
-        return hashlib.sha256(self.canonical_json().encode()).hexdigest()
-
-    def sign(self, key: bytes) -> str:
-        """HMAC-SHA-256 of ``canonical_json`` keyed by server secret."""
-        return hmac.new(key, self.canonical_json().encode(), hashlib.sha256).hexdigest()
-
-    def verify_sig(self, sig: str, key: bytes) -> bool:
-        """Constant-time verify HMAC-SHA-256 signature."""
-        expected = self.sign(key)
-        return hmac.compare_digest(sig, expected)
-
-
-# ── Signed-profile serialisation / loader ─────────────────────
-
-
-def dump_signed_profile(profile: EngagementProfile, *, key: bytes) -> dict[str, Any]:
-    """Serialise *profile* to a signed envelope dict.
-
-    Returns ``{"profile": {...}, "hmac": "<hex>"}``.  Callers persist this
-    with ``json.dump`` — the resulting file is what ``--profile`` consumes.
-
-    This is the symmetric writer for ``load_signed_profile`` — a loader with
-    no writer is half-wired (anti-#2).
-    """
-    return {
-        "profile": {
-            "engagement_id": profile.engagement_id,
-            "client_id": profile.client_id,
-            "targets": sorted(profile.targets),
-            "authorized_origins": sorted(profile.authorized_origins),
-            "allow_evasion": profile.allow_evasion,
-            "scope_targets": sorted(profile.scope_targets),
-            "scope_mode": profile.scope_mode,
-            "allow_subdomain_enum": profile.allow_subdomain_enum,
-            "opsec_stealth": profile.opsec_stealth,
-            "include_root": profile.include_root,
-            "authorization_level": profile.authorization_level,
-            "consent": profile.consent.to_dict(),
         },
         "hmac": profile.sign(key),
     }
@@ -284,6 +241,7 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
         targets=frozenset(profile_data.get("targets", [])),
         authorized_origins=frozenset(profile_data.get("authorized_origins", [])),
         allow_evasion=bool(profile_data.get("allow_evasion", False)),
+<<<<<<< HEAD
         scope_targets=frozenset(profile_data.get("scope_targets", [])),
         scope_mode=profile_data.get("scope_mode", "single"),
         allow_subdomain_enum=bool(profile_data.get("allow_subdomain_enum", False)),
@@ -291,6 +249,8 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
         include_root=bool(profile_data.get("include_root", False)),
         authorization_level=profile_data.get("authorization_level", "RECON_ONLY"),
         consent=ConsentRecord.from_dict(consent_data) if consent_data else ConsentRecord(),
+=======
+>>>>>>> origin/main
     )
 
     if "sha256" in data:

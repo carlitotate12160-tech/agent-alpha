@@ -13,6 +13,7 @@ Example:
 
 Exit 0 = all expected hosts present in CT (safe to run V-B); 1 = missing (wait/retry).
 """
+
 from __future__ import annotations
 
 import sys

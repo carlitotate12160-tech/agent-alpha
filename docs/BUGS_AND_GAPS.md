@@ -35,6 +35,9 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 20 | Identical body dedup — same CDN page analyzed N times | Medium | Low | LLM token waste | **DONE** (PR #188) |
 | 16 | Runner script `Report.chains` AttributeError | Low | Low | Local runner scripts |
 | 21 | LLM-tier tool re-selection (exclude_tools not passed to LLM) | High | Medium | LLM token waste, tool starvation |
+| 22 | Beta FAILED → chain halts (noop), Omega never dispatched | High | Low | Report never generated on failed access |
+| 23 | Beta next_recommended always GAMMA even on FAILED | Medium | Low | Advance logic receives GAMMA but status=FAILED → noop |
+| 24 | response_classifier `challenge-platform` false positive on CF-proxied sites | High | Low | All CF-proxied sites misclassified as CHALLENGE | **FIXED** |
 
 ## Recommended Fix Order
 
@@ -131,7 +134,143 @@ After the Bug #2/#6 rule-tier fix: rule tier correctly skips `odoo_dbmanager_pro
 
 ---
 
-## GAP → ADR Classification (2026-07-15)
+## Bug #22: Beta FAILED → Chain Halts, Omega Never Dispatched
+
+- **Status**: OPEN
+- **Priority**: High
+- **Effort**: Low
+- **Blocks**: Report never generated when Beta fails to gain access
+
+### Root Cause
+
+`decide_advance()` in `agent_alpha/conductor/advance.py:132` checks `if status != a2a_pb2.COMPLETE → noop`. When Beta returns `status=FAILED` (no access proven), the chain halts completely — no agent is dispatched, including Omega (the read-only reporter).
+
+Omega is a **read-only reporter** that requires no auth tier and performs no offensive action. There is no reason Omega should not run when an earlier agent fails — Alpha's findings (vuln nodes, asset nodes, graph edges) are already persisted and reportable.
+
+### Evidence
+
+E2E test against `quantum-laboratories.com` (residential IP, Odoo e-commerce):
+- Alpha found `odoo_dbmanager_exposed` vulnerability (confidence 0.85) + 110 graph nodes
+- Beta attempted `OdooAccessTool` (XML-RPC default creds) + `DefaultCredsTool` → all FAILED (no default creds work)
+- Beta returned `status=FAILED, next_recommended=GAMMA`
+- `decide_advance`: `status != COMPLETE → noop` → chain stopped
+- Omega never dispatched → no report generated via autonomous path
+
+### Impact
+
+- **No report on failed access**: Client receives nothing when Beta can't gain access, even though Alpha found valid vulnerabilities
+- **Wasted recon effort**: Alpha's 110 graph nodes + vuln finding never reach the report
+- **Silent failure**: Engagement appears to "just stop" with no output
+
+### Affected Files
+
+- `agent_alpha/conductor/advance.py:132` — `decide_advance` returns noop on non-COMPLETE status
+- `agent_alpha/agents/beta/strike.py:517` — `_build_handoff_message` always sets `next_recommended=a2a_pb2.GAMMA`
+
+### Proposed Fix
+
+**Option A (advance logic)**: In `decide_advance`, add rule: if `status != COMPLETE` and `next_recommended` is an offensive agent (GAMMA/DELTA/EPSILON), fallback to OMEGA for reporting.
+
+**Option B (Beta handoff)**: In `_build_handoff_message`, set `next_recommended=OMEGA` when `status=FAILED` instead of `GAMMA`.
+
+**Option C (both)**: Option B is more precise (Beta knows it failed, should recommend reporter). Option A is defense-in-depth (advance logic doesn't trust agent's recommendation blindly).
+
+**Recommended**: Option C — Beta sets next=OMEGA on FAILED, advance logic also falls back to OMEGA for any non-COMPLETE status where next_recommended is offensive-tier.
+
+### Cross-reference
+
+- Bug #23 (Beta next_recommended always GAMMA) — related root cause
+- ADR §12.20 — advance logic design; does not explicitly address FAILED → Omega path
+
+---
+
+## Bug #23: Beta next_recommended Always GAMMA Regardless of Status
+
+- **Status**: OPEN
+- **Priority**: Medium
+- **Effort**: Low
+- **Blocks**: Advance logic receives GAMMA but status=FAILED → noop
+
+### Root Cause
+
+`Beta._build_handoff_message()` in `agent_alpha/agents/beta/strike.py:517` unconditionally sets `next_recommended=a2a_pb2.GAMMA`. This is correct when Beta succeeds (Gamma exploits the access), but wrong when Beta fails — there is nothing for Gamma to exploit.
+
+When Beta fails, the engagement should still produce a report (Omega) from Alpha's recon findings. Recommending GAMMA on failure causes `decide_advance` to receive a non-COMPLETE status with an offensive-tier next agent → noop (chain halts).
+
+### Evidence
+
+```python
+# strike.py:517 — always GAMMA, regardless of status
+next_recommended=a2a_pb2.GAMMA,
+```
+
+### Impact
+
+- Chain dead-ends on Beta failure (see Bug #22)
+- No report generated for engagements where access isn't proven
+
+### Affected Files
+
+- `agent_alpha/agents/beta/strike.py:517` — hardcoded `next_recommended=GAMMA`
+
+### Proposed Fix
+
+```python
+# When FAILED, recommend OMEGA (reporter) not GAMMA (exploit)
+next_recommended = a2a_pb2.GAMMA if status == a2a_pb2.COMPLETE else a2a_pb2.OMEGA
+```
+
+### Cross-reference
+
+- Bug #22 (chain halts on FAILED) — direct consequence of this bug
+- ADR §12.20 — advance logic; `_is_forward_transition` allows OMEGA from any agent
+
+---
+
+## Bug #24: response_classifier `challenge-platform` False Positive on CF-Proxied Sites
+
+- **Status**: FIXED
+- **Priority**: High
+- **Effort**: Low
+- **Blocks**: All CF-proxied sites misclassified as CHALLENGE
+
+### Root Cause
+
+`CHALLENGE_STRONG_MARKERS` in `agent_alpha/recon/response_classifier.py` included `"challenge-platform"`. Cloudflare injects this string into **all proxied sites** via its analytics/beacon script (`/cdn-cgi/challenge-platform/scripts/jsd/main.js`), not just challenge/interstitial pages. This caused every CF-proxied site with real content to be misclassified as `Verdict.CHALLENGE`.
+
+### Evidence
+
+E2E test against `quantum-laboratories.com` (residential IP, Odoo e-commerce behind CF):
+- Before fix: 21 WAF_BLOCKED events, 0 NodeDiscovered, 0 graph nodes, 14.6s duration — Alpha saw every page as CF challenge
+- After fix: 5 WAF_BLOCKED events (real blocks on .bak paths), 110 NodeDiscovered, 2 graph nodes, 224.7s duration — Alpha crawled real content, DeepSeek analyzed pages, persisted graph
+
+Direct verification: `https://quantum-laboratories.com/web/database/manager` returns HTTP 200 with 51KB Odoo DB manager page containing `challenge-platform` in CF analytics script — not a challenge page.
+
+### Impact
+
+- **Complete recon failure on CF-proxied sites**: Every page classified as CHALLENGE → WAF_BLOCKED → no crawling, no LLM analysis, no graph nodes
+- **No findings possible**: Alpha never reads page content, never detects Odoo/WP/Laravel fingerprints
+- **Affects all CF clients**: Any target behind Cloudflare with default analytics injection
+
+### Fix Applied
+
+Removed `challenge-platform` from `CHALLENGE_STRONG_MARKERS`. Added body-size guard: `challenge-platform` only triggers CHALLENGE when body < 5KB (interstitial page size). Real content pages (> 5KB) with CF analytics script classify as OK.
+
+### Affected Files
+
+- `agent_alpha/recon/response_classifier.py:55-76` — `CHALLENGE_STRONG_MARKERS` + `_CHALLENGE_PLATFORM_MARKER` + `_CHALLENGE_MAX_INTERSTITIAL_BODY`
+- `agent_alpha/recon/response_classifier.py:138-156` — `_is_challenge()` with body-size guard
+
+### Tests
+
+27/27 pass (`test_cf_challenge_no_llm.py`, `test_response_classifier.py`, `test_transport_resilience.py`). No regressions.
+
+### Cross-reference
+
+- Bug #18/#19 (CF challenge classification) — same area; this is a follow-up false positive from the original fix
+- ADR §12.27 — CHALLENGE verdict and body-marker detection
+
+---
 
 GAP di dokumen ini TIDAK diperlakukan seragam terhadap ADR:
 
@@ -475,6 +614,70 @@ Setelah implementasi, re-test terhadap target yang sama:
 
 ---
 
+## GAP-014: Fan-Out Parallel Worker Wiring — Shape A Not Wired
+
+- **Status**: OPEN
+- **Severity**: Medium — multi-target engagements run sequential, ~Nx latency vs design intent
+- **ADR Reference**: `docs/ADR.md` §12.13 *"Agent scaling model — Hybrid orchestrated fan-out"*
+
+### Context
+
+ADR §12.13 LOCKED a hybrid orchestrated fan-out design: Conductor partitions a phase's scope into bounded `WorkUnit`s, enqueues them via Celery, up to `MAX_WORKERS_PER_ROLE` execute in parallel. Per-role caps are defined in `constants.py` (alpha=10, beta=4, gamma=2, delta=4, epsilon=4).
+
+The **interface** was built and tested (C3 — `FanOutDispatcher`, `WorkUnit`, `partition_targets`, `DispatchResult` — Oracle-green). PROGRESS_TRACKER.md marked C6b as DONE. However, PROGRESS_TRACKER.md is **superseded** by Session_Handoff.md, which does not mention fan-out. The **runtime wiring** was never completed.
+
+### Root Cause
+
+`recon_runner.py:286-287` runs a sequential loop inside a single Celery worker:
+
+```python
+# Shape B (single-task): one worker scans all targets in sequence
+for url in targets:
+    pipeline.alpha.run_recon(engagement_id, url)
+```
+
+`fanout.py:67` defines `EnqueueFn` as an injected callable, with comment: *"C6 wires `run_engagement_task.delay` here"* — but this wiring was never done. There is no `run_recon_unit_task` Celery task.
+
+### Evidence
+
+- `fanout.py` — `FanOutDispatcher` class exists, `partition_targets()` works, `dispatch()` validates gate + enqueues + emits events. But `EnqueueFn` is never wired to a real Celery `.delay()` call in production code.
+- `recon_runner.py:246` — comment: *"Shape B (single-task): one worker scans all targets in sequence"*
+- `constants.py:338-345` — caps defined (alpha=10, beta=4, gamma=2) but unused at runtime
+- PROGRESS_TRACKER.md:88 — *"C6b — Per-unit fan-out execution + live-fire FP<20% (DONE)"* — but doc is superseded
+- Session_Handoff.md — no mention of fan-out or parallel workers
+
+### Impact
+
+- **N-target latency**: engagement with 5 targets takes ~5x longer than necessary (sequential vs parallel)
+- **Wasted design**: `FanOutDispatcher`, `WorkUnit`, `DispatchResult`, `partition_targets`, per-role caps — all built and tested, but dead code in production
+- **False done-status**: PROGRESS_TRACKER marked C6b DONE, but canonical doc (Session_Handoff) doesn't track it, and code is sequential
+
+### Affected Files
+
+- `agent_alpha/conductor/recon_runner.py:286-287` — sequential loop, needs to call `FanOutDispatcher.dispatch()` instead
+- `agent_alpha/conductor/fanout.py:67` — `EnqueueFn` needs wiring to `run_recon_unit_task.delay()`
+- `agent_alpha/conductor/main.py` — needs new `run_recon_unit_task` Celery task (per-target recon)
+- `agent_alpha/config/constants.py:338-345` — caps already defined, will be consumed once wired
+
+### Proposed Fix
+
+1. Add `run_recon_unit_task` Celery task in `main.py` — runs `alpha.run_recon()` for a single target, builds deps in-process (same pattern as `run_engagement_task`)
+2. Wire `EnqueueFn` in `recon_runner.py` to `lambda unit: run_recon_unit_task.delay(unit.engagement_id, unit.tenant_id, unit.target)`
+3. Replace sequential `for url in targets:` loop with `FanOutDispatcher.dispatch(partition_targets(targets, ...), cap=max_workers_for("alpha"))`
+4. Aggregate: results flow back via EventStore (already designed — `WORK_UNIT_QUEUED` events, single-stream aggregation)
+
+### Prerequisites
+
+- None blocking — interface is built, caps are defined, Celery is wired. This is pure wiring debt.
+
+### Cross-reference
+
+- ADR §12.13 — design decision (LOCKED)
+- PROGRESS_TRACKER.md C3/C6b — marked DONE (superseded doc)
+- `fanout.py` — interface code (built, tested, unused at runtime)
+
+---
+
 ## GAP Priority & Build Order
 
 Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
@@ -493,6 +696,7 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 | 10 | GAP-013 (Credential pattern mutation) | Low | ~~GAP-002~~ ✅ (scratchpad untuk pattern tracking) | Credential reuse tidak hanya literal, tapi generate varian dari pola |
 | 11 | GAP-012 (Adaptive evasion) | Medium | GAP-005 (PolicyEnforcer untuk dynamic OPSEC) | Agent mengubah teknik saat terdeteksi, bukan catat dan lanjut |
 | 12 | GAP-011 (Authenticated crawl) | High | GAP-004 (planner untuk post-access objective), GAP-010 (goal-completion untuk next objective) | Re-discovery dengan sesi aktif: IDOR, broken access control, priv esc |
+| 13 | GAP-014 (Fan-out parallel worker wiring) | Low | — | N-target engagement latency: sequential → parallel (alpha=10, beta=4, gamma=2). Interface built, pure wiring debt |
 
 > ToolComposer (review GAP 8) sengaja tidak dimasukkan — akan di-build nantinya sebagai bagian dari Gamma phase.
 > GAP 7 (4 agents missing: Gamma/Delta/Epsilon) sengaja tidak dimasukkan — sedang dalam proses.

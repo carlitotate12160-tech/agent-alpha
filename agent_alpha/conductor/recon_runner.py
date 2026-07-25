@@ -125,6 +125,10 @@ def build_recon_pipeline(
     session_store: Any = None,
     *,
     policy: PolicyEnforcer | None = None,
+    origin_discovery: Any = None,
+    browser_solve: Any = None,
+    engagement_profile: Any = None,
+    browser_solve_viable: bool = False,
 ) -> ReconPipeline:
     """Construct a real recon pipeline (Alpha + its own graph) for one worker run.
 
@@ -170,6 +174,10 @@ def build_recon_pipeline(
         secrets_manager=secrets_manager,
         monologue=monologue_sink,
         session_store=session_store,
+        origin_discovery=origin_discovery,
+        browser_solve=browser_solve,
+        engagement_profile=engagement_profile,
+        browser_solve_viable=browser_solve_viable,
     )
     return ReconPipeline(alpha=alpha, graph_store=graph_store)
 
@@ -228,6 +236,10 @@ def run_recon_for_engagement(
     session_store: Any = None,
     *,
     policy: PolicyEnforcer | None = None,
+    origin_discovery: Any = None,
+    browser_solve: Any = None,
+    engagement_profile: Any = None,
+    browser_solve_viable: bool = False,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -244,6 +256,10 @@ def run_recon_for_engagement(
         secrets_manager=secrets_manager,
         session_store=session_store,
         policy=policy,
+        origin_discovery=origin_discovery,
+        browser_solve=browser_solve,
+        engagement_profile=engagement_profile,
+        browser_solve_viable=browser_solve_viable,
     )
     targets = resolve_recon_targets(record)
 

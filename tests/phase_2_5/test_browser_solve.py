@@ -20,7 +20,6 @@ from agent_alpha.live_fire.browser_solve import (
     DeepSeekBrowserSolve,
 )
 
-
 # ── from_env ──────────────────────────────────────────────────────────────────
 
 

@@ -43,12 +43,15 @@ from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
+from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
+from agent_alpha.recon.reach_transport import origin_direct_fetch
 from agent_alpha.recon.response_classifier import (  # noqa: F401
     VOLATILE_HEADERS,
     Verdict,
     classify_response,
 )
 from agent_alpha.recon.surface_discovery import extract_api_surface
+from agent_alpha.recon.transport_resilience import classify_mitigation
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.laravel_env import iter_env_leaks
 from agent_alpha.tools.templates.cms.laravel_finding import LaravelFindingTemplate
@@ -61,6 +64,22 @@ Volatile headers deliberately excluded from the hash key: see
 single source of truth).  Hashing those would defeat Bug #20 entirely —
 every request has a different CF-Ray / Date / Set-Cookie.
 """
+
+
+class _ReachResponse:
+    """Adapter so origin-direct / browser_solve results feed into the existing
+    OBSERVE→ORIENT→ACT flow which expects ``.status_code`` / ``.text`` / ``.headers``.
+
+    NOT a reimplementation of reach (anti-#6) — just a response-shaped wrapper
+    so the rest of ``_step_once`` can consume the reach result unchanged.
+    """
+
+    __slots__ = ("status_code", "text", "headers")
+
+    def __init__(self, status_code: int, body: str, headers: dict[str, str]) -> None:
+        self.status_code = status_code
+        self.text = body
+        self.headers = headers
 
 
 class Alpha:
@@ -81,6 +100,10 @@ class Alpha:
         git_dumper: Any | None = None,
         session_store: Any | None = None,
         try_harder_enabled: bool = True,
+        origin_discovery: Any | None = None,
+        browser_solve: Any | None = None,
+        engagement_profile: Any | None = None,
+        browser_solve_viable: bool = False,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
@@ -94,6 +117,14 @@ class Alpha:
         self._git_dumper = git_dumper or _default_git_dumper()
         self.session_store = session_store
         self._try_harder_enabled = try_harder_enabled
+
+        # Reach deps (Phase 2.5 — §12.33). All default None/False → reach
+        # unavailable → honest WAF-blocked outcome (anti-#3). Injected, never
+        # self-instantiated (anti-#6). The runner / tests inject real instances.
+        self._origin_discovery = origin_discovery
+        self._browser_solve = browser_solve
+        self._engagement_profile = engagement_profile
+        self._browser_solve_viable = browser_solve_viable
 
         # Dispatch registry: tool_name -> handler(resp, decision, url) -> int.
         # Canonical dispatch (anti-Lyndon #8: no growing if-chain).
@@ -123,6 +154,7 @@ class Alpha:
         self._body_hashes: set[str] = set()
         self._current_objective: Any = None
         self._try_harder_fired: bool = False
+        self._reach_attempted: set[str] = set()
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -160,6 +192,7 @@ class Alpha:
         self._body_hashes = set()
         self._current_objective = None
         self._try_harder_fired = False
+        self._reach_attempted = set()
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -293,40 +326,23 @@ class Alpha:
         )
 
         # A WAF/CF block is a non-analyzable probe, NOT a clean/no-progress
-        # result. Record WAF_BLOCKED (reused event) and continue the loop
-        # without ever calling the LLM.
-        if verdict is Verdict.BLOCKED:
-            host = urlparse(url).hostname or urlparse(url).netloc
-            self._emit(
-                "OBSERVE",
-                f"{url} returned HTTP {resp.status_code}; WAF/CF block — non-analyzable",
-            )
-            self.event_store.append(
-                EventType.WAF_BLOCKED,
-                self._engagement_id,
-                "alpha",
-                {"host": host, "path": urlparse(url).path, "status_code": resp.status_code},
-            )
-            return _finish(0, 0.0, f"OBSERVE: {url} WAF blocked")
+        # result. Attempt reach (capability-gated, bounded), then record
+        # WAF_BLOCKED if reach is unavailable or still blocked (anti-#3).
+        if verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+            reach_resp = self._attempt_reach(url, resp)
+            if reach_resp is not None:
+                # Re-OBSERVE with the reached response — classify again
+                # so a successful origin-direct / browser_solve flows into
+                # the normal ORIENT→PLAN→ACT path.
+                resp = reach_resp
+                verdict = classify_response(
+                    status_code=resp.status_code,
+                    body=resp.text,
+                    headers=dict(resp.headers),
+                )
 
-        if verdict is Verdict.CHALLENGE:
-            host = urlparse(url).hostname or urlparse(url).netloc
-            self._emit(
-                "OBSERVE",
-                f"{url} returned HTTP {resp.status_code}; CDN/WAF challenge — non-analyzable",
-            )
-            self.event_store.append(
-                EventType.WAF_BLOCKED,
-                self._engagement_id,
-                "alpha",
-                {
-                    "host": host,
-                    "path": urlparse(url).path,
-                    "status_code": resp.status_code,
-                    "signal": "cf_challenge",
-                },
-            )
-            return _finish(0, 0.0, f"OBSERVE: {url} CDN challenge")
+            if verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+                return self._handle_waf_block(url, resp, verdict, obs, sp)
 
         # NOTE: Verdict.EMPTY no longer short-circuits here. An empty body
         # still cannot match a body rule, but a HEADER rule (e.g.
@@ -449,6 +465,177 @@ class Alpha:
         return _finish(
             nodes_added, decision.cost_usd, f"ACT: {decision.tool} on {url} -> {nodes_added} nodes"
         )
+
+    # ── Private: WAF/CF block handling ───────────────────────────
+
+    def _handle_waf_block(
+        self,
+        url: str,
+        resp: Any,
+        verdict: Verdict,
+        obs: list[str],
+        sp: dict[str, Any],
+    ) -> dict[str, object]:
+        """Record a WAF/CF block as WAF_BLOCKED event and return a _finish result."""
+        host = urlparse(url).hostname or urlparse(url).netloc
+        is_challenge = verdict is Verdict.CHALLENGE
+        self._emit(
+            "OBSERVE",
+            f"{url} returned HTTP {resp.status_code}; "
+            + ("CDN/WAF challenge" if is_challenge else "WAF/CF block")
+            + " — non-analyzable",
+        )
+        waf_payload: dict[str, Any] = {
+            "host": host,
+            "path": urlparse(url).path,
+            "status_code": resp.status_code,
+        }
+        if is_challenge:
+            waf_payload["signal"] = "cf_challenge"
+        self.event_store.append(
+            EventType.WAF_BLOCKED,
+            self._engagement_id,
+            "alpha",
+            waf_payload,
+        )
+        obs.append(
+            f"OBSERVE: {url} " + ("CDN challenge" if is_challenge else "WAF blocked"),
+        )
+        return {"discovered_nodes": 0, "cost_usd": 0.0, "scratchpad": sp}
+
+    # ── Private: reach strategy (Phase 2.5 — §12.33) ──────────────
+
+    def _attempt_reach(self, url: str, resp: Any) -> Any | None:
+        """Attempt a reach strategy for a blocked/challenged URL.
+
+        Reuses classify_mitigation → choose_reach → origin_direct_fetch /
+        browser_solve (anti-#6). Capability-gated: ORIGIN_DIRECT requires an
+        authorized origin in the signed profile; EVASION requires
+        ``allow_evasion``. Bounded: at most one attempt per URL.
+
+        Returns a ``_ReachResponse`` if reach succeeds, or ``None`` if reach
+        is not available / not authorized / already attempted / failed (honest
+        block — anti-#3).
+        """
+        # Bounded: at most one reach attempt per blocked resource
+        if url in self._reach_attempted:
+            return None
+        self._reach_attempted.add(url)
+
+        # No engagement profile → no reach deps → honest block
+        if self._engagement_profile is None:
+            return None
+
+        host = urlparse(url).hostname or urlparse(url).netloc
+        path = urlparse(url).path
+
+        # 1. Classify the mitigation (granular class drives strategy — anti-#11)
+        mitigation = classify_mitigation(
+            status_code=resp.status_code,
+            body=resp.text,
+            headers=dict(resp.headers),
+            path=path,
+        )
+
+        # 2. Resolve authorized origin: discovery candidates filtered against
+        #    signed authorized_origins (C9: candidate ≠ authorization)
+        authorized_origin: str | None = None
+        if self._origin_discovery is not None:
+            candidates = self._origin_discovery.candidates(host)
+            authorized_origin = next(
+                (ip for ip in candidates if ip in self._engagement_profile.authorized_origins),
+                None,
+            )
+
+        # 3. Capability gate: browser_solve viable only if transport is
+        #    injected AND profile authorizes evasion (§12.36)
+        browser_solve_viable = (
+            self._browser_solve is not None
+            and self._browser_solve_viable
+            and getattr(self._engagement_profile, "allow_evasion", False)
+        )
+
+        # 4. Choose reach strategy (differential — mitigation class → strategy)
+        strategy = choose_reach(
+            mitigation,
+            browser_solve_viable=browser_solve_viable,
+            authorized_origin=authorized_origin,
+        )
+
+        # 5. Dispatch
+        if strategy is ReachStrategy.ORIGIN_DIRECT and authorized_origin is not None:
+            from agent_alpha.conductor.engagement_profile import assert_origin_authorized
+
+            # C8: fail-closed — raises OriginNotAuthorizedError if not authorized
+            assert_origin_authorized(authorized_origin, host, self._engagement_profile)
+
+            self._emit(
+                "OBSERVE",
+                f"Reach: ORIGIN_DIRECT for {url} via {authorized_origin}",
+            )
+
+            # Audit event (origin-direct bypasses WAF — audit-sensitive)
+            self.event_store.append(
+                EventType.ORIGIN_DIRECT_ATTEMPT,
+                self._engagement_id,
+                "alpha",
+                {
+                    "host": host,
+                    "origin_ip": authorized_origin,
+                    "authorized": True,
+                    "discovered_via": "origin_discovery",
+                },
+            )
+
+            try:
+                result = origin_direct_fetch(host, authorized_origin, path)
+            except RuntimeError:
+                self._emit(
+                    "OBSERVE",
+                    f"Reach: origin_direct_fetch failed for {url}",
+                )
+                return None
+
+            return _ReachResponse(
+                status_code=result.status_code,
+                body=result.body,
+                headers=dict(result.headers),
+            )
+
+        if strategy is ReachStrategy.EVASION and self._browser_solve is not None:
+            self._emit(
+                "OBSERVE",
+                f"Reach: EVASION (browser_solve) for {url}",
+            )
+
+            try:
+                result = self._browser_solve.solve_and_fetch(url, engagement_id=self._engagement_id)
+            except RuntimeError:
+                self._emit(
+                    "OBSERVE",
+                    f"Reach: browser_solve failed for {url}",
+                )
+                return None
+
+            if not result.challenge_solved:
+                self._emit(
+                    "OBSERVE",
+                    f"Reach: browser_solve did not solve challenge for {url}",
+                )
+                return None
+
+            return _ReachResponse(
+                status_code=result.status_code,
+                body=result.body,
+                headers=dict(result.headers),
+            )
+
+        # DIRECT: no authorized plan B → honest block (anti-#3)
+        self._emit(
+            "OBSERVE",
+            f"Reach: no authorized strategy for {url} (mitigation={mitigation})",
+        )
+        return None
 
     # ── Private: tool handlers ──────────────────────────────────
 

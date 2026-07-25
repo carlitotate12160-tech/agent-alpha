@@ -103,7 +103,9 @@ def _odoo_reuse_store(level: str, *, verified: bool = True) -> NetworkXGraphStor
             AccessLevelProperties(level=level, user_context="odoo-xmlrpc"),
             0.80,
             agent="beta",
-            verification=VerificationTier.CROSS_VERIFIED if verified else VerificationTier.UNVERIFIED,
+            verification=VerificationTier.CROSS_VERIFIED
+            if verified
+            else VerificationTier.UNVERIFIED,
         ),
     )
     # config-leak -> harvested credential, then reuse -> access. A connected

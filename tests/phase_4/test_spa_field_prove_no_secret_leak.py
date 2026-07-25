@@ -128,9 +128,7 @@ def test_exception_message_secret_never_in_stdout(capsys, tmp_path, monkeypatch)
         f"Raw secret leaked to stdout via exception interpolation: {_SECRET!r}"
     )
     # The _mask() output must also not appear
-    assert _MASKED not in captured, (
-        f"Masked preview leaked to stdout: {_MASKED!r}"
-    )
+    assert _MASKED not in captured, f"Masked preview leaked to stdout: {_MASKED!r}"
 
 
 # ── t2: belt catches a common-format secret in detail ────────────────────────
@@ -246,9 +244,7 @@ def test_mask_output_never_in_stdout_success_path(capsys, tmp_path, monkeypatch)
     )
 
     # Specifically, the known masked secret must not appear
-    assert _MASKED not in captured, (
-        f"Known masked secret preview found in stdout: {_MASKED!r}"
-    )
+    assert _MASKED not in captured, f"Known masked secret preview found in stdout: {_MASKED!r}"
 
     # And detail line should not appear at all (detail is "" on success)
     assert "Detail" not in captured or "[REDACTED]" in captured or captured.count("Detail") == 0, (

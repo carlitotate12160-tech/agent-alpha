@@ -16,6 +16,7 @@ DO NOT TOUCH SEALED: path_probe.py, git/backup/actuator/odoo probes,
   leak_extraction.py, credential_assembly.py, response_classifier.py.
 VERIFY ON Oracle ARM64 only (.venv312/bin/python3 -m pytest ...).
 """
+
 from __future__ import annotations
 
 import copy
@@ -56,9 +57,7 @@ def _make_session(
     )
 
 
-def _snapshot_events(
-    event_store: InMemoryEventStore, engagement_id: str
-) -> list:
+def _snapshot_events(event_store: InMemoryEventStore, engagement_id: str) -> list:
     """All SCRATCHPAD_SNAPSHOTTED events for engagement_id, in order."""
     return [
         e
@@ -98,7 +97,7 @@ class _ScratchpadAccumulatorAgent:
         return {
             "discovered_nodes": discovered,
             "cost_usd": 0.001,
-            "scratchpad": pad,   # G2: loop reads this and persists it
+            "scratchpad": pad,  # G2: loop reads this and persists it
         }
 
 
@@ -182,7 +181,8 @@ def test_scratchpad_flows_step_to_step() -> None:
     )
 
     _run_with_store(
-        agent, policy,
+        agent,
+        policy,
         session_store=session_store,
         engagement_id=_ENG_A,
         event_store=event_store,
@@ -195,9 +195,7 @@ def test_scratchpad_flows_step_to_step() -> None:
     # Step 1 enters with empty scratchpad (initial state).
     ctx1 = agent.received_contexts[0]
     pad1: dict = ctx1.get("scratchpad") or {}
-    assert pad1.get("notes", []) == [], (
-        f"Step 1 scratchpad should be empty on entry; got {pad1!r}"
-    )
+    assert pad1.get("notes", []) == [], f"Step 1 scratchpad should be empty on entry; got {pad1!r}"
 
     # Step 2 must contain note written by step 1.
     # RED today -- loop passes {} so scratchpad is absent.
@@ -246,7 +244,8 @@ def test_snapshot_event_per_step() -> None:
     )
 
     outcome = _run_with_store(
-        agent, policy,
+        agent,
+        policy,
         session_store=session_store,
         engagement_id=_ENG_A,
         event_store=event_store,
@@ -296,7 +295,8 @@ def test_no_store_is_backward_compatible() -> None:
     )
 
     outcome = _run_with_store(
-        agent, policy,
+        agent,
+        policy,
         session_store=None,
         engagement_id=_ENG_A,
         event_store=event_store,
@@ -304,15 +304,12 @@ def test_no_store_is_backward_compatible() -> None:
 
     # Every step must receive an empty context dict.
     for i, ctx in enumerate(agent.received_contexts):
-        assert ctx == {}, (
-            f"step {i + 1}: expected {{}} when session_store=None, got {ctx!r}"
-        )
+        assert ctx == {}, f"step {i + 1}: expected {{}} when session_store=None, got {ctx!r}"
 
     # Zero snapshot events.
     snaps = _snapshot_events(event_store, _ENG_A)
     assert snaps == [], (
-        f"session_store=None must yield zero SCRATCHPAD_SNAPSHOTTED events; "
-        f"got {len(snaps)}"
+        f"session_store=None must yield zero SCRATCHPAD_SNAPSHOTTED events; got {len(snaps)}"
     )
 
     # Spot-check outcome shape.
@@ -358,12 +355,18 @@ def test_tenant_isolation() -> None:
     )
 
     _run_with_store(
-        agent_a, policy,
-        session_store=store_a, engagement_id=_ENG_A, event_store=event_store_a,
+        agent_a,
+        policy,
+        session_store=store_a,
+        engagement_id=_ENG_A,
+        event_store=event_store_a,
     )
     _run_with_store(
-        agent_b, policy,
-        session_store=store_b, engagement_id=_ENG_B, event_store=event_store_b,
+        agent_b,
+        policy,
+        session_store=store_b,
+        engagement_id=_ENG_B,
+        event_store=event_store_b,
     )
 
     # Store A must not contain ENG_B session.
