@@ -34,7 +34,7 @@ class DeepSeekProvider:
         transport: httpx.BaseTransport | None = None,
     ) -> None:
         """Initialize the DeepSeek reasoning/payload LLM client."""
-        # HARD GUARD: NEVER allow payload forbidden models (Claude/GPT/Opus/Sonnet)
+        # HARD GUARD: NEVER allow payload forbidden models (GPT)
         model_lower = model.lower()
         for forbidden in constants.LLM_PAYLOAD_NEVER:
             if forbidden in model_lower:

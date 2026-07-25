@@ -43,6 +43,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from agent_alpha.config import constants
+from agent_alpha.llm.providers.claude import ClaudeProvider
 from agent_alpha.llm.providers.deepseek import DeepSeekProvider
 
 
@@ -80,7 +81,19 @@ class ProviderBuilder(Protocol):
 
 
 def _default_build(*, api_key: str, model: str) -> CompletionProvider:
-    """Default builder: the DeepSeek backend (current testing provider)."""
+    """Default builder: routes to the correct provider class based on model name.
+
+    DeepSeek models → DeepSeekProvider (api.deepseek.com)
+    Claude models   → ClaudeProvider (api.anthropic.com)
+    """
+    model_lower = model.lower()
+    if (
+        "claude" in model_lower
+        or "sonnet" in model_lower
+        or "opus" in model_lower
+        or "haiku" in model_lower
+    ):
+        return ClaudeProvider(api_key=api_key, model=model)
     return DeepSeekProvider(api_key=api_key, model=model)
 
 

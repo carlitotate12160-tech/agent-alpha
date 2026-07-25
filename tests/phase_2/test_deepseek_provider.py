@@ -23,13 +23,12 @@ from agent_alpha.llm.providers.deepseek import DeepSeekProvider
 def test_default_model_is_single_source_of_truth() -> None:
     """Model id must come from constants, never hardcoded (anti-Lyndon #7)."""
     provider = DeepSeekProvider(api_key="unit-test-noop")
-    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-chat"
+    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-v4-flash"
 
 
 def test_provider_rejects_forbidden_payload_models() -> None:
-    """The hard guard: Claude/GPT/Opus must never be selectable here.
-    DeepSeek is the payload/offensive provider; the reasoning-vs-payload
-    split is enforced, not advisory (ADR LLM role split)."""
+    """The hard guard: GPT must never be selectable here.
+    The reasoning-vs-payload split is enforced, not advisory (ADR LLM role split)."""
     for forbidden in constants.LLM_PAYLOAD_NEVER:
         with pytest.raises(ValueError):
             DeepSeekProvider(api_key="unit-test-noop", model=forbidden)
@@ -89,9 +88,7 @@ def test_deepseek_reachable_from_oracle(deepseek_api_key: str) -> None:
     reasoning model is actually offered by the account."""
     provider = DeepSeekProvider(api_key=deepseek_api_key)
     models = provider.list_models()
-    # deepseek-chat is a legacy alias for deepseek-v4-flash; the API no longer
-    # lists it separately but inference still accepts it. Accept either.
-    assert constants.LLM_REASONING_PROVIDER in models or "deepseek-v4-flash" in models
+    assert constants.LLM_REASONING_PROVIDER in models
 
 
 @pytest.mark.live

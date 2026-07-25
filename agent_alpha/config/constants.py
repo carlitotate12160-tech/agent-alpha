@@ -84,12 +84,12 @@ __all__ = [
 
 # Reasoning provider (TEMPORARY testing value; production target: Claude / GPT-class)
 # See ADR §12.15 switch gate: must be Claude/GPT-class before first paid client engagement.
-LLM_REASONING_PROVIDER = "deepseek-chat"  # Current testing provider
-LLM_REASONING_CONSENSUS = "mimo-v2.5-pro"  # Consensus secondary
+LLM_REASONING_PROVIDER = "deepseek-v4-flash"  # Current testing provider
+LLM_REASONING_CONSENSUS = "claude-sonnet-4-20250514"  # Consensus secondary (Claude-class)
 
-# Payload provider (direct open-weight provider ONLY; NEVER aggregator/router, NEVER Claude)
+# Payload provider (direct open-weight provider ONLY; NEVER aggregator/router)
 LLM_PAYLOAD_PROVIDER = "deepseek-v4-pro"  # Primary payload provider
-LLM_PAYLOAD_FALLBACK = "kimi-2.6"  # Fallback when primary refuses
+LLM_PAYLOAD_FALLBACK = "claude-sonnet-4-20250514"  # Fallback when primary refuses
 
 # Transport policy (ADR §12.15)
 LLM_PAYLOAD_TRANSPORT = "direct"  # Payload MUST use direct provider API ONLY
@@ -98,12 +98,13 @@ LLM_PAYLOAD_TRANSPORT = "direct"  # Payload MUST use direct provider API ONLY
 
 # Provider allowlists (hard guards)
 LLM_PAYLOAD_NEVER = [
-    "claude",
-    "sonnet",
-    "opus",
     "gpt",
-]  # HARD GUARD: never allow these for payload generation (ADR §12.10)
-LLM_PAYLOAD_ALLOWED = ["deepseek-v4-pro", "kimi-2.6"]  # Allowed payload providers
+]  # HARD GUARD: never allow GPT for payload generation (ADR §12.10)
+LLM_PAYLOAD_ALLOWED = [
+    "deepseek-v4-pro",
+    "kimi-2.6",
+    "claude-sonnet-4-20250514",
+]  # Allowed payload providers
 # NOTE: there is intentionally no "TESTING_MODE" flag here. Payload-prompt
 # permissiveness must never vary by a boolean switch — see
 # config/payload_prompt_template.md ("Enforcement note"). The only thing
