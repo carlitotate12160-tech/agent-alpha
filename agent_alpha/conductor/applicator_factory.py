@@ -166,7 +166,18 @@ def _resolve_in_scope_targets(
             return []
         if not auth.assert_offensive_web_target(engagement_id, web_target):
             return []  # bare IP or out-of-scope domain — do NOT bind
-        return [web_target]
+
+        targets = [web_target]
+        base = web_target.rstrip("/")
+        
+        for node in graph_store.nodes_by_type(NodeType.ASSET):
+            props = node.properties
+            if not isinstance(props, AssetProperties):
+                continue
+            if "wp" in props.tech_stack:
+                targets.append(f"{base}/wp-login.php")
+                
+        return list(dict.fromkeys(targets))
 
     asset_nodes = graph_store.nodes_by_type(NodeType.ASSET)
     service_nodes = graph_store.nodes_by_type(NodeType.SERVICE)

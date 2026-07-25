@@ -514,7 +514,7 @@ class Beta:
             findings_count=findings_count,
             handoff_data=(json.dumps(handoff_data).encode() if handoff_data else b""),
             proof_artifacts=list(proof_artifacts or []),
-            next_recommended=a2a_pb2.GAMMA,
+            next_recommended=a2a_pb2.CONDUCTOR,
             confidence=confidence,
         )
         return a2a_pb2.A2AMessage(

@@ -52,7 +52,10 @@ from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
 from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
-from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
+from agent_alpha.tools.internal.access.applicator import (
+    HttpFormApplicator,
+    WpLoginApplicator,
+)
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _log = logging.getLogger(__name__)
@@ -293,7 +296,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             tenant_id=tenant_id,
             from_agent=a2a_pb2.ALPHA,
             status=a2a_pb2.COMPLETE,
-            next_recommended=a2a_pb2.BETA,
+            next_recommended=a2a_pb2.CONDUCTOR,
             advance_fn=lambda eid, tid: advance_engagement_task.delay(eid, tid),
         )
 
@@ -377,6 +380,7 @@ def run_agent_task(
             if agent_role == a2a_pb2.BETA:
                 candidates = [
                     HttpFormApplicator(http_client=http_client),
+                    WpLoginApplicator(http_client=http_client),
                 ]
                 applicators = build_applicators_for_engagement(
                     engagement_id=engagement_id,

@@ -40,6 +40,7 @@ from typing import Any, Protocol
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.blast_gate import assess_blast_gate
 from agent_alpha.conductor.policy import PolicyEnforcer
+from agent_alpha.conductor.router import route_next
 from agent_alpha.config import constants
 
 # Canonical kill-chain topology — single source of truth (#7). Advancement may only go
@@ -126,11 +127,18 @@ def decide_advance(
     is fully unit-testable and the gate read stays in advance_engagement.
 
     ``status`` is a PhaseStatus enum int; we advance ONLY on a2a_pb2.COMPLETE (PENDING=0,
-    the proto3 default, is therefore never mistaken for done — anti false-default #3)."""
+    the proto3 default, is therefore never mistaken for done — anti false-default #3).
+
+    Bug #22 relaxation: FAILED/BLOCKED still dispatches OMEGA (the read-only reporter)
+    for a partial report.  Only OMEGA is safe to dispatch on non-COMPLETE — it is
+    read-only, auth-permitted at RECON_ONLY+, and not blast-gated.  Everything else
+    on non-COMPLETE stays noop."""
     if current_state == a2a_pb2.EMERGENCY_STOP:
         return AdvanceDecision("noop", None, "engagement halted (emergency stop)")
     if status != a2a_pb2.COMPLETE:
-        return AdvanceDecision("noop", None, f"handoff status={status}, not COMPLETE")
+        # Bug #22: FAILED/BLOCKED + OMEGA target → allow dispatch for partial report.
+        if next_recommended != a2a_pb2.OMEGA:
+            return AdvanceDecision("noop", None, f"handoff status={status}, not COMPLETE")
     if next_recommended is None:
         return AdvanceDecision("halt_complete", None, "no next agent — chain complete")
     if already_dispatched:
@@ -269,18 +277,35 @@ def advance_engagement(
 
     Called as the tail of each agent's Conductor-owned task (the agent task signals
     "done, please advance" — it does NOT call the next agent). Returns the decision taken.
+
+    Routing redesign (#6/#7): next_role is computed from the graph via ``route_next``
+    instead of trusting ``handoff.next_recommended``.  The graph is rebuilt ONCE and
+    reused for both routing and the blast-gate assessment.
     """
     events = event_store.get_events(engagement_id)
     handoff = latest_handoff(events)
     if handoff is None:
         return AdvanceDecision("noop", None, "no handoff event yet")
 
-    next_role = handoff.next_recommended  # AgentRole int | None (CONDUCTOR/0 already → None)
     current_state = auth.get_state(engagement_id)
+    already = _already_dispatched(events, handoff)
+
+    # Single graph rebuild — used for BOTH route_next and the blast-gate (#7).
+    rebuild = graph_rebuilder if graph_rebuilder is not None else _default_graph_rebuilder
+    graph_store = rebuild(event_store, engagement_id)
+
+    # Routing: the graph decides, not the handoff hint.
+    gamma_authorized = auth.can_agent_proceed(a2a_pb2.GAMMA, engagement_id)
+    next_role = route_next(
+        graph_store,
+        from_agent=handoff.from_agent,
+        status=handoff.status,
+        gamma_authorized=gamma_authorized,
+    )
+
     next_permitted = (
         auth.can_agent_proceed(next_role, engagement_id) if next_role is not None else False
     )
-    already = _already_dispatched(events, handoff)
 
     blast_gate_requires_approval = False
     if not already and handoff.status == a2a_pb2.COMPLETE:

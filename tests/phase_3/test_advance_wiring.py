@@ -59,7 +59,7 @@ def test_t1_recon_produces_handoff(mock_recon):
         payload = handoffs[0].payload
         assert payload["from_agent"] == a2a_pb2.ALPHA
         assert payload["status"] == a2a_pb2.COMPLETE
-        assert payload["next_recommended"] == a2a_pb2.BETA
+        assert payload["next_recommended"] == a2a_pb2.CONDUCTOR
 
         mock_delay.assert_called_once_with(eng_id, None)
 
@@ -80,15 +80,16 @@ def test_t2a_active_approved_dispatches_beta():
         payload={
             "from_agent": a2a_pb2.ALPHA,
             "status": a2a_pb2.COMPLETE,
-            "next_recommended": a2a_pb2.BETA,
+            "next_recommended": a2a_pb2.CONDUCTOR,
         },
     )
 
-    with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
-        decision = advance_engagement_task(eng_id, None)
-        assert decision["action"] == "dispatch"
-        assert decision["next_agent"] == a2a_pb2.BETA
-        mock_delay.assert_called_once_with(eng_id, None, a2a_pb2.BETA)
+    with patch("agent_alpha.conductor.advance.route_next", return_value=a2a_pb2.BETA):
+        with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
+            decision = advance_engagement_task(eng_id, None)
+            assert decision["action"] == "dispatch"
+            assert decision["next_agent"] == a2a_pb2.BETA
+            mock_delay.assert_called_once_with(eng_id, None, a2a_pb2.BETA)
 
 
 def test_t2b_run_agent_task_calls_factory(mock_beta_run_strike):
@@ -136,14 +137,15 @@ def test_t3_recon_only_parks():
         payload={
             "from_agent": a2a_pb2.ALPHA,
             "status": a2a_pb2.COMPLETE,
-            "next_recommended": a2a_pb2.BETA,
+            "next_recommended": a2a_pb2.CONDUCTOR,
         },
     )
 
-    with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
-        decision = advance_engagement_task(eng_id, None)
-        assert decision["action"] == "park_awaiting_approval"
-        mock_delay.assert_not_called()
+    with patch("agent_alpha.conductor.advance.route_next", return_value=a2a_pb2.BETA):
+        with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
+            decision = advance_engagement_task(eng_id, None)
+            assert decision["action"] == "park_awaiting_approval"
+            mock_delay.assert_not_called()
 
         events = main.event_store.get_events(eng_id)
         awaiting = [e for e in events if e.event_type == EventType.AWAITING_APPROVAL]
@@ -165,7 +167,7 @@ def test_t4_idempotent_dispatch():
         payload={
             "from_agent": a2a_pb2.ALPHA,
             "status": a2a_pb2.COMPLETE,
-            "next_recommended": a2a_pb2.BETA,
+            "next_recommended": a2a_pb2.CONDUCTOR,
         },
     )
 

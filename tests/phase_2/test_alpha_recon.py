@@ -130,7 +130,7 @@ def test_alpha_detects_laravel_debug_and_writes_graph(
     assert msg.message_type == a2a_pb2.HANDOFF_READY
     assert handoff.status == a2a_pb2.COMPLETE
     assert handoff.findings_count >= 1
-    assert handoff.next_recommended == a2a_pb2.BETA
+    assert handoff.next_recommended == a2a_pb2.CONDUCTOR
 
 
 def test_alpha_reaches_different_conclusion_on_hardened_target(
