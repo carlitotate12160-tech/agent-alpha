@@ -286,7 +286,7 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
     if "hmac" not in data:
         raise ProfileSignatureError("missing hmac signature field")
 
-    if not profile.verify_sig(data["hmac"], key):
+    if not hmac.compare_digest(profile.sign(key), data["hmac"]):
         raise ProfileSignatureError(
             "engagement profile signature mismatch — tampered or corrupt consent"
         )
