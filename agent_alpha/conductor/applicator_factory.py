@@ -35,6 +35,11 @@ from typing import Any, Protocol, runtime_checkable
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
+from agent_alpha.tools.internal.access.applicator import (
+    CredentialApplicator,
+    HttpFormApplicator,
+    WpLoginApplicator,
+)
 
 # required_auth label -> minimum engagement state that satisfies it.
 _REQUIRED_AUTH_TO_STATE: dict[str, int] = {
@@ -44,6 +49,21 @@ _REQUIRED_AUTH_TO_STATE: dict[str, int] = {
 
 # Services whose applicators bind to a host:port DB endpoint (vs an HTTP web login).
 _DB_SERVICES: frozenset[str] = frozenset({"mysql", "mariadb"})
+
+
+def beta_web_applicators(http_client: object) -> list[CredentialApplicator]:
+    """Canonical Beta web-login applicator roster (single source, #7).
+
+    ORDER MATTERS — specific before generic. cred_reuse tries bound applicators in
+    order until one succeeds; the WP-specific applicator (POSTs log/pwd to wp-login.php)
+    MUST be tried before the generic HttpFormApplicator (POSTs username/password), so we
+    never fire a wrong-field login attempt at a client's wp-login.php first (opsec:
+    avoids a detectable failed login + lockout/WAF trigger).
+    """
+    return [
+        WpLoginApplicator(http_client=http_client),
+        HttpFormApplicator(http_client=http_client),
+    ]
 
 
 @runtime_checkable

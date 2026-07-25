@@ -289,5 +289,62 @@ def test_cred_reuse_has_no_auth_or_scope_handle() -> None:
     assert not leaked, f"cred_reuse must stay auth/scope-blind; leaked handle(s): {leaked}"
 
 
+# ── Slice-1b: WP applicator ordering (opsec) ──────────────────────────────────
+
+
+def test_beta_roster_tries_wp_specific_before_generic() -> None:
+    """Opsec: the WP-specific applicator must precede the generic form applicator so a
+    wp-login.php target is never hit with wrong-field credentials first."""
+    from agent_alpha.conductor.applicator_factory import beta_web_applicators
+    from agent_alpha.tools.internal.access.applicator import (
+        HttpFormApplicator,
+        WpLoginApplicator,
+    )
+
+    roster = beta_web_applicators(http_client=object())
+    types = [type(a) for a in roster]
+    assert types.index(WpLoginApplicator) < types.index(HttpFormApplicator)
+
+
+def test_wp_login_applicator_binds_to_wp_login_target() -> None:
+    """End-to-end wiring proof: given a host-matched WP asset and a root web_target,
+    the roster produces a BoundApplicator whose applicator is the WpLoginApplicator
+    bound to the .../wp-login.php target, ordered BEFORE the generic HttpFormApplicator
+    bound to the same target (so cred_reuse tries WP first)."""
+    from agent_alpha.conductor.applicator_factory import beta_web_applicators
+    from agent_alpha.tools.internal.access.applicator import (
+        HttpFormApplicator,
+        WpLoginApplicator,
+    )
+
+    wp_host = "shop.example.com"
+    web_target = f"https://{wp_host}"
+    auth = FakeAuth(state=a2a_pb2.ACTIVE_APPROVED, in_scope_endpoints=set())
+    graph = FakeGraph(
+        [
+            AttackNode(
+                id=f"asset_{wp_host}",
+                type=NodeType.ASSET,
+                properties=AssetProperties(host=wp_host, tech_stack=["wp"]),
+                confidence=0.9,
+            ),
+        ]
+    )
+
+    bound = build_applicators_for_engagement(
+        engagement_id="eng_wp",
+        auth=auth,
+        graph_store=graph,
+        web_target=web_target,
+        candidates=beta_web_applicators(http_client=object()),
+    )
+
+    wp_login = [b for b in bound if b.target.rstrip("/").endswith("wp-login.php")]
+    assert wp_login, "factory did not derive a wp-login.php target from the WP asset"
+
+    order = [type(b.applicator) for b in wp_login]
+    assert order.index(WpLoginApplicator) < order.index(HttpFormApplicator)
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
