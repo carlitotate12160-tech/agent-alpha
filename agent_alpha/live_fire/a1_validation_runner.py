@@ -432,7 +432,7 @@ def main(argv: list[str] | None = None) -> int:
     Origin-direct requires TWO independent inputs:
       --origin <IP>       Discovery candidate (StaticOriginDiscovery).
       --profile <path>    Signed consent (EngagementProfile loaded via
-                          load_signed_profile — SHA-256 verified).
+                          load_signed_profile — HMAC-SHA-256 verified).
 
     Consent CANNOT be derived from discovery (CWE-862, CR-1).  If --origin is
     given without --profile, the runner raises unless --lab-unsigned explicitly
@@ -445,6 +445,7 @@ def main(argv: list[str] | None = None) -> int:
     import sys
 
     from agent_alpha.conductor.engagement_profile import load_signed_profile
+    from agent_alpha.security.secrets import get_profile_signing_key
 
     parser = argparse.ArgumentParser(
         description="A1 validation: Agent-Alpha chain vs Nuclei through real CF challenge"
@@ -478,8 +479,8 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=(
             "Path to a signed EngagementProfile JSON (produced by "
-            "scripts/sign_profile.py). SHA-256 verified on load — tampered "
-            "profiles are rejected."
+            "scripts/sign_profile.py). HMAC-SHA-256 verified on load — tampered "
+            "or unsigned profiles are rejected."
         ),
     )
     parser.add_argument(
@@ -511,8 +512,9 @@ def main(argv: list[str] | None = None) -> int:
         origin_discovery = StaticOriginDiscovery([args.origin])
 
         if args.profile:
-            # --profile: load signed consent (SHA-256 verified).
-            engagement_profile = load_signed_profile(args.profile)
+            # --profile: load signed consent (HMAC-SHA-256 verified).
+            signing_key = get_profile_signing_key()
+            engagement_profile = load_signed_profile(args.profile, key=signing_key)
         elif args.lab_unsigned:
             # --lab-unsigned: LOUD warning — synthesise consent for lab-only runs.
             print(
@@ -530,6 +532,13 @@ def main(argv: list[str] | None = None) -> int:
                 client_id=args.client_id,
                 targets=frozenset({args.target}),
                 authorized_origins=frozenset({args.origin}),
+                # Fail-closed: --lab-unsigned can NEVER yield OFFENSIVE_APPROVED.
+                # authorization_level defaults to RECON_ONLY (the dataclass default).
+                authorization_level="RECON_ONLY",
+            )
+            # Belt-and-suspenders: assert the cap is honoured.
+            assert engagement_profile.authorization_level == "RECON_ONLY", (
+                "--lab-unsigned MUST cap to RECON_ONLY — fail-closed"
             )
         else:
             # --origin without --profile and without --lab-unsigned → refuse.

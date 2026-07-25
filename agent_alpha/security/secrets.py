@@ -124,6 +124,37 @@ class SecretsManager:
         return self._key
 
 
+# ── Profile signing key (single canonical source — anti-#7) ───
+
+
+def get_profile_signing_key() -> bytes:
+    """Read ``PROFILE_SIGNING_KEY`` from the environment and return decoded bytes.
+
+    Preferred encoding is hex (≥64 hex chars → ≥32 bytes).  Falls back to raw
+    UTF-8 encoding for non-hex values.  Raises :class:`SecretNotFoundError` when
+    the variable is absent, empty, or decodes to fewer than 32 bytes.
+
+    This is the **only** definition of this function in the entire codebase.
+    All callers (``engagement_profile.py``, ``authorization.py``,
+    ``sign_profile.py``, ``a1_validation_runner.py``) import from here.
+    """
+    raw = os.environ.get("PROFILE_SIGNING_KEY", "")
+    if not raw:
+        raise SecretNotFoundError(
+            "PROFILE_SIGNING_KEY environment variable is not set"
+        )
+    try:
+        key = bytes.fromhex(raw)  # preferred: hex-encoded
+    except ValueError:
+        key = raw.encode()  # UTF-8 fallback for non-hex values
+    if len(key) < 32:
+        raise SecretNotFoundError(
+            "PROFILE_SIGNING_KEY too short: need >=32 decoded bytes "
+            "(>=64 hex chars)"
+        )
+    return key
+
+
 class LogScrubber:
     """Redacts sensitive values from log/event text using LOG_SCRUB_PATTERNS."""
 

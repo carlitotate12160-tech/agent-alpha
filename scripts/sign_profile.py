@@ -2,6 +2,7 @@
 """scripts/sign_profile.py — CLI to produce a signed EngagementProfile JSON.
 
 Usage:
+    PROFILE_SIGNING_KEY=$(python -c "import secrets; print(secrets.token_hex(32))") \
     python -m scripts.sign_profile \
         --engagement-id a1-fp \
         --client-id lab \
@@ -17,9 +18,10 @@ Or write directly to a file:
         --authorized-origin 168.110.192.62 \
         --output a1_profile.signed.json
 
+Requires ``PROFILE_SIGNING_KEY`` environment variable (≥64 hex chars / ≥32 bytes).
 The output is the JSON consumed by ``a1_validation_runner --profile <path>``.
-The file contains the profile fields and a SHA-256 signature computed from the
-canonical JSON representation — any post-signing mutation will fail
+The file contains the profile fields and an HMAC-SHA-256 signature computed from
+the canonical JSON representation — any post-signing mutation will fail
 ``load_signed_profile()`` verification.
 """
 
@@ -33,6 +35,7 @@ from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     dump_signed_profile,
 )
+from agent_alpha.security.secrets import get_profile_signing_key
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -60,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    key = get_profile_signing_key()
+
     profile = EngagementProfile(
         engagement_id=args.engagement_id,
         client_id=args.client_id,
@@ -67,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         authorized_origins=frozenset(args.authorized_origin),
     )
 
-    envelope = dump_signed_profile(profile)
+    envelope = dump_signed_profile(profile, key=key)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as f:

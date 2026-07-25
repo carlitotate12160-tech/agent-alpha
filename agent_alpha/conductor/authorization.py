@@ -17,6 +17,15 @@ import logging
 import secrets
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.conductor.domain_verification import (
+    DNSResolver,
+    _normalise_target,
+    verify_domain_ownership,
+)
+from agent_alpha.conductor.engagement_profile import (
+    ConsentRecord,
+    EngagementProfile,
+)
 from agent_alpha.conductor.engagement_reducer import rebuild_engagement
 from agent_alpha.conductor.models import (
     EngagementNotFoundError,
@@ -39,12 +48,15 @@ from agent_alpha.events.store import AgentEvent, EventStore
 # redundant aliases to treat a re-export as public).
 __all__ = [
     "AuthorizationStateMachine",
+    "ConsentRequiredError",
     "EngagementNotFoundError",
     "EngagementRecord",
+    "InvalidOriginError",
     "InvalidScopeError",
     "SOWError",
     "Scope",
     "STATE_RANK",
+    "authorize_engagement",
 ]
 
 _log = logging.getLogger(__name__)
@@ -453,3 +465,130 @@ class AuthorizationStateMachine:
                     ):
                         return parsed.value.subnet_of(cand.value)
         return False
+
+
+# ── Consent gate + authorize_engagement ───────────────────────
+
+
+class ConsentRequiredError(RuntimeError):
+    """Raised when elevated authorization is requested without verified consent."""
+
+
+class InvalidOriginError(RuntimeError):
+    """Raised when an authorized_origins entry is a non-public IP (anti-SSRF)."""
+
+
+_ELEVATED_LEVELS = frozenset({"ACTIVE_APPROVED", "OFFENSIVE_APPROVED"})
+
+
+def _validate_origins(origins: frozenset[str]) -> None:
+    """Reject non-globally-routable IPs in authorized_origins.
+
+    Anti-SSRF (#6, CWE-918): ``origin_direct_fetch`` hits ``https://{origin_ip}``
+    — a private/loopback origin here is an SSRF primitive.
+
+    Uses ``ipaddress.is_global`` which correctly excludes loopback, private,
+    link-local, reserved, multicast, AND documentation ranges (RFC 5737).
+    """
+    for origin in origins:
+        try:
+            addr = ipaddress.ip_address(origin)
+        except ValueError as exc:
+            raise InvalidOriginError(
+                f"authorized_origins entry {origin!r} is not a valid IP address"
+            ) from exc
+        if not addr.is_global:
+            raise InvalidOriginError(
+                f"authorized_origins entry {origin!r} is not a public routable "
+                f"IP (only globally-routable addresses accepted "
+                f"— anti-SSRF §12.36)"
+            )
+
+
+def authorize_engagement(
+    authorization_level: str,
+    *,
+    engagement_id: str,
+    client_id: str,
+    scope_targets: frozenset[str],
+    authorized_origins: frozenset[str] = frozenset(),
+    allow_evasion: bool = False,
+    opsec_stealth: bool = False,
+    consent_items: frozenset[str] | None = None,
+    signed_by: str | None = None,
+    signed_at: str | None = None,
+    ownership_token: str | None = None,
+    resolver: DNSResolver | None = None,
+    key: bytes,
+) -> EngagementProfile:
+    """Validate consent, verify ownership, and construct a signed EngagementProfile.
+
+    Returns the **EngagementProfile object** — fully validated, consent-gated,
+    origin-validated, in-memory signed.  Writing the envelope to disk is the
+    caller's job via ``dump_signed_profile(profile, key=key)``.
+
+    Consent gate (#4 fix):
+      Elevated authorization (ACTIVE_APPROVED, OFFENSIVE_APPROVED) or
+      ``allow_evasion=True`` or ``opsec_stealth=True`` requires non-empty
+      ``consent_items``, ``signed_by``, and ``signed_at``.
+
+    Origin validation (#6 fix, anti-SSRF):
+      Every ``authorized_origins`` entry must be a public routable IP.
+      Loopback / private / link-local / reserved / multicast are rejected.
+
+    Target normalisation (#5 fix):
+      Every target is normalised via ``_normalise_target`` BEFORE ownership
+      verification and BEFORE storing in the profile.
+
+    Domain ownership (#3 fix):
+      If ``ownership_token`` and ``resolver`` are provided, DNS-TXT ownership
+      is verified for each target (exact match, no substring).
+    """
+    # ── 1. Consent gate (before anything else) ────────────────
+    if authorization_level in _ELEVATED_LEVELS or allow_evasion or opsec_stealth:
+        if not (consent_items and signed_by and signed_at):
+            raise ConsentRequiredError(
+                "elevated authorization requires verified consent_items "
+                "+ signed_by + signed_at"
+            )
+
+    # ── 2. Validate origins (anti-SSRF) ──────────────────────
+    _validate_origins(authorized_origins)
+
+    # ── 3. Normalise targets BEFORE verification + storage ───
+    normalised_targets = frozenset(
+        _normalise_target(t) for t in scope_targets
+    )
+
+    # ── 4. DNS-TXT ownership verification ────────────────────
+    if ownership_token is not None:
+        for target in normalised_targets:
+            verify_domain_ownership(target, ownership_token, resolver)
+
+    # ── 5. Construct consent record ──────────────────────────
+    consent = None
+    if consent_items and signed_by and signed_at:
+        consent = ConsentRecord(
+            accepted_items=consent_items,
+            signed_by=signed_by,
+            signed_at=signed_at,
+        )
+
+    # ── 6. Build profile ─────────────────────────────────────
+    profile = EngagementProfile(
+        engagement_id=engagement_id,
+        client_id=client_id,
+        targets=normalised_targets,
+        scope_targets=normalised_targets,
+        authorized_origins=authorized_origins,
+        allow_evasion=allow_evasion,
+        opsec_stealth=opsec_stealth,
+        authorization_level=authorization_level,
+        consent=consent,
+    )
+
+    # ── 7. Sign in memory (caller serialises) ────────────────
+    # Verify the key works (will raise if key is invalid).
+    profile.sign(key)
+
+    return profile
