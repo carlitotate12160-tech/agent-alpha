@@ -445,8 +445,6 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
     import sys
 
-    from agent_alpha.conductor.engagement_profile import load_signed_profile
-
     parser = argparse.ArgumentParser(
         description="A1 validation: Agent-Alpha chain vs Nuclei through real CF challenge"
     )

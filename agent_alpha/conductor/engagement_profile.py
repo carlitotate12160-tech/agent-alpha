@@ -215,9 +215,40 @@ class EngagementProfile:
             "include_root": self.include_root,
             "authorization_level": self.authorization_level,
             "consent": self.consent.to_dict(),
+        }
+        return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+    def _sha256_of_canonical(self) -> str:
+        """Private helper returning the unkeyed SHA-256 of canonical JSON."""
+        return hashlib.sha256(self.canonical_json().encode()).hexdigest()
+
+    def sign(self, key: bytes) -> str:
+        """HMAC-SHA-256 of ``canonical_json`` keyed by server secret."""
+        return hmac.new(key, self.canonical_json().encode(), hashlib.sha256).hexdigest()
+
+
+def dump_signed_profile(profile: EngagementProfile, path: str, *, key: bytes) -> None:
+    """Serialize and sign the profile, saving to *path*."""
+    envelope = {
+        "profile": {
+            "engagement_id": profile.engagement_id,
+            "client_id": profile.client_id,
+            "targets": sorted(profile.targets),
+            "authorized_origins": sorted(profile.authorized_origins),
+            "allow_evasion": profile.allow_evasion,
+            "scope_targets": sorted(profile.scope_targets),
+            "scope_mode": profile.scope_mode,
+            "allow_subdomain_enum": profile.allow_subdomain_enum,
+            "opsec_stealth": profile.opsec_stealth,
+            "include_root": profile.include_root,
+            "authorization_level": profile.authorization_level,
+            "consent": profile.consent.to_dict(),
         },
         "hmac": profile.sign(key),
     }
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(envelope, f, indent=2)
 
 
 def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
@@ -241,7 +272,6 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
         targets=frozenset(profile_data.get("targets", [])),
         authorized_origins=frozenset(profile_data.get("authorized_origins", [])),
         allow_evasion=bool(profile_data.get("allow_evasion", False)),
-<<<<<<< HEAD
         scope_targets=frozenset(profile_data.get("scope_targets", [])),
         scope_mode=profile_data.get("scope_mode", "single"),
         allow_subdomain_enum=bool(profile_data.get("allow_subdomain_enum", False)),
@@ -249,8 +279,6 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
         include_root=bool(profile_data.get("include_root", False)),
         authorization_level=profile_data.get("authorization_level", "RECON_ONLY"),
         consent=ConsentRecord.from_dict(consent_data) if consent_data else ConsentRecord(),
-=======
->>>>>>> origin/main
     )
 
     if "sha256" in data:

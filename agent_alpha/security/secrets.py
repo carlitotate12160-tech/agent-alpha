@@ -158,7 +158,7 @@ class LogScrubber:
 
 def get_profile_signing_key() -> bytes:
     """Canonical source for the EngagementProfile HMAC signing key.
-    
+
     Decodes the PROFILE_SIGNING_KEY hex string from the environment.
     Fails fast if the key is missing or shorter than 32 decoded bytes
     (which requires at least 64 hex characters).
@@ -166,17 +166,16 @@ def get_profile_signing_key() -> bytes:
     key_hex = os.environ.get("PROFILE_SIGNING_KEY")
     if not key_hex:
         raise ValueError("PROFILE_SIGNING_KEY environment variable is not set")
-    
+
     try:
         key = bytes.fromhex(key_hex)
     except ValueError:
         # Fallback if someone used a raw string instead of hex
         key = key_hex.encode("utf-8")
-        
+
     if len(key) < 32:
         raise ValueError(
             f"PROFILE_SIGNING_KEY must be >= 32 decoded bytes for HMAC-SHA-256 "
             f"(got {len(key)} bytes)"
         )
     return key
-

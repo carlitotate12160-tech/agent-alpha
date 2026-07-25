@@ -20,8 +20,8 @@ from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.domain_verification import (
     DNSResolver,
     DomainOwnershipError,
-    verify_domain_ownership,
     _normalise_target,
+    verify_domain_ownership,
 )
 from agent_alpha.conductor.engagement_profile import (
     ConsentRecord,
@@ -489,7 +489,7 @@ def _validate_origins(origins: frozenset[str]) -> None:
                     f"Loopback/private IPs are forbidden to prevent SSRF."
                 )
         except ValueError:
-            raise InvalidOriginError(f"origin {origin!r} is not a valid IP address")
+            raise InvalidOriginError(f"origin {origin!r} is not a valid IP address") from None
 
 
 def authorize_engagement(
@@ -556,7 +556,11 @@ def authorize_engagement(
         raise ValueError("authorize_engagement: targets must be non-empty")
 
     # Step 0 — Consent gate and Origin validation
-    if authorization_level in {"ACTIVE_APPROVED", "OFFENSIVE_APPROVED"} or allow_evasion or opsec_stealth:
+    if (
+        authorization_level in {"ACTIVE_APPROVED", "OFFENSIVE_APPROVED"}
+        or allow_evasion
+        or opsec_stealth
+    ):
         if not consent_items or not signed_by or not signed_at:
             raise ConsentRequiredError(
                 f"Elevated authorization (level={authorization_level}, evasion={allow_evasion}, "

@@ -14,7 +14,7 @@ def _imported_modules(py: pathlib.Path):
         if isinstance(node, ast.ImportFrom):
             mod_name = node.module or ""
             if node.level > 0:
-                base_pkg = ".".join(pkg_parts[:-node.level + 1] if node.level > 1 else pkg_parts)
+                base_pkg = ".".join(pkg_parts[: -node.level + 1] if node.level > 1 else pkg_parts)
                 yield f"{base_pkg}.{mod_name}" if mod_name else base_pkg
             else:
                 yield mod_name

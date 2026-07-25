@@ -118,7 +118,7 @@ def verify_domain_ownership(
 
     # Check if any TXT record exactly matches the expected token.
     for record in txt_records:
-        clean_record = record.strip(' \t"\'')
+        clean_record = record.strip(" \t\"'")
         if clean_record == token:
             return True
 
