@@ -164,6 +164,33 @@ def test_transport_gate_precedes_model_gate() -> None:
 def test_policy_errors_share_a_base() -> None:
     """Callers may catch the family with one except (anti-Lyndon #3: one domain
     error, no silent downgrade)."""
+    from agent_alpha.llm.routing import ProviderProviderError
+
     assert issubclass(PayloadTransportError, ProviderPolicyError)
     assert issubclass(PayloadProviderError, ProviderPolicyError)
+    assert issubclass(ProviderProviderError, ProviderPolicyError)
     assert issubclass(ProviderPolicyError, ValueError)
+
+
+# ── default builder: provider branch routing ──────────────────────────
+
+
+def test_default_build_claude_branch() -> None:
+    """The default builder routes Claude models to ClaudeProvider (network-free
+    — constructor only, no API call)."""
+    from agent_alpha.llm.providers.claude import ClaudeProvider
+    from agent_alpha.llm.routing import _default_build
+
+    provider = _default_build(api_key="unit-test-noop", model="claude-sonnet-4-20250514")
+    assert isinstance(provider, ClaudeProvider)
+    assert provider.model == "claude-sonnet-4-20250514"
+
+
+def test_default_build_kimi_raises_not_silent_fallthrough() -> None:
+    """Kimi models are allowlisted but have no provider implementation.
+    _default_build must raise, NOT silently fall through to DeepSeek
+    (wrong API endpoint — anti-Lyndon #3, Fix #9)."""
+    from agent_alpha.llm.routing import ProviderProviderError, _default_build
+
+    with pytest.raises(ProviderProviderError, match="Kimi provider not yet implemented"):
+        _default_build(api_key="unit-test-noop", model="kimi-2.6")

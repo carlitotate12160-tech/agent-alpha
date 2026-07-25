@@ -79,6 +79,28 @@ def test_complete_captures_reasoning_content() -> None:
     assert result.reasoning == "the user asked for the word ping"
 
 
+def test_list_models_hermetic() -> None:
+    """Hermetic list_models via MockTransport — no network call.
+    Replaces the pattern of hitting the real API for model listing in CI."""
+    import httpx
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {"id": "deepseek-v4-flash"},
+                    {"id": "deepseek-v4-pro"},
+                ]
+            },
+        )
+
+    provider = DeepSeekProvider(api_key="noop", transport=httpx.MockTransport(handler))
+    models = provider.list_models()
+    assert "deepseek-v4-flash" in models
+    assert "deepseek-v4-pro" in models
+
+
 # ── live ──────────────────────────────────────────────────────────────
 
 

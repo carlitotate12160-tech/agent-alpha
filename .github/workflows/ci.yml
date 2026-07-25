@@ -179,6 +179,9 @@ jobs:
           AGENT_ALPHA_PG_DSN: "postgresql://agent_alpha_app:test-app-pw@localhost:5433/agent_alpha"
           AGENT_ALPHA_REDIS_URL: "redis://localhost:6380/0"
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # Postgres vault key — REQUIRED whenever AGENT_ALPHA_PG_DSN is set (matched pair).
+          # CI-only deterministic test key; NOT a real secret.
+          AGENT_ALPHA_VAULT_KEY: ${{ secrets.CI_TEST_VAULT_KEY || 'Y2ktb25seS10ZXN0LXZhdWx0LWtleS1kZXRlcm1pbmlzdGlj' }}
         run: .venv/bin/pytest tests/ -q --cov=agent_alpha --cov-report=term-missing --cov-fail-under=80
 
       - name: CodeRabbit findings report (non-blocking)

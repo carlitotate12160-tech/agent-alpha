@@ -65,6 +65,12 @@ class PayloadProviderError(ProviderPolicyError):
     allowlist, or that carries a forbidden (reasoning-class) token."""
 
 
+class ProviderProviderError(ProviderPolicyError):
+    """A model is allowlisted but has no provider implementation built yet.
+    Failing loud instead of silently falling through to the wrong provider
+    (anti-Lyndon #3: no silent substitution)."""
+
+
 class CompletionProvider(Protocol):
     """Structural type every provider must satisfy: a ``complete(**kw)`` returning
     an object exposing ``.text`` (the orchestrator depends on exactly this)."""
@@ -85,6 +91,7 @@ def _default_build(*, api_key: str, model: str) -> CompletionProvider:
 
     DeepSeek models → DeepSeekProvider (api.deepseek.com)
     Claude models   → ClaudeProvider (api.anthropic.com)
+    Kimi models     → not yet implemented (raise, do NOT silently fall through to DeepSeek)
     """
     model_lower = model.lower()
     if (
@@ -94,6 +101,12 @@ def _default_build(*, api_key: str, model: str) -> CompletionProvider:
         or "haiku" in model_lower
     ):
         return ClaudeProvider(api_key=api_key, model=model)
+    if "kimi" in model_lower:
+        raise ProviderProviderError(
+            f"Kimi provider not yet implemented for model {model!r} — "
+            f"remove from LLM_PAYLOAD_ALLOWED or implement a KimiProvider "
+            f"(ADR §12.15). Do NOT silently route to DeepSeek (wrong API endpoint)."
+        )
     return DeepSeekProvider(api_key=api_key, model=model)
 
 

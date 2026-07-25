@@ -167,14 +167,19 @@ def _resolve_in_scope_targets(
         if not auth.assert_offensive_web_target(engagement_id, web_target):
             return []  # bare IP or out-of-scope domain — do NOT bind
 
+        from urllib.parse import urlparse
+
         http_targets = [web_target]
         base = web_target.rstrip("/")
+        web_host = urlparse(web_target).hostname or urlparse(web_target).netloc
 
         for node in graph_store.nodes_by_type(NodeType.ASSET):
             props = node.properties
             if not isinstance(props, AssetProperties):
                 continue
-            if "wp" in props.tech_stack:
+            # Only this host's WP asset — never append a login path for a sibling host
+            # (shared-hosting / co-tenant safety, mirrors the offensive-web-target gate).
+            if "wp" in props.tech_stack and props.host == web_host:
                 http_targets.append(f"{base}/wp-login.php")
 
         return list(dict.fromkeys(http_targets))

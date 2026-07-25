@@ -1,22 +1,14 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import Any
 
 import httpx
 
 from agent_alpha.config import constants
+from agent_alpha.llm.providers.deepseek import CompletionTruncatedError, CompletionResult
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class CompletionResult:
-    text: str
-    usage_cost_usd: float
-    model: str
-    reasoning: str = ""
 
 
 class ClaudeProvider:
@@ -91,12 +83,12 @@ class ClaudeProvider:
         text = " ".join(text_parts).strip()
         reasoning = " ".join(reasoning_parts).strip()
 
+        stop_reason = data.get("stop_reason", "")
+        if stop_reason == "max_tokens":
+            raise CompletionTruncatedError(
+                "completion truncated; raise max_tokens (reasoning model consumed the token budget)"
+            )
         if not text:
-            stop_reason = data.get("stop_reason", "")
-            if stop_reason == "max_tokens":
-                raise RuntimeError(
-                    "completion truncated; raise max_tokens (reasoning model consumed the token budget)"
-                )
             raise RuntimeError("Provider returned empty completion text.")
 
         usage = data.get("usage", {})
