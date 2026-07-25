@@ -36,7 +36,7 @@ GENERIC = "generic_http_probe"
 class _StubProvider:
     """Returns a fixed {"tool": ...} JSON — stands in for the reasoning model's reply."""
 
-    model = "deepseek-chat"
+    model = "deepseek-v4-flash"
 
     def __init__(self, tool: str) -> None:
         self._tool = tool
@@ -49,7 +49,7 @@ class _StubProvider:
                 "text": json.dumps({"tool": self._tool}),
                 "usage_cost_usd": 0.0,
                 "reasoning": "",
-                "model": "deepseek-chat",
+                "model": "deepseek-v4-flash",
             },
         )()
 

@@ -51,8 +51,8 @@ def _config(
     reasoning: str = "deepseek-v4-pro",
     payload: str = "deepseek-v4-pro",
     transport: str = "direct",
-    allowed: tuple[str, ...] = ("deepseek-v4-pro", "kimi-2.6"),
-    never: tuple[str, ...] = ("claude", "sonnet", "opus", "gpt"),
+    allowed: tuple[str, ...] = ("deepseek-v4-pro", "kimi-2.6", "claude-sonnet-4-20250514"),
+    never: tuple[str, ...] = ("gpt",),
 ) -> SimpleNamespace:
     """A drop-in stand-in for the constants module (no global mutation)."""
     return SimpleNamespace(
@@ -98,7 +98,7 @@ def test_reasoning_default_build_uses_real_backend_hermetically() -> None:
     """With the default builder, the reasoning role yields a real provider whose
     model is the single-source-of-truth constant — constructor is network-free."""
     provider = resolve_reasoning_provider(api_key="unit-test-noop")
-    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-chat"
+    assert provider.model == constants.LLM_REASONING_PROVIDER == "deepseek-v4-flash"
 
 
 # ── payload role: accept path ─────────────────────────────────────────
@@ -113,7 +113,7 @@ def test_payload_resolves_when_policy_satisfied() -> None:
     assert builder.calls == [{"api_key": "noop", "model": "deepseek-v4-pro"}]
 
 
-@pytest.mark.parametrize("model", ["deepseek-v4-pro", "kimi-2.6"])
+@pytest.mark.parametrize("model", ["deepseek-v4-pro", "kimi-2.6", "claude-sonnet-4-20250514"])
 def test_assert_payload_policy_accepts_allowlisted_direct(model: str) -> None:
     # Must not raise; returns None on success.
     assert_payload_policy(model, transport="direct", config=_config())

@@ -36,9 +36,9 @@ def test_event_sequence_gap_allowed() -> None:
     assert EVENT_SEQUENCE_GAP_ALLOWED is False
 
 
-def test_llm_payload_never_includes_claude() -> None:
-    """LLM_PAYLOAD_NEVER includes 'claude' (payload routing guard)."""
-    assert "claude" in LLM_PAYLOAD_NEVER
+def test_llm_payload_never_includes_gpt() -> None:
+    """LLM_PAYLOAD_NEVER includes 'gpt' (payload routing guard)."""
+    assert "gpt" in LLM_PAYLOAD_NEVER
 
 
 def test_log_scrub_patterns_count() -> None:
