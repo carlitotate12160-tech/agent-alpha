@@ -32,7 +32,7 @@ from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.config import constants
 
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
-
+os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-for-eager-dispatch")
 
 @pytest.fixture(autouse=True)
 def _stub_recon_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:

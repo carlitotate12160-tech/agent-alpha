@@ -15,9 +15,13 @@ Run on Oracle ARM64:
 
 from __future__ import annotations
 
+import os
 import pathlib
 
 import pytest
+
+os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
+os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-for-eager-dispatch")
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
