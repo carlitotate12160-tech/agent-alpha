@@ -6,7 +6,10 @@ from typing import Any
 import httpx
 
 from agent_alpha.config import constants
-from agent_alpha.llm.providers.deepseek import CompletionTruncatedError, CompletionResult
+from agent_alpha.llm.providers.deepseek import (
+    CompletionResult,
+    CompletionTruncatedError,
+)
 
 logger = logging.getLogger(__name__)
 
