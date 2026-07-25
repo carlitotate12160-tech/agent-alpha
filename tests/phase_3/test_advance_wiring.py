@@ -153,7 +153,11 @@ def test_t3_recon_only_parks():
 
 
 def test_t4_idempotent_dispatch():
-    """T4: advance_engagement_task run twice enqueues Beta exactly once."""
+    """T4: advance_engagement_task run twice enqueues Beta exactly once.
+
+    Patches route_next to return BETA (matching T2a) so the test actually
+    exercises Beta idempotency, not OMEGA idempotency from an empty graph.
+    """
     auth = AuthorizationStateMachine(event_store=main.event_store)
     record = auth.create_engagement("client_1", "example.com", tenant_id="tenant_1")
     eng_id = record.engagement_id
@@ -171,10 +175,17 @@ def test_t4_idempotent_dispatch():
         },
     )
 
-    with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
-        advance_engagement_task(eng_id, None)
-        advance_engagement_task(eng_id, None)
-        assert mock_delay.call_count == 1
+    with patch("agent_alpha.conductor.advance.route_next", return_value=a2a_pb2.BETA):
+        with patch("agent_alpha.conductor.main.run_agent_task.delay") as mock_delay:
+            d1 = advance_engagement_task(eng_id, None)
+            assert d1["action"] == "dispatch"
+            assert d1["next_agent"] == a2a_pb2.BETA
+
+            d2 = advance_engagement_task(eng_id, None)
+            assert d2["action"] == "noop"
+
+            assert mock_delay.call_count == 1
+            mock_delay.assert_called_once_with(eng_id, None, a2a_pb2.BETA)
 
 
 def test_t5_no_agent_enqueues_agent():

@@ -1964,7 +1964,7 @@ supplies only a URL. Authorization to hit a *discovered* origin IP is derived, n
 typed in.
 
 ##### Proof-1 — Domain ownership (server-minted DNS-TXT)
-```
+```text
 1. Client: "test https://ibudanbalita.com; origin withheld."
 2. Conductor MINTS token  t = hmac(engagement_key, engagement_id || domain || nonce)
    — server-side, bound to THIS engagement. (Caller never supplies the token — that
@@ -1985,12 +1985,18 @@ class OriginBinder(Protocol):
     def serves(self, origin_ip: str, fronted_host: str) -> bool:
         """True IFF origin_ip demonstrably serves fronted_host:
         fetch https://{origin_ip} with Host+SNI = fronted_host, verify=off, and
-        require cert SAN CONTAINS fronted_host  (strong)   OR
-        body-identity match to the owned site   (fallback, weaker).
+        require cert SAN CONTAINS fronted_host  (strong — authorizing)   OR
+        cryptographic origin marker placed by the client  (strong — authorizing).
+        Body-identity match is DIAGNOSTIC ONLY — it MUST NOT authorize hitting
+        a discovered IP (a cache/CDN/shared-host can echo the owned site's body
+        without being the client's origin → authorizing collateral).
         Fail-closed: default _FailLoudBinder.serves() raises."""
 ```
 A discovered neighbor domain `E` on the same shared IP fails `serves(ip, D)` because
-the cert/identity is for `E`, not `D`.
+the cert/identity is for `E`, not `D`. Body-identity match alone is insufficient — a
+CDN, cache, or shared host can echo the owned site's body without being the client's
+origin. Body-identity is retained as a **diagnostic signal** in the engagement report
+but MUST NOT appear in the authorization predicate.
 
 ##### Revised gate
 ```python
@@ -2029,10 +2035,17 @@ def assert_origin_authorized(origin_ip, fronted_host, profile, binder):
 
 #### Integration points
 - **Who calls it:** `scout._attempt_reach` step-5 (ORIGIN_DIRECT dispatch) calls
-  `binder.serves(...)` then `assert_origin_authorized(...)` before `origin_direct_fetch`.
+  `assert_origin_authorized(..., binder)` — the Conductor-owned authorization gate
+  performs the binder evaluation internally before `origin_direct_fetch`. Scout
+  does NOT call `binder.serves(...)` separately (single gate, not two).
   Conductor authorize-flow mints token + `verify_domain_ownership` before signing.
 - **What it calls:** `verify_domain_ownership` (Proof-1), `OriginBinder.serves` (Proof-2,
   new), `origin_discovery.candidates` (already wired-as-seam, currently injected None).
+- **SSRF gate:** `OriginBinder` rejects any `origin_ip` failing the shared
+  internal-destination guard (reused from `resolve_targets` — loopback, private,
+  link-local, multicast, metadata `169.254.169.254`, `::1`, `fd00::`, etc.)
+  BEFORE any connection. Redirect targets are validated the same way. Egress
+  allowlist enforced before binding and fetching.
 - **Autonomous-wiring debt this closes:** `origin_discovery` + `binder` must be injected
   into scout on the live path (both None/island today). Register in
   `test_wiring_gate.py` until wired.

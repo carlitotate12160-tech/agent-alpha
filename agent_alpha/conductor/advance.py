@@ -232,18 +232,18 @@ def _default_graph_rebuilder(event_store: Any, engagement_id: str) -> Any:
 
 def _assess_blast_gate_for_dispatch(
     *,
-    engagement_id: str,
-    event_store: Any,
+    graph_store: Any,
     next_role: int | None,
     next_permitted: bool,
     policy: Any | None,
-    graph_rebuilder: Callable[[Any, str], Any] | None,
 ) -> bool:
     """True iff dispatch to *next_role* must park for human blast-radius approval.
 
     Only offensive-tier + auth-permitted transitions are assessed (the auth gate is
     the primary control; this is secondary). Fail-safe: a missing policy builds the
     default PolicyEnforcer, so the gate is ON by default and never silently off.
+
+    The graph_store is the ONE rebuild from the caller — do NOT rebuild again (#7).
     """
     if next_role is None or not next_permitted:
         return False
@@ -254,10 +254,8 @@ def _assess_blast_gate_for_dispatch(
     gate_before = enforcer.gate_before_agents()
     if next_name not in gate_before:
         return False
-    rebuild = graph_rebuilder if graph_rebuilder is not None else _default_graph_rebuilder
-    store = rebuild(event_store, engagement_id)
     return assess_blast_gate(
-        store=store,
+        store=graph_store,
         gate_before_agents=gate_before,
         next_agent_name=next_name,
         threshold=constants.BLAST_GATE_SEVERITY_THRESHOLD,
@@ -310,12 +308,10 @@ def advance_engagement(
     blast_gate_requires_approval = False
     if not already and handoff.status == a2a_pb2.COMPLETE:
         blast_gate_requires_approval = _assess_blast_gate_for_dispatch(
-            engagement_id=engagement_id,
-            event_store=event_store,
+            graph_store=graph_store,
             next_role=next_role,
             next_permitted=next_permitted,
             policy=policy,
-            graph_rebuilder=graph_rebuilder,
         )
 
     decision = decide_advance(

@@ -111,3 +111,28 @@ def test_conductor_chain_calls_run_verification_pass():
         "run_verification_pass is not wired into the Conductor chain — autonomous "
         "findings cannot reach CROSS_VERIFIED (Lyndon #2, runner-seal != wired)."
     )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="WIRING-DEBT (§12.38): origin_discovery seam exists in scout.py as a "
+    "parameter but is injected None on the live Conductor path — discovered origins "
+    "never authorize origin-direct until a real OriginDiscovery instance is injected. "
+    "Remove this marker when wired.",
+)
+def test_origin_discovery_is_wired_with_real_instance():
+    """WIRING-DEBT (§12.38): origin_discovery is an island — the seam parameter
+    exists in scout.py but the Conductor path injects None. The text-scan wiring
+    gate cannot distinguish 'parameter exists' from 'wired with real instance'.
+    This W-test is the real teeth: it fails until the Conductor constructs and
+    injects a real OriginDiscovery instance. Do NOT delete to make green — wire it."""
+    import pathlib
+
+    conductor_src = "\n".join(
+        p.read_text(encoding="utf-8")
+        for p in pathlib.Path("agent_alpha/conductor").rglob("*.py")
+    )
+    assert "origin_discovery" in conductor_src and "OriginDiscovery(" in conductor_src, (
+        "origin_discovery is not wired into the Conductor path with a real instance — "
+        "the seam is injected None (island, Lyndon #2)."
+    )

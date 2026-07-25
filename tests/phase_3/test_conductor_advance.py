@@ -349,5 +349,34 @@ def test_advance_failed_at_recon_only_dispatches_omega() -> None:
     assert dispatcher.calls == [{"agent": a2a_pb2.OMEGA}]
 
 
+def test_graph_rebuilt_exactly_once() -> None:
+    """Regression: graph_rebuilder must be called EXACTLY once per advance_engagement
+    call — the rebuilt graph is reused for both route_next and the blast-gate (#7).
+    Previously _assess_blast_gate_for_dispatch rebuilt internally (double rebuild)."""
+    auth = FakeAuth(state=a2a_pb2.ACTIVE_APPROVED, permitted={a2a_pb2.BETA})
+    store = FakeStore([_handoff_event()])
+    dispatcher = SpyDispatcher()
+
+    rebuild_count = 0
+
+    def counting_rebuilder(es: Any, eid: str) -> Any:
+        nonlocal rebuild_count
+        rebuild_count += 1
+        return _graph_alpha_routes_beta()
+
+    advance_engagement(
+        engagement_id=ENG,
+        auth=auth,
+        event_store=store,
+        dispatcher=dispatcher,
+        policy=type("P", (), {"gate_before_agents": lambda self: frozenset()})(),
+        graph_rebuilder=counting_rebuilder,
+    )
+    assert rebuild_count == 1, (
+        f"graph_rebuilder called {rebuild_count} times — must be exactly 1 "
+        f"(single rebuild reused for routing + blast-gate, #7)"
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
