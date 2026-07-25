@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -105,9 +104,9 @@ class ClaudeProvider:
         completion_tokens = usage.get("output_tokens", 0)
 
         pricing = CLAUDE_PRICING_USD_PER_1K.get(self.model, {"input": 0.0, "output": 0.0})
-        cost = (prompt_tokens / 1000.0) * pricing["input"] + (
-            completion_tokens / 1000.0
-        ) * pricing["output"]
+        cost = (prompt_tokens / 1000.0) * pricing["input"] + (completion_tokens / 1000.0) * pricing[
+            "output"
+        ]
 
         return CompletionResult(
             text=text, usage_cost_usd=cost, model=self.model, reasoning=reasoning
