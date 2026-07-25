@@ -94,16 +94,8 @@ def test_wiring_debt_is_tracked_until_resolved(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="WIRING-DEBT (close in slice-1): run_verification_pass not yet wired into "
-    "the Conductor chain post-Beta. CROSS_VERIFIED unreachable on the autonomous path. "
-    "Remove this marker when wired.",
-)
 def test_conductor_chain_calls_run_verification_pass():
-    """WIRING-DEBT (close in slice-1): CROSS_VERIFIED must be reachable on the
-    autonomous Conductor path, not only the a1 runner. Fails until conductor/
-    calls run_verification_pass post-Beta. Do NOT delete to make green — wire it."""
+    """CROSS_VERIFIED is reachable on the autonomous Conductor path (slice-1c wired it)."""
     conductor_src = "\n".join(
         p.read_text(encoding="utf-8") for p in pathlib.Path("agent_alpha/conductor").rglob("*.py")
     )
@@ -129,8 +121,7 @@ def test_origin_discovery_is_wired_with_real_instance():
     import pathlib
 
     conductor_src = "\n".join(
-        p.read_text(encoding="utf-8")
-        for p in pathlib.Path("agent_alpha/conductor").rglob("*.py")
+        p.read_text(encoding="utf-8") for p in pathlib.Path("agent_alpha/conductor").rglob("*.py")
     )
     assert "origin_discovery" in conductor_src and "OriginDiscovery(" in conductor_src, (
         "origin_discovery is not wired into the Conductor path with a real instance — "

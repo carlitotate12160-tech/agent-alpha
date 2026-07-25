@@ -39,6 +39,7 @@ from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.conductor.revoker import CeleryTaskRevoker
 from agent_alpha.conductor.run_status import project_run_status
+from agent_alpha.conductor.verification import verify_access_nodes
 from agent_alpha.config.constants import (
     CELERY_QUEUE_PREFIX,
     CELERY_RESULT_EXPIRES_SEC,
@@ -400,6 +401,8 @@ def run_agent_task(
                     handoff_msg = beta.run_strike(engagement_id, record.target)
                     handoff_payload = a2a_pb2.HandoffPayload()
                     handoff_payload.ParseFromString(handoff_msg.payload)
+                    if handoff_payload.status == a2a_pb2.COMPLETE:
+                        verify_access_nodes(graph_store, target_store, engagement_id)
                     return ExecOutcome(
                         status=handoff_payload.status,
                         next_recommended=handoff_payload.next_recommended,
