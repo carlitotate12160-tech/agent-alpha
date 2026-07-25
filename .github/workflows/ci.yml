@@ -181,8 +181,10 @@ jobs:
           AGENT_ALPHA_REDIS_URL: "redis://localhost:6380/0"
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           # Postgres vault key — REQUIRED whenever AGENT_ALPHA_PG_DSN is set (matched pair).
-          # CI-only deterministic test key; NOT a real secret.
-          AGENT_ALPHA_VAULT_KEY: ${{ secrets.CI_TEST_VAULT_KEY || 'Y2ktb25seS10ZXN0LXZhdWx0LWtleS1kZXRlcm1pbmlzdGlj' }}
+          # CI-only deterministic test key; NOT a real secret. Generate a fresh one with the
+          # exact encoding load_vault_key() expects (confirm in security/postgres_secrets_vault.py):
+          #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+          AGENT_ALPHA_VAULT_KEY: ${{ secrets.CI_TEST_VAULT_KEY || 'Vi2xSr_g5TTE7eVy_6Y46-nOy0X080Sb8KXvuCRKLgA=' }}
         run: .venv/bin/pytest tests/ -q --cov=agent_alpha --cov-report=term-missing --cov-fail-under=80
 
       - name: CodeRabbit findings report (non-blocking)
