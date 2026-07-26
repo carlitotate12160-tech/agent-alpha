@@ -21,6 +21,8 @@ import pytest
 
 # Ensure all tests have a valid signing key to prevent loud-failure in autonomous chain tests
 os.environ.setdefault("PROFILE_SIGNING_KEY", "test_key_that_is_at_least_32_bytes_long_1234")
+# Ensure the server and tests agree on the JWT secret, preventing 401s on early-imported routes
+os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
 
 
 @pytest.fixture
