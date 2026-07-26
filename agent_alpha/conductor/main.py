@@ -37,7 +37,6 @@ from agent_alpha.conductor.authorization import (
     authorize_engagement,
 )
 from agent_alpha.conductor.domain_verification import DnspythonResolver, DomainOwnershipError
-from agent_alpha.recon.origin_discovery import StaticOriginDiscovery
 from agent_alpha.conductor.emergency import EmergencyStopHandler
 from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
@@ -74,6 +73,7 @@ from agent_alpha.events.trace import project_engagement_trace
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
+from agent_alpha.recon.origin_discovery import StaticOriginDiscovery
 from agent_alpha.security.secrets import (
     LogScrubber,
     SecretsManager,
