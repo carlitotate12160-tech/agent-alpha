@@ -75,6 +75,28 @@ NEXT ACTION (in order — start the new session here):
      it → prove Alpha→Beta→Omega finds+proves a WP cred-reuse chain on a REAL web app. Zero DNS-TXT friction.
   3. Escalate niagamas to ACTIVE only on a real leak + client consent.
 
+WP RECON GAP (BLOCKING for all WP targets — niagamas, site#2, wp lab e2e):
+  Agent-Alpha has only 1 WP-specific probe (wp_config_probe = backup file leak).
+  All other WP attack surfaces require MANUAL curl — not integrated, not generalizable.
+  Current RECON_TOOL_CATALOG: wp_config_probe, js_secret_probe, git_exposure_probe,
+    backup_file_probe, generic_http_probe. Missing WP tools:
+  1. wp_rest_api_probe   — /wp-json/wp/v2/users (user enum), /posts, /media, /plugins (plugin enum).
+     CRITICAL: user enum = input for cred-reuse chain (Beta). Works on ALL WP sites.
+  2. wp_version_probe    — readme.html, <meta generator>, wp-includes version → WP core CVE.
+  3. wp_plugin_enum      — REST API + HTML source + known-path bruteforce → plugin+version → CVE
+     mapping (ADR §12.37 PROPOSED, not built). 8-source CVE mapping per wpsecscan strategy.
+  4. wp_xmlrpc_probe     — POST system.listMethods → wp.getUsers (alt user enum when REST disabled).
+  5. woocommerce_probe   — /wc-api/v3/system_status, ?wc-ajax= → WC version + config exposure.
+  6. wp_author_enum      — /?author=1..N → redirect /author/{slug} → user slug harvest.
+  7. Evasion techniques  — case variation, URL encoding, path traversal, header injection. Currently
+     manual (30+ tested on niagamas, all blocked by Cloudways nginx). Need integration into probe
+     pipeline as retry-strategy when WAF block encountered (ADR §12.37 evasion table, DeepSeek lane).
+  Pattern: each = data-driven playbook YAML + probe module (same as wp_config_probe), add to
+    RECON_TOOL_CATALOG, auto-trigger when WordPress detected. NOT per-client — general for all WP.
+  Niagamas field-prove showed: /wp-json/wp/v2/users OPEN (user enum works), /wp-login.php OPEN,
+    /xmlrpc.php rate-limited, /readme.html OPEN (version disclosure). None of these are probed
+    by Agent-Alpha today. This is the gap between "recon done" and "recon complete".
+
 DEFERRED (tracked, NOT next — do not start these in the new session):
   - Conductor refactor D1/D2/D3 (main.py 724-LOC split, agent_factory→registry, Alpha→execute_agent
     reconcile) = PRE-GAMMA trigger, for ibudanbalita/cimbniaga. NOT a niagamas blocker. slice-1d is
