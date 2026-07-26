@@ -31,7 +31,7 @@ from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.security.secrets import get_profile_signing_key
 
 _DOMAIN = "test-ownership.example.com"
-_JWT_SECRET = os.environ.get("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
+_TEST_JWT_SECRET = "test-frontdoor-secret-32chars-min"
 
 
 class _StubDNSResolver:
@@ -49,7 +49,7 @@ def _make_jwt(tenant_id: str = "test-tenant") -> str:
 
     return jwt.encode(
         {"sub": "test-operator", "tenant_id": tenant_id},
-        _JWT_SECRET,
+        os.environ.get("AGENT_ALPHA_JWT_SECRET", _TEST_JWT_SECRET),
         algorithm="HS256",
     )
 
