@@ -5,8 +5,8 @@ No network calls. All responses are mocked.
 
 from __future__ import annotations
 
-import pytest
 import httpx
+import pytest
 
 from agent_alpha.llm.providers.claude import ClaudeProvider
 from agent_alpha.llm.providers.deepseek import CompletionTruncatedError

@@ -202,10 +202,10 @@ def render_report_html(report: Report) -> str:
             '  <div style="border-left:4px solid #d4a017; background:#fef9e7; '
             'padding:14px 18px; margin:18px 0 0; font-size:14px;">'
             '<strong style="color:#7d6608;">⚠ INCONCLUSIVE</strong> — '
-            'WAF/bot-protection blocked recon on the following host(s): '
+            "WAF/bot-protection blocked recon on the following host(s): "
             f'<span class="mono">{blocked_list}</span>. '
-            'Findings below may be incomplete. '
-            'Recommend authenticated retest.</div>'
+            "Findings below may be incomplete. "
+            "Recommend authenticated retest.</div>"
         )
 
     # 1. Executive Summary & Narrative
@@ -267,11 +267,11 @@ def render_report_html(report: Report) -> str:
                 '  <div style="border-left:4px solid #d4a017; background:#fef9e7; '
                 'padding:14px 18px; font-size:14px;">'
                 '<strong style="color:#7d6608;">INCONCLUSIVE</strong> — '
-                'WAF/bot-protection blocked recon on '
-                f'{len(report.blocked_hosts)} host(s) '
+                "WAF/bot-protection blocked recon on "
+                f"{len(report.blocked_hosts)} host(s) "
                 f'(<span class="mono">{blocked_list_findings}</span>). '
-                'No evidence could be collected for blocked targets. '
-                'Recommend authenticated retest.</div>'
+                "No evidence could be collected for blocked targets. "
+                "Recommend authenticated retest.</div>"
             )
         else:
             findings_html = '  <p class="no-data">No evidence collected.</p>'

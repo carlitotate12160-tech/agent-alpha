@@ -16,6 +16,8 @@ VERIFY: Oracle ARM64 only — `.venv312/bin/python3 -m pytest tests/phase_3/test
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from agent_alpha.a2a import a2a_pb2

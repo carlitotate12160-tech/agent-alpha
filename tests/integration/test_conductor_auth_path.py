@@ -13,7 +13,6 @@ a live DNS lookup. Celery eager runs the whole chain synchronously.
 from __future__ import annotations
 
 import os
-import secrets
 from typing import Any
 from unittest.mock import patch
 
@@ -22,8 +21,6 @@ from fastapi.testclient import TestClient
 
 from agent_alpha.conductor import main as m
 from agent_alpha.conductor import recon_runner
-from agent_alpha.conductor.authorization import AuthorizationStateMachine, ConsentRequiredError
-from agent_alpha.conductor.domain_verification import DomainOwnershipError
 from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     ProfileSignatureError,
@@ -32,7 +29,6 @@ from agent_alpha.conductor.engagement_profile import (
 )
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.security.secrets import get_profile_signing_key
-
 
 _DOMAIN = "test-ownership.example.com"
 _JWT_SECRET = os.environ.get("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
@@ -85,9 +81,7 @@ def auth_headers() -> dict[str, str]:
 
 def _create_engagement(client: TestClient, headers: dict[str, str]) -> str:
     """Create an engagement and return its id."""
-    resp = client.post(
-        "/engagements", json={"client_id": "c1", "target": _DOMAIN}, headers=headers
-    )
+    resp = client.post("/engagements", json={"client_id": "c1", "target": _DOMAIN}, headers=headers)
     assert resp.status_code == 200
     return resp.json()["engagement_id"]
 
@@ -129,9 +123,7 @@ def _authorize_with_stub(
         # directly via verify_domain_ownership. The challenge endpoint tells
         # the user _agentalpha.<domain>, but to pass the existing verify logic,
         # the stub must map the apex domain.
-        stub_resolver = _StubDNSResolver(
-            {domain: [f"agent-alpha={token}"]}
-        )
+        stub_resolver = _StubDNSResolver({domain: [f"agent-alpha={token}"]})
 
     body: dict[str, Any] = {
         "domains": [domain],
@@ -144,9 +136,7 @@ def _authorize_with_stub(
     if consent_items is not None:
         body["consent_items"] = consent_items
 
-    with patch(
-        "agent_alpha.conductor.main.DnspythonResolver", return_value=stub_resolver
-    ):
+    with patch("agent_alpha.conductor.main.DnspythonResolver", return_value=stub_resolver):
         return client.post(
             f"/engagements/{engagement_id}/authorize",
             json=body,
@@ -248,17 +238,13 @@ def test_authorize_refuses_offensive_without_consent(
 # ── Ownership verification failure ──────────────────────────────────────
 
 
-def test_authorize_wrong_txt_token(
-    client: TestClient, auth_headers: dict[str, str]
-) -> None:
+def test_authorize_wrong_txt_token(client: TestClient, auth_headers: dict[str, str]) -> None:
     """/authorize where stub TXT does NOT match → 400 (DomainOwnershipError)."""
     eid = _create_engagement(client, auth_headers)
     _challenge_domain(client, auth_headers, eid)
 
     # Stub returns a WRONG token
-    wrong_resolver = _StubDNSResolver(
-        {f"_agentalpha.{_DOMAIN}": ["agent-alpha=WRONG_TOKEN_xyz"]}
-    )
+    wrong_resolver = _StubDNSResolver({f"_agentalpha.{_DOMAIN}": ["agent-alpha=WRONG_TOKEN_xyz"]})
     resp = _authorize_with_stub(
         client,
         auth_headers,
@@ -364,7 +350,13 @@ def test_origin_discovery_still_none_on_conductor_path(
 
     monkeypatch.setattr(recon_runner, "build_recon_pipeline", _spy)
     monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda r: [f"https://{_DOMAIN}"])
-    monkeypatch.setattr(recon_runner, "build_passive_discovery", lambda *a, **kw: type("PD", (), {"discover": lambda s, e, h: type("R", (), {"enumerated": set()})()})())
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **kw: type(
+            "PD", (), {"discover": lambda s, e, h: type("R", (), {"enumerated": set()})()}
+        )(),
+    )
 
     m.run_engagement_task(eid, "test-tenant")
 

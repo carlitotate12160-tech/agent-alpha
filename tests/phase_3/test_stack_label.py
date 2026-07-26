@@ -4,16 +4,16 @@ from pathlib import Path
 from typing import Any
 
 from agent_alpha.a2a import a2a_pb2
-from agent_alpha.config import constants
 from agent_alpha.conductor.router import has_web_auth_surface, route_next
+from agent_alpha.config import constants
 from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
     AssetProperties,
     AttackNode,
     NodeType,
     merge_tech_stack,
 )
-from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.persist import persist_node
 from agent_alpha.tools.contracts import TargetContext
 from agent_alpha.tools.internal.access.default_creds import (

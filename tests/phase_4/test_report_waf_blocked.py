@@ -9,7 +9,7 @@ when the assessment was inconclusive due to WAF blocking.
 
 from __future__ import annotations
 
-from agent_alpha.agents.omega.roaster import Omega, Report
+from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore

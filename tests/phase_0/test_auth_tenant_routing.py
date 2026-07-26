@@ -84,7 +84,9 @@ def test_create_routes_lifecycle_events_to_tenant_store() -> None:
     assert m.event_store.count(eid) == 0  # legacy default store must be untouched
 
 
-@pytest.mark.skip(reason="Superseded by §12.36 auth convergence. The old free-form /recon API is a HARD CUT.")
+@pytest.mark.skip(
+    reason="Superseded by §12.36 auth convergence. The old free-form /recon API is a HARD CUT."
+)
 def test_recon_transition_also_lands_in_tenant_store() -> None:
     """A subsequent state transition (enable_recon) must stay in the same tenant
     store — proving the whole lifecycle is consistent, not just creation."""

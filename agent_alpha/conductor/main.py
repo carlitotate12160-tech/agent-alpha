@@ -178,7 +178,7 @@ def _ensure_session(
     retry_backoff=True,
     max_retries=CELERY_TASK_MAX_RETRIES,
 )  # type: ignore[untyped-decorator]
-def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) -> dict[str, Any]:
+def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) -> dict[str, Any]:  # noqa: C901
     """Run an engagement in a worker process, enforcing the auth gate.
 
     C1.6 design-now: the task is tenant-aware. The worker reconstructs the
@@ -292,17 +292,13 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             for evt in reversed(target_store.get_events(engagement_id)):
                 if evt.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED:
                     envelope = evt.payload
-                    engagement_profile = load_signed_profile_from_dict(
-                        envelope, key=signing_key
-                    )
+                    engagement_profile = load_signed_profile_from_dict(envelope, key=signing_key)
                     break
         except ProfileSignatureError as pse:
             _record_failure(f"profile_signature_mismatch: {pse}")
             return {"engagement_id": engagement_id, "status": "failed"}
         except Exception:  # noqa: BLE001 — profile load failure must not crash silently
-            _log.exception(
-                "Failed to load signed EngagementProfile for %s", engagement_id
-            )
+            _log.exception("Failed to load signed EngagementProfile for %s", engagement_id)
             # Profile is optional for backward compat with engagements created
             # before §12.36 convergence. New engagements always have one.
 

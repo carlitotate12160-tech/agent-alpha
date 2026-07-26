@@ -24,8 +24,8 @@ from agent_alpha.conductor.engagement_profile import (
     EngagementProfile,
     dump_signed_profile,
 )
-from agent_alpha.security.secrets import get_profile_signing_key
 from agent_alpha.live_fire.a1_validation_runner import A1Result
+from agent_alpha.security.secrets import get_profile_signing_key
 
 
 @pytest.fixture(autouse=True)
