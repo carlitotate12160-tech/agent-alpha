@@ -326,8 +326,12 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         try:
             events = target_store.get_events(engagement_id)
             profile_envelope = next(
-                (e for e in reversed(events) if e.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED),
-                None
+                (
+                    e
+                    for e in reversed(events)
+                    if e.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED
+                ),
+                None,
             )
             if not profile_envelope or not profile_envelope.payload:
                 raise ValueError("no signed profile event found")
