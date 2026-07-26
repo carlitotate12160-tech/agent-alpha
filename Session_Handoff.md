@@ -40,7 +40,7 @@ Landed (green on Oracle, ~1389 pass / 1 xfailed / make check clean):
 Open PR (#260): bundles 1a+1b+1c+1d + Claude provider + origin-scope ADR (over-bundled —
              split-discipline not applied). Review found band-aids to root-cause first.
 
-DONE — STACK_WP consolidation PR (this commit):
+DONE — STACK_WP consolidation PR (#262, merged):
   1. constants.STACK_WP = "wp" — ONE canonical WordPress label (Lyndon #7). All sites
      (router, wp_config_probe, applicator, planner, path_probe, default_creds) now source
      from constants.STACK_WP. No more "wordpress" literal in agent_alpha/.
