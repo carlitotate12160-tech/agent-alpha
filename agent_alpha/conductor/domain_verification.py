@@ -55,6 +55,25 @@ class _FailLoudResolver:
         )
 
 
+class DnspythonResolver:
+    """Production DNS-TXT resolver backed by dnspython.
+
+    Returns all TXT record values for a domain. On any DNS failure
+    (NXDOMAIN, timeout, SERVFAIL) returns an empty list — fail-closed
+    at the CALLER level (verify_domain_ownership returns False when no
+    matching TXT record is found).
+    """
+
+    def resolve_txt(self, domain: str) -> list[str]:
+        import dns.resolver
+
+        try:
+            answers = dns.resolver.resolve(domain, "TXT")
+            return [b"".join(r.strings).decode() for r in answers]
+        except Exception:  # noqa: BLE001 — any DNS error = no records
+            return []
+
+
 def _parse_expected_token(expected_token: str) -> str:
     """Parse a DNS-TXT ownership token string.
 

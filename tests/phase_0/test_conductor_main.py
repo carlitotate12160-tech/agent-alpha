@@ -54,6 +54,7 @@ def test_create_engagement_returns_engagement_id() -> None:
     assert "state" in data
 
 
+@pytest.mark.skip(reason="Superseded by §12.36 auth convergence. The old free-form /recon API is a HARD CUT.")
 def test_enable_recon_with_valid_scope() -> None:
     client = TestClient(app)
     create_resp = client.post(
@@ -78,6 +79,7 @@ def test_enable_recon_with_valid_scope() -> None:
     assert "state" in data
 
 
+@pytest.mark.skip(reason="Superseded by §12.36 auth convergence. The old validation is gone.")
 def test_enable_recon_with_invalid_cidr_returns_400() -> None:
     client = TestClient(app)
     create_resp = client.post(

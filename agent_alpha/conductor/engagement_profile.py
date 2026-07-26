@@ -123,6 +123,23 @@ _GUARDBRAIL_DOMAINS: frozenset[str] = frozenset(
         "ibm.com",
         "intel.com",
         "cisco.com",
+        # ── Indonesian financial institutions (niagamas engagement guardrail) ──
+        "cimbniaga.co.id",
+        "cimbniaga.com",
+        "bca.co.id",
+        "mandiri.co.id",
+        "bni.co.id",
+        "bri.co.id",
+        "panin.co.id",
+        "permatabank.co.id",
+        "danamon.co.id",
+        "bsi.co.id",
+        "bankbsi.co.id",
+        "maybank.co.id",
+        "ocbc.co.id",
+        "sinarmasbank.co.id",
+        "bankmuamalat.co.id",
+        "bukopin.co.id",
     }
 )
 
@@ -249,19 +266,19 @@ def dump_signed_profile(profile: EngagementProfile, *, key: bytes) -> dict[str, 
     return envelope
 
 
-def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
-    """Load and verify a signed EngagementProfile from *path*.
+def load_signed_profile_from_dict(data: dict[str, Any], *, key: bytes) -> EngagementProfile:
+    """Load and verify a signed EngagementProfile from a dict envelope.
 
-    Format: ``{"profile": {engagement_id, client_id, targets[],
-    authorized_origins[]}, "hmac": "<hex>"}``.
+    Format: ``{"profile": {engagement_id, client_id, ...}, "hmac": "<hex>"}``.
 
     Raises ``ProfileSignatureError`` when the recorded hmac does not match
-    the profile's ``canonical_json`` — indicating the file was tampered with
-    or corrupted after signing.
-    """
-    with open(path, encoding="utf-8") as f:
-        data = json.load(f)
+    the profile's ``canonical_json`` — indicating the envelope was tampered
+    with or corrupted after signing.
 
+    This is the canonical verification path. The file-based
+    ``load_signed_profile`` delegates to this function (ONE verifier,
+    anti-Lyndon #6).
+    """
     profile_data = data["profile"]
     consent_data = profile_data.get("consent", {})
     profile = EngagementProfile(
@@ -290,6 +307,20 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
         )
 
     return profile
+
+
+def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
+    """Load and verify a signed EngagementProfile from *path*.
+
+    Reads the JSON file and delegates to ``load_signed_profile_from_dict``
+    (ONE verification path, anti-Lyndon #6).
+
+    Raises ``ProfileSignatureError`` on tampered or corrupt envelopes.
+    """
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    return load_signed_profile_from_dict(data, key=key)
 
 
 # ── Origin-authorization gate (fail-closed) ───────────────────

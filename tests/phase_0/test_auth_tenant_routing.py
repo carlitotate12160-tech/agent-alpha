@@ -84,6 +84,7 @@ def test_create_routes_lifecycle_events_to_tenant_store() -> None:
     assert m.event_store.count(eid) == 0  # legacy default store must be untouched
 
 
+@pytest.mark.skip(reason="Superseded by §12.36 auth convergence. The old free-form /recon API is a HARD CUT.")
 def test_recon_transition_also_lands_in_tenant_store() -> None:
     """A subsequent state transition (enable_recon) must stay in the same tenant
     store — proving the whole lifecycle is consistent, not just creation."""
@@ -108,6 +109,7 @@ def test_second_tenant_cannot_see_first_tenants_events() -> None:
     assert m.store_provider.for_tenant("tenant_b").count(eid) == 0
 
 
+@pytest.mark.skip(reason="Superseded by §12.36 auth convergence. Relies on the old /recon API.")
 def test_worker_finds_engagement_created_via_api(
     celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:

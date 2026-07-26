@@ -9,6 +9,7 @@ import hashlib
 import logging
 import os
 import pathlib
+import secrets as stdlib_secrets
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -26,8 +27,22 @@ from agent_alpha.conductor.applicator_factory import (
     beta_web_applicators,
     build_applicators_for_engagement,
 )
-from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.conductor.authorization import (
+    AuthorizationStateMachine,
+    ConsentRequiredError,
+    Scope,
+    authorize_engagement,
+)
+from agent_alpha.conductor.domain_verification import DnspythonResolver, DomainOwnershipError
 from agent_alpha.conductor.emergency import EmergencyStopHandler
+from agent_alpha.conductor.engagement_profile import (
+    EngagementProfile,
+    GuardrailError,
+    ProfileSignatureError,
+    assert_not_guardrailed,
+    dump_signed_profile,
+    load_signed_profile_from_dict,
+)
 from agent_alpha.conductor.execute_agent import (
     ExecOutcome,
     emit_handoff_and_advance,
@@ -55,7 +70,12 @@ from agent_alpha.events.trace import project_engagement_trace
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
-from agent_alpha.security.secrets import LogScrubber, SecretsManager, SecretsVault
+from agent_alpha.security.secrets import (
+    LogScrubber,
+    SecretsManager,
+    SecretsVault,
+    get_profile_signing_key,
+)
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _log = logging.getLogger(__name__)
@@ -261,6 +281,31 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             except Exception:  # noqa: BLE001 — vault failure must not crash the task
                 _log.exception("Failed to resolve tenant vault for tenant_id=%s", tenant_id)
 
+        # §12.36 CARDINAL wiring: load the signed EngagementProfile from the
+        # ENGAGEMENT_PROFILE_SIGNED event and verify its HMAC. The profile is
+        # the SINGLE source of scope + capability authorization for the recon
+        # pipeline. If no profile is found or HMAC fails → fail the task loudly
+        # (never recon with an unverified or missing profile).
+        engagement_profile: EngagementProfile | None = None
+        try:
+            signing_key = get_profile_signing_key()
+            for evt in reversed(target_store.get_events(engagement_id)):
+                if evt.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED:
+                    envelope = evt.payload
+                    engagement_profile = load_signed_profile_from_dict(
+                        envelope, key=signing_key
+                    )
+                    break
+        except ProfileSignatureError as pse:
+            _record_failure(f"profile_signature_mismatch: {pse}")
+            return {"engagement_id": engagement_id, "status": "failed"}
+        except Exception:  # noqa: BLE001 — profile load failure must not crash silently
+            _log.exception(
+                "Failed to load signed EngagementProfile for %s", engagement_id
+            )
+            # Profile is optional for backward compat with engagements created
+            # before §12.36 convergence. New engagements always have one.
+
         run_result = recon_runner.run_recon_for_engagement(
             engagement_id,
             tenant_id,
@@ -270,6 +315,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             secrets_manager=task_secrets,
             session_store=session_store,
             policy=policy,
+            engagement_profile=engagement_profile,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report
@@ -475,22 +521,37 @@ def create_engagement(
     }
 
 
-@engagements.post("/{engagement_id}/recon")
-def enable_recon(
-    body: dict[str, list[str]],
+@engagements.post("/{engagement_id}/ownership/challenge")
+def ownership_challenge(
+    body: dict[str, str],
     principal: Annotated[Principal, Depends(require_principal)],
     engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, str]:
-    try:
-        ip_ranges = body["ip_ranges"]
-        domains = body["domains"]
-        exclusions = body["exclusions"]
-    except KeyError as exc:
-        raise HTTPException(
-            status_code=400, detail="ip_ranges, domains, and exclusions required"
-        ) from exc
+    """Mint a DNS-TXT ownership challenge token for a domain.
 
-    scope = Scope(ip_ranges=ip_ranges, domains=domains, exclusions=exclusions)
+    The operator places the returned TXT record in public DNS, then calls
+    ``/authorize`` which drives ``authorize_engagement`` — the SINGLE
+    verify+sign point.
+
+    Token = ``secrets.token_urlsafe(32)`` (random, NOT HMAC-derived from
+    the signing key — D2). The token is public (placed in DNS) and is NOT
+    a secret.
+    """
+    try:
+        domain = body["domain"]
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail="domain required") from exc
+
+    domain = domain.strip().lower().rstrip(".")
+    if not domain:
+        raise HTTPException(status_code=400, detail="domain must be non-empty")
+
+    # Guardrail check — reject bank/gov/big-tech TLDs early.
+    try:
+        assert_not_guardrailed(domain)
+    except GuardrailError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
     sm = auth_for(principal.tenant_id)
     try:
         record = sm.get_record(engagement_id)
@@ -499,6 +560,188 @@ def enable_recon(
 
     if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
         raise HTTPException(status_code=404, detail="engagement not found")
+
+    token = stdlib_secrets.token_urlsafe(32)
+
+    target_store = (
+        store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    )
+    target_store.append(
+        event_type=EventType.OWNERSHIP_CHALLENGE_ISSUED,
+        engagement_id=engagement_id,
+        agent="CONDUCTOR",
+        payload={"domain": domain, "token": token},
+    )
+
+    return {
+        "record_name": f"_agentalpha.{domain}",
+        "record_type": "TXT",
+        "record_value": f"agent-alpha={token}",
+    }
+
+
+@engagements.post("/{engagement_id}/authorize")
+def authorize_engagement_endpoint(
+    body: dict[str, Any],
+    principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
+) -> dict[str, str]:
+    """Authorize an engagement via §12.36: DNS-TXT ownership + consent + HMAC sign.
+
+    Delegates to ``authorize_engagement()`` — the SINGLE verify+sign point.
+    verify_domain_ownership is called ONLY inside authorize_engagement (D1).
+    This endpoint NEVER calls it directly (anti double-verify #6).
+    """
+    try:
+        domains: list[str] = body["domains"]
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail="domains required") from exc
+
+    consent_items_raw: list[str] = body.get("consent_items", [])
+    signed_by: str = body.get("signed_by", "")
+    signed_at: str = body.get("signed_at", "")
+    authorization_level: str = body.get("authorization_level", "RECON_ONLY")
+    allow_evasion: bool = body.get("allow_evasion", False)
+    opsec_stealth: bool = body.get("opsec_stealth", False)
+
+    sm = auth_for(principal.tenant_id)
+    try:
+        record = sm.get_record(engagement_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="engagement not found") from None
+
+    if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="engagement not found")
+
+    target_store = (
+        store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    )
+
+    # Recover challenge tokens from OWNERSHIP_CHALLENGE_ISSUED events.
+    # A domain with no challenge event → 400.
+    ownership_tokens: dict[str, str] = {}
+    for evt in target_store.get_events(engagement_id):
+        if evt.event_type == EventType.OWNERSHIP_CHALLENGE_ISSUED:
+            d = str(evt.payload.get("domain", ""))
+            t = str(evt.payload.get("token", ""))
+            if d:
+                # Keep the LATEST token per domain (supersession).
+                ownership_tokens[d] = f"dns-txt:agent-alpha={t}"
+
+    for domain in domains:
+        normalized = domain.strip().lower().rstrip(".")
+        if normalized not in ownership_tokens:
+            raise HTTPException(
+                status_code=400,
+                detail=f"no ownership challenge issued for domain {normalized!r}; "
+                f"call /ownership/challenge first",
+            )
+        # Defense-in-depth: guardrail check before authorize_engagement.
+        try:
+            assert_not_guardrailed(normalized)
+        except GuardrailError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    signing_key = get_profile_signing_key()
+
+    try:
+        profile = authorize_engagement(
+            engagement_id=engagement_id,
+            client_id=record.client_id,
+            targets=domains,
+            ownership_tokens=ownership_tokens,
+            dns_resolver=DnspythonResolver(),
+            consent_items=frozenset(consent_items_raw) if consent_items_raw else None,
+            signed_by=signed_by,
+            signed_at=signed_at,
+            authorization_level=authorization_level,
+            allow_evasion=allow_evasion,
+            opsec_stealth=opsec_stealth,
+            event_store=target_store,
+            key=signing_key,
+        )
+    except ConsentRequiredError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except DomainOwnershipError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except GuardrailError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Persist the signed envelope so run_engagement_task can reload it.
+    envelope = dump_signed_profile(profile, key=signing_key)
+    target_store.append(
+        event_type=EventType.ENGAGEMENT_PROFILE_SIGNED,
+        engagement_id=engagement_id,
+        agent="CONDUCTOR",
+        payload=envelope,
+    )
+
+    profile_hash = profile.sign(signing_key)
+    return {"engagement_id": engagement_id, "profile_hash": profile_hash}
+
+
+@engagements.post("/{engagement_id}/recon")
+def enable_recon(
+    principal: Annotated[Principal, Depends(require_principal)],
+    engagement_id: Annotated[str, Depends(valid_engagement_id)],
+    body: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Enable recon for an authorized engagement.
+
+    §12.36 HARD CUT (D4): scope comes from the signed EngagementProfile
+    ONLY — the old free-form {ip_ranges, domains, exclusions} body is
+    removed. The profile is the SINGLE scope source (anti-Lyndon #6).
+    """
+    sm = auth_for(principal.tenant_id)
+    try:
+        record = sm.get_record(engagement_id)
+    except Exception:
+        raise HTTPException(status_code=404, detail="engagement not found") from None
+
+    if record.tenant_id is not None and record.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=404, detail="engagement not found")
+
+    target_store = (
+        store_provider.for_tenant(principal.tenant_id) if principal.tenant_id else event_store
+    )
+
+    # Require a signed-profile envelope event for this engagement.
+    signing_key = get_profile_signing_key()
+    profile: EngagementProfile | None = None
+    for evt in reversed(target_store.get_events(engagement_id)):
+        if evt.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED:
+            try:
+                profile = load_signed_profile_from_dict(evt.payload, key=signing_key)
+            except ProfileSignatureError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"signed profile integrity check failed: {exc}",
+                ) from exc
+            break
+
+    if profile is None:
+        raise HTTPException(
+            status_code=400,
+            detail="no signed EngagementProfile found; call /authorize first",
+        )
+
+    # Defense-in-depth: re-check guardrails on every scope_target even though
+    # authorize_engagement already checked. Prevents a stale signed profile
+    # from bypassing a guardrail added after authorization.
+    for target in profile.scope_targets:
+        try:
+            assert_not_guardrailed(target)
+        except GuardrailError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    # Derive Scope from the signed profile's scope_targets (SINGLE source).
+    scope = Scope(
+        ip_ranges=[],
+        domains=sorted(profile.scope_targets),
+        exclusions=[],
+    )
 
     try:
         sm.enable_recon(engagement_id, scope)

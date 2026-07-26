@@ -194,6 +194,20 @@ def render_report_html(report: Report) -> str:
     HTML-escapes all field interpolations to prevent markup breakages/XSS.
     Matching agent_alpha_report_reference.html structure & styling.
     """
+    # INCONCLUSIVE banner — WAF-blocked hosts must never present as clean.
+    inconclusive_banner = ""
+    if report.blocked_hosts:
+        blocked_list = html.escape(", ".join(report.blocked_hosts))
+        inconclusive_banner = (
+            '  <div style="border-left:4px solid #d4a017; background:#fef9e7; '
+            'padding:14px 18px; margin:18px 0 0; font-size:14px;">'
+            '<strong style="color:#7d6608;">⚠ INCONCLUSIVE</strong> — '
+            'WAF/bot-protection blocked recon on the following host(s): '
+            f'<span class="mono">{blocked_list}</span>. '
+            'Findings below may be incomplete. '
+            'Recommend authenticated retest.</div>'
+        )
+
     # 1. Executive Summary & Narrative
     if report.narrative:
         narrative_p = f'<p class="lead">{html.escape(report.narrative)}</p>'
@@ -247,7 +261,20 @@ def render_report_html(report: Report) -> str:
             )
         findings_html = "\n".join(finding_blocks)
     else:
-        findings_html = '  <p class="no-data">No evidence collected.</p>'
+        if report.blocked_hosts:
+            blocked_list_findings = html.escape(", ".join(report.blocked_hosts))
+            findings_html = (
+                '  <div style="border-left:4px solid #d4a017; background:#fef9e7; '
+                'padding:14px 18px; font-size:14px;">'
+                '<strong style="color:#7d6608;">INCONCLUSIVE</strong> — '
+                'WAF/bot-protection blocked recon on '
+                f'{len(report.blocked_hosts)} host(s) '
+                f'(<span class="mono">{blocked_list_findings}</span>). '
+                'No evidence could be collected for blocked targets. '
+                'Recommend authenticated retest.</div>'
+            )
+        else:
+            findings_html = '  <p class="no-data">No evidence collected.</p>'
 
     # 4. Blast Radius
     if report.blast_radius:
@@ -403,6 +430,8 @@ def render_report_html(report: Report) -> str:
       <tr><td class="k">Prepared by</td><td>Agent-Alpha autonomous red-team platform</td></tr>
     </table>
   </div>
+
+{inconclusive_banner}
 
   <h2>1 &nbsp; Executive summary</h2>
 {narrative_p}
