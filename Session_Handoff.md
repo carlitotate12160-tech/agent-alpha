@@ -97,16 +97,22 @@ WP RECON GAP (BLOCKING for all WP targets — niagamas, site#2, wp lab e2e):
     /xmlrpc.php rate-limited, /readme.html OPEN (version disclosure). None of these are probed
     by Agent-Alpha today. This is the gap between "recon done" and "recon complete".
 
-  IMPACT ON GAMMA/DELTA/EPSILON: WP recon tools ACCELERATE Gamma, not delay it.
-  - Gamma is STOP-gated behind ToolComposer + blast-radius gate + ChainOracle (exploit-reachability
-    oracle). ChainOracle needs CVE data from plugin enum to verify exploitability. Without plugin
-    enum → no CVE → no ChainOracle input → Gamma stays blocked FOREVER on WP targets.
-  - Beta (cred-reuse) needs usernames from wp_rest_api_probe (user enum). Without user enum →
-    Beta has no input → no cred-reuse chain → no CROSS_VERIFIED finding → Gamma has nothing to act on.
-  - Delta/Epsilon (internal ops, pivoting) are POST-Gamma. They need a compromised host first.
-    WP recon → WP cred-reuse → host access → THEN Delta/Epsilon. More recon = faster path to Delta.
-  - Conclusion: WP recon tools are a PREREQUISITE for Gamma on WP targets, not a delay. Building
-    them NOW is the critical path. Skipping them = Gamma blocked indefinitely on all WP targets.
+  IMPACT ON GAMMA/DELTA/EPSILON — CORRECTED ANALYSIS:
+  WP recon tools improve Alpha→Beta (user enum → cred-reuse input). They do NOT unblock Gamma.
+  Gamma is STOP-gated behind THREE unbuilt components (Phase B):
+  - B1: ToolComposer (compose offensive tools + blast-radius gate) — NOT BUILT. blast-gate slice-1
+    done (#184) but completion not done. Claude lane = gate; DeepSeek lane = destructive bodies.
+  - B2: ChainOracle (exploit-reachability oracle, roadmap #5) — NOT BUILT. Verifies exploitability
+    for cross_verified status. Without this, no "proven exploitable" claim possible.
+  - B3: DeepSeek generate→verify→refine payload loop — NOT BUILT.
+  IntelligenceBase (GAP-003): Protocol exists (intelligence.py:113), RecordBackedIntelligenceBase
+    implemented but NOT WIRED to agent decision-making. Phase D (moat). Needs engagement volume
+    first — building decision-wiring with ~0 data = feature-before-foundation.
+  Delta/Epsilon: POST-Gamma. Need compromised host from Gamma first.
+  HONEST CONCLUSION: WP recon tools are needed for recon QUALITY (current revenue path = recon-only
+    SOW). But the path to Gamma runs through ToolComposer + ChainOracle, NOT more recon tools.
+    Build WP recon tools for the recon-only product. Build ToolComposer for Gamma. These are
+    PARALLEL tracks, not sequential.
 
   Odoo + Laravel gaps (TRACKED, DEFERRED — do not build now, focus on WP first):
   - Odoo: has 2 playbooks + odoo_dbmanager_probe + OdooAccessTool (XML-RPC). More complete than WP.
