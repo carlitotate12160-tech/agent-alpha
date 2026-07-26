@@ -6,10 +6,12 @@
 # Phase 2+). All Phase 0 components wired here as singletons.
 
 import hashlib
+import ipaddress
 import logging
 import os
 import pathlib
 import secrets as stdlib_secrets
+import socket
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -71,6 +73,7 @@ from agent_alpha.events.trace import project_engagement_trace
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
+from agent_alpha.recon.origin_discovery import StaticOriginDiscovery
 from agent_alpha.security.secrets import (
     LogScrubber,
     SecretsManager,
@@ -80,6 +83,30 @@ from agent_alpha.security.secrets import (
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _log = logging.getLogger(__name__)
+
+
+def _resolve_origin_ips(domains: list[str]) -> list[str]:
+    """Resolve DNS A records for domains → globally routable origin IPs.
+
+    Used to auto-populate authorized_origins so origin-direct reach can fire
+    without manual IP entry (Strix-like UX). Skips private/loopback IPs.
+    """
+    ips: list[str] = []
+    for domain in domains:
+        try:
+            info = socket.getaddrinfo(domain, None, socket.AF_INET)
+            for _family, _type, _proto, _canon, sockaddr in info:
+                ip = str(sockaddr[0])
+                try:
+                    parsed = ipaddress.ip_address(ip)
+                    if parsed.is_global:
+                        ips.append(ip)
+                except ValueError:
+                    continue
+        except socket.gaierror:
+            _log.warning("DNS resolution failed for %s — skipping origin discovery", domain)
+    return list(dict.fromkeys(ips))  # dedup, preserve order
+
 
 event_store = build_event_store()
 store_provider = StoreProvider()
@@ -346,6 +373,15 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             _log.exception("Failed to load signed EngagementProfile for %s", engagement_id)
             engagement_profile = None
 
+        # Build origin_discovery from authorized_origins in the signed profile.
+        # This wires origin-direct reach: when a probe hits WAF/CF, Alpha can
+        # bypass to the origin IP (authorized in the profile).
+        task_origin_discovery = None
+        if engagement_profile is not None:
+            profile_origins = getattr(engagement_profile, "authorized_origins", None)
+            if profile_origins:
+                task_origin_discovery = StaticOriginDiscovery(list(profile_origins))
+
         run_result = recon_runner.run_recon_for_engagement(
             engagement_id,
             tenant_id,
@@ -356,6 +392,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             session_store=session_store,
             policy=policy,
             engagement_profile=engagement_profile,
+            origin_discovery=task_origin_discovery,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report
@@ -669,6 +706,10 @@ def authorize_engagement_endpoint(
         except GuardrailError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
+    # Auto-resolve origin IPs for origin-direct reach (Strix-like UX).
+    origin_ips = _resolve_origin_ips(body.domains)
+    authorized_origins = frozenset(origin_ips) if origin_ips else None
+
     signing_key = get_profile_signing_key()
 
     try:
@@ -682,6 +723,7 @@ def authorize_engagement_endpoint(
                 "AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION", ""
             ).lower()
             in ("1", "true", "yes"),
+            authorized_origins=authorized_origins,
             consent_items=frozenset(body.consent_items) if body.consent_items else None,
             signed_by=body.signed_by,
             signed_at=body.signed_at,

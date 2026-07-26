@@ -106,19 +106,10 @@ def test_conductor_chain_calls_run_verification_pass():
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="WIRING-DEBT (§12.38): origin_discovery seam exists in scout.py as a "
-    "parameter but is injected None on the live Conductor path — discovered origins "
-    "never authorize origin-direct until a real OriginDiscovery instance is injected. "
-    "Remove this marker when wired.",
-)
 def test_origin_discovery_is_wired_with_real_instance():
-    """WIRING-DEBT (§12.38): origin_discovery is an island — the seam parameter
-    exists in scout.py but the Conductor path injects None. The text-scan wiring
-    gate cannot distinguish 'parameter exists' from 'wired with real instance'.
-    This W-test is the real teeth: it fails until the Conductor constructs and
-    injects a real OriginDiscovery instance. Do NOT delete to make green — wire it."""
+    """WIRING-DEBT (§12.38) RESOLVED: origin_discovery is now wired — the
+    Conductor task builds a StaticOriginDiscovery from the signed profile's
+    authorized_origins and injects it into run_recon_for_engagement()."""
     import pathlib
 
     conductor_src = "\n".join(
