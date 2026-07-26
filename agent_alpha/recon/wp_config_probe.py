@@ -168,7 +168,7 @@ def verify_wp_config_leak(
                 type=NodeType.ASSET,
                 properties=AssetProperties(
                     host=host,
-                    tech_stack=["wp"],
+                    tech_stack=[constants.STACK_WP],
                 ),
                 confidence=0.85,
                 agent="alpha",

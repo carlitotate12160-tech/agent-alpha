@@ -40,6 +40,7 @@ from agent_alpha.graph.nodes import (
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
+    merge_tech_stack,
 )
 from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.recon.response_classifier import Verdict, classify_response
@@ -107,7 +108,7 @@ PATH_PROBE_CATALOG: tuple[PathProbeSpec, ...] = (
         vuln_suffix="backup_file_leak",
         tech_stack=("web",),
         leak_source="backup_file",
-        applies_to_stacks=frozenset({"laravel", "wordpress", "wp", "php", "web"}),
+        applies_to_stacks=frozenset({"laravel", constants.STACK_WP, "php", "web"}),
     ),
     PathProbeSpec(
         name="actuator",
@@ -223,15 +224,13 @@ def process_path_hit(
     persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
 
     # Merge tech_stack with existing asset to prevent clobbering a richer
-    # fingerprint (e.g. wp_config_probe sets ['wp'], backup_file_probe would
-    # overwrite with ['web'] — router needs 'wp' for ALPHA→BETA routing).
+    # fingerprint (e.g. wp_config_probe sets [constants.STACK_WP], backup_file_probe would
+    # overwrite with ['web'] — router needs the WP label for ALPHA→BETA routing).
     existing_asset = graph_store.get_node(f"asset:{host}")
     if existing_asset is not None and hasattr(existing_asset.properties, "tech_stack"):
-        merged_stack = list(
-            dict.fromkeys([*existing_asset.properties.tech_stack, *spec.tech_stack])
-        )
+        merged_stack = merge_tech_stack(existing_asset.properties.tech_stack, list(spec.tech_stack))
     else:
-        merged_stack = list(spec.tech_stack)
+        merged_stack = merge_tech_stack(None, list(spec.tech_stack))
 
     asset_node = AttackNode(
         id=f"asset:{host}",

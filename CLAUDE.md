@@ -166,10 +166,10 @@ holds durable doctrine only.
 
 Quick pointer (2026-07-26): Phase 4 — the AUTONOMOUS Conductor kill-chain spine is CLOSED for
 WordPress cred-reuse (Alpha→Beta→Omega drives itself to a CROSS_VERIFIED payable report, not
-via wp_chain_runner). Gamma STOP-gated. Immediate next = merge the STACK_WP consolidation PR
-(canonical label + single tech_stack merge), then the pre-Gamma conductor refactor (D1/D2/D3)
-with slice-1d as the safety net. Full detail + parked ADRs (origin-scope §12.38, Alpha→Gamma)
-+ the 5 real engagements: see Session_Handoff.md.
+via wp_chain_runner). Gamma STOP-gated. STACK_WP consolidation LANDED (canonical label +
+single merge_tech_stack helper + guard test). Immediate next = the pre-Gamma conductor
+refactor (D1/D2/D3) with slice-1d as the safety net. Full detail + parked ADRs (origin-scope
+§12.38, Alpha→Gamma) + the 5 real engagements: see Session_Handoff.md.
 
 Gap ledger of record: docs/BUGS_AND_GAPS.md. Durable doctrine: this file + the
 agent-alpha-architect skill (role, Lyndon patterns, naming convention, Devin model roster,

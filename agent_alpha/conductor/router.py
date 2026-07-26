@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.config import constants
 from agent_alpha.graph.nodes import NodeType, RelationshipType
 
 # Semantic auth-surface label set — authentication ENTRY POINTS a Beta
@@ -41,7 +42,7 @@ from agent_alpha.graph.nodes import NodeType, RelationshipType
 # ALPHA→BETA vs ALPHA→OMEGA routing distinction.
 _AUTH_SURFACE_LABELS: frozenset[str] = frozenset(
     {
-        "wp",
+        constants.STACK_WP,
         "odoo",
         "login-form",
         "http_basic_auth",

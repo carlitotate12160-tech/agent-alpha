@@ -2111,7 +2111,7 @@ Condition #2 requires a `cross_verified` stamp. Ground truth on main (HEAD 6da55
 
 | Verifier | Verifies | Status |
 |----------|----------|--------|
-| `CredReuseOracle` (oracle/verifier.py) | ACCESS_LEVEL nodes reached via credential reuse | **EXISTS but ISLAND** — only called in `a1_validation_runner.py`, not in conductor. Roadmap 1c wires `run_verification_pass → execute_agent`. Tracked as xfail in test_wiring_gate (our slice-1c). |
+| `CredReuseOracle` (oracle/verifier.py) | ACCESS_LEVEL nodes reached via credential reuse | **CLOSED by slice-1c** — `run_verification_pass` wired into `conductor/verification.verify_access_nodes` post-Beta on the autonomous path. test_wiring_gate xfail REMOVED. |
 | exploit-reachability oracle (for unauth SQLi/RCE/DB-manager) | that an unauth exploit primitive is real, not a fingerprint | **DOES NOT EXIST.** CredReuseOracle cannot do this (wrong finding type). |
 | `ChainOracle` | chain cross_verified iff EVERY edge cross_verified | **NOT BUILT** — roadmap #5 ("finishes the verification moat"). Deferred, NOT island. |
 
@@ -2134,8 +2134,9 @@ Lyndon #3, false success at the oracle level). "Proven" in a payable report = cr
 
 #### Tracked debt (enforce, do not rely on memory)
 
-- `run_verification_pass` island → wire into execute_agent post-Beta (slice-1c). Already an
-  xfail in `tests/governance/test_wiring_gate.py`; remove the marker when wired.
+- ~~`run_verification_pass` island → wire into execute_agent post-Beta (slice-1c).~~
+  **CLOSED by slice-1c** — wired into `conductor/verification.verify_access_nodes`; xfail
+  removed from `tests/governance/test_wiring_gate.py`.
 - exploit-reachability oracle + ChainOracle → NOT in the wiring-gate (not built = not an
   island). Tracked here + roadmap #5 as the prerequisite for the ALPHA→GAMMA routing branch.
 - ALPHA→GAMMA router branch → built in the Gamma phase (roadmap #8) ONLY after: sellable
