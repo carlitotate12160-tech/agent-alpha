@@ -678,6 +678,10 @@ def authorize_engagement_endpoint(
             targets=body.domains,
             ownership_tokens=ownership_tokens,
             dns_resolver=DnspythonResolver(),
+            skip_domain_verification=os.environ.get(
+                "AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION", ""
+            ).lower()
+            in ("1", "true", "yes"),
             consent_items=frozenset(body.consent_items) if body.consent_items else None,
             signed_by=body.signed_by,
             signed_at=body.signed_at,
