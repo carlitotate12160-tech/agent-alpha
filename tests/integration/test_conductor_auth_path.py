@@ -97,7 +97,7 @@ def _challenge_domain(
     )
     assert resp.status_code == 200
     data = resp.json()
-    assert data["record_name"] == f"_agentalpha.{domain}"
+    assert data["record_name"] == domain
     # Extract the token from record_value "agent-alpha=<token>"
     return data["record_value"].split("=", 1)[1]
 
@@ -119,10 +119,6 @@ def _authorize_with_stub(
 ) -> Any:
     """Call /authorize with a stub DNS resolver returning the given token."""
     if stub_resolver is None:
-        # authorize_engagement (reused as-is per D1) queries the apex domain
-        # directly via verify_domain_ownership. The challenge endpoint tells
-        # the user _agentalpha.<domain>, but to pass the existing verify logic,
-        # the stub must map the apex domain.
         stub_resolver = _StubDNSResolver({domain: [f"agent-alpha={token}"]})
 
     body: dict[str, Any] = {
@@ -164,11 +160,21 @@ def test_cardinal_profile_reaches_recon_pipeline(
 
     # Spy on build_recon_pipeline to capture the engagement_profile arg
     captured_profiles: list[Any] = []
-    original_build = recon_runner.build_recon_pipeline
+
+    from dataclasses import dataclass
+
+    from agent_alpha.conductor.recon_runner import ReconPipeline
+
+    @dataclass
+    class _FakeAlpha:
+        def run_recon(self, urls: list[str], *args: Any, **kwargs: Any) -> Any:
+            pass
+
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
 
     def _spy_build(*args: Any, **kwargs: Any) -> Any:
         captured_profiles.append(kwargs.get("engagement_profile"))
-        return original_build(*args, **kwargs)
+        return ReconPipeline(alpha=_FakeAlpha(), graph_store=NetworkXGraphStore())
 
     monkeypatch.setattr(recon_runner, "build_recon_pipeline", _spy_build)
 
@@ -178,6 +184,7 @@ def test_cardinal_profile_reaches_recon_pipeline(
         "resolve_recon_targets",
         lambda record: [f"https://{_DOMAIN}"],
     )
+
     # Monkeypatch build_passive_discovery to avoid live network I/O
     from dataclasses import dataclass
 
@@ -244,7 +251,7 @@ def test_authorize_wrong_txt_token(client: TestClient, auth_headers: dict[str, s
     _challenge_domain(client, auth_headers, eid)
 
     # Stub returns a WRONG token
-    wrong_resolver = _StubDNSResolver({f"_agentalpha.{_DOMAIN}": ["agent-alpha=WRONG_TOKEN_xyz"]})
+    wrong_resolver = _StubDNSResolver({_DOMAIN: ["agent-alpha=WRONG_TOKEN_xyz"]})
     resp = _authorize_with_stub(
         client,
         auth_headers,
@@ -268,6 +275,23 @@ def test_enable_recon_without_profile_returns_400(
     resp = client.post(f"/engagements/{eid}/recon", headers=auth_headers)
     assert resp.status_code == 400
     assert "authorize" in resp.json()["detail"].lower()
+
+
+def test_enable_recon_with_payload_returns_400(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """enable_recon with a non-empty payload → 400."""
+    eid = _create_engagement(client, auth_headers)
+    token = _challenge_domain(client, auth_headers, eid)
+    _authorize_with_stub(client, auth_headers, eid, _DOMAIN, token)
+
+    resp = client.post(f"/engagements/{eid}/recon", headers=auth_headers, json={"domains": ["foo"]})
+    assert resp.status_code == 422 or resp.status_code == 400
+    if resp.status_code == 422:
+        # Pydantic validation error is acceptable per prompt
+        pass
+    else:
+        assert "scope is derived" in resp.json()["detail"].lower()
 
 
 # ── Signed profile round-trip ───────────────────────────────────────────

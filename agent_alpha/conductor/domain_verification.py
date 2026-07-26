@@ -68,7 +68,7 @@ class DnspythonResolver:
         import dns.resolver
 
         try:
-            answers = dns.resolver.resolve(domain, "TXT")
+            answers = dns.resolver.resolve(domain, "TXT", lifetime=5.0)
             return [b"".join(r.strings).decode() for r in answers]
         except Exception:  # noqa: BLE001 — any DNS error = no records
             return []

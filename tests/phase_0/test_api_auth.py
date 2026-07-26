@@ -132,7 +132,6 @@ def test_cross_tenant_mutation_returns_404() -> None:
     # Tenant B tries to drive recon on A's engagement -> 404.
     r = client.post(
         f"/engagements/{eng}/recon",
-        json={"ip_ranges": ["10.0.0.0/24"], "domains": [], "exclusions": []},
         headers=_auth(tenant_b),
     )
     assert r.status_code == 404

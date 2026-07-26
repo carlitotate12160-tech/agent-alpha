@@ -35,6 +35,7 @@ def setup_env():
     )
     yield
 
+
 def _ok_result() -> A1Result:
     return A1Result(
         valid_run=True,

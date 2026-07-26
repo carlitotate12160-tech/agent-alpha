@@ -14,6 +14,7 @@ from agent_alpha.llm.providers.deepseek import CompletionTruncatedError
 
 def test_claude_complete_hermetic() -> None:
     """ClaudeProvider.complete() via MockTransport — no network."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -42,6 +43,7 @@ def test_claude_complete_hermetic() -> None:
 
 def test_claude_complete_captures_reasoning() -> None:
     """Claude thinking blocks are captured as reasoning."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -68,6 +70,7 @@ def test_claude_complete_captures_reasoning() -> None:
 def test_claude_max_tokens_raises_truncated() -> None:
     """stop_reason=max_tokens raises CompletionTruncatedError even if partial
     text exists (Fix #8: check max_tokens BEFORE empty text)."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -91,6 +94,7 @@ def test_claude_max_tokens_raises_truncated() -> None:
 
 def test_claude_empty_text_raises() -> None:
     """Empty completion with non-max_tokens stop_reason raises RuntimeError."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
@@ -117,6 +121,7 @@ def test_claude_system_prompt_separated() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         import json
+
         captured_payload.update(json.loads(request.content))
         return httpx.Response(
             200,

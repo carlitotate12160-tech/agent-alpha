@@ -55,11 +55,16 @@ def test_waf_blocked_html_has_inconclusive_banner() -> None:
     omega = Omega(graph_store)
     report = omega.generate_report(
         style="technical",
-        blocked_hosts=("waf-blocked.example.com",),
+        blocked_hosts=("<script>waf</script>.example.com",),
     )
     html = report.to_html()
-    assert "INCONCLUSIVE" in html
-    assert "waf-blocked.example.com" in html
+    assert html.count("⚠ INCONCLUSIVE") == 1
+    assert html.index("⚠ INCONCLUSIVE") < html.index("<h2>1 &nbsp; Executive summary</h2>")
+
+    # Assert blocked host names are HTML-escaped
+    assert "&lt;script&gt;waf&lt;/script&gt;.example.com" in html
+    assert "<script>" not in html
+
     # The banner div must be present
     assert "WAF/bot-protection blocked recon" in html
 
@@ -78,7 +83,7 @@ def test_waf_blocked_html_no_clean_finding() -> None:
         "WAF-blocked report must NOT present as 'No evidence collected.' — "
         "the INCONCLUSIVE banner must replace it (#4 honesty, anti-#3)."
     )
-    assert "INCONCLUSIVE" in html
+    assert "⚠ INCONCLUSIVE" in html
 
 
 def test_waf_blocked_through_conductor_reporting() -> None:
@@ -94,7 +99,8 @@ def test_waf_blocked_through_conductor_reporting() -> None:
     assert host in report.blocked_hosts
     assert "INCONCLUSIVE" in report.narrative
     html = report.to_html()
-    assert "INCONCLUSIVE" in html
+    assert html.count("⚠ INCONCLUSIVE") == 1
+    assert html.index("⚠ INCONCLUSIVE") < html.index("<h2>1 &nbsp; Executive summary</h2>")
     assert "No evidence collected." not in html
 
 

@@ -70,7 +70,9 @@ class _WpAutonomousFake:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def get(self, url: str, *, headers: Any = None, cookies: Any = None, timeout: float = 10.0) -> _R:
+    def get(
+        self, url: str, *, headers: Any = None, cookies: Any = None, timeout: float = 10.0
+    ) -> _R:
         self.calls.append(url)
         if "wp-config.php.bak" in url:
             return _R(200, WP_CONFIG_BODY, {}, url)

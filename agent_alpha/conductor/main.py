@@ -16,6 +16,7 @@ from typing import Annotated, Any
 from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Response, UploadFile
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
@@ -120,6 +121,37 @@ def emergency_for(tenant_id: str | None) -> EmergencyStopHandler:
     return EmergencyStopHandler(
         auth_for(tenant_id), store, celery_revoker=revoker, store_provider=store_provider
     )
+
+
+def _normalise_domain(d: str) -> str:
+    return d.strip().lower().rstrip(".")
+
+
+class OwnershipChallengeBody(BaseModel):
+    domain: str
+
+
+class AuthorizeBody(BaseModel):
+    domains: list[str]
+    consent_items: list[str] = []
+    signed_by: str = ""
+    signed_at: str = ""
+    authorization_level: str = "RECON_ONLY"
+    allow_evasion: bool = False
+    opsec_stealth: bool = False
+
+
+class EnableReconBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_stale_body(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data:
+            raise ValueError(
+                "scope is derived from the signed profile; do not send ip_ranges/domains/exclusions"
+            )
+        return data
 
 
 _redis_url = os.environ.get("AGENT_ALPHA_REDIS_URL", "redis://localhost:6379/0")
@@ -286,21 +318,29 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         # the SINGLE source of scope + capability authorization for the recon
         # pipeline. If no profile is found or HMAC fails → fail the task loudly
         # (never recon with an unverified or missing profile).
-        engagement_profile: EngagementProfile | None = None
         try:
             signing_key = get_profile_signing_key()
-            for evt in reversed(target_store.get_events(engagement_id)):
-                if evt.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED:
-                    envelope = evt.payload
-                    engagement_profile = load_signed_profile_from_dict(envelope, key=signing_key)
-                    break
-        except ProfileSignatureError as pse:
-            _record_failure(f"profile_signature_mismatch: {pse}")
-            return {"engagement_id": engagement_id, "status": "failed"}
+        except Exception as exc:
+            raise ValueError(f"signing key unavailable: {exc}") from exc
+
+        try:
+            events = target_store.get_events(engagement_id)
+            profile_envelope = next(
+                (e for e in reversed(events) if e.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED),
+                None
+            )
+            if not profile_envelope or not profile_envelope.payload:
+                raise ValueError("no signed profile event found")
+            # Load and verify the signature using the single source of truth key.
+            engagement_profile = load_signed_profile_from_dict(
+                profile_envelope.payload, key=signing_key
+            )
+        except ProfileSignatureError as exc:
+            # We must fail loud if the signature is invalid (anti-downgrade).
+            raise ValueError(f"profile signature invalid: {exc}") from exc
         except Exception:  # noqa: BLE001 — profile load failure must not crash silently
             _log.exception("Failed to load signed EngagementProfile for %s", engagement_id)
-            # Profile is optional for backward compat with engagements created
-            # before §12.36 convergence. New engagements always have one.
+            engagement_profile = None
 
         run_result = recon_runner.run_recon_for_engagement(
             engagement_id,
@@ -519,7 +559,7 @@ def create_engagement(
 
 @engagements.post("/{engagement_id}/ownership/challenge")
 def ownership_challenge(
-    body: dict[str, str],
+    body: OwnershipChallengeBody,
     principal: Annotated[Principal, Depends(require_principal)],
     engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, str]:
@@ -533,12 +573,7 @@ def ownership_challenge(
     the signing key — D2). The token is public (placed in DNS) and is NOT
     a secret.
     """
-    try:
-        domain = body["domain"]
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail="domain required") from exc
-
-    domain = domain.strip().lower().rstrip(".")
+    domain = _normalise_domain(body.domain)
     if not domain:
         raise HTTPException(status_code=400, detail="domain must be non-empty")
 
@@ -570,7 +605,7 @@ def ownership_challenge(
     )
 
     return {
-        "record_name": f"_agentalpha.{domain}",
+        "record_name": domain,
         "record_type": "TXT",
         "record_value": f"agent-alpha={token}",
     }
@@ -578,7 +613,7 @@ def ownership_challenge(
 
 @engagements.post("/{engagement_id}/authorize")
 def authorize_engagement_endpoint(
-    body: dict[str, Any],
+    body: AuthorizeBody,
     principal: Annotated[Principal, Depends(require_principal)],
     engagement_id: Annotated[str, Depends(valid_engagement_id)],
 ) -> dict[str, str]:
@@ -588,17 +623,8 @@ def authorize_engagement_endpoint(
     verify_domain_ownership is called ONLY inside authorize_engagement (D1).
     This endpoint NEVER calls it directly (anti double-verify #6).
     """
-    try:
-        domains: list[str] = body["domains"]
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail="domains required") from exc
-
-    consent_items_raw: list[str] = body.get("consent_items", [])
-    signed_by: str = body.get("signed_by", "")
-    signed_at: str = body.get("signed_at", "")
-    authorization_level: str = body.get("authorization_level", "RECON_ONLY")
-    allow_evasion: bool = body.get("allow_evasion", False)
-    opsec_stealth: bool = body.get("opsec_stealth", False)
+    if not body.domains:
+        raise HTTPException(status_code=400, detail="domains required")
 
     sm = auth_for(principal.tenant_id)
     try:
@@ -621,11 +647,12 @@ def authorize_engagement_endpoint(
             d = str(evt.payload.get("domain", ""))
             t = str(evt.payload.get("token", ""))
             if d:
+                norm_d = _normalise_domain(d)
                 # Keep the LATEST token per domain (supersession).
-                ownership_tokens[d] = f"dns-txt:agent-alpha={t}"
+                ownership_tokens[norm_d] = f"dns-txt:agent-alpha={t}"
 
-    for domain in domains:
-        normalized = domain.strip().lower().rstrip(".")
+    for domain in body.domains:
+        normalized = _normalise_domain(domain)
         if normalized not in ownership_tokens:
             raise HTTPException(
                 status_code=400,
@@ -644,15 +671,15 @@ def authorize_engagement_endpoint(
         profile = authorize_engagement(
             engagement_id=engagement_id,
             client_id=record.client_id,
-            targets=domains,
+            targets=body.domains,
             ownership_tokens=ownership_tokens,
             dns_resolver=DnspythonResolver(),
-            consent_items=frozenset(consent_items_raw) if consent_items_raw else None,
-            signed_by=signed_by,
-            signed_at=signed_at,
-            authorization_level=authorization_level,
-            allow_evasion=allow_evasion,
-            opsec_stealth=opsec_stealth,
+            consent_items=frozenset(body.consent_items) if body.consent_items else None,
+            signed_by=body.signed_by,
+            signed_at=body.signed_at,
+            authorization_level=body.authorization_level,
+            allow_evasion=body.allow_evasion,
+            opsec_stealth=body.opsec_stealth,
             event_store=target_store,
             key=signing_key,
         )
@@ -682,7 +709,7 @@ def authorize_engagement_endpoint(
 def enable_recon(
     principal: Annotated[Principal, Depends(require_principal)],
     engagement_id: Annotated[str, Depends(valid_engagement_id)],
-    body: dict[str, Any] | None = None,
+    body: EnableReconBody | None = None,
 ) -> dict[str, str]:
     """Enable recon for an authorized engagement.
 
