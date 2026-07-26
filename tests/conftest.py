@@ -19,6 +19,9 @@ import os
 
 import pytest
 
+# Ensure all tests have a valid signing key to prevent loud-failure in autonomous chain tests
+os.environ.setdefault("PROFILE_SIGNING_KEY", "test_key_that_is_at_least_32_bytes_long_1234")
+
 
 @pytest.fixture
 def celery_eager_config(monkeypatch: pytest.MonkeyPatch) -> None:

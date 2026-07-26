@@ -34,6 +34,7 @@ from agent_alpha.config import constants
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-for-eager-dispatch")
 
+
 @pytest.fixture(autouse=True)
 def _stub_recon_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     """C6a wired the real Alpha→Omega pipeline (needs DEEPSEEK_API_KEY + network) into

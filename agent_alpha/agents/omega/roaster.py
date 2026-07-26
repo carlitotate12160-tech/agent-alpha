@@ -214,7 +214,10 @@ class Omega:
         narrative = to_narrative(self.graph_store, style)  # type: ignore[arg-type]
 
         if blocked_hosts:
-            blocked_line = "WAF/CF blocked (not assessed): " + ", ".join(blocked_hosts)
+            blocked_line = (
+                "INCONCLUSIVE — WAF/bot-protection blocked recon; "
+                "recommend authenticated retest: " + ", ".join(blocked_hosts)
+            )
             narrative = narrative + "\n" + blocked_line
 
         # Collect unique, non-empty technique IDs from all edges.

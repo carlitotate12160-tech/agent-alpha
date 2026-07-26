@@ -41,6 +41,7 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "AuthorizationStateMachine": ("conductor/recon_runner.py",),  # auth gate on the live path
     "PolicyEnforcer": ("conductor/advance.py",),  # OPSEC/blast-radius gate (GAP-005)
     "calculate_blast_radius": ("conductor/blast_gate.py",),  # Blast-radius evaluation (GAP-006)
+    "engagement_profile": ("conductor/main.py",),  # §12.36: signed profile reaches Conductor
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a

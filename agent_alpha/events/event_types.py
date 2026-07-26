@@ -87,10 +87,23 @@ class EventType(enum.StrEnum):
     # vulnerable" (anti-false-negative). Carries {host, path, status_code}.
 
     # ── Phase 6 (governance — §12.36 signed authorization gate) ───
+    OWNERSHIP_CHALLENGE_ISSUED = "OwnershipChallengeIssued"
+    # ^ Conductor minted a DNS-TXT challenge token for a domain. The operator
+    # places the TXT record before calling /authorize. Token is random
+    # (secrets.token_urlsafe), NOT derived from the signing key.
+    # Carries {domain, token}.
+
     ENGAGEMENT_AUTHORIZED = "EngagementAuthorized"
     # ^ authorize_engagement(): a signed EngagementProfile was constructed after
     # DNS-TXT ownership verification, consent acceptance, and guardrail check.
     # Carries {sha256, consent, verified_targets, authorization_level, capabilities}.
+
+    ENGAGEMENT_PROFILE_SIGNED = "EngagementProfileSigned"
+    # ^ The full signed envelope (profile dict + hmac) persisted so that
+    # run_engagement_task can reload the EngagementProfile from the event
+    # stream without touching the filesystem. Carries the output of
+    # dump_signed_profile(). Distinct from ENGAGEMENT_AUTHORIZED which
+    # carries only audit metadata.
 
     # ── Phase 2.5 (origin-direct reach — §12.33) ──────────────────
     ORIGIN_DIRECT_ATTEMPT = "OriginDirectAttempt"

@@ -59,9 +59,7 @@ def test_relative_imports_resolve_correctly():
                 continue
             mod_name = node.module or ""
             # Reproduce the resolution logic
-            base_pkg = ".".join(
-                pkg_parts[: -node.level + 1] if node.level > 1 else pkg_parts
-            )
+            base_pkg = ".".join(pkg_parts[: -node.level + 1] if node.level > 1 else pkg_parts)
             resolved = f"{base_pkg}.{mod_name}" if mod_name else base_pkg
             # The resolved module must start with agent_alpha (never escape the package)
             assert resolved.startswith("agent_alpha"), (
