@@ -32,6 +32,7 @@ jobs:
     runs-on: [self-hosted, linux, ARM64]
     permissions:
       contents: read
+      security-events: write  # upload bandit SARIF to Security tab
 
     services:
       postgres:
@@ -91,7 +92,49 @@ jobs:
         # Fail on ALL severity findings except B101/B110/B112 (suppressed via .bandit
         # config — legitimate patterns in offensive tooling: assert in guards,
         # try/except/pass in cleanup, try/except/continue in brute-force loops).
-        run: .venv/bin/bandit -r agent_alpha/ -l -ii -c .bandit
+        # Output JSON then convert to SARIF (bandit has no native sarif format).
+        run: |
+          .venv/bin/bandit -r agent_alpha/ -l -ii -c .bandit -f json -o bandit-results.json || BANDIT_FAIL=$?
+          python3 - <<'PYEOF'
+          import json
+          with open("bandit-results.json") as f:
+              data = json.load(f)
+          sev_map = {"HIGH": "error", "MEDIUM": "warning", "LOW": "note"}
+          results = []
+          for r in data.get("results", []):
+              results.append({
+                  "ruleId": r.get("test_id", "bandit-unknown"),
+                  "level": sev_map.get(r.get("issue_severity", "LOW"), "note"),
+                  "message": {"text": r.get("issue_text", "Bandit finding")},
+                  "locations": [{
+                      "physicalLocation": {
+                          "artifactLocation": {"uri": r.get("filename", "unknown")},
+                          "region": {"startLine": r.get("line_number", 1)}
+                      }
+                  }]
+              })
+          sarif = {
+              "version": "2.1.0",
+              "runs": [{
+                  "tool": {"driver": {"name": "Bandit", "version": "1.7"}},
+                  "results": results
+              }]
+          }
+          with open("bandit-results.sarif", "w") as f:
+              json.dump(sarif, f)
+          print(f"Converted {len(results)} Bandit findings to SARIF")
+          PYEOF
+          if [ -n "$BANDIT_FAIL" ]; then
+            echo "::error::Bandit found security issues (exit code $BANDIT_FAIL)"
+            exit 1
+          fi
+
+      - name: Upload Bandit SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit-sast
 
       - name: Dependency audit (pip-audit — CVE check on installed packages)
         run: .venv/bin/pip-audit --skip-editable
