@@ -1,5 +1,8 @@
 # agent_alpha/conductor/execute_agent.py
-"""Shared agent-execution helper — ONE path for all agent tasks (Alpha/Beta/Omega).
+"""Shared agent-execution helper — the ONE path for OFFENSIVE agent tasks (Beta/Gamma/
+Omega via run_agent_task). NOTE: Alpha currently runs its recon pipeline through
+run_engagement_task (recon_runner), NOT this helper — that asymmetry is tracked debt
+(BUGS_AND_GAPS D3) to reconcile in the pre-Gamma conductor refactor.
 
 Collapses PR #69 issues #2/#3/#7/#8/#9/#10: the six identical structural defects
 in ``run_agent_task`` (missing tenant ownership, missing auth re-check, empty graph,

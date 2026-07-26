@@ -9,7 +9,7 @@
 #   T3  credential_assembly LEADS_TO edges carry technique_id="T1552.001" (both
 #       paired login and standalone credential).
 #   T4  wp_config_leak persists an asset:{host} node (NodeType.ASSET,
-#       AssetProperties(host, tech_stack=["wordpress"])).
+#       AssetProperties(host, tech_stack=["wp"])).
 #   T5  js_secret_probe persists an asset:{host} node (NodeType.ASSET,
 #       AssetProperties(host, tech_stack=["javascript"])).
 #   T6  wp and js asset nodes have EXPLOITS edge to the vuln node.
@@ -211,7 +211,7 @@ def test_wp_config_leak_asset_node(wp_graph_ctx: dict[str, Any]) -> None:
     asset = next(a for a in assets if a.id == f"asset:{_HOST}")
     assert isinstance(asset.properties, AssetProperties)
     assert asset.properties.host == _HOST
-    assert "wordpress" in asset.properties.tech_stack
+    assert "wp" in asset.properties.tech_stack
 
 
 # ── T5: js_secret_probe persists an asset node ─────────────────────────────

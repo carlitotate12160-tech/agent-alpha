@@ -5,6 +5,11 @@ from enum import StrEnum
 from typing import Any
 
 
+def merge_tech_stack(existing: list[str] | None, incoming: list[str]) -> list[str]:
+    """Order-preserving union — the ONE place asset tech_stack is combined."""
+    return list(dict.fromkeys([*(existing or []), *incoming]))
+
+
 class NodeType(StrEnum):
     ASSET = "asset"
     VULNERABILITY = "vulnerability"
