@@ -33,8 +33,8 @@ from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
-from agent_alpha.config import constants
 from agent_alpha.conductor.authorization import STATE_RANK
+from agent_alpha.config import constants
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
 from agent_alpha.tools.internal.access.applicator import (
     CredentialApplicator,
