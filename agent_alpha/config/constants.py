@@ -6,6 +6,7 @@ __all__ = [
     "LLM_REASONING_PROVIDER",
     "LLM_REASONING_CONSENSUS",
     "LLM_PAYLOAD_PROVIDER",
+    "STACK_WP",
     "LLM_PAYLOAD_FALLBACK",
     "LLM_PAYLOAD_TRANSPORT",
     "LLM_PAYLOAD_NEVER",
@@ -239,6 +240,9 @@ LARAVEL_CREDENTIAL_LOGIN_PAIRS: dict[str, tuple[str, str]] = {
 }
 
 # ── WordPress Credential Keys (SSOT — mirrors Laravel pattern for WP) ────
+# Canonical WordPress tech_stack label (anti-#7).
+STACK_WP: str = "wp"
+
 # WordPress wp-config.php uses define() constants, not .env. Key names differ:
 # DB_USER (not DB_USERNAME), DB_PASSWORD (same). Salts (AUTH_KEY, NONCE_SALT,
 # etc.) are NOT reusable credentials — excluded from all sets.

@@ -33,6 +33,7 @@ from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.config import constants
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
 from agent_alpha.tools.internal.access.applicator import (
@@ -199,7 +200,7 @@ def _resolve_in_scope_targets(
                 continue
             # Only this host's WP asset — never append a login path for a sibling host
             # (shared-hosting / co-tenant safety, mirrors the offensive-web-target gate).
-            if "wp" in props.tech_stack and props.host == web_host:
+            if constants.STACK_WP in props.tech_stack and props.host == web_host:
                 http_targets.append(f"{base}/wp-login.php")
 
         return list(dict.fromkeys(http_targets))

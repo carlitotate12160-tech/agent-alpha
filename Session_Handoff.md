@@ -3,8 +3,9 @@
 # Agent-Alpha — Session Handoff (2026-07-26)
 
 Resume with: "lanjut Agent-Alpha — Conductor autonomous kill-chain is WIRED (routing = f(graph),
-verification autonomous, e2e proven). NEXT = merge the STACK_WP consolidation PR, then the
-pre-Gamma conductor refactor (D1/D2/D3) with slice-1d as the safety net."
+verification autonomous, e2e proven). STACK_WP consolidation LANDED (canonical label + single
+merge_tech_stack helper + guard test, 5/5 green). NEXT = the pre-Gamma conductor refactor
+(D1/D2/D3) with slice-1d as the safety net."
 
 ## Current Project Status
 
@@ -39,20 +40,18 @@ Landed (green on Oracle, ~1389 pass / 1 xfailed / make check clean):
 Open PR (#260): bundles 1a+1b+1c+1d + Claude provider + origin-scope ADR (over-bundled —
              split-discipline not applied). Review found band-aids to root-cause first.
 
-Next Action (BLOCKING before merging #260 clean) — STACK_WP consolidation PR:
-  1. constants.STACK_WP = "wp" — ONE canonical WordPress label (Lyndon #7). Today "wp"
-     (router/wp_config_probe/applicator/planner) vs "wordpress" (default_creds/path_probe).
-     The #260 flip of wp_config_probe→"wp" SILENTLY mismatches default_creds (keys "wordpress"
-     via substring) — benign only because WP creds ⊆ generic (false-success #3). Route ALL
-     sites (incl default_creds) through STACK_WP.
-  2. graph/nodes.merge_tech_stack — ONE merge site (Lyndon #6). Asset writes clobber by
-     default; scout.py:910 + path_probe.py:230 each merge inline. Collapse to one helper.
-  3. Rename tests/integration/test_autonomous_wp_chain_e2e.py → test_conductor_chain.py
-     (slop name) + 2 CodeRabbit fixes (monkeypatch.setitem for _stores; fake login checks
-     log AND pwd).
-  Prompt ready: outputs/windsurf_stackwp_consolidation.md.
+DONE — STACK_WP consolidation PR (this commit):
+  1. constants.STACK_WP = "wp" — ONE canonical WordPress label (Lyndon #7). All sites
+     (router, wp_config_probe, applicator, planner, path_probe, default_creds) now source
+     from constants.STACK_WP. No more "wordpress" literal in agent_alpha/.
+  2. graph/nodes.merge_tech_stack — ONE merge site (Lyndon #6). scout.py:910 + path_probe.py
+     both route through the helper. No inline dict.fromkeys copies remain.
+  3. tests/integration/test_autonomous_wp_chain_e2e.py → test_conductor_chain.py (renamed)
+     + 2 CodeRabbit fixes (monkeypatch.setitem for _stores; fake login checks log AND pwd).
+  4. tests/phase_3/test_stack_label.py — 4 guard tests (routing, default-creds, merge
+     anti-clobber, single-source literal guard). 5/5 green.
 
-Then (deferred, tracked): pre-Gamma conductor refactor (BUGS_AND_GAPS D1/D2/D3) —
+Next Action (BLOCKING before Gamma) — pre-Gamma conductor refactor (BUGS_AND_GAPS D1/D2/D3):
   D1 split main.py (724 LOC, 4 concerns), D2 extract agent_factory closure → role-keyed
   builder (trigger: Gamma), D3 reconcile Alpha (run_engagement_task) onto execute_agent
   (the "ONE path" docstring overclaim — D3-a fixes the doc now). slice-1d is the safety net.

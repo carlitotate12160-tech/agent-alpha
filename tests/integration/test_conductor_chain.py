@@ -99,7 +99,8 @@ class _WpAutonomousFake:
     ) -> _R:
         self.calls.append(url)
         if "wp-login" in url:
-            if (data or {}).get("pwd", "") == LEAKED_PASS:  # WpLoginApplicator posts log/pwd
+            d = data or {}
+            if d.get("log") == LEAKED_USER and d.get("pwd") == LEAKED_PASS:
                 return _R(
                     200,
                     DASHBOARD,
@@ -123,7 +124,7 @@ def _project(event_store: Any, engagement_id: str) -> NetworkXGraphStore:
     return rebuild_graph_from_events(event_store, engagement_id)
 
 
-def test_autonomous_conductor_chain_produces_cross_verified_wp_finding(
+def test_wp_cred_reuse_chain_is_cross_verified_autonomously(
     celery_eager_config: None,
     monkeypatch: Any,
 ) -> None:
@@ -137,7 +138,7 @@ def test_autonomous_conductor_chain_produces_cross_verified_wp_finding(
     rec = auth.create_engagement("wp_client", root, tenant_id="tenant_wp")
     auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[host], exclusions=[]))
     auth.enable_active(rec.engagement_id)  # Beta gate = ACTIVE_APPROVED
-    m.store_provider._stores["tenant_wp"] = store  # route the worker's tenant store
+    monkeypatch.setitem(m.store_provider._stores, "tenant_wp", store)
 
     # 2) Alpha leg — real Alpha over the WP fake (build_recon_pipeline seam, like the async test).
     graph = NetworkXGraphStore()

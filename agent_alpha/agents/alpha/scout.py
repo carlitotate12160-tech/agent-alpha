@@ -37,6 +37,7 @@ from agent_alpha.graph.nodes import (
     ProofArtifact,
     RelationshipType,
     VulnerabilityProperties,
+    merge_tech_stack,
 )
 from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
@@ -907,9 +908,9 @@ class Alpha:
         # from clobbering each other.
         existing = self.graph_store.get_node(asset_id)
         if existing is not None and hasattr(existing.properties, "tech_stack"):
-            merged = list(dict.fromkeys([*existing.properties.tech_stack, spec.label]))
+            merged = merge_tech_stack(existing.properties.tech_stack, [spec.label])
         else:
-            merged = [spec.label]
+            merged = merge_tech_stack(None, [spec.label])
 
         asset_node = AttackNode(
             id=asset_id,
