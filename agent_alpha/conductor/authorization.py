@@ -509,6 +509,7 @@ def authorize_engagement(
     signed_at: str = "",
     ownership_tokens: dict[str, str] | None = None,
     dns_resolver: DNSResolver | None = None,
+    skip_domain_verification: bool = False,
     event_store: EventStore | None = None,
     key: bytes,
 ) -> EngagementProfile:
@@ -583,17 +584,21 @@ def authorize_engagement(
         normalised_targets.append(target)
 
     # Step 2 — DNS-TXT ownership verification for every target.
+    # Skipped when skip_domain_verification=True (lab/field-prove mode).
     verified_targets: list[str] = []
-    for target in normalised_targets:
-        token = ownership_tokens.get(target)
-        if token is None:
-            raise ValueError(f"authorize_engagement: no ownership token provided for {target!r}")
-        if not verify_domain_ownership(target, token, dns_resolver=dns_resolver):
-            raise DomainOwnershipError(
-                f"authorize_engagement: DNS-TXT ownership not proven for {target!r} "
-                f"(expected token: {token!r}). Target NOT added to scope."
-            )
-        verified_targets.append(target)
+    if skip_domain_verification:
+        verified_targets = list(normalised_targets)
+    else:
+        for target in normalised_targets:
+            token = ownership_tokens.get(target)
+            if token is None:
+                raise ValueError(f"authorize_engagement: no ownership token provided for {target!r}")
+            if not verify_domain_ownership(target, token, dns_resolver=dns_resolver):
+                raise DomainOwnershipError(
+                    f"authorize_engagement: DNS-TXT ownership not proven for {target!r} "
+                    f"(expected token: {token!r}). Target NOT added to scope."
+                )
+            verified_targets.append(target)
 
     # Step 3 — construct EngagementProfile.
     consent = ConsentRecord(
