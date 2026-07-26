@@ -32,6 +32,7 @@ jobs:
     runs-on: [self-hosted, linux, ARM64]
     permissions:
       contents: read
+      security-events: write  # upload bandit SARIF to Security tab
 
     services:
       postgres:
@@ -91,7 +92,20 @@ jobs:
         # Fail on ALL severity findings except B101/B110/B112 (suppressed via .bandit
         # config — legitimate patterns in offensive tooling: assert in guards,
         # try/except/pass in cleanup, try/except/continue in brute-force loops).
-        run: .venv/bin/bandit -r agent_alpha/ -l -ii -c .bandit
+        # Output SARIF for Security tab + console for CI log (blocking).
+        run: |
+          .venv/bin/bandit -r agent_alpha/ -l -ii -c .bandit -f sarif -o bandit-results.sarif || BANDIT_FAIL=$?
+          if [ -n "$BANDIT_FAIL" ]; then
+            echo "::error::Bandit found security issues (exit code $BANDIT_FAIL)"
+            exit 1
+          fi
+
+      - name: Upload Bandit SARIF to Security tab
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: bandit-results.sarif
+          category: bandit-sast
 
       - name: Dependency audit (pip-audit — CVE check on installed packages)
         run: .venv/bin/pip-audit --skip-editable
