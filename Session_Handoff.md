@@ -97,6 +97,25 @@ WP RECON GAP (BLOCKING for all WP targets — niagamas, site#2, wp lab e2e):
     /xmlrpc.php rate-limited, /readme.html OPEN (version disclosure). None of these are probed
     by Agent-Alpha today. This is the gap between "recon done" and "recon complete".
 
+  IMPACT ON GAMMA/DELTA/EPSILON: WP recon tools ACCELERATE Gamma, not delay it.
+  - Gamma is STOP-gated behind ToolComposer + blast-radius gate + ChainOracle (exploit-reachability
+    oracle). ChainOracle needs CVE data from plugin enum to verify exploitability. Without plugin
+    enum → no CVE → no ChainOracle input → Gamma stays blocked FOREVER on WP targets.
+  - Beta (cred-reuse) needs usernames from wp_rest_api_probe (user enum). Without user enum →
+    Beta has no input → no cred-reuse chain → no CROSS_VERIFIED finding → Gamma has nothing to act on.
+  - Delta/Epsilon (internal ops, pivoting) are POST-Gamma. They need a compromised host first.
+    WP recon → WP cred-reuse → host access → THEN Delta/Epsilon. More recon = faster path to Delta.
+  - Conclusion: WP recon tools are a PREREQUISITE for Gamma on WP targets, not a delay. Building
+    them NOW is the critical path. Skipping them = Gamma blocked indefinitely on all WP targets.
+
+  Odoo + Laravel gaps (TRACKED, DEFERRED — do not build now, focus on WP first):
+  - Odoo: has 2 playbooks + odoo_dbmanager_probe + OdooAccessTool (XML-RPC). More complete than WP.
+    Missing: odoo_module_enum (installed modules → CVE), odoo_version_probe. Lower priority — Odoo
+    targets are not in the current engagement pipeline.
+  - Laravel: has 1 playbook + laravel_debug_probe (Whoops/Ignition). Missing: laravel_env_leak_probe
+    (.env file), laravel_log_exposure, laravel_telemetry_probe. Needed for ibudanbalita.com (Laravel+
+    Magento+CloudFront) but that target also needs reach wiring + CDN bypass — DEFER until WP arc done.
+
 DEFERRED (tracked, NOT next — do not start these in the new session):
   - Conductor refactor D1/D2/D3 (main.py 724-LOC split, agent_factory→registry, Alpha→execute_agent
     reconcile) = PRE-GAMMA trigger, for ibudanbalita/cimbniaga. NOT a niagamas blocker. slice-1d is
