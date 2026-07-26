@@ -96,7 +96,7 @@ def _resolve_origin_ips(domains: list[str]) -> list[str]:
         try:
             info = socket.getaddrinfo(domain, None, socket.AF_INET)
             for _family, _type, _proto, _canon, sockaddr in info:
-                ip = sockaddr[0]
+                ip = str(sockaddr[0])
                 try:
                     parsed = ipaddress.ip_address(ip)
                     if parsed.is_global:
