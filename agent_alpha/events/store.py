@@ -236,6 +236,7 @@ class PostgresEventStore:
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_xact_lock(77001)")
             cur.execute(
                 f"""
                 CREATE TABLE IF NOT EXISTS {self._table} (
