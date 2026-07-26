@@ -193,7 +193,7 @@ class RedisSessionStore:
     def __init__(self, redis_url: str, tenant_id: str) -> None:
         import redis  # lazy: unit suite never imports the driver
 
-        self._redis: typing.Any = redis.Redis.from_url(redis_url, decode_responses=True)
+        self._redis: typing.Any = redis.Redis.from_url(redis_url, decode_responses=True, protocol=2)
         self._tenant_id = tenant_id
 
     def _key(self, engagement_id: str) -> str:

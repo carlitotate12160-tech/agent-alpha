@@ -51,8 +51,8 @@ class RedisSubscriber:
 
 
 def build_monologue_publisher(url: str = _REDIS_URL) -> RedisPublisher:
-    return RedisPublisher(redis.Redis.from_url(url))
+    return RedisPublisher(redis.Redis.from_url(url, protocol=2))
 
 
 def build_monologue_subscriber(url: str = _REDIS_URL) -> RedisSubscriber:
-    return RedisSubscriber(redis.Redis.from_url(url))
+    return RedisSubscriber(redis.Redis.from_url(url, protocol=2))

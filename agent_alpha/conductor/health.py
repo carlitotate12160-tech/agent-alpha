@@ -114,6 +114,7 @@ class RedisCeleryProbe:
             redis_url,
             socket_timeout=timeout_s,
             socket_connect_timeout=timeout_s,
+            protocol=2,
         )
         return cls(redis_client=client, celery_app=celery_app, queue_prefix=queue_prefix)
 
