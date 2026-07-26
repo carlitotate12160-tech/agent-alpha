@@ -38,6 +38,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from agent_alpha.config import constants
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
 
 
@@ -52,7 +53,7 @@ def _cookie_name_only(set_cookie: str) -> str:
 
 # Signals that an authenticated surface worth a default-cred check exists.
 _AUTH_PORTS = frozenset({21, 22, 3306, 3389, 5432, 5900})
-_AUTH_TECH_HINTS = ("wordpress", "joomla", "phpmyadmin", "tomcat", "jenkins", "grafana")
+_AUTH_TECH_HINTS = (constants.STACK_WP, "joomla", "phpmyadmin", "tomcat", "jenkins", "grafana")
 
 # ── Data-driven default credential dictionary (data, not logic) ────────────
 # Keyed by platform; "generic" always included. Per-platform entries selected
@@ -68,7 +69,7 @@ _DEFAULT_CREDENTIALS: dict[str, list[tuple[str, str]]] = {
         ("user", "user"),
         ("guest", "guest"),
     ],
-    "wordpress": [
+    constants.STACK_WP: [
         ("admin", "admin"),
         ("admin", "password"),
     ],

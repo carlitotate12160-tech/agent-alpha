@@ -175,7 +175,7 @@ class Planner:
                         "db",
                         "odoo",
                         "laravel",
-                        "wp",
+                        constants.STACK_WP,
                         "tomcat",
                         "basic_auth",
                         "openapi",
