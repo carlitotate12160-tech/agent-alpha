@@ -35,8 +35,8 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 20 | Identical body dedup — same CDN page analyzed N times | Medium | Low | LLM token waste | **DONE** (PR #188) |
 | 16 | Runner script `Report.chains` AttributeError | Low | Low | Local runner scripts |
 | 21 | LLM-tier tool re-selection (exclude_tools not passed to LLM) | High | Medium | LLM token waste, tool starvation |
-| 22 | Beta FAILED → chain halts (noop), Omega never dispatched | High | Low | Report never generated on failed access |
-| 23 | Beta next_recommended always GAMMA even on FAILED | Medium | Low | Advance logic receives GAMMA but status=FAILED → noop |
+| 22 | Beta FAILED → chain halts (noop), Omega never dispatched | **RESOLVED** | Low | Report never generated on failed access |
+| 23 | Beta next_recommended always GAMMA even on FAILED | **RESOLVED** | Low | Advance logic receives GAMMA but status=FAILED → noop |
 | 24 | response_classifier `challenge-platform` false positive on CF-proxied sites | High | Low | All CF-proxied sites misclassified as CHALLENGE | **FIXED** |
 
 ## Recommended Fix Order
@@ -136,10 +136,13 @@ After the Bug #2/#6 rule-tier fix: rule tier correctly skips `odoo_dbmanager_pro
 
 ## Bug #22: Beta FAILED → Chain Halts, Omega Never Dispatched
 
-- **Status**: OPEN
+- **Status**: RESOLVED
 - **Priority**: High
 - **Effort**: Low
 - **Blocks**: Report never generated when Beta fails to gain access
+- **Resolved in**: `agent_alpha/conductor/router.py:132-134` + `agent_alpha/conductor/advance.py:138-141`
+- **Verified by**: `tests/phase_4/test_router.py:test_alpha_failed_routes_omega`, `tests/phase_3/test_conductor_advance.py:test_bug22_failed_with_omega_dispatches`, `tests/phase_3/test_conductor_advance.py:test_bug22_blocked_with_omega_dispatches`
+- **Field-proven**: Both quantum-laboratories.com and bernofarm.com engagements dispatched OMEGA after Alpha handoff (eng_8906b966 seq=99, eng_7b20a815 seq=113). Reports generated successfully.
 
 ### Root Cause
 
@@ -186,10 +189,12 @@ E2E test against `quantum-laboratories.com` (residential IP, Odoo e-commerce):
 
 ## Bug #23: Beta next_recommended Always GAMMA Regardless of Status
 
-- **Status**: OPEN
+- **Status**: RESOLVED
 - **Priority**: Medium
 - **Effort**: Low
 - **Blocks**: Advance logic receives GAMMA but status=FAILED → noop
+- **Resolved in**: `agent_alpha/conductor/router.py:132-134` — `route_next` now returns `a2a_pb2.OMEGA` for `FAILED`/`BLOCKED` statuses regardless of Beta's recommendation
+- **Verified by**: `tests/phase_4/test_router.py:test_alpha_failed_routes_omega`
 
 ### Root Cause
 
