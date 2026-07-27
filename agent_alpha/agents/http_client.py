@@ -165,7 +165,7 @@ class HttpClient:
             with httpx.Client(
                 timeout=self.timeout,
                 transport=self._transport,
-                verify=effective_verify,
+                verify=effective_verify,  # nosec — intentional for lab origin-direct (ADR §12.33)
                 follow_redirects=allow_redirects,
             ) as client:
                 response = client.request(
