@@ -17,6 +17,7 @@ class NodeType(StrEnum):
     SERVICE = "service"
     DATA = "data"
     ACCESS_LEVEL = "access_level"
+    USER = "user"
 
 
 class VerificationTier(StrEnum):
@@ -55,6 +56,14 @@ class AssetProperties:
     cf_protected: bool = False
     tech_stack: list[str] = field(default_factory=list)
     open_ports: list[int] = field(default_factory=list)
+    # REST route surface (WordPress /wp-json/ index). DETECT-only inventory:
+    # capped at constants.WP_REST_ROUTES_CAP; when the real surface is larger,
+    # rest_routes holds the first CAP entries, rest_routes_truncated is True, and
+    # rest_routes_total_count records the full count. A route surface is reach,
+    # NOT a payable finding (anti-#3).
+    rest_routes: list[str] = field(default_factory=list)
+    rest_routes_total_count: int = 0
+    rest_routes_truncated: bool = False
 
 
 @dataclass
@@ -99,6 +108,18 @@ class AccessLevelProperties:
 
 
 @dataclass
+class UserProperties:
+    """An enumerated username (e.g. a WordPress REST user slug).
+
+    DETECT-derived identity, NOT a credential: it carries no secret. It is the
+    cred-reuse INPUT — a username to pair with harvested secrets downstream.
+    """
+
+    username: str
+    source: str = ""
+
+
+@dataclass
 class AttackNode:
     id: str
     type: NodeType
@@ -109,6 +130,7 @@ class AttackNode:
         | ServiceProperties
         | DataProperties
         | AccessLevelProperties
+        | UserProperties
     )
     confidence: float
     proof_artifacts: list[ProofArtifact] = field(default_factory=list)
@@ -151,6 +173,7 @@ _PROPERTY_TYPE_MAP: dict[NodeType, type] = {
     NodeType.SERVICE: ServiceProperties,
     NodeType.DATA: DataProperties,
     NodeType.ACCESS_LEVEL: AccessLevelProperties,
+    NodeType.USER: UserProperties,
 }
 
 

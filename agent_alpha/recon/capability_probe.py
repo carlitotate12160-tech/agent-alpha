@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from agent_alpha.config import constants
+
 
 @dataclass(frozen=True)
 class CapabilitySpec:
@@ -62,6 +64,27 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
         tool="odoo_fingerprint",
         label="odoo",
         frontier_seeds=("/web/database/manager",),
+    ),
+    # WordPress recon-depth battery (STACK_WP). Each is keyed on the stack
+    # fingerprint via its own playbook; the label is the single WP tech_stack
+    # SSOT (constants.STACK_WP). Route-surface escalation is filtered by
+    # constants.WP_REST_INTERESTING_ROUTES inside the handler, so no static
+    # frontier_seeds here (the seeds are data-derived from the live index).
+    CapabilitySpec(
+        tool="wp_rest_routes",
+        label=constants.STACK_WP,
+    ),
+    CapabilitySpec(
+        tool="wp_rest_users",
+        label=constants.STACK_WP,
+    ),
+    CapabilitySpec(
+        tool="woocommerce",
+        label=constants.STACK_WP,
+    ),
+    CapabilitySpec(
+        tool="wp_version",
+        label=constants.STACK_WP,
     ),
 )
 

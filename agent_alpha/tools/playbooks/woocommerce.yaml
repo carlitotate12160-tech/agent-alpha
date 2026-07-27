@@ -1,0 +1,18 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# WooCommerce REST surface (/wp-json/wc/v3). Fires on the wc/v3 sub-index
+# signature (singular "namespace": "wc/v3"), disjoint from the root index's
+# plural "namespaces" array. The handler confirms the wc/v3 body shape before
+# minting a finding; a /wp-json/ index with no wc/* route is InsufficientData
+# (not an error, not a finding).
+name: woocommerce_exposed
+version: 1
+phase: recon
+priority: 60
+match:
+  any_indicator:
+    - body_regex: '"namespace"\s*:\s*"wc/v3"'
+action:
+  tool: woocommerce
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
+  rationale: "WooCommerce wc/v3 REST surface confirmed; record exposure for order/PII/config review."

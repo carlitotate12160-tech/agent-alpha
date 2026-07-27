@@ -1,0 +1,18 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# WordPress version disclosure. Fires on readme.html (the "Semantic Personal
+# Publishing Platform" tagline is unique to the WordPress readme and never
+# appears on an ordinary WP page — so this does NOT steal the wp_config
+# homepage fingerprint). The handler extracts the version from the readme
+# body signature and corroborates via the site root's <meta generator>.
+name: wp_version_disclosure
+version: 1
+phase: recon
+priority: 60
+match:
+  any_indicator:
+    - body_contains: "Semantic Personal Publishing Platform"
+action:
+  tool: wp_version
+  tier: rule
+  technique_id: "T1592.002"   # MITRE ATT&CK: Gather Victim Host Information — Software
+  rationale: "WordPress readme.html exposed; extract version for CVE mapping (low-sev disclosure)."
