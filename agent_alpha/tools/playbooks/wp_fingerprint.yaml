@@ -1,0 +1,23 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# Coarse WordPress fingerprint: detects a WP surface and seeds /wp-json/ +
+# /readme.html to the frontier for the recon battery (wp_rest_routes,
+# wp_rest_users, woocommerce, wp_version). It NEVER directly probes those
+# endpoints — the seeds are enqueued through the same in-scope guard as every
+# discovery, and the battery handlers gate on confirmed body signatures.
+name: wp_fingerprint
+version: 1
+phase: recon
+# Any one indicator is sufficient (logical OR). WordPress-specific body markers
+# — NOT a loose "<html" or "wp-" prefix that would fire on unrelated stacks
+# (anti-#3 over-probe).
+priority: 60
+match:
+  any_indicator:
+    - body_contains: "wp-content"
+    - body_contains: "wp-includes"
+    - body_regex: 'generator["'']?\s*content=["'']?WordPress'
+action:
+  tool: wp_fingerprint
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
+  rationale: "WordPress surface detected; label asset and seed /wp-json/ + /readme.html for the recon battery."

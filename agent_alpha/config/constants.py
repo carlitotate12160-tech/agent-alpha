@@ -300,11 +300,7 @@ BACKUP_FILE_PATHS: tuple[str, ...] = (
     "/.env.old",
     "/.env.orig",
     "/config/database.yml.bak",
-    "/wp-config.php.bak",
-    "/wp-config.php~",
-    "/wp-config.php.save",
-    "/wp-config.php.orig",
-    "/wp-config.php.old",
+    *WP_CONFIG_BACKUP_PATHS,  # single source — no duplicated wp-config literals
 )
 
 GIT_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)

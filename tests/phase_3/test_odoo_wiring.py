@@ -70,7 +70,7 @@ def test_wp_and_laravel_rules_unaffected() -> None:
     assert _tool_for("<html>Whoops! Illuminate\\Foundation error</html>") == "laravel_debug_probe"
     assert (
         _tool_for('<meta name="generator" content="WordPress 6.5"><a href="/wp-content/x">')
-        == "wp_config_probe"
+        == "wp_fingerprint"
     )
 
 
