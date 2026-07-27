@@ -13,8 +13,12 @@ class CveHit:
 # slug -> [(max_affected_version, CveHit)]. Start narrow; expand as data.
 _CATALOG: dict[str, list[tuple[str, CveHit]]] = {
     "wp-file-manager": [
-        ("6.8", CveHit("CVE-2020-25213", 9.8, "CWE-434",
-                       "WP File Manager unrestricted file upload -> RCE")),
+        (
+            "6.8",
+            CveHit(
+                "CVE-2020-25213", 9.8, "CWE-434", "WP File Manager unrestricted file upload -> RCE"
+            ),
+        ),
     ],
 }
 
