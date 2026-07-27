@@ -85,6 +85,7 @@ def verify_wp_config_leak(
     event_store: Any,
     secrets_manager: Any | None = None,
     timeout_s: float = 10.0,
+    scheme: str = "https",  # derived from the recon URL that triggered the probe
 ) -> int:
     """Probe in-scope hosts for wp-config.php backup files.
 
@@ -112,7 +113,7 @@ def verify_wp_config_leak(
             continue
 
         for path in constants.WP_CONFIG_BACKUP_PATHS:
-            url = f"https://{host}{path}"
+            url = f"{scheme}://{host}{path}"
 
             # ── GET the candidate backup path ──────────────────────────────
             try:
