@@ -381,3 +381,38 @@ def test_wp_battery_autofires_on_fingerprint() -> None:
     assert vuln_id in vulns, (
         "wp_version must auto-fire from the wp_fingerprint seed without hand-seeding"
     )
+
+
+# ── 11. REGRESSION: wp_config probe still fires on single-page WP site ───────
+
+
+def test_wp_config_dist_leak_is_caught_on_single_page() -> None:
+    """A WP-unique backup path (/wp-config.php.dist — previously NOT in
+    WELL_KNOWN_LEAK_PATHS) leaking DB creds on a single-page WP site must be caught.
+    Before the single-source fix, wp_fingerprint (priority 60) shadowed
+    wp_config_probe on the homepage and .dist was not universally seeded, so the
+    credential was missed. Now BACKUP_FILE_PATHS sources all 9 wp-config paths from
+    WP_CONFIG_BACKUP_PATHS (anti-Lyndon #7), so backup_file_probe reaches .dist via
+    WELL_KNOWN_LEAK_PATHS and extracts the credential.
+    """
+    dist_url = f"https://{_HOST}/wp-config.php.dist"
+    assert "/wp-config.php.dist" in constants.WELL_KNOWN_LEAK_PATHS  # guard: now covered
+    wp_config_body = (
+        "<?php\n"
+        "define('DB_NAME', 'wp_lab');\n"
+        "define('DB_USER', 'wpuser');\n"
+        "define('DB_PASSWORD', 'test-fixture-pw');\n"
+        "define('DB_HOST', 'localhost');\n"
+    )
+    routes = {
+        _SITE_ROOT: FakeResponse(200, "<html><body>wp-content</body></html>"),
+        dist_url: FakeResponse(200, wp_config_body),
+    }
+    http = FakeHttpClient(routes)
+    graph = NetworkXGraphStore()
+    alpha, eng_id = _alpha(http, graph)
+
+    alpha.run_recon(eng_id, _SITE_ROOT)
+
+    creds = graph.nodes_by_type(NodeType.CREDENTIAL)
+    assert creds, "wp-config.php.dist leak missed — WP-unique backup path not covered"

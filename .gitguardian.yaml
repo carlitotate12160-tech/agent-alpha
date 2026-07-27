@@ -7,6 +7,7 @@ secret:
     - "infra/docker-compose.yml"
     - "tests/phase_4/test_git_exposure_probe.py"
     - "tests/phase_4/test_git_exposure_wiring.py"
+    - "tests/phase_4/test_wp_recon.py"
     - "recon_lab/exposed/late/.env.bak"
     - "recon_lab/exposed/decoy/.env.bak"
 
