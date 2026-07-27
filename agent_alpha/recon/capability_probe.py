@@ -33,12 +33,15 @@ class CapabilitySpec:
     label          canonical tech_stack label persisted on the ASSET node.
     frontier_seeds relative paths to enqueue for later (gated) review; may be ().
     confidence     graph-node confidence for a deterministic header match.
+    follow_up_tools handler names to invoke immediately on the SAME response,
+                   after frontier seeds are enqueued; may be ().
     """
 
     tool: str
     label: str
     frontier_seeds: tuple[str, ...] = ()
     confidence: float = 0.9
+    follow_up_tools: tuple[str, ...] = ()
 
 
 CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
@@ -74,6 +77,7 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
         tool="wp_fingerprint",
         label=constants.STACK_WP,
         frontier_seeds=("/wp-json/", "/readme.html"),
+        follow_up_tools=("wp_plugins",),
     ),
     # WordPress recon-depth battery (STACK_WP). Each is keyed on the stack
     # fingerprint via its own playbook; the label is the single WP tech_stack

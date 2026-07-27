@@ -109,7 +109,7 @@ def verify_domain_ownership(
     Parameters
     ----------
     domain : str
-        The domain to verify (e.g. "quantum-laboratories.com").
+        The domain to verify (e.g. "example.com").
     expected_token : str
         The expected DNS-TXT token (e.g. "dns-txt:agent-alpha=abc123").
     dns_resolver : DNSResolver | None
