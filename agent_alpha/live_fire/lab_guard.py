@@ -133,6 +133,25 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
         "#214",
     ),
+    # alpha-ai.web.id subdomains — self-owned lab stacks (DNS-only for dev; Phase B: CF Origin cert)
+    LabHost(
+        "wp.alpha-ai.web.id",
+        "natanael",
+        "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
+        "#272",
+    ),
+    LabHost(
+        "laravel.alpha-ai.web.id",
+        "natanael",
+        "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
+        "#272",
+    ),
+    LabHost(
+        "odoo.alpha-ai.web.id",
+        "natanael",
+        "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
+        "#272",
+    ),
     # Cloudflare quick tunnel — ephemeral, expires. Changes per tunnel start.
     LabHost(
         "responding-yards-adaptation-floors.trycloudflare.com",
