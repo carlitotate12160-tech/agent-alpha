@@ -79,6 +79,7 @@ from agent_alpha.security.secrets import (
     SecretsManager,
     SecretsVault,
     get_profile_signing_key,
+    sanitize_for_log,
 )
 from agent_alpha.tools.playbook import PlaybookEngine
 
@@ -104,7 +105,7 @@ def _resolve_origin_ips(domains: list[str]) -> list[str]:
                 except ValueError:
                     continue
         except socket.gaierror:
-            _log.warning("DNS resolution failed for %s — skipping origin discovery", domain)
+            _log.warning("DNS resolution failed for %s — skipping origin discovery", sanitize_for_log(domain))
     return list(dict.fromkeys(ips))  # dedup, preserve order
 
 

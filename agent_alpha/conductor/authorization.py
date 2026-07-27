@@ -45,6 +45,7 @@ from agent_alpha.config.constants import (
 )
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import AgentEvent, EventStore
+from agent_alpha.security.secrets import sanitize_for_log
 
 # Explicit re-exports for backward compatibility (mypy requires __all__ or
 # redundant aliases to treat a re-export as public).
@@ -650,9 +651,9 @@ def authorize_engagement(
 
     _log.info(
         "authorize_engagement: %s — %d targets verified, level=%s, hash=%s",
-        engagement_id,
+        sanitize_for_log(engagement_id),
         len(verified_targets),
-        authorization_level,
+        sanitize_for_log(authorization_level),
         profile_hash[:16],
     )
 

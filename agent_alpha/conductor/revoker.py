@@ -26,6 +26,7 @@ import typing
 
 from agent_alpha.conductor.run_status import collect_run_task_ids
 from agent_alpha.events.store import EventStore
+from agent_alpha.security.secrets import sanitize_for_log
 
 _log = logging.getLogger(__name__)
 
@@ -66,10 +67,10 @@ class CeleryTaskRevoker:
             try:
                 self._control.revoke(task_id, terminate=True, signal=_REVOKE_SIGNAL)
             except Exception:  # noqa: BLE001 — one broker hiccup must not stop the rest
-                # CodeQL [py/log-injection] false positive: engagement_id is boundary-validated
-                # (via valid_engagement_id dependency) to ^eng_[0-9a-f]{4,}$ before reaching this log.
                 _log.exception(
-                    "revoke failed for task_id=%s (engagement_id=%s)", task_id, engagement_id
+                    "revoke failed for task_id=%s (engagement_id=%s)",
+                    sanitize_for_log(task_id),
+                    sanitize_for_log(engagement_id),
                 )
                 continue
             revoked += 1

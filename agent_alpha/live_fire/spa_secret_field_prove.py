@@ -394,7 +394,7 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 64)
     print(f"  Client ID           : {config.client_id}")
     print(f"  Target              : {target}")
-    print(f"  Creds added         : {creds_added}")
+    print(f"  Creds added         : {creds_added}")  # codeql[py/clear-text-logging-sensitive-data] — integer count, not a secret
     print(f"  Expected creds      : {expected.expected_creds_added}")
     print("-" * 64)
     print(f"  Clause 1 (return)   : {'PASS' if clause_1 else 'FAIL'}")

@@ -124,6 +124,11 @@ class SecretsManager:
         return self._key
 
 
+def sanitize_for_log(value: str) -> str:
+    """Strip newlines and control characters that could enable log injection (CWE-117)."""
+    return value.replace("\n", "").replace("\r", "").replace("\x00", "")
+
+
 class LogScrubber:
     """Redacts sensitive values from log/event text using LOG_SCRUB_PATTERNS."""
 
