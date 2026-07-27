@@ -72,6 +72,14 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
         ("conductor/advance.py",),
         "GAP-006 / attack-route prioritization (HVT), not report-only",
     ),
+    "WP_VERSION_PATHS": (
+        ("agents/alpha/scout.py",),
+        "STACK_CATALOG WP slice: the 4 WP capabilities (wp_rest_routes, wp_rest_users, "
+        "woocommerce, wp_version) are dispatched only when their endpoint body is seeded. "
+        "run_recon does not yet AUTO-SEED /wp-json/ + WP_VERSION_PATHS from the wp "
+        "fingerprint, so the full battery is not auto-fired end-to-end (RUNNER-SEAL != "
+        "WIRED). Close by seeding these from the wp fingerprint, then promote to WIRED_REQUIRED.",
+    ),
 }
 
 

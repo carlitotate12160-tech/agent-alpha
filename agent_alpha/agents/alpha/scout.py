@@ -16,6 +16,7 @@ from __future__ import annotations
 import datetime
 import hashlib
 import inspect
+import json
 import re
 import uuid
 from typing import Any
@@ -30,16 +31,15 @@ from agent_alpha.agents.world_model import WorldModel
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
-    AssetProperties,
     AttackEdge,
     AttackNode,
     NodeType,
     ProofArtifact,
     RelationshipType,
+    UserProperties,
     VulnerabilityProperties,
-    merge_tech_stack,
 )
-from agent_alpha.graph.persist import persist_edge, persist_node
+from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
@@ -143,6 +143,10 @@ class Alpha:
             "surface_discovery_probe": self._handle_surface_discovery,
             "graphql_fingerprint": self._handle_capability_fingerprint,
             "odoo_fingerprint": self._handle_capability_fingerprint,
+            "wp_rest_routes": self._handle_wp_rest_routes,
+            "wp_rest_users": self._handle_wp_rest_users,
+            "woocommerce": self._handle_woocommerce,
+            "wp_version": self._handle_wp_version,
         }
 
         # Per-run state, initialised in run_recon().
@@ -667,15 +671,11 @@ class Alpha:
         nodes_added = 0
 
         # ── ASSET node ──────────────────────────────────────────
-        asset_node = AttackNode(
-            id=f"asset:{host}",
-            type=NodeType.ASSET,
-            properties=AssetProperties(
-                host=host,
-                tech_stack=["laravel"],
-            ),
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=["laravel"],
             confidence=0.95,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
@@ -863,15 +863,11 @@ class Alpha:
         # NEVER include "laravel" in a generic probe.
         tech_stack = [t for t in tech_stack if "laravel" not in t]
 
-        asset_node = AttackNode(
-            id=f"asset:{host}",
-            type=NodeType.ASSET,
-            properties=AssetProperties(
-                host=host,
-                tech_stack=tech_stack,
-            ),
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=tech_stack,
             confidence=0.5,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
@@ -902,22 +898,15 @@ class Alpha:
             return 0
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-        asset_id = f"asset:{host}"
 
-        # Merge tech_stack to prevent sequential fingerprints (e.g. tomcat then basic_auth)
-        # from clobbering each other.
-        existing = self.graph_store.get_node(asset_id)
-        if existing is not None and hasattr(existing.properties, "tech_stack"):
-            merged = merge_tech_stack(existing.properties.tech_stack, [spec.label])
-        else:
-            merged = merge_tech_stack(None, [spec.label])
-
-        asset_node = AttackNode(
-            id=asset_id,
-            type=NodeType.ASSET,
-            properties=AssetProperties(host=host, tech_stack=merged),
+        # merge_asset_node UNIONs tech_stack and preserves every prior property
+        # (ip / open_ports / rest_routes / ...) so sequential fingerprints (e.g.
+        # tomcat then basic_auth) never clobber each other or an earlier profile.
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=[spec.label],
             confidence=spec.confidence,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
@@ -955,18 +944,326 @@ class Alpha:
         )
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-        asset_node = AttackNode(
-            id=f"asset:{host}",
-            type=NodeType.ASSET,
-            properties=AssetProperties(host=host, tech_stack=["openapi"]),
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=["openapi"],
             confidence=0.8,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
             self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
         )
         return 1
+
+    # ── WordPress recon-depth battery (fingerprint-keyed playbooks) ──────
+    # Each handler mirrors an existing precedent: DETECT-only surface mirrors
+    # _handle_surface_discovery (asset property, zero findings); the FINDING
+    # handlers mirror the wp_config leak path (VULNERABILITY + ASSET + EXPLOITS
+    # edge, +1 finding) and require a confirmed BODY signature — status 200 alone
+    # is never a finding (WordPress soft-404 returns 200 with an HTML body).
+
+    def _handle_wp_rest_routes(self, resp: Any, decision: Any, url: str) -> int:
+        """DETECT-only: enumerate the WordPress ``/wp-json/`` route index.
+
+        Persists ONE asset node carrying the route inventory as
+        ``AssetProperties.rest_routes`` (capped at ``WP_REST_ROUTES_CAP`` with
+        ``rest_routes_truncated`` + ``rest_routes_total_count`` recording the real
+        size). A route surface is reach, NOT a payable finding: this never touches
+        ``self._findings``. Only routes in ``constants.WP_REST_INTERESTING_ROUTES``
+        are escalated (enqueued) through the same in-scope guard as every other
+        discovery; the rest sit inert on the asset (anti-#3 over-probe).
+        """
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        try:
+            data = json.loads(resp.text)
+        except (ValueError, TypeError):
+            return 0
+        if not isinstance(data, dict):
+            return 0
+        routes_obj = data.get("routes")
+        if not isinstance(routes_obj, dict) or not routes_obj:
+            return 0
+
+        route_keys = [str(k) for k in routes_obj]
+        total = len(route_keys)
+        cap = constants.WP_REST_ROUTES_CAP
+        stored = route_keys[:cap]
+        truncated = total > cap
+
+        spec = capability_for_tool(decision.tool)
+        label = spec.label if spec is not None else constants.STACK_WP
+        confidence = spec.confidence if spec is not None else 0.9
+
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        # rest_routes* are the observed fields for THIS handler; merge_asset_node
+        # unions the WP label and preserves any prior profile (ip/open_ports/...).
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=[label],
+            confidence=confidence,
+            timestamp_utc=now_utc,
+            rest_routes=stored,
+            rest_routes_total_count=total,
+            rest_routes_truncated=truncated,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
+        )
+
+        # Escalate ONLY allowlisted routes through the in-scope guard.
+        for key in route_keys:
+            full = "/wp-json" + key if key.startswith("/") else "/wp-json/" + key
+            if full in constants.WP_REST_INTERESTING_ROUTES:
+                self.enqueue_discovered_url(urljoin(url, full))
+        return 1
+
+    def _handle_wp_rest_users(self, resp: Any, decision: Any, url: str) -> int:
+        """FINDING: WordPress REST username disclosure (``/wp-json/wp/v2/users``).
+
+        A finding is minted ONLY when the body parses as the user JSON shape (an
+        array of objects each carrying ``id`` + ``slug``). A 200 HTML soft-404 or
+        any other shape yields zero findings. Discovered slugs are persisted as
+        USER nodes — the cred-reuse INPUT (a username to pair with harvested
+        secrets downstream), never a credential.
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        slugs = self._parse_wp_rest_user_slugs(resp.text)
+        if not slugs:
+            return 0  # anti-#3: no body signature (soft-404 / wrong shape) = not a finding
+
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        vuln_id = f"vuln:{host}:wp_rest_user_disclosure"
+        vuln_node = AttackNode(
+            id=vuln_id,
+            type=NodeType.VULNERABILITY,
+            properties=VulnerabilityProperties(
+                affected_service="web",
+                exploit_available=False,
+            ),
+            confidence=0.9,
+            agent="alpha",
+            timestamp_utc=now_utc,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
+        )
+        nodes_added = 1
+        nodes_added += self._persist_wp_asset(host, vuln_id, now_utc)
+
+        for slug in slugs:
+            user_node = AttackNode(
+                id=f"user:{host}:{slug}",
+                type=NodeType.USER,
+                properties=UserProperties(username=slug, source="wp_rest_users"),
+                confidence=0.9,
+                agent="alpha",
+                timestamp_utc=now_utc,
+            )
+            persist_node(
+                self.event_store, self.graph_store, self._engagement_id, user_node, agent="alpha"
+            )
+            nodes_added += 1
+
+        self._findings += 1
+        return nodes_added
+
+    def _handle_woocommerce(self, resp: Any, decision: Any, url: str) -> int:
+        """FINDING when the body confirms a WooCommerce ``wc/v3`` shape.
+
+        A ``/wp-json/`` index with no ``wc/*`` route is INSUFFICIENT DATA — not an
+        error, not a finding (returns 0). The finding requires the wc/v3 body
+        signature (anti-#3).
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        if not self._confirms_woocommerce(resp.text):
+            return 0  # InsufficientData — WooCommerce not present
+
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        vuln_id = f"vuln:{host}:woocommerce_exposed"
+        vuln_node = AttackNode(
+            id=vuln_id,
+            type=NodeType.VULNERABILITY,
+            properties=VulnerabilityProperties(
+                affected_service="woocommerce",
+                exploit_available=False,
+            ),
+            confidence=0.85,
+            agent="alpha",
+            timestamp_utc=now_utc,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
+        )
+        nodes_added = 1 + self._persist_wp_asset(host, vuln_id, now_utc)
+        self._findings += 1
+        return nodes_added
+
+    def _handle_wp_version(self, resp: Any, decision: Any, url: str) -> int:
+        """FINDING (low sev): WordPress version disclosure.
+
+        Two requests: the readme.html body that triggered this handler plus a
+        corroborating GET of the site root for the ``<meta generator>`` banner.
+        The version is taken from the body SIGNATURE (readme ``Version x.y`` or the
+        generator meta) — status 200 alone is never a finding.
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        version = self._extract_wp_version_readme(resp.text)
+
+        # Second request: <meta generator> on the site root (corroboration).
+        # allow_redirects=False mirrors the A1 mitigation probe's off-scope guard
+        # (a1_validation_runner): a 3xx to another host must NOT be followed and its
+        # body must NOT be read for the generator banner (an off-scope page cannot
+        # corroborate THIS host's version). On any 3xx we fall back to the readme
+        # signature alone (or None → not a finding).
+        parsed = urlparse(url)
+        root = f"{parsed.scheme}://{parsed.netloc}/"
+        try:
+            root_resp = self.http_client.get(root, allow_redirects=False)
+        except HttpClientError:
+            root_resp = None
+        if root_resp is not None and not 300 <= getattr(root_resp, "status_code", 0) < 400:
+            meta_version = self._extract_wp_version_meta(getattr(root_resp, "text", "") or "")
+            version = version or meta_version
+
+        if version is None:
+            return 0  # no body signature — not a finding
+
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        vuln_id = f"vuln:{host}:wp_version_disclosure"
+        vuln_node = AttackNode(
+            id=vuln_id,
+            type=NodeType.VULNERABILITY,
+            properties=VulnerabilityProperties(
+                affected_service=f"WordPress {version}",
+                cvss_score=3.1,
+                exploit_available=False,
+            ),
+            confidence=0.8,
+            agent="alpha",
+            timestamp_utc=now_utc,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
+        )
+        nodes_added = 1 + self._persist_wp_asset(host, vuln_id, now_utc)
+        self._findings += 1
+        return nodes_added
+
+    def _persist_wp_asset(self, host: str, vuln_node_id: str, now_utc: str) -> int:
+        """Persist (or merge) the WordPress ASSET node and its EXPLOITS edge to a
+        vulnerability, mirroring the wp_config leak path's graph coherence.
+
+        Returns the number of NODES added (1 for the asset; edges are not counted).
+        """
+        asset_id = f"asset:{host}"
+        # merge_asset_node preserves rest_routes discovered by an earlier
+        # _handle_wp_rest_routes pass on the same host (CodeRabbit #274): a users/
+        # woocommerce/version finding here re-persists asset:{host} and must not
+        # drop the route inventory (or ip/open_ports) it did not re-observe.
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=[constants.STACK_WP],
+            confidence=0.85,
+            timestamp_utc=now_utc,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
+        )
+        persist_edge(
+            self.event_store,
+            self.graph_store,
+            self._engagement_id,
+            AttackEdge(
+                source_id=asset_id,
+                target_id=vuln_node_id,
+                relationship=RelationshipType.EXPLOITS,
+                confidence=0.85,
+            ),
+            agent="alpha",
+        )
+        return 1
+
+    @staticmethod
+    def _parse_wp_rest_user_slugs(body: str) -> list[str]:
+        """Return slugs iff *body* is the WP REST users shape (array of {id, slug}).
+
+        Any parse failure or non-conforming shape (e.g. a 200 HTML soft-404, or a
+        plugin route returning a dict) returns ``[]`` — the finding gate.
+        """
+        try:
+            data = json.loads(body)
+        except (ValueError, TypeError):
+            return []
+        if not isinstance(data, list) or not data:
+            return []
+        slugs: list[str] = []
+        for item in data:
+            if not isinstance(item, dict) or "id" not in item or "slug" not in item:
+                return []
+            slug = item.get("slug")
+            if not isinstance(slug, str) or not slug:
+                return []
+            slugs.append(slug)
+        return slugs
+
+    @staticmethod
+    def _confirms_woocommerce(body: str) -> bool:
+        """True iff *body* confirms a WooCommerce ``wc/v3`` REST shape."""
+        try:
+            data = json.loads(body)
+        except (ValueError, TypeError):
+            return False
+        if not isinstance(data, dict):
+            return False
+        if data.get("namespace") == "wc/v3":
+            return True
+        namespaces = data.get("namespaces")
+        if isinstance(namespaces, list) and "wc/v3" in namespaces:
+            return True
+        return False
+
+    _WP_README_VERSION_RE = re.compile(r"Version\s+(\d+\.\d+(?:\.\d+)?)")
+    _WP_META_GENERATOR_RE = re.compile(
+        r"""<meta[^>]+name=["']generator["'][^>]+content=["']WordPress\s+(\d+\.\d+(?:\.\d+)?)""",
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _extract_wp_version_readme(cls, body: str) -> str | None:
+        match = cls._WP_README_VERSION_RE.search(body or "")
+        return match.group(1) if match else None
+
+    @classmethod
+    def _extract_wp_version_meta(cls, body: str) -> str | None:
+        match = cls._WP_META_GENERATOR_RE.search(body or "")
+        return match.group(1) if match else None
 
     def _extract_leaked_credentials(self, body: str, host: str, vuln_node_id: str) -> int:
         """Scan *body* for leaked credential env keys, persist CREDENTIAL nodes.

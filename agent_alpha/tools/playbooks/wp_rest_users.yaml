@@ -1,0 +1,18 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# WordPress REST username disclosure (/wp-json/wp/v2/users). Fires on the users
+# array signature ("avatar_urls" appears in every wp/v2/users object and nowhere
+# in the route index, the wc/v3 sub-index, or an HTML soft-404). The FINDING gate
+# lives in the handler: it mints a finding ONLY when the body parses as the user
+# JSON shape (array of {id, slug}); a 200 HTML body is never a finding.
+name: wp_rest_user_disclosure
+version: 1
+phase: recon
+priority: 60
+match:
+  any_indicator:
+    - body_regex: '"avatar_urls"\s*:\s*\{'
+action:
+  tool: wp_rest_users
+  tier: rule
+  technique_id: "T1087.001"   # MITRE ATT&CK: Account Discovery — Local Account
+  rationale: "WordPress REST users endpoint discloses id+slug; record username disclosure and feed cred-reuse."

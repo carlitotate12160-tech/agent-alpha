@@ -62,6 +62,8 @@ __all__ = [
     "WP_CREDENTIAL_SECRET_KEYS",
     "WP_CREDENTIAL_SERVICE_MAP",
     "WP_CONFIG_BACKUP_PATHS",
+    "WP_REST_INTERESTING_ROUTES",
+    "WP_VERSION_PATHS",
     "BACKUP_FILE_PATHS",
     "ACTUATOR_PATHS",
     "GIT_LEAK_PATHS",
@@ -271,6 +273,26 @@ WP_CONFIG_BACKUP_PATHS: tuple[str, ...] = (
     "/wp-config.txt",
 )
 
+# WordPress REST route surface (SSOT). The /wp-json/ index is DETECT-only
+# (persisted as an AssetProperties.rest_routes inventory, never a finding). Only
+# routes present in this allowlist are ESCALATED (enqueued) for a follow-up probe
+# through the existing in-scope guard; every other discovered route sits inert on
+# the asset (anti-#3 over-probe). Paths are the full /wp-json-rooted form.
+WP_REST_INTERESTING_ROUTES: tuple[str, ...] = (
+    "/wp-json/wp/v2/users",
+    "/wp-json/wc/v3",
+)
+
+# Maximum number of REST routes stored on an asset (anti-unbounded-graph). Beyond
+# this the inventory is truncated and total_count records the real size.
+WP_REST_ROUTES_CAP: int = 200
+
+# WordPress version-disclosure surfaces (passive GET, RECON_ONLY). readme.html
+# carries the "Semantic Personal Publishing Platform" tagline + a Version line;
+# the site root's <meta generator> is the corroborating second request. Version
+# is taken from the body SIGNATURE, never status alone (WP soft-404 = 200 HTML).
+WP_VERSION_PATHS: tuple[str, ...] = ("/readme.html",)
+
 BACKUP_FILE_PATHS: tuple[str, ...] = (
     "/.env.bak",
     "/.env.save",
@@ -372,6 +394,10 @@ RECON_TOOL_CATALOG: frozenset[str] = frozenset(
         "odoo_dbmanager_probe",
         "git_exposure_probe",
         "backup_file_probe",
+        "wp_rest_routes",
+        "wp_rest_users",
+        "woocommerce",
+        "wp_version",
         "generic_http_probe",
     }
 )

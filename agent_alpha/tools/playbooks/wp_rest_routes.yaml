@@ -1,0 +1,19 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# WordPress REST route surface. Fires on the /wp-json/ ROOT index (which carries
+# a "namespaces": [...] array). DETECT-only: the handler persists the route
+# inventory as an AssetProperties.rest_routes list (capped) and escalates ONLY
+# constants.WP_REST_INTERESTING_ROUTES through the in-scope guard — it never mints
+# a finding. Signature is the plural "namespaces" key, disjoint from the wc/v3
+# sub-index (singular "namespace") and from the users array ("avatar_urls").
+name: wp_rest_route_surface
+version: 1
+phase: recon
+priority: 60
+match:
+  any_indicator:
+    - body_regex: '"namespaces"\s*:\s*\['
+action:
+  tool: wp_rest_routes
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
+  rationale: "WordPress /wp-json/ route index exposed; inventory routes and escalate allowlisted ones."

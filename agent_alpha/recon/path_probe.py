@@ -34,15 +34,13 @@ from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
-    AssetProperties,
     AttackEdge,
     AttackNode,
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
-    merge_tech_stack,
 )
-from agent_alpha.graph.persist import persist_edge, persist_node
+from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 from agent_alpha.security.leak_extraction import extract_secrets
@@ -223,21 +221,15 @@ def process_path_hit(
     )
     persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
 
-    # Merge tech_stack with existing asset to prevent clobbering a richer
-    # fingerprint (e.g. wp_config_probe sets [constants.STACK_WP], backup_file_probe would
-    # overwrite with ['web'] — router needs the WP label for ALPHA→BETA routing).
-    existing_asset = graph_store.get_node(f"asset:{host}")
-    if existing_asset is not None and hasattr(existing_asset.properties, "tech_stack"):
-        merged_stack = merge_tech_stack(existing_asset.properties.tech_stack, list(spec.tech_stack))
-    else:
-        merged_stack = merge_tech_stack(None, list(spec.tech_stack))
-
-    asset_node = AttackNode(
-        id=f"asset:{host}",
-        type=NodeType.ASSET,
-        properties=AssetProperties(host=host, tech_stack=merged_stack),
+    # merge_asset_node UNIONs tech_stack (never clobbers a richer fingerprint —
+    # e.g. wp_config_probe's [constants.STACK_WP] must survive a backup_file_probe
+    # ['web'] write so the router keeps the WP label for ALPHA→BETA routing) and
+    # preserves every prior property (ip / open_ports / rest_routes / ...).
+    asset_node = merge_asset_node(
+        graph_store,
+        host,
+        tech_stack_add=list(spec.tech_stack),
         confidence=0.85,
-        agent="alpha",
         timestamp_utc=now_utc,
     )
     persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
