@@ -26,7 +26,8 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import NodeType
+from agent_alpha.graph.nodes import AssetProperties, NodeType
+from agent_alpha.graph.persist import merge_asset_node, persist_node
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
@@ -52,7 +53,7 @@ class FakeHttpClient:
         self._routes = routes or {}
         self.get_calls: list[str] = []
 
-    def get(self, url: str) -> FakeResponse:
+    def get(self, url: str, **kwargs: object) -> FakeResponse:
         self.get_calls.append(url)
         return self._routes.get(url, FakeResponse(404, ""))
 
@@ -248,3 +249,87 @@ def test_wp_version_from_readme_and_meta() -> None:
     vuln_id = f"vuln:{_HOST}:wp_version_disclosure"
     assert vuln_id in vulns
     assert "6.5.2" in vulns[vuln_id].properties.affected_service
+
+
+# ── 8. CARDINAL: asset properties survive a WP reprofile (anti-clobber) ──────
+
+
+def test_asset_props_survive_wp_reprofile() -> None:
+    """A WP handler that sets only tech_stack must NOT clobber rest_routes or
+    open_ports persisted by an earlier handler on the same asset:{host}.
+
+    This is the cardinal regression test for the CodeRabbit #274 finding:
+    ``apply_event("NodeDiscovered")`` REPLACES the node wholesale, so a fresh
+    ``AssetProperties(host=..., tech_stack=...)`` silently drops every field it
+    did not re-set. ``merge_asset_node`` is the canonical fix.
+    """
+    graph = NetworkXGraphStore()
+    alpha, _ = _alpha(FakeHttpClient(), graph)
+
+    # Phase 1: route discovery sets rest_routes + rest_routes_total_count.
+    keys = ["/wp/v2/users", "/wp/v2/posts"]
+    decision_routes = SimpleNamespace(tool="wp_rest_routes")
+    alpha._handle_wp_rest_routes(FakeResponse(200, _route_index(keys)), decision_routes, _REST_ROOT)
+
+    # Simulate a prior db_service_probe that set open_ports=[3306].
+    store = InMemoryEventStore()
+    port_node = merge_asset_node(
+        graph, _HOST, confidence=0.9, timestamp_utc="2025-01-01T00:00:00Z", open_ports=[3306]
+    )
+    persist_node(store, graph, alpha._engagement_id, port_node, agent="alpha")
+
+    # Verify preconditions.
+    asset = graph.get_node(f"asset:{_HOST}")
+    assert asset is not None
+    assert isinstance(asset.properties, AssetProperties)
+    assert asset.properties.rest_routes == keys
+    assert asset.properties.open_ports == [3306]
+
+    # Phase 2: a users finding re-persists asset:{host} with only tech_stack.
+    decision_users = SimpleNamespace(tool="wp_rest_users")
+    alpha._handle_wp_rest_users(FakeResponse(200, _users_body("admin")), decision_users, _USERS_URL)
+
+    # Cardinal assertion: rest_routes AND open_ports must survive.
+    asset_after = graph.get_node(f"asset:{_HOST}")
+    assert asset_after is not None
+    assert isinstance(asset_after.properties, AssetProperties)
+    assert asset_after.properties.rest_routes == keys, (
+        "rest_routes must survive a reprofile that did not re-observe them (anti-clobber)"
+    )
+    assert asset_after.properties.open_ports == [3306], (
+        "open_ports must survive a reprofile that did not re-observe them (anti-clobber)"
+    )
+
+
+# ── 9. wp_version corroboration does NOT follow an off-scope 3xx ─────────────
+
+
+def test_wp_version_corroboration_does_not_follow_offscope_redirect() -> None:
+    """A 301 on the site root must NOT be followed; the <meta generator> body
+    must NOT be read. The version falls back to the readme signature alone.
+
+    Mirrors the A1 mitigation probe's ``allow_redirects=False`` off-scope guard
+    (a1_validation_runner). A 3xx to another host cannot corroborate THIS host's
+    version.
+    """
+    # Root returns 301 (redirect) — body must NOT be parsed for <meta generator>.
+    http = FakeHttpClient({_SITE_ROOT: FakeResponse(301, "")})
+    graph = NetworkXGraphStore()
+    alpha, _ = _alpha(http, graph)
+
+    readme = (
+        "<html><body><h1>WordPress</h1>"
+        "<p>Semantic Personal Publishing Platform</p>"
+        "<p>Version 5.9.1</p></body></html>"
+    )
+    decision = SimpleNamespace(tool="wp_version")
+    alpha._handle_wp_version(FakeResponse(200, readme), decision, _README_URL)
+
+    # Finding is still minted from the readme signature alone.
+    assert alpha._findings == 1, "readme version signature alone is still a finding"
+    vulns = {n.id: n for n in graph.nodes_by_type(NodeType.VULNERABILITY)}
+    vuln_id = f"vuln:{_HOST}:wp_version_disclosure"
+    assert vuln_id in vulns
+    assert "5.9.1" in vulns[vuln_id].properties.affected_service, (
+        "version must come from the readme body signature, not the redirected root"
+    )

@@ -33,14 +33,13 @@ from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
-    AssetProperties,
     AttackEdge,
     AttackNode,
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
 )
-from agent_alpha.graph.persist import persist_edge, persist_node
+from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
 
 # Regex for define('DB_KEY', 'value') — case-insensitive, whitespace-tolerant.
@@ -163,15 +162,13 @@ def verify_wp_config_leak(
             persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
 
             # ── ASSET node (graph coherence — matches scout._handle_laravel_debug) ─
-            asset_node = AttackNode(
-                id=f"asset:{host}",
-                type=NodeType.ASSET,
-                properties=AssetProperties(
-                    host=host,
-                    tech_stack=[constants.STACK_WP],
-                ),
+            # merge_asset_node UNIONs the WP label and preserves any prior profile
+            # (ip / open_ports / rest_routes / ...) instead of clobbering it.
+            asset_node = merge_asset_node(
+                graph_store,
+                host,
+                tech_stack_add=[constants.STACK_WP],
                 confidence=0.85,
-                agent="alpha",
                 timestamp_utc=now_utc,
             )
             persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")

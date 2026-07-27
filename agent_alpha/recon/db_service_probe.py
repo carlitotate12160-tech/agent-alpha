@@ -42,7 +42,7 @@ from agent_alpha.graph.nodes import (
     ServiceProperties,
     VerificationTier,
 )
-from agent_alpha.graph.persist import persist_node
+from agent_alpha.graph.persist import merge_asset_node, persist_node
 
 # Single source of truth for the DB service labels this verifier recognises (#7).
 _DB_SERVICES: frozenset[str] = frozenset({"mysql", "mariadb"})
@@ -178,33 +178,26 @@ def verify_in_scope_db_services(
         persist_node(event_store, graph_store, engagement_id, service_node, agent="alpha")
 
         # ── Ensure the DB host's ASSET node has `port` in open_ports ───────
-        asset_id = f"asset:{host}"
-        existing_asset = graph_store.get_node(asset_id)
+        # open_ports is a list-UNION (the helper REPLACES scalar/observed fields),
+        # so compute the merged port list here then pass it as the observed change.
+        # merge_asset_node preserves every OTHER prior property (ip / tech_stack /
+        # rest_routes / ...) and carries confidence/verification forward.
+        existing_asset = graph_store.get_node(f"asset:{host}")
         if existing_asset is not None and isinstance(existing_asset.properties, AssetProperties):
             current_ports = list(existing_asset.properties.open_ports)
-            if port not in current_ports:
-                current_ports.append(port)
-            rebuilt_asset = AttackNode(
-                id=asset_id,
-                type=NodeType.ASSET,
-                properties=dataclasses.replace(
-                    existing_asset.properties,
-                    open_ports=current_ports,
-                ),
-                confidence=existing_asset.confidence,
-                agent=existing_asset.agent,
-                timestamp_utc=now_utc,
-                verification=existing_asset.verification,
-            )
+            new_confidence = None  # preserve the existing asset's confidence
         else:
-            rebuilt_asset = AttackNode(
-                id=asset_id,
-                type=NodeType.ASSET,
-                properties=AssetProperties(host=host, open_ports=[port]),
-                confidence=0.9,
-                agent="alpha",
-                timestamp_utc=now_utc,
-            )
+            current_ports = []
+            new_confidence = 0.9
+        if port not in current_ports:
+            current_ports.append(port)
+        rebuilt_asset = merge_asset_node(
+            graph_store,
+            host,
+            confidence=new_confidence,
+            timestamp_utc=now_utc,
+            open_ports=current_ports,
+        )
         persist_node(event_store, graph_store, engagement_id, rebuilt_asset, agent="alpha")
 
         results.append(ev)

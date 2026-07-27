@@ -31,7 +31,6 @@ from agent_alpha.agents.world_model import WorldModel
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
-    AssetProperties,
     AttackEdge,
     AttackNode,
     NodeType,
@@ -39,9 +38,8 @@ from agent_alpha.graph.nodes import (
     RelationshipType,
     UserProperties,
     VulnerabilityProperties,
-    merge_tech_stack,
 )
-from agent_alpha.graph.persist import persist_edge, persist_node
+from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
@@ -673,15 +671,11 @@ class Alpha:
         nodes_added = 0
 
         # ── ASSET node ──────────────────────────────────────────
-        asset_node = AttackNode(
-            id=f"asset:{host}",
-            type=NodeType.ASSET,
-            properties=AssetProperties(
-                host=host,
-                tech_stack=["laravel"],
-            ),
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=["laravel"],
             confidence=0.95,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
@@ -869,15 +863,11 @@ class Alpha:
         # NEVER include "laravel" in a generic probe.
         tech_stack = [t for t in tech_stack if "laravel" not in t]
 
-        asset_node = AttackNode(
-            id=f"asset:{host}",
-            type=NodeType.ASSET,
-            properties=AssetProperties(
-                host=host,
-                tech_stack=tech_stack,
-            ),
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=tech_stack,
             confidence=0.5,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
@@ -908,22 +898,15 @@ class Alpha:
             return 0
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-        asset_id = f"asset:{host}"
 
-        # Merge tech_stack to prevent sequential fingerprints (e.g. tomcat then basic_auth)
-        # from clobbering each other.
-        existing = self.graph_store.get_node(asset_id)
-        if existing is not None and hasattr(existing.properties, "tech_stack"):
-            merged = merge_tech_stack(existing.properties.tech_stack, [spec.label])
-        else:
-            merged = merge_tech_stack(None, [spec.label])
-
-        asset_node = AttackNode(
-            id=asset_id,
-            type=NodeType.ASSET,
-            properties=AssetProperties(host=host, tech_stack=merged),
+        # merge_asset_node UNIONs tech_stack and preserves every prior property
+        # (ip / open_ports / rest_routes / ...) so sequential fingerprints (e.g.
+        # tomcat then basic_auth) never clobber each other or an earlier profile.
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=[spec.label],
             confidence=spec.confidence,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
@@ -961,12 +944,11 @@ class Alpha:
         )
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-        asset_node = AttackNode(
-            id=f"asset:{host}",
-            type=NodeType.ASSET,
-            properties=AssetProperties(host=host, tech_stack=["openapi"]),
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=["openapi"],
             confidence=0.8,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(
@@ -1017,26 +999,17 @@ class Alpha:
         confidence = spec.confidence if spec is not None else 0.9
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-        asset_id = f"asset:{host}"
-        existing = self.graph_store.get_node(asset_id)
-        if existing is not None and hasattr(existing.properties, "tech_stack"):
-            merged = merge_tech_stack(existing.properties.tech_stack, [label])
-        else:
-            merged = merge_tech_stack(None, [label])
-
-        asset_node = AttackNode(
-            id=asset_id,
-            type=NodeType.ASSET,
-            properties=AssetProperties(
-                host=host,
-                tech_stack=merged,
-                rest_routes=stored,
-                rest_routes_total_count=total,
-                rest_routes_truncated=truncated,
-            ),
+        # rest_routes* are the observed fields for THIS handler; merge_asset_node
+        # unions the WP label and preserves any prior profile (ip/open_ports/...).
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=[label],
             confidence=confidence,
-            agent="alpha",
             timestamp_utc=now_utc,
+            rest_routes=stored,
+            rest_routes_total_count=total,
+            rest_routes_truncated=truncated,
         )
         persist_node(
             self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
@@ -1163,13 +1136,18 @@ class Alpha:
         version = self._extract_wp_version_readme(resp.text)
 
         # Second request: <meta generator> on the site root (corroboration).
+        # allow_redirects=False mirrors the A1 mitigation probe's off-scope guard
+        # (a1_validation_runner): a 3xx to another host must NOT be followed and its
+        # body must NOT be read for the generator banner (an off-scope page cannot
+        # corroborate THIS host's version). On any 3xx we fall back to the readme
+        # signature alone (or None → not a finding).
         parsed = urlparse(url)
         root = f"{parsed.scheme}://{parsed.netloc}/"
         try:
-            root_resp = self.http_client.get(root)
+            root_resp = self.http_client.get(root, allow_redirects=False)
         except HttpClientError:
             root_resp = None
-        if root_resp is not None:
+        if root_resp is not None and not 300 <= getattr(root_resp, "status_code", 0) < 400:
             meta_version = self._extract_wp_version_meta(getattr(root_resp, "text", "") or "")
             version = version or meta_version
 
@@ -1204,17 +1182,15 @@ class Alpha:
         Returns the number of NODES added (1 for the asset; edges are not counted).
         """
         asset_id = f"asset:{host}"
-        existing = self.graph_store.get_node(asset_id)
-        if existing is not None and hasattr(existing.properties, "tech_stack"):
-            merged = merge_tech_stack(existing.properties.tech_stack, [constants.STACK_WP])
-        else:
-            merged = merge_tech_stack(None, [constants.STACK_WP])
-        asset_node = AttackNode(
-            id=asset_id,
-            type=NodeType.ASSET,
-            properties=AssetProperties(host=host, tech_stack=merged),
+        # merge_asset_node preserves rest_routes discovered by an earlier
+        # _handle_wp_rest_routes pass on the same host (CodeRabbit #274): a users/
+        # woocommerce/version finding here re-persists asset:{host} and must not
+        # drop the route inventory (or ip/open_ports) it did not re-observe.
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=[constants.STACK_WP],
             confidence=0.85,
-            agent="alpha",
             timestamp_utc=now_utc,
         )
         persist_node(

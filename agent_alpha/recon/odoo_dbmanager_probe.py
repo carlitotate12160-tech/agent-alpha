@@ -26,14 +26,13 @@ from agent_alpha.agents.http_client import HttpClientProtocol
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
-    AssetProperties,
     AttackEdge,
     AttackNode,
     NodeType,
     RelationshipType,
     VulnerabilityProperties,
 )
-from agent_alpha.graph.persist import persist_edge, persist_node
+from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 
 # ── Single-source markers for THIS probe (defined once; not a #7 dup) ──────
@@ -114,12 +113,13 @@ def process_odoo_dbmanager_hit(
 
     now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
-    asset_node = AttackNode(
-        id=f"asset:{host}",
-        type=NodeType.ASSET,
-        properties=AssetProperties(host=host, tech_stack=["odoo"]),
+    # merge_asset_node UNIONs the odoo label and preserves any prior profile
+    # (ip / open_ports / rest_routes / ...) instead of clobbering it.
+    asset_node = merge_asset_node(
+        graph_store,
+        host,
+        tech_stack_add=["odoo"],
         confidence=0.85,
-        agent="alpha",
         timestamp_utc=now_utc,
     )
     persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
