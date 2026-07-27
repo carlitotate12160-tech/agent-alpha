@@ -259,7 +259,11 @@ async def _solve_and_fetch(url: str, engagement_id: str) -> SolveResponse:
         try:
             page = await context.new_page()
 
-            logger.info("browser_solve: navigating to %s (engagement=%s)", sanitize_for_log(url), sanitize_for_log(engagement_id))
+            logger.info(
+                "browser_solve: navigating to %s (engagement=%s)",
+                sanitize_for_log(url),
+                sanitize_for_log(engagement_id),
+            )
 
             # Use domcontentloaded + short settle wait instead of networkidle
             # (networkidle can hang on persistent connections like websockets)
@@ -476,7 +480,11 @@ async def solve(req: SolveRequest) -> SolveResponse:
     ``DeepSeekBrowserSolve`` adapter on the caller side gets a predictable
     ``resp.status_code != 200`` and raises its own ``RuntimeError`` cleanly.
     """
-    logger.info("browser_solve /solve: url=%s engagement_id=%s", sanitize_for_log(req.url), sanitize_for_log(req.engagement_id))
+    logger.info(
+        "browser_solve /solve: url=%s engagement_id=%s",
+        sanitize_for_log(req.url),
+        sanitize_for_log(req.engagement_id),
+    )
     try:
         return await _solve_and_fetch(req.url, req.engagement_id)
     except RuntimeError as exc:
