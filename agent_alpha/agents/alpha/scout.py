@@ -143,6 +143,7 @@ class Alpha:
             "surface_discovery_probe": self._handle_surface_discovery,
             "graphql_fingerprint": self._handle_capability_fingerprint,
             "odoo_fingerprint": self._handle_capability_fingerprint,
+            "wp_fingerprint": self._handle_capability_fingerprint,
             "wp_rest_routes": self._handle_wp_rest_routes,
             "wp_rest_users": self._handle_wp_rest_users,
             "woocommerce": self._handle_woocommerce,
@@ -751,6 +752,7 @@ class Alpha:
             graph_store=self.graph_store,
             event_store=self.event_store,
             secrets_manager=self._secrets_manager,
+            scheme=urlparse(url).scheme or "https",
         )
         if creds_added > 0:
             self._findings += 1

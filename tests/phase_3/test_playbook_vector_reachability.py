@@ -59,9 +59,25 @@ def _tool_for(body: str) -> str | None:
     return decision.tool if decision is not None else None
 
 
-def test_wp_fingerprint_selects_wp_config_probe() -> None:
-    """A WordPress page deterministically selects wp_config_probe (RED until wp_config.yaml)."""
-    assert _tool_for(_WP_BODY) == "wp_config_probe"
+def test_wp_fingerprint_selects_wp_fingerprint_first() -> None:
+    """A WordPress page deterministically selects wp_fingerprint first (priority 60).
+
+    wp_fingerprint labels the asset and seeds /wp-json/ + /readme.html for the
+    recon battery. wp_config_probe fires on a SUBSEQUENT WP page via exclude_tools
+    (after wp_fingerprint is in _ran_campaigns).
+    """
+    assert _tool_for(_WP_BODY) == "wp_fingerprint"
+
+
+def test_wp_config_probe_fires_after_wp_fingerprint_excluded() -> None:
+    """On a second WP page, wp_fingerprint is excluded → wp_config_probe fires."""
+    engine = PlaybookEngine.from_directory(_PROD_PLAYBOOKS)
+    decision = engine.match(
+        {"body": _WP_BODY},
+        exclude_tools=frozenset({"wp_fingerprint"}),
+    )
+    assert decision is not None
+    assert decision.tool == "wp_config_probe"
 
 
 def test_spa_bundle_selects_js_secret_probe() -> None:

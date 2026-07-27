@@ -333,3 +333,51 @@ def test_wp_version_corroboration_does_not_follow_offscope_redirect() -> None:
     assert "5.9.1" in vulns[vuln_id].properties.affected_service, (
         "version must come from the readme body signature, not the redirected root"
     )
+
+
+# ── 10. CARDINAL WIRING: WP battery auto-fires on fingerprint ────────────────
+
+
+def test_wp_battery_autofires_on_fingerprint() -> None:
+    """The WP battery must auto-fire through the autonomous recon path when
+    the homepage fingerprint matches, WITHOUT hand-seeding /wp-json/ or
+    /readme.html.
+
+    Cardinal wiring test (RED before the fix): the 4 WP handlers existed but
+    nothing seeded /wp-json/ or /readme.html on the autonomous path, so the
+    battery was an island. Now ``wp_fingerprint``'s
+    ``frontier_seeds=("/wp-json/", "/readme.html")`` enqueue them through the
+    same in-scope guard as every discovery, and the full battery fires e2e.
+    """
+    routes = {
+        _SITE_ROOT: FakeResponse(200, "<html><body>wp-content</body></html>"),
+        _REST_ROOT: FakeResponse(200, _route_index(["/wp/v2/users", "/wp/v2/posts"])),
+        _README_URL: FakeResponse(
+            200,
+            "<html><body><h1>WordPress</h1>"
+            "<p>Semantic Personal Publishing Platform</p>"
+            "<p>Version 6.5</p></body></html>",
+        ),
+        _USERS_URL: FakeResponse(200, _users_body("admin")),
+    }
+    http = FakeHttpClient(routes)
+    graph = NetworkXGraphStore()
+    alpha, eng_id = _alpha(http, graph)
+
+    # Drive the FULL autonomous recon path — no hand-seeding.
+    alpha.run_recon(eng_id, _SITE_ROOT)
+
+    # Assert asset.rest_routes is populated (wp_rest_routes auto-fired).
+    asset = graph.get_node(f"asset:{_HOST}")
+    assert asset is not None
+    assert isinstance(asset.properties, AssetProperties)
+    assert len(asset.properties.rest_routes) > 0, (
+        "wp_rest_routes must auto-fire from the wp_fingerprint seed without hand-seeding"
+    )
+
+    # Assert wp_version_disclosure finding is recorded (wp_version auto-fired).
+    vulns = {n.id: n for n in graph.nodes_by_type(NodeType.VULNERABILITY)}
+    vuln_id = f"vuln:{_HOST}:wp_version_disclosure"
+    assert vuln_id in vulns, (
+        "wp_version must auto-fire from the wp_fingerprint seed without hand-seeding"
+    )

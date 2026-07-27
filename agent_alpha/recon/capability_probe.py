@@ -65,6 +65,16 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
         label="odoo",
         frontier_seeds=("/web/database/manager",),
     ),
+    # WordPress fingerprint: detects a WP surface and seeds /wp-json/ +
+    # /readme.html so the full WP battery (wp_rest_routes, wp_rest_users,
+    # woocommerce, wp_version) fires through the autonomous recon path.
+    # The 4 action specs below intentionally have NO frontier_seeds — deeper
+    # routes stay data-derived from the live /wp-json/ index (unchanged).
+    CapabilitySpec(
+        tool="wp_fingerprint",
+        label=constants.STACK_WP,
+        frontier_seeds=("/wp-json/", "/readme.html"),
+    ),
     # WordPress recon-depth battery (STACK_WP). Each is keyed on the stack
     # fingerprint via its own playbook; the label is the single WP tech_stack
     # SSOT (constants.STACK_WP). Route-surface escalation is filtered by
