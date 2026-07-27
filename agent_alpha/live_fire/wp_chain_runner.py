@@ -17,6 +17,7 @@ import argparse
 import dataclasses
 import pathlib
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -160,6 +161,7 @@ def run_wp_chain_live_fire(
         graph_store=graph_store,
         event_store=event_store,
         secrets_manager=secrets_manager,
+        scheme=urlparse(config.recon_url).scheme or "https",
     )
 
     # 2b) JS-bundle secret leak recon — generic, works for WP or SPA targets
@@ -286,6 +288,7 @@ def main(argv: list[str] | None = None) -> int:
             graph_store=graph_store,
             event_store=event_store,
             secrets_manager=secrets_manager,
+            scheme=urlparse(config.recon_url).scheme or "https",
         )
         js_creds_added = verify_js_secret_leak(
             engagement_id=rec.engagement_id,
