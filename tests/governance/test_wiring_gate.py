@@ -45,6 +45,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "wp_fingerprint": (
         "agents/alpha/scout.py",
     ),  # WP battery auto-seeds from fingerprint (PR #274 wiring)
+    "discovered_in_scope": (
+        "conductor/recon_runner.py",
+    ),  # §12.41: in-scope passive subdomains → recon targets
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
