@@ -2305,3 +2305,169 @@ autonomous `run_recon` path invokes it (RUNNER-SEAL ≠ WIRED).
 - #3 false success: this ADR EXISTS to prevent it — unverified LLM claim is never a finding.
 - #5 scope creep: closed enum of 3 classes; reach + classifier explicitly carved out.
 - #6/#7 duplication: one verifier per class; single static CVE catalogue.
+
+---
+
+### 12.41 Reach-class per host — entry-point differential + tiered transport — PROPOSED (lock on confirm)
+
+**Status:** PROPOSED. Phase 4 (reach). Supersedes the fragile body-shape classifier heuristic in
+PR #278. One build slice follows immediately (classifier demotion + host reach-class memo).
+
+---
+
+#### Context (grounded in bernofarm.com, Oracle run eng_9b865c17, 2026-07-28)
+
+From an Oracle (datacenter) IP, Cloudflare served a soft-200 JS interstitial ("One moment,
+please…", ~11.8 KB, `setTimeout`+`location.reload()`) on EVERY path. Observed failures:
+
+- `classify_response` returned OK on the soft-200 → the entire existing reach ladder
+  (`_attempt_reach` → `choose_reach` → `origin_direct_fetch` / `browser_solve`) NEVER triggered.
+  The camoufox reach capability already exists and is injected on the autonomous path
+  (`recon_runner.py:178,260`) — it was starved, not missing (Verdict.CHALLENGE is its only trigger).
+- Alpha sprayed ~21 paths, each httpx-fetched into the same challenge shell, each escalated to the
+  LLM tier → `generic_http_probe` → 21 wasted calls + 21 meaningless nodes (false-OK, token burn).
+- The PR #278 attempt to detect the soft-200 by BODY SHAPE (anchor/heading/reload-script counting)
+  is a heuristic in the classifier's anti-FP core; CodeRabbit found 3 Major defects (DoS via
+  `int()` on attacker-controlled digits, order-dependent meta-refresh regex, and — the important
+  one — a legitimate short redirect page mis-flagged as CHALLENGE). Perfect body-shape
+  classification of "challenge vs legit" is not achievable and does not belong in the classifier.
+
+Code facts that shape this decision (verified in `agents/alpha/scout.py`, `recon/reach_strategy.py`):
+- `_attempt_reach` already holds BOTH the httpx `resp` and the reach `_ReachResponse` → the
+  DIFFERENTIAL (httpx body vs reach body) is computable there for free.
+- `browser_solve.solve_and_fetch()` returns `.status_code/.body/.headers/.challenge_solved` — the
+  browser SELF-REPORTS whether it defeated a challenge. It does NOT expose cookies (`cf_clearance`).
+- `_ReachResponse` carries no cookies; `http_client` has no cookie injection → cf_clearance
+  session-replay is NOT supported without new plumbing (and CF increasingly binds cf_clearance to
+  the browser TLS fingerprint, so httpx replay is unreliable anyway).
+- Reach is consent-gated: `browser_solve` requires signed `allow_evasion`; `ORIGIN_DIRECT` requires
+  an authorized origin (`origin_discovery` ∩ `profile.authorized_origins`).
+- `_reach_attempted` is per-URL — there is NO per-host reach memo today.
+
+---
+
+#### Decision
+
+Reach-class is a per-host property, decided ONCE at first contact with the host, then applied to
+every path on that host. The classifier no longer VONIS challenge; it only supplies a cheap
+COST-GATE signal for whether to spend one browser probe.
+
+```
+On first _step_once for a NEW host (entry URL, e.g. the target root or a discovered subdomain):
+  1. httpx-fetch the entry.
+  2. COST-GATE (cheap, low-stakes): entry looks blocked / thin / reload-shell?  (loose signal)
+       NO  → reach_class[host] = CLEAR  (use httpx for all paths; no browser cost)
+       YES → ONE browser probe of the entry, then DIFFERENTIAL-VERIFY (below).
+  3. DIFFERENTIAL-VERIFY (empirical, FP-safe — the whole point):
+       confirmed challenge  iff  browser.challenge_solved AND browser body gained substantive
+                                  content the httpx body lacked.
+         → reach_class[host] = CHALLENGED_BROWSER  (route this host's paths via browser reach,
+            OR via ORIGIN_DIRECT if an authorized origin is known — origin-direct preferred).
+       not confirmed (browser body ≈ httpx body)  → reach_class[host] = CLEAR  (the cost-gate
+            false-fired; use the httpx content; ZERO false-positive harm).
+       browser could not solve (hard block / datacenter-IP reputation) → reach_class[host] =
+            HARD_BLOCKED → honest INCONCLUSIVE for that host (anti-#3).
+  4. Cache reach_class[host] (Alpha per-run, in-memory, reset each run_recon — like _reach_attempted).
+     All subsequent paths on the host use the cached transport; no re-classification, no re-spray.
+```
+
+**Cost-gate precision note:** the cost-gate fires only when the httpx response is NOT `Verdict.OK`
+OR the body is thin (< N KB) with a reload-signal present (`settimeout` / `location.reload` /
+short `<meta http-equiv="refresh">`). A clean HTTP 200 with substantive content never triggers
+browser cost — the host is CLEAR immediately. This prevents browser probes on the majority of
+subdomains discovered via crt.sh (most return clean 200s or simple 404s).
+
+FP is eliminated empirically, not heuristically: a legitimate reload/thin page that trips the loose
+cost-gate costs at most ONE browser probe to disconfirm, after which the host is CLEAR and never
+re-suspected. A false cost-gate never discards real content and never mints a false finding.
+
+Priority within CHALLENGED: **ORIGIN_DIRECT first** (if an authorized origin is discovered — cheap,
+skips CF's front door entirely, no challenge to solve), browser reach second, honest block third.
+`choose_reach` already encodes ORIGIN_DIRECT > EVASION; this ADR makes the decision host-level and
+cached rather than per-URL and repeated.
+
+---
+
+#### Explicitly NOT in scope (anti-over-engineering / anti-Lyndon)
+
+- **No cf_clearance session-replay.** Uncertain payoff (CF fingerprint-binding), needs new
+  browser_solve + http_client cookie plumbing. A CHALLENGED_BROWSER host routes its paths through
+  the browser directly. Revisit only if browser-per-path cost proves prohibitive AND origin-direct
+  coverage is low.
+- **No perfect body-shape challenge classifier.** The reload-shape signal is demoted to a loose
+  cost-gate, never a content verdict. PR #278's shape heuristic is reverted to that role (its DoS +
+  regex defects disappear with it; keep only a bounded, cheap "thin/reload-ish" hint).
+- **No cross-engagement reach persistence.** reach_class is Alpha per-run. Persisting it (so the
+  next engagement to the same host skips re-classification) is a Phase-6 refinement, not now.
+
+---
+
+#### Consent gate (SOW prerequisite — operational, not code)
+
+Browser reach fires only with signed `allow_evasion`; origin-direct only with an authorized origin.
+On a real engagement (e.g. bernofarm), reach stays dormant — correctly — until the SOW consents to
+evasion. The ADR does not soften this gate.
+
+---
+
+#### Integration point
+
+`scout._step_once`: on the first pop of a URL for a host not in `self._reach_class`, run
+`_classify_host_reach(entry_resp)` and cache the result; route the current and subsequent paths per
+the cached class. The reload/thin cost-gate replaces the PR #278 `_is_reload_interstitial` verdict
+path in `response_classifier` — the classifier returns a cheap boolean hint, not Verdict.CHALLENGE.
+`_attempt_reach` is reused unchanged for the browser/origin dispatch; the differential compare is
+added where it already holds both bodies. Register the host-reach path as wiring-debt in
+`tests/governance/test_wiring_gate.py` until `run_recon` exercises it end-to-end.
+
+---
+
+#### Test contract (RED-first; cardinal must fail before the change)
+
+- `test_legit_reload_page_classified_clear_no_false_challenge` (CARDINAL): entry is a legit short
+  page (heading + text + one link + a same-site reload) → cost-gate may fire → browser probe returns
+  ≈ same content → reach_class = CLEAR, content USED, 0 findings-from-misclassification. (FP-safe.)
+- `test_cf_soft200_entry_classified_challenged_and_reached`: entry is a CF soft-200 shell; browser
+  probe returns substantive real content + challenge_solved → reach_class = CHALLENGED, reach body
+  used for subsequent paths.
+- `test_challenged_host_probes_browser_once_not_per_path`: N paths on a challenged host → exactly
+  ONE browser probe (memo holds), not N. (Kills the 21-spray token burn.)
+- `test_origin_direct_preferred_when_authorized_origin_known`: CHALLENGED + authorized origin →
+  ORIGIN_DIRECT, browser not invoked.
+- `test_hard_block_is_inconclusive_not_ok`: browser cannot solve → INCONCLUSIVE, never false-OK.
+
+---
+
+#### Consequences / risks
+
+- Browser cost bounded to ~one probe per suspected host (not per path). Non-CF hosts pay zero
+  browser cost (cost-gate stays NO). Preserves the httpx cost moat.
+- Datacenter-IP reputation hard-blocks remain unsolved by any code — residential/mobile proxy =
+  infra. This ADR closes the JS-challenge + fingerprint-common case, not IP-reputation hard-blocks.
+- "Substantive content gained" is a threshold, but the two cases are bimodal (challenge shell of
+  spinner/script vs a real page) — plus `challenge_solved` is the primary signal, the differential
+  only guards against a browser that reports solved yet returns nothing new.
+
+---
+
+#### Build slice order
+
+1. **slice-1** (this ADR's core): demote `response_classifier` reload-shape to a cheap cost-gate
+   hint (revert PR #278 verdict path + its 3 defects) + `_classify_host_reach` (entry differential)
+   + per-run `reach_class` memo in `_step_once`. RED-first per the cardinal above.
+2. **slice-2**: ORIGIN_DIRECT-first preference within CHALLENGED (depends on origin discovery /
+   subdomain wiring, §12.38) + wiring-gate promotion.
+
+---
+
+#### Lyndon check
+
+- #1 feature-before-foundation: NO — closes a proven real-target reach failure; reuses the existing
+  reach ladder; one slice, build follows.
+- #2 dead code / runner-seal: the reach ladder is wired but starved; this slice makes it fire on the
+  autonomous path; wiring-debt gate enforces it.
+- #3 false success: the whole design replaces a heuristic verdict with an empirical (browser-proven)
+  one; a false cost-gate never fabricates a finding.
+- #5 scope creep: cookie-replay, perfect classifier, cross-engagement persist all explicitly carved out.
+- #6/#7 duplication: reuses `_attempt_reach` / `choose_reach` (no second reach path); reach_class is
+  a single per-host memo, single source.

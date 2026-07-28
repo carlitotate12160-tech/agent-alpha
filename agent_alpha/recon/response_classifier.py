@@ -135,6 +135,29 @@ _NOT_FOUND_STATUS_CODES: frozenset[int] = frozenset({404, 410})
 _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES: frozenset[int] = frozenset({415})
 
 
+# --- Reload-shell cost-gate hint (ADR §12.41) ---------------------------------
+#
+# A cheap, safe boolean hint for the reach layer — NOT a Verdict.  The
+# classifier no longer votes CHALLENGE on body shape (PR #278 reverted);
+# this hint lets ``scout._classify_host_reach`` decide whether to spend one
+# browser probe.  No delay parsing, no int(), no counting.
+RELOAD_SHELL_MAX_BYTES = 15000
+
+
+def is_reload_shell(body: str) -> bool:
+    """Return True if *body* looks like a thin reload/refresh shell.
+
+    This is a COST-GATE hint for the reach layer only — never a verdict.
+    A small body with a ``location.reload()`` or ``<meta http-equiv="refresh">``
+    signal is *suspicious* and may warrant a browser probe, but it is never
+    classified as ``CHALLENGE`` by ``classify_response``.
+    """
+    b = body.lower()
+    return len(body) < RELOAD_SHELL_MAX_BYTES and (
+        "location.reload(" in b or 'http-equiv="refresh"' in b or "http-equiv='refresh'" in b
+    )
+
+
 def _is_challenge(body: str, headers: dict[str, str] | None) -> bool:
     """Return True if body matches CHALLENGE rules.
 

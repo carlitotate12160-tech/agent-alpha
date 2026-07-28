@@ -211,3 +211,60 @@ def test_js_secret_probe_uses_canonical_classifier() -> None:
         "js_secret_probe still hand-rolls its 403/429/503 WAF check — migrate it to the "
         "canonical classify_response so the rule has a single source of truth (anti-#7)"
     )
+
+
+# ---------------------------------------------------------------------------
+# D2 — CF soft-200 reload shell is NOT a CHALLENGE verdict (ADR §12.41)
+# ---------------------------------------------------------------------------
+
+_CF_SOFT200_SHELL = (
+    "<html>\n<head>\n<title>One moment, please...</title>\n"
+    "<style>\n"
+    "#cf-spinner-please-wait { spinner-styles }\n"
+    ".spinner { border: 4px solid rgba(0,0,0,.1); border-radius: 50%; }\n"
+    "</style>\n</head>\n<body>\n"
+    '<div id="cf-spinner-please-wait">\n'
+    '<div class="spinner"></div>\n'
+    "<p>One moment, please...</p>\n"
+    "</div>\n"
+    "<script>\n"
+    "setTimeout(function(){window.location.reload();},5000);\n"
+    "</script>\n</body>\n</html>\n"
+    "<!-- padding to ~11.8KB -->\n" + (" " * 11000) + "\n"
+)
+
+
+def test_reload_shell_body_is_not_a_challenge_verdict() -> None:
+    """ADR §12.41: the classifier no longer votes CHALLENGE on body shape.
+    A CF soft-200 reload shell returns OK — the reach layer (scout._classify_host_reach)
+    decides via empirical browser probe, not a heuristic verdict."""
+    verdict = classify_response(
+        status_code=200,
+        body=_CF_SOFT200_SHELL,
+        headers={"server": "cloudflare", "cf-ray": "abc123"},
+    )
+    assert verdict is Verdict.OK, (
+        f"CF soft-200 reload shell classified as {verdict} instead of OK — "
+        "PR #278 body-shape heuristic must be reverted (ADR §12.41)"
+    )
+
+
+def test_is_reload_shell_hint_fires_on_soft200() -> None:
+    """The cost-gate hint fires on a CF soft-200 shell so the reach layer
+    knows to probe — but it is a boolean hint, never a Verdict."""
+    from agent_alpha.recon.response_classifier import is_reload_shell
+
+    assert is_reload_shell(_CF_SOFT200_SHELL) is True, (
+        "is_reload_shell must fire on a thin reload shell so the reach layer probes"
+    )
+
+
+def test_is_reload_shell_hint_does_not_fire_on_real_content() -> None:
+    """The cost-gate hint must NOT fire on a large real page even if it
+    contains a reload script — only thin shells are suspicious."""
+    from agent_alpha.recon.response_classifier import is_reload_shell
+
+    big_page = "<html><body><p>real content</p>" + ("x" * 20000) + "</body></html>"
+    assert is_reload_shell(big_page) is False, (
+        "is_reload_shell must not fire on a large real page (>15KB)"
+    )
