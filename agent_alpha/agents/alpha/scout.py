@@ -542,7 +542,7 @@ class Alpha:
                 verdict is Verdict.OK and is_reload_shell(resp.text)
             )
             if cost_gate:
-                self._reach_class[host] = self._classify_host_reach(url, resp, verdict)
+                self._reach_class[host] = self._classify_host_reach(url, resp)
             else:
                 self._reach_class[host] = "clear"
         elif host and self._reach_class.get(host) == "clear":
@@ -614,7 +614,7 @@ class Alpha:
 
     # ── Private: per-host reach-class (ADR §12.41) ───────────────
 
-    def _classify_host_reach(self, url: str, httpx_resp: Any, httpx_verdict: Verdict) -> str:
+    def _classify_host_reach(self, url: str, httpx_resp: Any) -> str:
         """Empirically classify a host's reach via a single browser probe.
 
         Returns ``"clear"``, ``"challenged"``, ``"blocked"``, or
@@ -642,14 +642,15 @@ class Alpha:
         except RuntimeError:
             return "blocked"
 
-        # challenge_solved is the authoritative signal from our own browser.
-        # httpx_verdict distinguishes a hard block (httpx 403 → BLOCKED)
-        # from a legit page (httpx 200 SPA) — both have challenge_solved=False
-        # but only the hard block should be memoized "blocked".
+        # challenge_encountered + challenge_solved are the authoritative
+        # signals from our own browser.
+        # - No challenge encountered → "clear" (legit page, browser confirms)
+        # - Challenge encountered and solved → "challenged" (use browser body)
+        # - Challenge encountered but NOT solved → "blocked" (can't reach)
         if r.challenge_solved:
             self._reach_body_cache[host] = r
             return "challenged"
-        if httpx_verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+        if r.challenge_encountered:
             return "blocked"
         return "clear"
 
