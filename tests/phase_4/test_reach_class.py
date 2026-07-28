@@ -80,6 +80,7 @@ class _BrowserResult:
     body: str
     headers: dict[str, str]
     challenge_solved: bool
+    challenge_encountered: bool = False
 
 
 class _FakeBrowserSolve:
@@ -191,6 +192,7 @@ def test_legit_reload_page_classified_clear_content_used() -> None:
             body=_LEGIT_RELOAD_PAGE,
             headers={},
             challenge_solved=False,
+            challenge_encountered=False,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -227,6 +229,7 @@ def test_cf_soft200_challenged_uses_browser_body() -> None:
             body=_RICH_WP,
             headers={"server": "cloudflare"},
             challenge_solved=True,
+            challenge_encountered=True,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -285,6 +288,7 @@ def test_js_spa_not_mislabeled_challenged() -> None:
             body=spa_rendered,
             headers={},
             challenge_solved=False,  # NOT a solved challenge — just a SPA
+            challenge_encountered=False,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -323,6 +327,7 @@ def test_challenged_host_entry_analyzed_then_subsequent_paths_skipped() -> None:
             body=_RICH_WP,
             headers={"server": "cloudflare"},
             challenge_solved=True,
+            challenge_encountered=True,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -360,6 +365,56 @@ def test_challenged_host_entry_analyzed_then_subsequent_paths_skipped() -> None:
     # Verify the entry body was consumed (popped from cache)
     assert host not in alpha._reach_body_cache, (
         "The entry body was not consumed — it should have been popped from cache"
+    )
+
+
+def test_hard_block_browser_fail_is_blocked_not_clear() -> None:
+    """CARDINAL: httpx returns 403 (verdict BLOCKED) + browser cannot solve
+    the challenge → reach_class == "blocked"; subsequent paths on the same
+    host are SKIPPED (INCONCLUSIVE); browser_solve invoked EXACTLY ONCE
+    (entry classify), never per-path.
+    RED today: returns "clear" → browser called repeatedly."""
+    # CF block page served on httpx 403
+    cf_block_body = (
+        "<html>\n<head>\n<title>Attention Required! | Cloudflare</title>\n"
+        "</head>\n<body>\n"
+        "<h1>Attention Required!</h1>\n"
+        "<p>Sorry, you have been blocked.</p>\n"
+        "</body>\n</html>\n"
+    )
+    browser = _FakeBrowserSolve(
+        _BrowserResult(
+            status_code=403,
+            body=cf_block_body,
+            headers={"server": "cloudflare"},
+            challenge_solved=False,
+        )
+    )
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={
+            _SEED: _Resp(403, cf_block_body, {"server": "cloudflare"}, _SEED),
+            _PATH2: _Resp(403, cf_block_body, {"server": "cloudflare"}, _PATH2),
+        },
+        browser_solve=browser,
+    )
+    alpha._engagement_id = eng
+    alpha.enqueue_discovered_url(_PATH2)
+    alpha.run_recon(eng, _SEED)
+
+    host = urlparse(_SEED).hostname or ""
+    assert alpha._reach_class.get(host) == "blocked", (
+        f"Hard-blocked host classified as {alpha._reach_class.get(host)!r} — "
+        "must be 'blocked' (httpx 403 BLOCKED + browser failed to solve)"
+    )
+    # Browser called exactly once (entry classify), not per-path
+    assert len(browser.calls) == 1, (
+        f"Browser called {len(browser.calls)} times — must be exactly 1 "
+        "(entry classify only, not per-path spray)"
+    )
+    # Both paths SKIPPED — orchestrator never called on a blocked host
+    assert len(orchestrator.calls) == 0, (
+        f"Orchestrator called {len(orchestrator.calls)} times — "
+        "must be 0 (all paths on a blocked host are INCONCLUSIVE-skipped)"
     )
 
 

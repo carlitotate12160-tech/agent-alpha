@@ -542,7 +542,7 @@ class Alpha:
                 verdict is Verdict.OK and is_reload_shell(resp.text)
             )
             if cost_gate:
-                self._reach_class[host] = self._classify_host_reach(url, resp)
+                self._reach_class[host] = self._classify_host_reach(url, resp, verdict)
             else:
                 self._reach_class[host] = "clear"
 
@@ -599,7 +599,7 @@ class Alpha:
 
     # ── Private: per-host reach-class (ADR §12.41) ───────────────
 
-    def _classify_host_reach(self, url: str, httpx_resp: Any) -> str:
+    def _classify_host_reach(self, url: str, httpx_resp: Any, httpx_verdict: Verdict) -> str:
         """Empirically classify a host's reach via a single browser probe.
 
         Returns ``"clear"``, ``"challenged"``, ``"blocked"``, or
@@ -628,12 +628,14 @@ class Alpha:
             return "blocked"
 
         # challenge_solved is the authoritative signal from our own browser.
-        # No size heuristic (gained) — it creates false negatives when the
-        # real page is similar in size to the shell.  No stack-specific
-        # tokens ("wp-content") — violates the general-not-per-stack rule.
+        # httpx_verdict distinguishes a hard block (httpx 403 → BLOCKED)
+        # from a legit page (httpx 200 SPA) — both have challenge_solved=False
+        # but only the hard block should be memoized "blocked".
         if r.challenge_solved:
             self._reach_body_cache[host] = r
             return "challenged"
+        if httpx_verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+            return "blocked"
         return "clear"
 
     # ── Private: reach strategy (Phase 2.5 — §12.33) ──────────────
