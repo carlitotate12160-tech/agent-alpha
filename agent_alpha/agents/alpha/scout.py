@@ -53,6 +53,7 @@ from agent_alpha.recon.response_classifier import (  # noqa: F401
     VOLATILE_HEADERS,
     Verdict,
     classify_response,
+    is_json_response,
     is_reload_shell,
 )
 from agent_alpha.recon.surface_discovery import extract_api_surface
@@ -297,6 +298,13 @@ class Alpha:
             return rule_only(observation, exclude_tools=frozenset(self._ran_campaigns))
         return rule_only(observation)
 
+    def _tool_applies(self, tool: str, resp: Any) -> bool:
+        """A JSON-body tool is inapplicable to a non-JSON response. Every
+        other tool (header/regex/generic) has no body-shape precondition."""
+        if tool not in constants.JSON_BODY_TOOLS:
+            return True
+        return is_json_response(resp.headers.get("content-type", ""), resp.text)
+
     def _step_once(self, context: dict[str, object]) -> dict[str, object]:  # noqa: C901
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
         scratchpad = context.get("scratchpad")
@@ -466,7 +474,28 @@ class Alpha:
         nodes_added = 0
 
         handler = self._dispatch_registry.get(decision.tool)
-        if handler is not None:
+        if handler is not None and not self._tool_applies(decision.tool, resp):
+            # Deterministic tool/content mismatch. NOT a silent 0 (anti-#3):
+            # record the mismatch as evidence, then fall back ONCE to the
+            # header-only generic probe, which is applicable to any body.
+            self._emit(
+                "ORIENT",
+                f"{decision.tool} requires a JSON body; {url} returned "
+                f"{resp.headers.get('content-type', 'unknown')} — "
+                "re-routing to generic_http_probe",
+            )
+            self.event_store.append(
+                EventType.PASSIVE_DISCOVERY,
+                self._engagement_id,
+                "alpha",
+                {
+                    "url": url,
+                    "reason": "tool_content_mismatch",
+                    "selected_tool": decision.tool,
+                },
+            )
+            nodes_added = self._handle_generic_probe(resp, url)
+        elif handler is not None:
             nodes_added = handler(resp, decision, url)
         else:
             # Generic probe: optionally record an ASSET node from headers,

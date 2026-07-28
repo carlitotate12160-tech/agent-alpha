@@ -19,6 +19,7 @@ import httpx
 from agent_alpha.config import constants
 from agent_alpha.config.constants import RECON_TOOL_CATALOG
 from agent_alpha.llm import redaction
+from agent_alpha.recon.response_classifier import is_json_response
 from agent_alpha.tools.playbook import PlaybookDecision, PlaybookEngine
 
 
@@ -154,7 +155,14 @@ class LLMOrchestrator:
         exclude_tools: frozenset[str] = frozenset(),
     ) -> list[dict[str, str]]:
         """Construct the chat messages for a single-LLM tool selection."""
-        catalog_str = ", ".join(sorted(RECON_TOOL_CATALOG))
+        # Enforcement 1 (ORIENT catalog filter): hide JSON-body tools when
+        # the observed response is not JSON-shaped (anti-#3, anti-blind-select).
+        headers = observation.get("headers", {}) or {}
+        content_type = next((v for k, v in headers.items() if k.lower() == "content-type"), "")
+        applicable = RECON_TOOL_CATALOG
+        if not is_json_response(content_type, observation.get("body", "")):
+            applicable = RECON_TOOL_CATALOG - constants.JSON_BODY_TOOLS
+        catalog_str = ", ".join(sorted(applicable))
         parts: list[str] = [
             "You are a security-tool selector. Given an HTTP "
             "observation, choose the single most appropriate tool "
