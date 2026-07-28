@@ -252,9 +252,71 @@ def test_cf_soft200_challenged_uses_browser_body() -> None:
     )
 
 
-def test_challenged_host_classified_once_paths_reuse_memo() -> None:
-    """A 2nd path on a challenged host does NOT re-invoke browser (memo holds).
-    A 'blocked' host's later paths are SKIPPED."""
+def test_js_spa_not_mislabeled_challenged() -> None:
+    """CARDINAL: a JS-SPA whose browser DOM is richer than the httpx thin
+    shell but challenge_solved=False must be 'clear' — NOT 'challenged'.
+    The orchestrator must analyze the httpx body (the SPA shell), not the
+    browser body.  RED today (pre-fix: gained alone → challenged)."""
+    # SPA shell (httpx sees a thin JS loader)
+    spa_shell = (
+        "<html>\n<head>\n<title>App</title>\n"
+        '<script src="/app.js"></script>\n'
+        "</head>\n<body>\n"
+        '<div id="root"></div>\n'
+        "</body>\n</html>\n"
+    )
+    # Browser-rendered SPA (much richer DOM, but NOT a solved challenge)
+    spa_rendered = (
+        "<html>\n<head>\n<title>App</title>\n"
+        '<script src="/app.js"></script>\n'
+        "</head>\n<body>\n"
+        '<div id="root">\n'
+        "<nav><a href='/dashboard'>Dashboard</a><a href='/settings'>Settings</a></nav>\n"
+        "<main><h1>Welcome back</h1><p>Your projects:</p>\n"
+        "<ul><li>Project Alpha</li><li>Project Beta</li><li>Project Gamma</li></ul>\n"
+        "</main>\n"
+        "<footer>© 2026 App Inc.</footer>\n"
+        "</div>\n"
+        "</body>\n</html>\n"
+    )
+    browser = _FakeBrowserSolve(
+        _BrowserResult(
+            status_code=200,
+            body=spa_rendered,
+            headers={},
+            challenge_solved=False,  # NOT a solved challenge — just a SPA
+        )
+    )
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={_SEED: _Resp(200, spa_shell, {"server": "nginx"}, _SEED)},
+        browser_solve=browser,
+    )
+    alpha.run_recon(eng, _SEED)
+
+    host = urlparse(_SEED).hostname or ""
+    assert alpha._reach_class.get(host) == "clear", (
+        f"JS-SPA classified as {alpha._reach_class.get(host)!r} — "
+        "must be 'clear' (challenge_solved=False, browser DOM is just a rendered SPA)"
+    )
+    # The orchestrator must have analyzed the httpx body (SPA shell), not the browser body
+    assert len(orchestrator.calls) > 0, (
+        "SPA page was not analyzed — orchestrator.decide() was never called"
+    )
+    analyzed_body = orchestrator.calls[0].get("body", "")
+    assert '<div id="root"></div>' in analyzed_body, (
+        "The httpx SPA shell was not passed to the orchestrator — "
+        "the browser-rendered body was used instead (mislabel as challenged)"
+    )
+    # No WAF_BLOCKED event
+    waf_events = [e for e in store.get_events(eng) if e.event_type == EventType.WAF_BLOCKED]
+    assert waf_events == [], "A clear host must not emit WAF_BLOCKED"
+
+
+def test_challenged_host_entry_analyzed_then_subsequent_paths_skipped() -> None:
+    """A challenged host — the ENTRY path is analyzed via the browser body
+    (browser called exactly once); a SECOND path on the same host is SKIPPED
+    (INCONCLUSIVE, orchestrator NOT called for it, browser NOT called again).
+    Replaces test_challenged_host_classified_once_paths_reuse_memo."""
     browser = _FakeBrowserSolve(
         _BrowserResult(
             status_code=200,
@@ -270,14 +332,34 @@ def test_challenged_host_classified_once_paths_reuse_memo() -> None:
         },
         browser_solve=browser,
     )
+    # Manually enqueue _PATH2 so both paths are visited
+    alpha._engagement_id = eng
+    alpha.enqueue_discovered_url(_PATH2)
     alpha.run_recon(eng, _SEED)
 
     host = urlparse(_SEED).hostname or ""
     assert alpha._reach_class.get(host) == "challenged"
+
     # Browser called exactly once for the host (not per-path)
     assert len(browser.calls) == 1, (
         f"Browser called {len(browser.calls)} times on a challenged host — "
-        "memo must hold: exactly 1 probe per host, not per path"
+        "must be exactly 1 probe per host, not per path"
+    )
+
+    # Entry path: orchestrator was called with the browser body
+    assert len(orchestrator.calls) == 1, (
+        f"Orchestrator called {len(orchestrator.calls)} times — "
+        "must be exactly 1 (entry path only; subsequent path skipped)"
+    )
+    analyzed_body = orchestrator.calls[0].get("body", "")
+    assert "wp-content" in analyzed_body or "Welcome" in analyzed_body, (
+        "Entry path was not analyzed with the browser body"
+    )
+
+    # Second path: must be SKIPPED (not analyzed)
+    # Verify the entry body was consumed (popped from cache)
+    assert host not in alpha._reach_body_cache, (
+        "The entry body was not consumed — it should have been popped from cache"
     )
 
 
