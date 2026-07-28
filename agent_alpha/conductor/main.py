@@ -70,6 +70,7 @@ from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import TransientStoreError
 from agent_alpha.events.trace import project_engagement_trace
+from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
@@ -385,6 +386,13 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             if profile_origins:
                 task_origin_discovery = StaticOriginDiscovery(list(profile_origins))
 
+        # ── §12.41: wire browser_solve when the signed profile consents to evasion ──
+        task_browser_solve = None
+        task_browser_solve_viable = False
+        if engagement_profile is not None and getattr(engagement_profile, "allow_evasion", False):
+            task_browser_solve = DeepSeekBrowserSolve.from_env()
+            task_browser_solve_viable = task_browser_solve is not None
+
         run_result = recon_runner.run_recon_for_engagement(
             engagement_id,
             tenant_id,
@@ -396,6 +404,8 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             policy=policy,
             engagement_profile=engagement_profile,
             origin_discovery=task_origin_discovery,
+            browser_solve=task_browser_solve,
+            browser_solve_viable=task_browser_solve_viable,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report
