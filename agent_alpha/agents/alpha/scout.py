@@ -533,28 +533,43 @@ class Alpha:
         verdict: Verdict,
         resp: Any,
     ) -> dict[str, object] | None:
-        """Classify the host's reach on first contact. Returns a _finish
-        dict if the host is blocked (caller returns it), or None to
-        fall through to normal analysis / reach-body swap."""
+        """Classify the host's reach on first contact, or upgrade if a later
+        path shows new evidence. Returns a _finish dict only for honest
+        INCONCLUSIVE skips; None to fall through to normal analysis."""
         host = urlparse(url).hostname or ""
         if host and host not in self._reach_class:
             cost_gate = verdict in (Verdict.BLOCKED, Verdict.CHALLENGE) or (
                 verdict is Verdict.OK and is_reload_shell(resp.text)
             )
             if cost_gate:
-                self._reach_class[host] = self._classify_host_reach(url, resp, verdict)
+                self._reach_class[host] = self._classify_host_reach(url, resp)
             else:
                 self._reach_class[host] = "clear"
+        elif host and self._reach_class.get(host) == "clear":
+            # Upgrade: a later path shows shell or block evidence that the
+            # entry path did not. Re-probe to upgrade "clear" → "challenged".
+            upgrade_gate = verdict in (Verdict.BLOCKED, Verdict.CHALLENGE) or (
+                verdict is Verdict.OK and is_reload_shell(resp.text)
+            )
+            if upgrade_gate:
+                self._reach_class[host] = self._classify_host_reach(url, resp)
 
         cls = self._reach_class.get(host, "clear")
         if cls == "blocked":
-            return {
-                "discovered_nodes": 0,
-                "cost_usd": 0.0,
-                "scratchpad": {
-                    "observations": [f"OBSERVE: {url} host reach-blocked; skipped (INCONCLUSIVE)"]
-                },
-            }
+            # Browser probe failed. If the current body is a shell, honest
+            # skip — we can't reach real content. If it's NOT a shell, fall
+            # through to normal analysis (FP-safe: don't discard real content).
+            if is_reload_shell(resp.text) or verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+                return {
+                    "discovered_nodes": 0,
+                    "cost_usd": 0.0,
+                    "scratchpad": {
+                        "observations": [
+                            f"OBSERVE: {url} host reach-blocked; skipped (INCONCLUSIVE)"
+                        ]
+                    },
+                }
+            return None
         if cls == "challenged" and host not in self._reach_body_cache:
             # Entry body already consumed; without a cf_clearance session we
             # cannot fetch deeper paths' real content — honest skip (slice-2
@@ -599,7 +614,7 @@ class Alpha:
 
     # ── Private: per-host reach-class (ADR §12.41) ───────────────
 
-    def _classify_host_reach(self, url: str, httpx_resp: Any, httpx_verdict: Verdict) -> str:
+    def _classify_host_reach(self, url: str, httpx_resp: Any) -> str:
         """Empirically classify a host's reach via a single browser probe.
 
         Returns ``"clear"``, ``"challenged"``, ``"blocked"``, or
@@ -627,14 +642,15 @@ class Alpha:
         except RuntimeError:
             return "blocked"
 
-        # challenge_solved is the authoritative signal from our own browser.
-        # httpx_verdict distinguishes a hard block (httpx 403 → BLOCKED)
-        # from a legit page (httpx 200 SPA) — both have challenge_solved=False
-        # but only the hard block should be memoized "blocked".
+        # challenge_encountered + challenge_solved are the authoritative
+        # signals from our own browser.
+        # - No challenge encountered → "clear" (legit page, browser confirms)
+        # - Challenge encountered and solved → "challenged" (use browser body)
+        # - Challenge encountered but NOT solved → "blocked" (can't reach)
         if r.challenge_solved:
             self._reach_body_cache[host] = r
             return "challenged"
-        if httpx_verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+        if r.challenge_encountered:
             return "blocked"
         return "clear"
 

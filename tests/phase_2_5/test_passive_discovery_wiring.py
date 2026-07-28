@@ -175,3 +175,104 @@ def test_discovery_failure_is_non_fatal_fail_open(monkeypatch: pytest.MonkeyPatc
         "a crt.sh failure aborted the whole engagement — OSINT must be fail-open"
     )
     assert tuple(result.enumerated_hosts) == ()  # no surface, but no crash
+
+
+# ── §12.41 CARDINAL: in-scope passive subdomains become recon targets ──────
+
+_INSCOPE_SUB = "a.ex.com"  # discovered subdomain, IS in SOW → in_scope
+_OOS_HOST = "b.other.com"  # discovered subdomain, NOT in SOW → enumerated
+_SCOPE_ROOT = "ex.com"
+_SCOPE_TARGET_URL = f"https://{_SCOPE_ROOT}"
+
+# crt.sh returns both hosts; PassiveDiscovery partitions via is_in_scope.
+_INSCOPE_CRTSH_JSON = (
+    f'[{{"name_value":"{_INSCOPE_SUB}"}},{{"name_value":"{_OOS_HOST}"}}]'
+)
+
+
+class _InScopeCrtShClient:
+    def get(self, url: str, timeout: float = 10.0) -> _Resp:
+        return _Resp(200, _INSCOPE_CRTSH_JSON, {}, url)
+
+
+def test_in_scope_subdomains_become_recon_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CARDINAL (§12.41): passive discovery returning in_scope=('a.ex.com',) +
+    enumerated=('b.other.com',) → run_recon is invoked for https://a.ex.com/
+    AND NOT for the enumerated host.
+
+    RED before the fix: result.in_scope was silently discarded by the
+    discovery loop — only result.enumerated was collected.
+    """
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    # Scope contains BOTH root AND the subdomain (exact-match; is_in_scope
+    # does NOT do wildcard matching — that is a separate auth ADR).
+    rec = auth.create_engagement("client_scope", _SCOPE_ROOT)
+    auth.enable_recon(
+        rec.engagement_id,
+        Scope(ip_ranges=[], domains=[_SCOPE_ROOT, _INSCOPE_SUB], exclusions=[]),
+    )
+
+    graph = NetworkXGraphStore()
+    monkeypatch.setattr(
+        recon_runner,
+        "build_recon_pipeline",
+        lambda *a, **k: _fake_pipeline(auth, graph, store),
+    )
+    monkeypatch.setattr(
+        recon_runner, "resolve_recon_targets", lambda record: [_SCOPE_TARGET_URL]
+    )
+
+    def _build_pd(*a: object, **k: object) -> PassiveDiscovery:
+        return PassiveDiscovery(
+            http_client=_InScopeCrtShClient(),
+            authorization=auth,
+            event_store=store,
+        )
+
+    monkeypatch.setattr(recon_runner, "build_passive_discovery", _build_pd)
+
+    # Track which URLs run_recon is called with.
+    recon_calls: list[str] = []
+    original_run_recon = Alpha.run_recon
+
+    def _tracking_run_recon(self: Any, engagement_id: str, target_url: str) -> Any:
+        recon_calls.append(target_url)
+        return original_run_recon(self, engagement_id, target_url)
+
+    monkeypatch.setattr(Alpha, "run_recon", _tracking_run_recon)
+
+    result = recon_runner.run_recon_for_engagement(
+        engagement_id=rec.engagement_id,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+    )
+
+    # CARDINAL assertion 1: in-scope subdomain IS probed as a recon target.
+    assert f"https://{_INSCOPE_SUB}/" in recon_calls, (
+        f"in-scope subdomain {_INSCOPE_SUB!r} was not probed by run_recon — "
+        f"result.in_scope is still silently discarded (RUNNER-SEAL ≠ WIRED). "
+        f"Actual run_recon calls: {recon_calls}"
+    )
+
+    # CARDINAL assertion 2: out-of-scope enumerated host is NOT probed.
+    oos_urls = [u for u in recon_calls if _OOS_HOST in u]
+    assert oos_urls == [], (
+        f"enumerated (out-of-scope) host {_OOS_HOST!r} was probed by run_recon — "
+        f"only result.in_scope hosts should become targets. Calls: {recon_calls}"
+    )
+
+    # CARDINAL assertion 3: the original scope target is still probed.
+    assert _SCOPE_TARGET_URL in recon_calls, (
+        f"original scope target {_SCOPE_TARGET_URL!r} was not probed — "
+        f"in-scope subdomain injection must not replace existing targets."
+    )
+
+    # Sanity: result metadata is coherent.
+    assert result is not None
+    assert result.targets_scanned >= 2  # root + in-scope subdomain
+

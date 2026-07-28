@@ -265,6 +265,7 @@ def run_recon_for_engagement(
 
     # ── Passive crt.sh discovery (fail-open: crt.sh down must NOT break the engagement) ──
     enumerated: set[str] = set()
+    discovered_in_scope: set[str] = set()
     seen_hosts: set[str] = set()
     for url in targets:
         host = urlparse(url).hostname
@@ -275,6 +276,7 @@ def run_recon_for_engagement(
             pd = build_passive_discovery(engagement_id, auth, store)
             result = pd.discover(engagement_id, host)
             enumerated.update(result.enumerated)
+            discovered_in_scope.update(result.in_scope)
         except Exception:
             _log.warning(
                 "Passive discovery failed for %s (engagement %s) — continuing (fail-open)",
@@ -282,6 +284,14 @@ def run_recon_for_engagement(
                 engagement_id,
                 exc_info=True,
             )
+
+    # §12.41: extend targets with in-scope passive-discovered subdomains that
+    # are not already targeted.  run_recon enforces auth/scope per-target, and
+    # in_scope means the host already passed is_in_scope — safe to probe.
+    for host in sorted(discovered_in_scope):
+        u = f"https://{host}/"
+        if u not in targets:
+            targets.append(u)
 
     for url in targets:
         pipeline.alpha.run_recon(engagement_id, url)
