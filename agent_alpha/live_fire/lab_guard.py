@@ -167,6 +167,8 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
     LabHost("decoy.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
     LabHost("dead.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
     LabHost("hardened.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    # External field-prove target (bernofarm.com) — behind Cloudflare, for SOW testing
+    LabHost("bernofarm.com", "natanael", "dns-txt:agent-alpha=verified", "#278"),
 )
 
 # Derived allowlist — backward compatible with all 13 callers.
