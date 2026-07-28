@@ -474,3 +474,104 @@ def test_plugin_version_absent_no_cve_claim() -> None:
     alpha.run_recon(eng_id, _SITE_ROOT)
     assert not [n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
                 if getattr(n.properties, "cve_id", None)]
+
+
+# ── 16. CARDINAL: JSON-body tool on HTML re-routes, never silent 0 (anti-#3) ──
+
+
+def test_json_body_tool_on_html_reroutes_not_silent() -> None:
+    """GIVEN a scout stepping an HTTP-200 text/html product page, with a stub
+    orchestrator returning decision.tool == 'wp_rest_routes',
+    THEN nodes_added > 0 (an ASSET node from headers via generic probe)
+    AND an event with reason == 'tool_content_mismatch' is appended.
+
+    Pre-fix: nodes_added == 0, no event → FAIL. This is the cardinal test.
+    """
+    from agent_alpha.events.event_types import EventType
+
+    html_body = "<html><body><h1>Our Products</h1><p>Buy now!</p></body></html>"
+    routes = {
+        _SITE_ROOT: FakeResponse(
+            200, html_body, {"content-type": "text/html; charset=utf-8", "server": "nginx"}
+        ),
+    }
+
+    class _WpRestStubOrchestrator:
+        """Always returns wp_rest_routes regardless of content."""
+
+        def decide(self, observation):
+            return SimpleNamespace(
+                tool="wp_rest_routes", tier="single_llm", reasoning="stub", cost_usd=0.0
+            )
+
+        def decide_excluding(self, observation, *, exclude_tools=frozenset()):
+            return self.decide(observation)
+
+    http = FakeHttpClient(routes)
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement(client_id="wp_lab", target=_HOST)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_HOST], exclusions=[]))
+    alpha = Alpha(
+        authorization=auth,
+        graph_store=NetworkXGraphStore(),
+        event_store=store,
+        orchestrator=_WpRestStubOrchestrator(),
+        http_client=http,
+        secrets_manager=SecretsManager(),
+    )
+    alpha._engagement_id = rec.engagement_id
+    alpha._work_queue = [_SITE_ROOT]
+
+    result = alpha.step({"scratchpad": {}})
+    nodes_added = result.get("discovered_nodes", 0)
+    assert nodes_added > 0, (
+        "a JSON-body tool on an HTML page must re-route to generic_http_probe "
+        "and persist at least 1 ASSET node — not silently return 0 (Lyndon #3)"
+    )
+
+    mismatch_events = [
+        e for e in store.get_events(rec.engagement_id)
+        if e.event_type == EventType.PASSIVE_DISCOVERY
+        and e.payload.get("reason") == "tool_content_mismatch"
+    ]
+    assert len(mismatch_events) >= 1, (
+        "a tool/content mismatch must be recorded as an observable event "
+        "(reason='tool_content_mismatch'), not swallowed silently"
+    )
+
+
+# ── 17. REGRESSION: real JSON index still dispatches wp_rest_routes ───────────
+
+
+def test_json_index_still_dispatches_wp_rest_routes() -> None:
+    """A real /wp-json/ application/json index → _tool_applies True →
+    wp_rest_routes runs and persists its node (no behaviour lost)."""
+    json_body = _route_index(["/wp/v2/users", "/wp/v2/posts"])
+    graph = NetworkXGraphStore()
+    alpha, _ = _alpha(FakeHttpClient(), graph)
+
+    decision = SimpleNamespace(tool="wp_rest_routes")
+    added = alpha._handle_wp_rest_routes(
+        FakeResponse(200, json_body, {"content-type": "application/json"}),
+        decision,
+        _REST_ROOT,
+    )
+    assert added == 1, "a real JSON index must dispatch through wp_rest_routes normally"
+
+    # Verify the gate itself returns True for JSON content
+    resp = FakeResponse(200, json_body, {"content-type": "application/json"})
+    assert alpha._tool_applies("wp_rest_routes", resp) is True, (
+        "_tool_applies must return True for a JSON response"
+    )
+
+    # Verify the gate returns False for HTML content
+    html_resp = FakeResponse(200, "<html>not json</html>", {"content-type": "text/html"})
+    assert alpha._tool_applies("wp_rest_routes", html_resp) is False, (
+        "_tool_applies must return False for an HTML response"
+    )
+
+    # Non-JSON-body tools always pass the gate
+    assert alpha._tool_applies("git_exposure_probe", html_resp) is True, (
+        "_tool_applies must return True for non-JSON-body tools regardless of content"
+    )

@@ -123,10 +123,11 @@ def test_build_tool_select_messages_carries_exclude_tools() -> None:
     assert "HARD CONSTRAINT" in system_msg
     assert "PERMANENTLY OFF-LIMITS" in system_msg
     assert "MUST select a tool" in system_msg
-    # Catalog still present
-    from agent_alpha.config.constants import RECON_TOOL_CATALOG
+    # Catalog still present (applicable tools for this non-JSON observation)
+    from agent_alpha.config.constants import JSON_BODY_TOOLS, RECON_TOOL_CATALOG
 
-    for tool in RECON_TOOL_CATALOG:
+    applicable = RECON_TOOL_CATALOG - JSON_BODY_TOOLS  # non-JSON body → JSON tools hidden
+    for tool in applicable:
         assert tool in system_msg
 
 
@@ -220,3 +221,28 @@ def test_coercion_still_works_when_generic_not_excluded() -> None:
     )
     assert decision.tool == "generic_http_probe"
     assert decision.tier == constants.LLM_TIER_SINGLE
+
+
+# ---------------------------------------------------------------------------
+# Enforcement 1 — ORIENT catalog filter hides JSON-body tools for HTML
+# ---------------------------------------------------------------------------
+
+
+def test_html_observation_hides_json_tools() -> None:
+    """GIVEN observation headers content-type == 'text/html; charset=utf-8'
+    THEN the system message catalog string contains none of
+    wp_rest_routes / wp_rest_users / woocommerce,
+    AND still contains generic_http_probe."""
+    obs = {
+        "body": "<html><body>Product page</body></html>",
+        "headers": {"Content-Type": "text/html; charset=utf-8"},
+    }
+    messages = LLMOrchestrator._build_tool_select_messages(obs)
+    system_msg = messages[0]["content"]
+    for hidden in ("wp_rest_routes", "wp_rest_users", "woocommerce"):
+        assert hidden not in system_msg, (
+            f"{hidden} must not appear in the catalog for an HTML observation"
+        )
+    assert "generic_http_probe" in system_msg, (
+        "generic_http_probe must always remain in the catalog"
+    )

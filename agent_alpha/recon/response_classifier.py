@@ -309,3 +309,15 @@ def classify_response(
     if status_code in _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES:
         return Verdict.UNSUPPORTED_MEDIA_TYPE
     return Verdict.OK
+
+
+def is_json_response(content_type: str, body: str) -> bool:
+    """True iff the response is JSON-shaped.
+
+    A lying/absent Content-Type is tolerated by also inspecting the body's
+    first non-space byte, so a WAF/reach path that strips the header does
+    not misclassify a real JSON index as HTML.
+    """
+    if "json" in content_type.lower():
+        return True
+    return body.lstrip()[:1] in ("{", "[")

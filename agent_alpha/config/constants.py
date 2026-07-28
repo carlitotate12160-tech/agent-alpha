@@ -75,6 +75,7 @@ __all__ = [
     "DEEPSEEK_PRICING_USD_PER_1K",
     "MAX_FP_RATE",
     "RECON_TOOL_CATALOG",
+    "JSON_BODY_TOOLS",
     "EVASION_CONSECUTIVE_BLOCKED_N",
     "EVASION_MAX_ESCALATIONS_PER_HOST",
     "TECHNIQUE_FOR_MITIGATION_CLASS",
@@ -398,6 +399,11 @@ RECON_TOOL_CATALOG: frozenset[str] = frozenset(
         "generic_http_probe",
     }
 )
+
+# Recon tools whose handler json.loads() the body — INAPPLICABLE to a
+# non-JSON response. Consulted at BOTH enforcement points (ORIENT catalog
+# filter + pre-dispatch gate). Single source of truth (anti-#6/#7).
+JSON_BODY_TOOLS: frozenset[str] = frozenset({"wp_rest_routes", "wp_rest_users", "woocommerce"})
 
 # ── Live-Fire Scoring (Phase 2) ───────────────────────────────
 # Phase 2 exit criterion: "<20% FP rate in findings"

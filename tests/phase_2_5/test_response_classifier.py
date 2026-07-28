@@ -331,3 +331,22 @@ def test_is_reload_shell_hint_does_not_fire_on_real_content() -> None:
     assert is_reload_shell(big_page) is False, (
         "is_reload_shell must not fire on a large real page (>15KB)"
     )
+
+
+# ---------------------------------------------------------------------------
+# J1 — is_json_response truth table (JSON-body tool precondition SSOT)
+# ---------------------------------------------------------------------------
+
+
+def test_is_json_response_truth_table() -> None:
+    """Four corners: header vs. body, JSON vs. non-JSON."""
+    from agent_alpha.recon.response_classifier import is_json_response
+
+    # JSON header + HTML body → True (header is authoritative)
+    assert is_json_response("application/json", "<html>oops</html>") is True
+    # text/html + JSON body → True (body inspection recovers a stripped header)
+    assert is_json_response("text/html", '{"routes": {}}') is True
+    # text/html + HTML body → False (neither signal)
+    assert is_json_response("text/html", "<html>product page</html>") is False
+    # empty body + no json header → False
+    assert is_json_response("", "") is False
