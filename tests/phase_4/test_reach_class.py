@@ -368,24 +368,32 @@ def test_challenged_host_entry_analyzed_then_subsequent_paths_skipped() -> None:
     )
 
 
-def test_challenge_not_solved_is_blocked() -> None:
-    """CF challenge encountered but browser couldn't solve it →
-    reach_class="blocked". Browser called exactly once; subsequent
-    paths on same host are skipped (no duplicate browser calls).
-    This is the alpha-ai.web.id real-world case."""
+def test_hard_block_browser_fail_is_blocked_not_clear() -> None:
+    """CARDINAL: httpx returns 403 (verdict BLOCKED) + browser cannot solve
+    the challenge → reach_class == "blocked"; subsequent paths on the same
+    host are SKIPPED (INCONCLUSIVE); browser_solve invoked EXACTLY ONCE
+    (entry classify), never per-path.
+    RED today: returns "clear" → browser called repeatedly."""
+    # CF block page served on httpx 403
+    cf_block_body = (
+        "<html>\n<head>\n<title>Attention Required! | Cloudflare</title>\n"
+        "</head>\n<body>\n"
+        "<h1>Attention Required!</h1>\n"
+        "<p>Sorry, you have been blocked.</p>\n"
+        "</body>\n</html>\n"
+    )
     browser = _FakeBrowserSolve(
         _BrowserResult(
             status_code=403,
-            body=_CF_SHELL,
+            body=cf_block_body,
             headers={"server": "cloudflare"},
             challenge_solved=False,
-            challenge_encountered=True,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
         routes={
-            _SEED: _Resp(200, _CF_SHELL, {"server": "cloudflare"}, _SEED),
-            _PATH2: _Resp(200, _CF_SHELL, {"server": "cloudflare"}, _PATH2),
+            _SEED: _Resp(403, cf_block_body, {"server": "cloudflare"}, _SEED),
+            _PATH2: _Resp(403, cf_block_body, {"server": "cloudflare"}, _PATH2),
         },
         browser_solve=browser,
     )
@@ -395,12 +403,18 @@ def test_challenge_not_solved_is_blocked() -> None:
 
     host = urlparse(_SEED).hostname or ""
     assert alpha._reach_class.get(host) == "blocked", (
-        f"Unsolved challenge classified as {alpha._reach_class.get(host)!r} — "
-        "must be 'blocked' (challenge encountered but not solved)"
+        f"Hard-blocked host classified as {alpha._reach_class.get(host)!r} — "
+        "must be 'blocked' (httpx 403 BLOCKED + browser failed to solve)"
     )
-    # Browser called exactly once (not per-path)
+    # Browser called exactly once (entry classify), not per-path
     assert len(browser.calls) == 1, (
-        f"Browser called {len(browser.calls)} times — must be exactly 1"
+        f"Browser called {len(browser.calls)} times — must be exactly 1 "
+        "(entry classify only, not per-path spray)"
+    )
+    # Both paths SKIPPED — orchestrator never called on a blocked host
+    assert len(orchestrator.calls) == 0, (
+        f"Orchestrator called {len(orchestrator.calls)} times — "
+        "must be 0 (all paths on a blocked host are INCONCLUSIVE-skipped)"
     )
 
 
