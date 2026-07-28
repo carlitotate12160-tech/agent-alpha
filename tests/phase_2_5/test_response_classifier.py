@@ -214,99 +214,57 @@ def test_js_secret_probe_uses_canonical_classifier() -> None:
 
 
 # ---------------------------------------------------------------------------
-# D2 — CF soft-200 reload interstitial is CHALLENGE (field-proven)
+# D2 — CF soft-200 reload shell is NOT a CHALLENGE verdict (ADR §12.41)
 # ---------------------------------------------------------------------------
 
-_CF_SOFT200_INTERSTITIAL = (
-    '<html>\n<head>\n<title>One moment, please...</title>\n'
-    '<style>\n'
-    '#cf-spinner-please-wait { spinner-styles }\n'
-    '.spinner { border: 4px solid rgba(0,0,0,.1); border-radius: 50%; }\n'
-    '</style>\n</head>\n<body>\n'
+_CF_SOFT200_SHELL = (
+    "<html>\n<head>\n<title>One moment, please...</title>\n"
+    "<style>\n"
+    "#cf-spinner-please-wait { spinner-styles }\n"
+    ".spinner { border: 4px solid rgba(0,0,0,.1); border-radius: 50%; }\n"
+    "</style>\n</head>\n<body>\n"
     '<div id="cf-spinner-please-wait">\n'
     '<div class="spinner"></div>\n'
-    '<p>One moment, please...</p>\n'
-    '</div>\n'
-    '<script>\n'
-    'setTimeout(function(){window.location.reload();},5000);\n'
-    '</script>\n</body>\n</html>\n'
-    '<!-- padding to ~11.8KB -->\n' + (' ' * 11000) + '\n'
-)
-
-_WP_HOMEPAGE = (
-    '<html>\n<head>\n<title>My WordPress Site</title>\n'
-    '<link rel="stylesheet" href="/wp-content/themes/mytheme/style.css" />\n'
-    '</head>\n<body>\n'
-    '<header><nav>\n'
-    '<a href="/about/">About Us</a>\n'
-    '<a href="/blog/">Blog</a>\n'
-    '<a href="/contact/">Contact</a>\n'
-    '<a href="/services/">Services</a>\n'
-    '</nav></header>\n'
-    '<article>\n'
-    '<h1>Welcome to Our Site</h1>\n'
-    '<p>We are a leading company in our field.</p>\n'
-    '<img src="/wp-content/uploads/2024/hero.jpg" />\n'
-    '</article>\n'
-    '<footer><p>&copy; 2024 My Company</p></footer>\n'
-    '</body>\n</html>\n'
-)
-
-_META_REFRESH_REAL_PAGE = (
-    '<html>\n<head>\n<title>This page has moved</title>\n'
-    '<meta http-equiv="refresh" content="2;url=/new-location" />\n'
-    '</head>\n<body>\n'
-    '<nav>\n'
-    '<a href="/home">Home</a>\n'
-    '<a href="/about">About</a>\n'
-    '<a href="/products">Products</a>\n'
-    '</nav>\n'
-    '<article>\n'
-    '<h1>We have moved!</h1>\n'
-    '<p>This page has been relocated. You will be redirected automatically.</p>\n'
-    '<p>If you are not redirected, <a href="/new-location">click here</a>.</p>\n'
-    '</article>\n'
-    '</body>\n</html>\n'
+    "<p>One moment, please...</p>\n"
+    "</div>\n"
+    "<script>\n"
+    "setTimeout(function(){window.location.reload();},5000);\n"
+    "</script>\n</body>\n</html>\n"
+    "<!-- padding to ~11.8KB -->\n" + (" " * 11000) + "\n"
 )
 
 
-def test_soft200_js_reload_interstitial_is_challenge() -> None:
-    """A CF soft-200 interstitial (setTimeout + location.reload, no real content)
-    must be classified as CHALLENGE, not OK — so the reach ladder triggers."""
+def test_reload_shell_body_is_not_a_challenge_verdict() -> None:
+    """ADR §12.41: the classifier no longer votes CHALLENGE on body shape.
+    A CF soft-200 reload shell returns OK — the reach layer (scout._classify_host_reach)
+    decides via empirical browser probe, not a heuristic verdict."""
     verdict = classify_response(
         status_code=200,
-        body=_CF_SOFT200_INTERSTITIAL,
+        body=_CF_SOFT200_SHELL,
         headers={"server": "cloudflare", "cf-ray": "abc123"},
     )
-    assert verdict is Verdict.CHALLENGE, (
-        f"CF soft-200 reload interstitial classified as {verdict} instead of CHALLENGE — "
-        "the reach ladder (browser_solve/camoufox) will never trigger"
-    )
-
-
-def test_legit_wp_homepage_stays_ok() -> None:
-    """CARDINAL: a normal 200 WordPress homepage (wp-content, real anchors,
-    no auto-reload) must stay OK. This is the FP guard — the whole point."""
-    verdict = classify_response(
-        status_code=200,
-        body=_WP_HOMEPAGE,
-        headers={"server": "cloudflare"},
-    )
     assert verdict is Verdict.OK, (
-        f"Legitimate WP homepage classified as {verdict} instead of OK — "
-        "false positive: the reload-interstitial detector over-fired"
+        f"CF soft-200 reload shell classified as {verdict} instead of OK — "
+        "PR #278 body-shape heuristic must be reverted (ADR §12.41)"
     )
 
 
-def test_small_legit_meta_refresh_not_misclassed() -> None:
-    """A real page using meta-refresh to a same-site URL with real content
-    (anchors, article) must stay OK — don't over-fire on legitimate meta-refresh."""
-    verdict = classify_response(
-        status_code=200,
-        body=_META_REFRESH_REAL_PAGE,
-        headers={"server": "nginx"},
+def test_is_reload_shell_hint_fires_on_soft200() -> None:
+    """The cost-gate hint fires on a CF soft-200 shell so the reach layer
+    knows to probe — but it is a boolean hint, never a Verdict."""
+    from agent_alpha.recon.response_classifier import is_reload_shell
+
+    assert is_reload_shell(_CF_SOFT200_SHELL) is True, (
+        "is_reload_shell must fire on a thin reload shell so the reach layer probes"
     )
-    assert verdict is Verdict.OK, (
-        f"Legitimate meta-refresh page with real content classified as {verdict} "
-        "instead of OK — the reload-interstitial detector over-fired on a real page"
+
+
+def test_is_reload_shell_hint_does_not_fire_on_real_content() -> None:
+    """The cost-gate hint must NOT fire on a large real page even if it
+    contains a reload script — only thin shells are suspicious."""
+    from agent_alpha.recon.response_classifier import is_reload_shell
+
+    big_page = "<html><body><p>real content</p>" + ("x" * 20000) + "</body></html>"
+    assert is_reload_shell(big_page) is False, (
+        "is_reload_shell must not fire on a large real page (>15KB)"
     )
