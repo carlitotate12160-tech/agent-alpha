@@ -148,6 +148,9 @@ _LEGIT_RELOAD_PAGE = (
     "<h1>We moved!</h1>\n"
     "<p>This page has been relocated.</p>\n"
     '<a href="/new-location">Click here</a>\n'
+    '<a href="/about">About</a>\n'
+    '<a href="/contact">Contact</a>\n'
+    '<a href="/services">Services</a>\n'
     "</body>\n</html>\n"
 )
 
@@ -415,7 +418,7 @@ def test_no_consent_is_unresolved_and_analyzes() -> None:
     body still analyzed (no skip, no FP). Zero regression from today."""
     # No browser_solve injected → browser_solve is None → "unresolved"
     alpha, eng, store, orchestrator, http_client = _make_alpha(
-        routes={_SEED: _Resp(200, _CF_SHELL, {"server": "cloudflare"}, _SEED)},
+        routes={_SEED: _Resp(200, _LEGIT_RELOAD_PAGE, {"server": "nginx"}, _SEED)},
         browser_solve=None,
         browser_solve_viable=False,
     )
@@ -425,7 +428,7 @@ def test_no_consent_is_unresolved_and_analyzes() -> None:
     assert alpha._reach_class.get(host) == "unresolved", (
         f"Without consent, reach_class must be 'unresolved', got {alpha._reach_class.get(host)!r}"
     )
-    # The httpx body (CF shell) was still analyzed — not skipped
+    # The httpx body was still analyzed — not skipped
     assert len(orchestrator.calls) > 0, (
         "Without consent, the page must still be analyzed (FP-safe fallback)"
     )

@@ -20,6 +20,7 @@ PURE: no I/O, no logging, no side effects — a plain function of its arguments.
 from __future__ import annotations
 
 import enum
+import re
 
 
 class Verdict(enum.StrEnum):
@@ -137,10 +138,9 @@ _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES: frozenset[int] = frozenset({415})
 
 # --- Reload-shell cost-gate hint (ADR §12.41) ---------------------------------
 #
-# A cheap, safe boolean hint for the reach layer — NOT a Verdict.  The
-# classifier no longer votes CHALLENGE on body shape (PR #278 reverted);
-# this hint lets ``scout._classify_host_reach`` decide whether to spend one
-# browser probe.  No delay parsing, no int(), no counting.
+# A cheap, safe boolean hint for the reach layer — NOT a Verdict.  This hint
+# lets ``scout._classify_host_reach`` decide whether to spend one browser
+# probe.  No delay parsing, no int(), no counting.
 RELOAD_SHELL_MAX_BYTES = 15000
 
 
@@ -149,13 +149,67 @@ def is_reload_shell(body: str) -> bool:
 
     This is a COST-GATE hint for the reach layer only — never a verdict.
     A small body with a ``location.reload()`` or ``<meta http-equiv="refresh">``
-    signal is *suspicious* and may warrant a browser probe, but it is never
-    classified as ``CHALLENGE`` by ``classify_response``.
+    signal is *suspicious* and may warrant a browser probe.
     """
     b = body.lower()
     return len(body) < RELOAD_SHELL_MAX_BYTES and (
         "location.reload(" in b or 'http-equiv="refresh"' in b or "http-equiv='refresh'" in b
     )
+
+
+# --- Reload-interstitial detection (CF soft-200) -----------------------------
+#
+# Cloudflare can serve a soft-200 interstitial ("One moment, please...") whose
+# primary behavior is an automatic ``setTimeout`` + ``location.reload()`` or a
+# short ``<meta http-equiv="refresh">``.  It carries NO CDN-internal token
+# (no ``cf-browser-verification``, no ``_cf_chl_opt``) so the STRONG markers
+# miss it.  This STRUCTURAL detector catches it without adding any natural-
+# language phrase to CHALLENGE_STRONG_MARKERS (CodeRabbit #188 principle).
+#
+# Conservative: requires BOTH a reload signal AND the absence of substantive
+# anchor content.  A legitimate page that uses meta-refresh or setTimeout but
+# carries real content (anchors, articles) stays OK.
+_RELOAD_INTERSTITIAL_MAX_ANCHORS = 3
+_RELOAD_INTERSTITIAL_MAX_META_REFRESH_DELAY = 5  # seconds
+
+_META_REFRESH_RE: re.Pattern[str] = re.compile(
+    r'<meta\s+http-equiv=["\']?refresh["\']?\s+content=["\']?(\d+)\s*;',
+    re.IGNORECASE,
+)
+
+
+def _is_reload_interstitial(body: str) -> bool:
+    """Return True if the body's primary behavior is an automatic reload/redirect
+    AND it lacks real content.
+
+    Detects CDN/WAF soft-200 interstitial pages (e.g. Cloudflare "One moment,
+    please...") that use ``setTimeout`` + ``location.reload()`` or a short
+    ``<meta http-equiv="refresh">`` to redirect the browser, while serving no
+    substantive content to a non-browser client.
+
+    Conservative: requires BOTH a reload signal AND the absence of substantive
+    anchor content (fewer than N ``<a`` tags AND no ``<article`` marker). A
+    legitimate page that happens to use meta-refresh or setTimeout but carries
+    real content stays OK.
+    """
+    body_lower = body.lower()
+
+    has_js_reload = "settimeout" in body_lower and "location.reload(" in body_lower
+
+    has_meta_refresh = False
+    for m in _META_REFRESH_RE.finditer(body):
+        delay = int(m.group(1))
+        if delay <= _RELOAD_INTERSTITIAL_MAX_META_REFRESH_DELAY:
+            has_meta_refresh = True
+            break
+
+    if not has_js_reload and not has_meta_refresh:
+        return False
+
+    anchor_count = body_lower.count("<a ")
+    has_article = "<article" in body_lower
+
+    return anchor_count < _RELOAD_INTERSTITIAL_MAX_ANCHORS and not has_article
 
 
 def _is_challenge(body: str, headers: dict[str, str] | None) -> bool:
@@ -173,6 +227,8 @@ def _is_challenge(body: str, headers: dict[str, str] | None) -> bool:
     # CF injects this string into all proxied sites; a large body with this
     # marker is real content, not a challenge page.
     if _CHALLENGE_PLATFORM_MARKER in body_lower and len(body) < _CHALLENGE_MAX_INTERSTITIAL_BODY:
+        return True
+    if _is_reload_interstitial(body):
         return True
     if any(marker in body_lower for marker in CHALLENGE_WEAK_MARKERS):
         return _has_challenge_header_hint(headers)
