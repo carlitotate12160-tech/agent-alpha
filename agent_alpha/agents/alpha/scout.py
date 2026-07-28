@@ -53,6 +53,7 @@ from agent_alpha.recon.response_classifier import (  # noqa: F401
     VOLATILE_HEADERS,
     Verdict,
     classify_response,
+    is_reload_shell,
 )
 from agent_alpha.recon.surface_discovery import extract_api_surface
 from agent_alpha.recon.transport_resilience import classify_mitigation
@@ -165,6 +166,8 @@ class Alpha:
         self._current_objective: Any = None
         self._try_harder_fired: bool = False
         self._reach_attempted: set[str] = set()
+        self._reach_class: dict[str, str] = {}
+        self._reach_body_cache: dict[str, Any] = {}
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -203,6 +206,8 @@ class Alpha:
         self._current_objective = None
         self._try_harder_fired = False
         self._reach_attempted = set()
+        self._reach_class = {}
+        self._reach_body_cache = {}
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -292,7 +297,7 @@ class Alpha:
             return rule_only(observation, exclude_tools=frozenset(self._ran_campaigns))
         return rule_only(observation)
 
-    def _step_once(self, context: dict[str, object]) -> dict[str, object]:
+    def _step_once(self, context: dict[str, object]) -> dict[str, object]:  # noqa: C901
         """One OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST cycle."""
         scratchpad = context.get("scratchpad")
         sp: dict[str, Any] = dict(scratchpad) if isinstance(scratchpad, dict) else {}
@@ -334,6 +339,13 @@ class Alpha:
         verdict = classify_response(
             status_code=resp.status_code, body=resp.text, headers=dict(resp.headers)
         )
+
+        # ── Per-host reach-class (ADR §12.41) ─────────────────
+        # Decide ONCE per host whether to route via browser reach.
+        reach_result = self._apply_host_reach_class(url, verdict, resp)
+        if reach_result is not None:
+            return reach_result
+        resp, verdict = self._maybe_swap_reach_body(url, resp, verdict)
 
         # A WAF/CF block is a non-analyzable probe, NOT a clean/no-progress
         # result. Attempt reach (capability-gated, bounded), then record
@@ -512,6 +524,104 @@ class Alpha:
             f"OBSERVE: {url} " + ("CDN challenge" if is_challenge else "WAF blocked"),
         )
         return {"discovered_nodes": 0, "cost_usd": 0.0, "scratchpad": sp}
+
+    # ── Private: per-host reach-class helpers (ADR §12.41) ──────────
+
+    def _apply_host_reach_class(
+        self,
+        url: str,
+        verdict: Verdict,
+        resp: Any,
+    ) -> dict[str, object] | None:
+        """Classify the host's reach on first contact. Returns a _finish
+        dict if the host is blocked (caller returns it), or None to
+        fall through to normal analysis / reach-body swap."""
+        host = urlparse(url).hostname or ""
+        if host and host not in self._reach_class:
+            cost_gate = verdict in (Verdict.BLOCKED, Verdict.CHALLENGE) or (
+                verdict is Verdict.OK and is_reload_shell(resp.text)
+            )
+            if cost_gate:
+                self._reach_class[host] = self._classify_host_reach(url, resp)
+            else:
+                self._reach_class[host] = "clear"
+
+        cls = self._reach_class.get(host, "clear")
+        if cls == "blocked":
+            return {
+                "discovered_nodes": 0,
+                "cost_usd": 0.0,
+                "scratchpad": {
+                    "observations": [f"OBSERVE: {url} host reach-blocked; skipped (INCONCLUSIVE)"]
+                },
+            }
+        return None
+
+    def _maybe_swap_reach_body(
+        self,
+        url: str,
+        resp: Any,
+        verdict: Verdict,
+    ) -> tuple[Any, Verdict]:
+        """If the host is challenged and a browser body is cached, swap in
+        the browser response and re-classify. Otherwise return unchanged."""
+        host = urlparse(url).hostname or ""
+        cls = self._reach_class.get(host, "clear")
+        if cls == "challenged" and host in self._reach_body_cache:
+            rb = self._reach_body_cache[host]
+            resp = _ReachResponse(
+                status_code=rb.status_code,
+                body=rb.body,
+                headers=dict(rb.headers),
+            )
+            verdict = classify_response(
+                status_code=resp.status_code,
+                body=resp.text,
+                headers=dict(resp.headers),
+            )
+        return resp, verdict
+
+    # ── Private: per-host reach-class (ADR §12.41) ───────────────
+
+    def _classify_host_reach(self, url: str, httpx_resp: Any) -> str:
+        """Empirically classify a host's reach via a single browser probe.
+
+        Returns ``"clear"``, ``"challenged"``, ``"blocked"``, or
+        ``"unresolved"``.  Consent-gated: if browser_solve is not viable
+        (no consent, no transport), returns ``"unresolved"`` so the caller
+        falls through to normal analysis (FP-safe — no content discarded).
+        """
+        # Consent gate: reuse the same gate as _attempt_reach
+        browser_solve_viable = (
+            self._browser_solve is not None
+            and self._browser_solve_viable
+            and getattr(self._engagement_profile, "allow_evasion", False)
+        )
+        if not browser_solve_viable or self._browser_solve is None:
+            return "unresolved"
+
+        host = urlparse(url).hostname or ""
+        browser_solve = self._browser_solve
+
+        try:
+            r = browser_solve.solve_and_fetch(
+                url,
+                engagement_id=self._engagement_id,
+            )
+        except RuntimeError:
+            return "blocked"
+
+        # Differential: did the browser gain substantive content the httpx body lacked?
+        gained = len(r.body) > len(httpx_resp.text) * 1.5 or (
+            "wp-content" in r.body.lower() and "wp-content" not in httpx_resp.text.lower()
+        )
+        if r.challenge_solved and gained:
+            self._reach_body_cache[host] = r
+            return "challenged"
+        if gained:
+            self._reach_body_cache[host] = r
+            return "challenged"
+        return "clear"
 
     # ── Private: reach strategy (Phase 2.5 — §12.33) ──────────────
 
