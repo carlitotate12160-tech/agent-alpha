@@ -123,7 +123,7 @@ _GUARDBRAIL_DOMAINS: frozenset[str] = frozenset(
         "ibm.com",
         "intel.com",
         "cisco.com",
-        # ── Indonesian financial institutions (niagamas engagement guardrail) ──
+        # ── Indonesian financial institutions ──
         "cimbniaga.co.id",
         "cimbniaga.com",
         "bca.co.id",

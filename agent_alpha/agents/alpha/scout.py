@@ -19,6 +19,7 @@ import inspect
 import json
 import re
 import uuid
+from types import SimpleNamespace
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -37,6 +38,7 @@ from agent_alpha.graph.nodes import (
     ProofArtifact,
     RelationshipType,
     UserProperties,
+    VerificationTier,
     VulnerabilityProperties,
 )
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
@@ -44,6 +46,7 @@ from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
+from agent_alpha.recon.plugin_cve_catalog import lookup as cve_lookup
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
 from agent_alpha.recon.reach_transport import origin_direct_fetch
 from agent_alpha.recon.response_classifier import (  # noqa: F401
@@ -148,6 +151,7 @@ class Alpha:
             "wp_rest_users": self._handle_wp_rest_users,
             "woocommerce": self._handle_woocommerce,
             "wp_version": self._handle_wp_version,
+            "wp_plugins": self._handle_wp_plugins,
         }
 
         # Per-run state, initialised in run_recon().
@@ -918,6 +922,11 @@ class Alpha:
         for seed in spec.frontier_seeds:
             self.enqueue_discovered_url(urljoin(url, seed))
 
+        for follow_tool in spec.follow_up_tools:
+            handler = self._dispatch_registry.get(follow_tool)
+            if handler is not None:
+                handler(resp, SimpleNamespace(tool=follow_tool), url)
+
         return 1
 
     def _handle_surface_discovery(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
@@ -1175,6 +1184,60 @@ class Alpha:
         )
         nodes_added = 1 + self._persist_wp_asset(host, vuln_id, now_utc)
         self._findings += 1
+        return nodes_added
+
+    def _handle_wp_plugins(self, resp: Any, decision: Any, url: str) -> int:
+        """FINDING: vulnerable WordPress plugin detection from page HTML.
+
+        Regex-extracts plugin slug + version from asset paths in the already-fetched
+        body (no new HTTP). Each (slug, version) is checked against the CVE catalogue;
+        a hit mints a SELF_VERIFIED VULNERABILITY node. version=None or a patched
+        version -> NOT a finding (anti-#3).
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+        self._ran_campaigns.add(decision.tool)
+
+        host = urlparse(url).hostname
+        if not host or not self.authorization.is_in_scope(self._engagement_id, host):
+            return 0
+
+        body = getattr(resp, "text", "") or ""
+        pattern = r"/wp-content/plugins/([a-z0-9\-]+)/[^\"']*?[?&]ver=([0-9][0-9.]*)"
+        seen_slugs: dict[str, str] = {}
+        for match in re.finditer(pattern, body, re.IGNORECASE):
+            slug = match.group(1)
+            version = match.group(2)
+            if slug not in seen_slugs:
+                seen_slugs[slug] = version
+
+        nodes_added = 0
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        for slug, version in seen_slugs.items():
+            hit = cve_lookup(slug, version)
+            if hit is None:
+                continue
+            vuln_id = f"vuln:{host}:plugin:{slug}"
+            vuln_node = AttackNode(
+                id=vuln_id,
+                type=NodeType.VULNERABILITY,
+                properties=VulnerabilityProperties(
+                    cve_id=hit.cve_id,
+                    cvss_score=hit.cvss,
+                    affected_service=f"WordPress plugin {slug} {version}",
+                    exploit_available=True,
+                ),
+                confidence=0.9,
+                agent="alpha",
+                timestamp_utc=now_utc,
+                verification=VerificationTier.SELF_VERIFIED,
+            )
+            persist_node(
+                self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
+            )
+            nodes_added += 1 + self._persist_wp_asset(host, vuln_id, now_utc)
+            self._findings += 1
+
         return nodes_added
 
     def _persist_wp_asset(self, host: str, vuln_node_id: str, now_utc: str) -> int:

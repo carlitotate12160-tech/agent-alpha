@@ -2147,3 +2147,161 @@ Lyndon #3, false success at the oracle level). "Proven" in a payable report = cr
 `router.py` (slice-1a) implements ALPHA→{BETA, OMEGA} and BETA→{GAMMA, OMEGA} only. No
 ALPHA→GAMMA branch, no speculative comment referencing an unbuilt oracle. This ADR is the
 memory; the code carries only what is wired today.
+
+---
+
+### 12.40 Content-Analysis Lane — oracle-gated LLM hypothesis over already-fetched bodies — PROPOSED (lock on confirm)
+
+**Status:** PROPOSED. Phase 4 (recon recall). One vertical slice follows immediately (plugin→CVE).
+
+---
+
+#### Context (grounded in bernofarm.com, 2026-07-27)
+
+Field rematch vs Strix: bernofarm 0 (Agent-Alpha) vs 7 (Strix). Raw-response analysis proved
+the dominant gap is NOT reach and NOT the classifier. Three of Strix's seven findings sit inside
+the **195 KB homepage Agent-Alpha already fetched at HTTP 200** and did nothing with (the body
+matched no RULE playbook → escalated to the LLM tier → coerced to `generic_http_probe` → token
+burn, zero findings):
+
+- #1 SEO-spam hidden-link injection (HIGH) — hidden `<a>` via `left:-9999px` CSS in the homepage.
+- #4 WP File Manager Pro plugin (HIGH 8.8, CVE-2020-25213, RCE) — plugin asset path in the homepage HTML.
+- #7 exposed AJAX handler + nonce (MEDIUM) — nonce in inline `<script>` on the homepage.
+
+Root cause = a **recall ceiling**: Agent-Alpha only finds what a path-keyed RULE playbook can
+pattern. It has no capability to analyse rich content it has already retrieved. Strix mines the
+same HTML with LLM-over-DOM — but **ungated** (it over-reports, e.g. its #3 wp-login.php at
+severity NONE, and its findings' exploitability is not independently confirmed). Copying Strix's
+ungated model = a false-positive firehose = Lyndon #3. The task is to gain Strix-like recall
+WITHOUT its FP profile, using the verification discipline Agent-Alpha already has.
+
+Reach is explicitly OUT of scope here: bernofarm's `/wp-json/` root, `/wp-json/wp/v2/users`, and
+all backup paths returned **403 openresty (origin block)** to BOTH tools (Strix's browser was 403
+too). CF-edge soft-200 challenge (`/wp-json/wp/v2/posts` → "One moment, please…") and
+session-carrying replay are a separate reach decision (see Related, §12.4x).
+
+---
+
+#### Decision
+
+Add a **ContentAnalyzer** lane: an LLM pass over a body Agent-Alpha has ALREADY fetched, whose
+output is never a finding by itself — every LLM claim must pass a **deterministic per-class
+verifier** before it becomes a graph node. This is the existing `VerificationTier` discipline
+applied to a new finding source.
+
+**Reach-independent by construction:** the lane issues NO new HTTP request for detection. It runs
+on `resp.text` already in hand (starting with the homepage). Optional independent confirmation
+(one extra fetch) is what escalates a finding from SELF_VERIFIED → CROSS_VERIFIED — and may be
+blocked by the same origin/CF obstacle, in which case the finding stays SELF_VERIFIED, reported
+honestly as "detected, not independently confirmed".
+
+---
+
+#### The gate contract (the whole point of this ADR)
+
+```
+LLM proposes (over already-fetched body):
+  Hypothesis {
+    finding_class : "seo_spam_hidden_link" | "plugin_cve" | "exposed_nonce"   # closed enum
+    locator       : str    # CSS selector / asset URL / regex span the claim rests on
+    raw_evidence  : str    # exact substring from the body (must be present verbatim)
+    llm_confidence: float
+  }
+
+Deterministic per-class VERIFIER runs (pure function of the body + hypothesis):
+  - confirms raw_evidence is present verbatim (anti-LLM-hallucination guard)
+  - applies the class-specific deterministic check (below)
+  - returns Confirmed{proof, severity, cwe} | Rejected{reason}
+
+Only Confirmed → a VULNERABILITY node at VerificationTier.SELF_VERIFIED.
+Rejected → NOT a finding, NOT a node (anti-#3). Logged as a rejected hypothesis (audit).
+CROSS_VERIFIED remains oracle-exclusive (run_verification_pass, one independent fetch) — never
+minted by this lane directly. A payable "proven" claim still requires CROSS_VERIFIED per §12.31.
+```
+
+The verifier's failure mode differs from the finder's (LLM proposes / regex+DOM confirms), so
+SELF_VERIFIED here is a genuine self-check, not internal-consistency theatre (Independent
+Verification Axiom).
+
+---
+
+#### Three initial verifier classes (SSOT — one class, one verifier, anti-#6/#7)
+
+| Class | LLM proposes | Deterministic verifier | Severity |
+|---|---|---|---|
+| `plugin_cve` | plugin name+version from asset path | parse `/wp-content/plugins/<slug>/…?ver=X`; map (slug,version)→CVE via a static, versioned catalog; confirm slug present verbatim | from CVE (e.g. 8.8) |
+| `seo_spam_hidden_link` | injected hidden anchor | confirm an `<a href>` whose computed style is off-screen (`left:-9999px`/`display:none`/`text-indent`) AND host is off-site | HIGH (compromise indicator) |
+| `exposed_nonce` | AJAX endpoint + nonce in inline JS | regex-confirm a `nonce`/`_wpnonce` token adjacent to an `admin-ajax.php` action in the body | MEDIUM |
+
+`plugin_cve` ships FIRST (payable 8.8, the bernofarm #4).
+
+---
+
+#### What this lane is NOT (anti-Strix / anti-Lyndon boundaries)
+
+- NOT ungated LLM findings — no Confirmed verifier, no node. Ever.
+- NOT a new reach mechanism — zero detection-time HTTP; no browser; no proxy. Reach = separate ADR.
+- NOT a replacement for RULE playbooks — deterministic RULE tier still runs first; the LLM lane
+  only handles OK bodies that no RULE matched (what currently wastes tokens on `generic_http_probe`).
+- NOT a second finding catalogue — verifiers live one-per-class; the CVE map is a single static SSOT.
+- NOT open-ended "analyse anything" — `finding_class` is a CLOSED enum; adding a class = a new
+  verifier + RED test, never a free-form LLM output.
+
+---
+
+#### Integration point
+
+`scout._step_once`, on `Verdict.OK` where the RULE tier (`_decide`/`rule_only`) returned no match:
+invoke `ContentAnalyzer.analyze(resp.text, url)` INSTEAD of falling through to the
+`generic_http_probe` LLM default. Confirmed hypotheses persist VULNERABILITY nodes via the
+existing `persist_node` path (auth/scope-gated as every discovery). Register `ContentAnalyzer` in
+`RECON_TOOL_CATALOG` and as tracked wiring-debt in `tests/governance/test_wiring_gate.py` until the
+autonomous `run_recon` path invokes it (RUNNER-SEAL ≠ WIRED).
+
+---
+
+#### Test contract (RED-first; cardinal must fail before the lane exists)
+
+- `test_content_analyzer_confirms_plugin_cve`: homepage HTML containing
+  `/wp-content/plugins/wp-file-manager/…?ver=6.0` → `plugin_cve` node, SELF_VERIFIED, CVE mapped.
+- `test_unbacked_hypothesis_is_rejected` (CARDINAL): LLM proposes a `plugin_cve` whose `raw_evidence`
+  is NOT present verbatim in the body → 0 nodes (anti-hallucination gate holds).
+- `test_seo_spam_requires_offscreen_style`: a normal visible link → rejected; an `left:-9999px`
+  off-site anchor → confirmed.
+- `test_rule_tier_still_wins`: a body that matches a RULE playbook never reaches the LLM lane.
+- Cost bound: one analyzer pass per UNIQUE OK body (dedup by body hash), not per path.
+
+---
+
+#### Consequences / risks
+
+- Token cost rises on OK-but-unmatched bodies (previously a wasted `generic_http_probe` call
+  anyway). Bounded by body-hash dedup + a per-engagement analyzer-call cap.
+- FP risk is carried entirely by the verifier layer — if a class can't be deterministically
+  verified, it does not ship as a class. That is the acceptance bar.
+- The CVE catalogue is static data (playbook-tier), refreshed as data, never self-modifying code.
+
+---
+
+#### Related / explicitly out-of-scope (separate ADRs)
+
+- **§12.4x Session-carrying reach (Strix/Caido pattern) — PROPOSED-NEXT, not here.** Solve the CF
+  edge challenge once (headless browser), capture the `cf_clearance` session, replay subsequent
+  requests through a local proxy carrying that cookie so CF-edge-challenged paths (soft-200
+  `/wp-json/wp/v2/posts`) return real content. This is a REACH capability, orthogonal to content
+  analysis; it does NOT bypass origin-level 403 (openresty), which no cookie defeats. Free,
+  self-hosted (Caido guest token / sidecar) per the observed Strix architecture. Decide separately;
+  do NOT fold into §12.40.
+- Classifier soft-200 gap ("One moment, please…" interstitial mis-classed OK): a small precision
+  fix in `response_classifier` — structural JS-reload-interstitial signature or WEAK-marker+header
+  hint, NOT a natural-language STRONG marker (violates the #188 principle). Track as a bug, not an ADR.
+
+---
+
+#### Lyndon check
+
+- #1 feature-before-foundation: NO — closes a measured real-target recall gap, one slice, build follows.
+- #2 dead code: guarded — wiring-debt gate until `run_recon` calls it.
+- #3 false success: this ADR EXISTS to prevent it — unverified LLM claim is never a finding.
+- #5 scope creep: closed enum of 3 classes; reach + classifier explicitly carved out.
+- #6/#7 duplication: one verifier per class; single static CVE catalogue.

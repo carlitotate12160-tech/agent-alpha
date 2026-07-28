@@ -394,6 +394,7 @@ RECON_TOOL_CATALOG: frozenset[str] = frozenset(
         "wp_rest_users",
         "woocommerce",
         "wp_version",
+        "wp_plugins",
         "generic_http_probe",
     }
 )

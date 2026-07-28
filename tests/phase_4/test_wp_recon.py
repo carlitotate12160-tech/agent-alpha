@@ -26,7 +26,7 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import AssetProperties, NodeType
+from agent_alpha.graph.nodes import AssetProperties, NodeType, VerificationTier
 from agent_alpha.graph.persist import merge_asset_node, persist_node
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.security.secrets import SecretsManager
@@ -416,3 +416,61 @@ def test_wp_config_dist_leak_is_caught_on_single_page() -> None:
 
     creds = graph.nodes_by_type(NodeType.CREDENTIAL)
     assert creds, "wp-config.php.dist leak missed — WP-unique backup path not covered"
+
+
+# ── 12. CARDINAL: patched plugin version is NOT a finding (anti-#3) ──────────
+
+
+def test_plugin_patched_version_is_not_a_finding() -> None:
+    """CARDINAL (anti-#3 + anti-FP): a catalogued plugin at a PATCHED version must
+    NOT mint a CVE node. Version gate is the whole guard — presence != vulnerable."""
+    body = ('<html><head><link href="/wp-content/plugins/wp-file-manager/'
+            'lib/css/ui.css?ver=7.2"></head><body>wp-content</body></html>')
+    graph = NetworkXGraphStore()
+    alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
+    alpha.run_recon(eng_id, _SITE_ROOT)
+    vulns = [n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+             if getattr(n.properties, "cve_id", None)]
+    assert not vulns, "patched plugin version must not be a CVE finding"
+
+
+# ── 13. Plugin CVE confirmed from asset path (SELF_VERIFIED) ─────────────────
+
+
+def test_plugin_cve_confirmed_from_asset_path() -> None:
+    """Vulnerable plugin asset on the homepage -> CVE VULNERABILITY node, SELF_VERIFIED,
+    auto-fired from wp_fingerprint (no hand-dispatch)."""
+    body = ('<html><head><script src="/wp-content/plugins/wp-file-manager/'
+            'lib/js/app.js?ver=6.0"></script></head><body>wp-content</body></html>')
+    graph = NetworkXGraphStore()
+    alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
+    alpha.run_recon(eng_id, _SITE_ROOT)
+    vulns = {n.properties.cve_id: n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+             if getattr(n.properties, "cve_id", None)}
+    assert "CVE-2020-25213" in vulns
+    assert vulns["CVE-2020-25213"].verification == VerificationTier.SELF_VERIFIED
+    assert vulns["CVE-2020-25213"].properties.exploit_available is True
+
+
+# ── 14. Unknown plugin -> no finding ─────────────────────────────────────────
+
+
+def test_unknown_plugin_no_finding() -> None:
+    body = '<html><body>wp-content /wp-content/plugins/some-random/x.js?ver=1.0</body></html>'
+    graph = NetworkXGraphStore()
+    alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
+    alpha.run_recon(eng_id, _SITE_ROOT)
+    assert not [n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+                if getattr(n.properties, "cve_id", None)]
+
+
+# ── 15. Plugin version absent -> no CVE claim (anti-#3) ──────────────────────
+
+
+def test_plugin_version_absent_no_cve_claim() -> None:
+    body = '<html><body>wp-content <img src="/wp-content/plugins/wp-file-manager/logo.png"></body></html>'
+    graph = NetworkXGraphStore()
+    alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
+    alpha.run_recon(eng_id, _SITE_ROOT)
+    assert not [n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+                if getattr(n.properties, "cve_id", None)]
