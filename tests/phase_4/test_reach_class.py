@@ -80,6 +80,7 @@ class _BrowserResult:
     body: str
     headers: dict[str, str]
     challenge_solved: bool
+    challenge_encountered: bool = False
 
 
 class _FakeBrowserSolve:
@@ -191,6 +192,7 @@ def test_legit_reload_page_classified_clear_content_used() -> None:
             body=_LEGIT_RELOAD_PAGE,
             headers={},
             challenge_solved=False,
+            challenge_encountered=False,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -227,6 +229,7 @@ def test_cf_soft200_challenged_uses_browser_body() -> None:
             body=_RICH_WP,
             headers={"server": "cloudflare"},
             challenge_solved=True,
+            challenge_encountered=True,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -285,6 +288,7 @@ def test_js_spa_not_mislabeled_challenged() -> None:
             body=spa_rendered,
             headers={},
             challenge_solved=False,  # NOT a solved challenge — just a SPA
+            challenge_encountered=False,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -323,6 +327,7 @@ def test_challenged_host_entry_analyzed_then_subsequent_paths_skipped() -> None:
             body=_RICH_WP,
             headers={"server": "cloudflare"},
             challenge_solved=True,
+            challenge_encountered=True,
         )
     )
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -360,6 +365,42 @@ def test_challenged_host_entry_analyzed_then_subsequent_paths_skipped() -> None:
     # Verify the entry body was consumed (popped from cache)
     assert host not in alpha._reach_body_cache, (
         "The entry body was not consumed — it should have been popped from cache"
+    )
+
+
+def test_challenge_not_solved_is_blocked() -> None:
+    """CF challenge encountered but browser couldn't solve it →
+    reach_class="blocked". Browser called exactly once; subsequent
+    paths on same host are skipped (no duplicate browser calls).
+    This is the alpha-ai.web.id real-world case."""
+    browser = _FakeBrowserSolve(
+        _BrowserResult(
+            status_code=403,
+            body=_CF_SHELL,
+            headers={"server": "cloudflare"},
+            challenge_solved=False,
+            challenge_encountered=True,
+        )
+    )
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={
+            _SEED: _Resp(200, _CF_SHELL, {"server": "cloudflare"}, _SEED),
+            _PATH2: _Resp(200, _CF_SHELL, {"server": "cloudflare"}, _PATH2),
+        },
+        browser_solve=browser,
+    )
+    alpha._engagement_id = eng
+    alpha.enqueue_discovered_url(_PATH2)
+    alpha.run_recon(eng, _SEED)
+
+    host = urlparse(_SEED).hostname or ""
+    assert alpha._reach_class.get(host) == "blocked", (
+        f"Unsolved challenge classified as {alpha._reach_class.get(host)!r} — "
+        "must be 'blocked' (challenge encountered but not solved)"
+    )
+    # Browser called exactly once (not per-path)
+    assert len(browser.calls) == 1, (
+        f"Browser called {len(browser.calls)} times — must be exactly 1"
     )
 
 

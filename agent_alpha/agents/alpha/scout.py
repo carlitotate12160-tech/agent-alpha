@@ -642,13 +642,16 @@ class Alpha:
         except RuntimeError:
             return "blocked"
 
-        # challenge_solved is the authoritative signal from our own browser.
-        # No size heuristic (gained) — it creates false negatives when the
-        # real page is similar in size to the shell.  No stack-specific
-        # tokens ("wp-content") — violates the general-not-per-stack rule.
+        # challenge_encountered + challenge_solved are the authoritative
+        # signals from our own browser.
+        # - No challenge encountered → "clear" (legit page, browser confirms)
+        # - Challenge encountered and solved → "challenged" (use browser body)
+        # - Challenge encountered but NOT solved → "blocked" (can't reach)
         if r.challenge_solved:
             self._reach_body_cache[host] = r
             return "challenged"
+        if r.challenge_encountered:
+            return "blocked"
         return "clear"
 
     # ── Private: reach strategy (Phase 2.5 — §12.33) ──────────────
