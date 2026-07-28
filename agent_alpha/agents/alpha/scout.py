@@ -597,13 +597,14 @@ class Alpha:
             and self._browser_solve_viable
             and getattr(self._engagement_profile, "allow_evasion", False)
         )
-        if not browser_solve_viable:
+        if not browser_solve_viable or self._browser_solve is None:
             return "unresolved"
 
         host = urlparse(url).hostname or ""
+        browser_solve = self._browser_solve
 
         try:
-            r = self._browser_solve.solve_and_fetch(
+            r = browser_solve.solve_and_fetch(
                 url,
                 engagement_id=self._engagement_id,
             )
