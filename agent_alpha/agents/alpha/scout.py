@@ -533,9 +533,9 @@ class Alpha:
         verdict: Verdict,
         resp: Any,
     ) -> dict[str, object] | None:
-        """Classify the host's reach on first contact. Returns a _finish
-        dict if the host is blocked (caller returns it), or None to
-        fall through to normal analysis / reach-body swap."""
+        """Classify the host's reach on first contact, or upgrade if a later
+        path shows new evidence. Returns a _finish dict only for honest
+        INCONCLUSIVE skips; None to fall through to normal analysis."""
         host = urlparse(url).hostname or ""
         if host and host not in self._reach_class:
             cost_gate = verdict in (Verdict.BLOCKED, Verdict.CHALLENGE) or (
@@ -545,16 +545,31 @@ class Alpha:
                 self._reach_class[host] = self._classify_host_reach(url, resp)
             else:
                 self._reach_class[host] = "clear"
+        elif host and self._reach_class.get(host) == "clear":
+            # Upgrade: a later path shows shell or block evidence that the
+            # entry path did not. Re-probe to upgrade "clear" → "challenged".
+            upgrade_gate = verdict in (Verdict.BLOCKED, Verdict.CHALLENGE) or (
+                verdict is Verdict.OK and is_reload_shell(resp.text)
+            )
+            if upgrade_gate:
+                self._reach_class[host] = self._classify_host_reach(url, resp)
 
         cls = self._reach_class.get(host, "clear")
         if cls == "blocked":
-            return {
-                "discovered_nodes": 0,
-                "cost_usd": 0.0,
-                "scratchpad": {
-                    "observations": [f"OBSERVE: {url} host reach-blocked; skipped (INCONCLUSIVE)"]
-                },
-            }
+            # Browser probe failed. If the current body is a shell, honest
+            # skip — we can't reach real content. If it's NOT a shell, fall
+            # through to normal analysis (FP-safe: don't discard real content).
+            if is_reload_shell(resp.text) or verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+                return {
+                    "discovered_nodes": 0,
+                    "cost_usd": 0.0,
+                    "scratchpad": {
+                        "observations": [
+                            f"OBSERVE: {url} host reach-blocked; skipped (INCONCLUSIVE)"
+                        ]
+                    },
+                }
+            return None
         if cls == "challenged" and host not in self._reach_body_cache:
             # Entry body already consumed; without a cf_clearance session we
             # cannot fetch deeper paths' real content — honest skip (slice-2
