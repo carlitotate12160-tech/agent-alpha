@@ -555,6 +555,20 @@ class Alpha:
                     "observations": [f"OBSERVE: {url} host reach-blocked; skipped (INCONCLUSIVE)"]
                 },
             }
+        if cls == "challenged" and host not in self._reach_body_cache:
+            # Entry body already consumed; without a cf_clearance session we
+            # cannot fetch deeper paths' real content — honest skip (slice-2
+            # recovers via per-path browser or session replay).
+            return {
+                "discovered_nodes": 0,
+                "cost_usd": 0.0,
+                "scratchpad": {
+                    "observations": [
+                        f"OBSERVE: {url} challenged-host subsequent path; "
+                        "skipped (INCONCLUSIVE, no session lane)"
+                    ]
+                },
+            }
         return None
 
     def _maybe_swap_reach_body(
@@ -567,8 +581,10 @@ class Alpha:
         the browser response and re-classify. Otherwise return unchanged."""
         host = urlparse(url).hostname or ""
         cls = self._reach_class.get(host, "clear")
-        if cls == "challenged" and host in self._reach_body_cache:
-            rb = self._reach_body_cache[host]
+        if cls == "challenged":
+            rb = self._reach_body_cache.pop(host, None)
+            if rb is None:
+                return resp, verdict
             resp = _ReachResponse(
                 status_code=rb.status_code,
                 body=rb.body,
@@ -611,14 +627,11 @@ class Alpha:
         except RuntimeError:
             return "blocked"
 
-        # Differential: did the browser gain substantive content the httpx body lacked?
-        gained = len(r.body) > len(httpx_resp.text) * 1.5 or (
-            "wp-content" in r.body.lower() and "wp-content" not in httpx_resp.text.lower()
-        )
-        if r.challenge_solved and gained:
-            self._reach_body_cache[host] = r
-            return "challenged"
-        if gained:
+        # challenge_solved is the authoritative signal from our own browser.
+        # No size heuristic (gained) — it creates false negatives when the
+        # real page is similar in size to the shell.  No stack-specific
+        # tokens ("wp-content") — violates the general-not-per-stack rule.
+        if r.challenge_solved:
             self._reach_body_cache[host] = r
             return "challenged"
         return "clear"
