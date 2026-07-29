@@ -733,6 +733,9 @@ that makes the refactor safe.
 
 | id | Item |
 |----|------|
+| T1 | **Ordering gap**: if `browser_solve` IS injected and the browser is also blocked, `_apply_host_reach_class` marks the host "blocked" and short-circuits BEFORE `_attempt_reach`, so `TLS_IMPERSONATE` never runs. |
+| T2 | **OriginDirectResult misnomer**: once reused by `tls_impersonate_fetch`, the name is misleading. Neutral rename to `ReachTransportResult`. |
+| T3 | **Per-host TLS-impersonate failure not cached**: a host that stays blocked after impersonation is re-attempted once per URL (bounded by `_reach_attempted` per-URL set, not infinite). |
 | T4 | **tls_impersonate**: Zero SOW wins, unverified shell (bri 403->200) |
 
 ---
