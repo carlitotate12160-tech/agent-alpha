@@ -47,7 +47,9 @@ class FakeHttpClient:
         self.get_calls.append(url)
         return self._routes.get("GET", {}).get(url, FakeResponse(404, ""))
 
-    def post(self, url: str, json_body: Any = None, allow_redirects: bool = True, **kwargs: Any) -> FakeResponse:
+    def post(
+        self, url: str, json_body: Any = None, allow_redirects: bool = True, **kwargs: Any
+    ) -> FakeResponse:
         self.post_calls.append((url, json_body, allow_redirects))
         return self._routes.get("POST", {}).get(url, FakeResponse(404, ""))
 
@@ -115,10 +117,7 @@ def test_odoo_fingerprint_mints_version_disclosure() -> None:
     assert vuln.properties.exploit_available is False
 
     # Edge EXPLOITS must exist
-    edge = alpha.graph_store.get_edge(
-        source_id=f"asset:{_HOST}",
-        target_id=vuln_id
-    )
+    edge = alpha.graph_store.get_edge(source_id=f"asset:{_HOST}", target_id=vuln_id)
     assert edge is not None
 
     # findings count EXACTLY 1 (anti double-count)
@@ -191,7 +190,9 @@ def test_odoo_fingerprint_anti_3_403_waf_blocked() -> None:
 
     assert alpha.graph_store.get_node(f"vuln:{_HOST}:odoo_version_disclosure") is None
 
-    waf_events = [e for e in alpha.event_store.get_events(eid) if e.event_type == EventType.WAF_BLOCKED]
+    waf_events = [
+        e for e in alpha.event_store.get_events(eid) if e.event_type == EventType.WAF_BLOCKED
+    ]
     assert len(waf_events) == 1
     assert waf_events[0].payload["path"] == constants.ODOO_VERSION_INFO_PATH
 
@@ -228,8 +229,13 @@ def test_generic_handlers_still_dispatch() -> None:
 
     class TomcatStubProvider:
         model = "stub"
+
         def complete(self, *args: object, **kwargs: object) -> Any:
-            return type("R", (), {"text": '{"tool": "tomcat_fingerprint"}', "usage_cost_usd": 0.0, "model": "stub"})()
+            return type(
+                "R",
+                (),
+                {"text": '{"tool": "tomcat_fingerprint"}', "usage_cost_usd": 0.0, "model": "stub"},
+            )()
 
     http = FakeHttpClient(routes)
     alpha, eid = _alpha(http)

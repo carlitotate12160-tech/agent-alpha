@@ -89,9 +89,7 @@ class TestTlsImpersonateFetchVerify:
 
 
 class TestTlsImpersonateFetchError:
-    def test_curl_cffi_error_raises_runtime_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_curl_cffi_error_raises_runtime_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Any curl_cffi error must surface as RuntimeError — never a synthetic 200."""
 
         def _boom(url: str, **kwargs: Any) -> None:

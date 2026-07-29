@@ -482,11 +482,17 @@ class Beta:
                 relationship=RelationshipType.ENABLES,
                 confidence=result.confidence,
                 technique_id=(
-                    winning_tool.mitre_technique if winning_tool is not None else decision.technique_id
+                    winning_tool.mitre_technique
+                    if winning_tool is not None
+                    else decision.technique_id
                 ),
             )
             persist_edge(
-                self.event_store, self.graph_store, self._engagement_id, cred_source_edge, agent="beta"
+                self.event_store,
+                self.graph_store,
+                self._engagement_id,
+                cred_source_edge,
+                agent="beta",
             )
 
         # ACCESS_LEVEL node (self-verified by tool — oracle upgrades to CROSS_VERIFIED).

@@ -424,13 +424,18 @@ def test_wp_config_dist_leak_is_caught_on_single_page() -> None:
 def test_plugin_patched_version_is_not_a_finding() -> None:
     """CARDINAL (anti-#3 + anti-FP): a catalogued plugin at a PATCHED version must
     NOT mint a CVE node. Version gate is the whole guard — presence != vulnerable."""
-    body = ('<html><head><link href="/wp-content/plugins/wp-file-manager/'
-            'lib/css/ui.css?ver=7.2"></head><body>wp-content</body></html>')
+    body = (
+        '<html><head><link href="/wp-content/plugins/wp-file-manager/'
+        'lib/css/ui.css?ver=7.2"></head><body>wp-content</body></html>'
+    )
     graph = NetworkXGraphStore()
     alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
     alpha.run_recon(eng_id, _SITE_ROOT)
-    vulns = [n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
-             if getattr(n.properties, "cve_id", None)]
+    vulns = [
+        n
+        for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+        if getattr(n.properties, "cve_id", None)
+    ]
     assert not vulns, "patched plugin version must not be a CVE finding"
 
 
@@ -440,13 +445,18 @@ def test_plugin_patched_version_is_not_a_finding() -> None:
 def test_plugin_cve_confirmed_from_asset_path() -> None:
     """Vulnerable plugin asset on the homepage -> CVE VULNERABILITY node, SELF_VERIFIED,
     auto-fired from wp_fingerprint (no hand-dispatch)."""
-    body = ('<html><head><script src="/wp-content/plugins/wp-file-manager/'
-            'lib/js/app.js?ver=6.0"></script></head><body>wp-content</body></html>')
+    body = (
+        '<html><head><script src="/wp-content/plugins/wp-file-manager/'
+        'lib/js/app.js?ver=6.0"></script></head><body>wp-content</body></html>'
+    )
     graph = NetworkXGraphStore()
     alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
     alpha.run_recon(eng_id, _SITE_ROOT)
-    vulns = {n.properties.cve_id: n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
-             if getattr(n.properties, "cve_id", None)}
+    vulns = {
+        n.properties.cve_id: n
+        for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+        if getattr(n.properties, "cve_id", None)
+    }
     assert "CVE-2020-25213" in vulns
     assert vulns["CVE-2020-25213"].verification == VerificationTier.SELF_VERIFIED
     assert vulns["CVE-2020-25213"].properties.exploit_available is True
@@ -456,12 +466,15 @@ def test_plugin_cve_confirmed_from_asset_path() -> None:
 
 
 def test_unknown_plugin_no_finding() -> None:
-    body = '<html><body>wp-content /wp-content/plugins/some-random/x.js?ver=1.0</body></html>'
+    body = "<html><body>wp-content /wp-content/plugins/some-random/x.js?ver=1.0</body></html>"
     graph = NetworkXGraphStore()
     alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
     alpha.run_recon(eng_id, _SITE_ROOT)
-    assert not [n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
-                if getattr(n.properties, "cve_id", None)]
+    assert not [
+        n
+        for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+        if getattr(n.properties, "cve_id", None)
+    ]
 
 
 # ── 15. Plugin version absent -> no CVE claim (anti-#3) ──────────────────────
@@ -472,8 +485,11 @@ def test_plugin_version_absent_no_cve_claim() -> None:
     graph = NetworkXGraphStore()
     alpha, eng_id = _alpha(FakeHttpClient({_SITE_ROOT: FakeResponse(200, body)}), graph)
     alpha.run_recon(eng_id, _SITE_ROOT)
-    assert not [n for n in graph.nodes_by_type(NodeType.VULNERABILITY)
-                if getattr(n.properties, "cve_id", None)]
+    assert not [
+        n
+        for n in graph.nodes_by_type(NodeType.VULNERABILITY)
+        if getattr(n.properties, "cve_id", None)
+    ]
 
 
 # ── 16. CARDINAL: JSON-body tool on HTML re-routes, never silent 0 (anti-#3) ──
@@ -531,7 +547,8 @@ def test_json_body_tool_on_html_reroutes_not_silent() -> None:
     )
 
     mismatch_events = [
-        e for e in store.get_events(rec.engagement_id)
+        e
+        for e in store.get_events(rec.engagement_id)
         if e.event_type == EventType.PASSIVE_DISCOVERY
         and e.payload.get("reason") == "tool_content_mismatch"
     ]

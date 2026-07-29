@@ -12,6 +12,7 @@ from agent_alpha.tools.contracts import ToolResult
 
 _HOST = "lab-target.invalid"
 
+
 def test_default_creds_win_forms_connected_chain():
     auth = AuthorizationStateMachine(event_store=InMemoryEventStore())
     rec = auth.create_engagement(client_id="client1", target=_HOST)
@@ -28,7 +29,7 @@ def test_default_creds_win_forms_connected_chain():
         type=NodeType.ASSET,
         properties=AssetProperties(host=_HOST, tech_stack=["wp"]),
         confidence=1.0,
-        agent="alpha"
+        agent="alpha",
     )
     persist_node(event_store, graph_store, eng_id, asset_node, agent="alpha")
 
@@ -59,15 +60,17 @@ def test_default_creds_win_forms_connected_chain():
         tool="default_creds",
         success=True,
         confidence=0.9,
-        findings=[{
-            "username": "admin",
-            "password": "password",
-            "access_level": "admin",
-            "proof_request": {},
-            "proof_response": {},
-            "session_cookie_name": "session",
-            "service": "http"
-        }]
+        findings=[
+            {
+                "username": "admin",
+                "password": "password",
+                "access_level": "admin",
+                "proof_request": {},
+                "proof_response": {},
+                "session_cookie_name": "session",
+                "service": "http",
+            }
+        ],
     )
 
     with patch("agent_alpha.agents.beta.strike.ToolRegistry") as mock_registry:
@@ -91,7 +94,12 @@ def test_default_creds_win_forms_connected_chain():
     chain = valid_chains[0]
     nodes = chain.nodes
     types = [n.type for n in nodes]
-    assert types == [NodeType.ASSET, NodeType.VULNERABILITY, NodeType.CREDENTIAL, NodeType.ACCESS_LEVEL]
+    assert types == [
+        NodeType.ASSET,
+        NodeType.VULNERABILITY,
+        NodeType.CREDENTIAL,
+        NodeType.ACCESS_LEVEL,
+    ]
 
     # verify highest impact
     impact = highest_impact_chain(graph_store)
@@ -99,6 +107,7 @@ def test_default_creds_win_forms_connected_chain():
     # We don't have severity on the chain itself, severity is on BlastRadius or ChainFinding.
     # Impact score is a float. We just assert it is > 0
     assert impact.impact_score > 0.0
+
 
 def test_no_fabricated_edge_to_unrelated_vuln():
     auth = AuthorizationStateMachine(event_store=InMemoryEventStore())
@@ -116,7 +125,7 @@ def test_no_fabricated_edge_to_unrelated_vuln():
         type=NodeType.VULNERABILITY,
         properties=VulnerabilityProperties(affected_service="odoo"),
         confidence=1.0,
-        agent="alpha"
+        agent="alpha",
     )
     persist_node(event_store, graph_store, eng_id, vuln_node, agent="alpha")
 
@@ -143,15 +152,17 @@ def test_no_fabricated_edge_to_unrelated_vuln():
         tool="default_creds",
         success=True,
         confidence=0.9,
-        findings=[{
-            "username": "admin",
-            "password": "password",
-            "access_level": "admin",
-            "proof_request": {},
-            "proof_response": {},
-            "session_cookie_name": "session",
-            "service": "http"
-        }]
+        findings=[
+            {
+                "username": "admin",
+                "password": "password",
+                "access_level": "admin",
+                "proof_request": {},
+                "proof_response": {},
+                "session_cookie_name": "session",
+                "service": "http",
+            }
+        ],
     )
 
     with patch("agent_alpha.agents.beta.strike.ToolRegistry") as mock_registry:
