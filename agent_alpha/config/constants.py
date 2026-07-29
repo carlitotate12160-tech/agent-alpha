@@ -79,6 +79,8 @@ __all__ = [
     "EVASION_CONSECUTIVE_BLOCKED_N",
     "EVASION_MAX_ESCALATIONS_PER_HOST",
     "TECHNIQUE_FOR_MITIGATION_CLASS",
+    "ODOO_VERSION_INFO_PATH",
+    "ODOO_VERSION_JSONRPC_BODY",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -467,3 +469,7 @@ TECHNIQUE_FOR_MITIGATION_CLASS: dict[str, str] = {
     "rule_deny": "none",
     "abort": "none",
 }
+
+# ── Odoo ───────────────────────────────────────────────────────
+ODOO_VERSION_INFO_PATH = "/web/webclient/version_info"
+ODOO_VERSION_JSONRPC_BODY = {"jsonrpc": "2.0", "method": "call", "params": {}}

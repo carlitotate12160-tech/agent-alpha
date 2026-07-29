@@ -1,4 +1,5 @@
 # agent_alpha/recon/odoo_dbmanager_probe.py
+# RENAME-DEFERRED → odoo_recon.py
 """Odoo database-manager exposure recon (RECON_ONLY, passive GET, no creds).
 
 Mirrors the wp_config_probe CONTRACT (not its vector). Odoo's crown-jewel
@@ -18,8 +19,11 @@ classify -> persist. Verify is Claude's gate lane; no offensive payload.
 from __future__ import annotations
 
 import datetime
+import json
 from typing import Any
 from urllib.parse import urlparse
+
+from agent_alpha.config import constants
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.http_client import HttpClientProtocol
@@ -191,3 +195,107 @@ def verify_odoo_dbmanager_exposure(
         )
 
     return exposures
+
+
+def parse_odoo_version(payload: dict) -> str | None:
+    """Tolerant parser for the Odoo version_info JSON-RPC result.
+
+    Returns the raw server_version (e.g. "12.0-20221012") or None.
+    Never raises.
+    """
+    try:
+        return payload.get("result", {}).get("server_version")
+    except Exception:
+        return None
+
+
+def verify_odoo_version(
+    *,
+    http_client: HttpClientProtocol,
+    url: str,
+    engagement_id: str,
+    auth: Any,
+    graph_store: Any,
+    event_store: Any,
+) -> int:
+    """Probe for Odoo version disclosure (RECON_ONLY, POST /version_info).
+
+    Mirrors the gate order of verify_odoo_dbmanager_exposure:
+    tier-gate -> scope-gate -> POST -> WAF discriminator -> parse.
+    Returns 1 if a version is found and minted, 0 otherwise.
+    """
+    current_state = auth.get_state(engagement_id)
+    if STATE_RANK.get(current_state, 0) < STATE_RANK[a2a_pb2.RECON_ONLY]:
+        return 0
+
+    host = urlparse(url).hostname
+    if not host or not auth.is_in_scope(engagement_id, host):
+        return 0
+
+    target_url = f"https://{host}{constants.ODOO_VERSION_INFO_PATH}"
+    try:
+        resp = http_client.post(target_url, json=constants.ODOO_VERSION_JSONRPC_BODY)
+    except Exception:
+        return 0  # network error -> skip, not a finding
+
+    status = getattr(resp, "status_code", 0)
+    body = getattr(resp, "text", "")
+
+    if classify_response(status_code=status, body=body) is Verdict.BLOCKED:
+        event_store.append(
+            EventType.WAF_BLOCKED,
+            engagement_id,
+            "alpha",
+            {"host": host, "path": constants.ODOO_VERSION_INFO_PATH, "status_code": status},
+        )
+        return 0
+
+    if status != 200:
+        return 0
+
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return 0
+
+    version = parse_odoo_version(payload)
+    if not version:
+        return 0  # Anti-#3: NO finding minted without actual data
+
+    now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+
+    # 1. Update the ASSET node with the new version and odoo label
+    asset_node = merge_asset_node(
+        graph_store,
+        host,
+        tech_stack_add=["odoo"],
+        confidence=0.9,
+        timestamp_utc=now_utc,
+    )
+    persist_node(event_store, graph_store, engagement_id, asset_node, agent="alpha")
+
+    # 2. Mint the VULNERABILITY node (using the EXACT same contract as WP version disclosure)
+    vuln_node = AttackNode(
+        id=f"vuln:{host}:odoo_version_disclosure",
+        type=NodeType.VULNERABILITY,
+        properties=VulnerabilityProperties(
+            affected_service=f"Odoo {version}",
+            cvss_score=3.1,
+            exploit_available=False,
+        ),
+        confidence=0.8,
+        agent="alpha",
+        timestamp_utc=now_utc,
+    )
+    persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
+
+    # 3. Connect ASSET -> VULNERABILITY via EXPLOITS edge
+    edge = AttackEdge(
+        source_id=asset_node.id,
+        target_id=vuln_node.id,
+        relationship=RelationshipType.EXPLOITS,
+        confidence=0.8,
+    )
+    persist_edge(event_store, graph_store, engagement_id, edge, agent="alpha")
+
+    return 1

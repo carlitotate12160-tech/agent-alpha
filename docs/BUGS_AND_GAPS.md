@@ -726,3 +726,21 @@ that makes the refactor safe.
 | D1 | `main.py` = 724 LOC mixing 4 concerns (FastAPI API + 3 Celery tasks + agent construction + dep wiring). Split into `api.py` / `tasks.py` / agent-build. | Works, green; refactoring it pre-emptively = churn on the highest-stakes module. | Before Gamma (next agent), or when main.py next needs surgery. |
 | D2 | Agent construction is an inline closure (`agent_factory` in `run_agent_task`). Bloats per-agent. Extract to a role-keyed `AgentBuilder`/registry (anti-#8). | Only bloats at the 3rd agent build (Gamma). Extracting now = speculative (YAGNI). | Gamma (3rd agent). |
 | D3 | Alpha bypasses `execute_agent` (own `run_engagement_task` path) → duplicated setup (store/auth/secrets/session/http/orchestrator built twice) + the false "all agents" docstring (D3-a fixes the doc now). Give Beta a `build_strike_*` seam mirroring `build_recon_pipeline`, route Alpha through execute_agent. | Reconciling the two paths is a real change; not needed for slice-1d (module-symbol patch suffices). | Pre-Gamma refactor (with slice-1d as the safety net). |
+
+---
+
+## TLS-Impersonate Transport — Refinements
+
+| id | Item |
+|----|------|
+| T4 | **tls_impersonate**: Zero SOW wins, unverified shell (bri 403->200) |
+
+---
+
+## Odoo Recon — Refinements
+
+| id | Item |
+|----|------|
+| O1 | **RULE-OF-THREE version_disclosure**: version-disclosure now has wp_version, db_service server_version, and odoo. Extract a shared `version_disclosure` helper for ONE finding contract. |
+| O2 | **list_db JSON-RPC**: Reconcile with `odoo_access.py` XML-RPC `_discover_databases` (Bug #6). |
+| O3 | **Rename**: `odoo_dbmanager_probe.py` → `odoo_recon.py`. |

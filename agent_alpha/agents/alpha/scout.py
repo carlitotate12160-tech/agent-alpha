@@ -147,7 +147,7 @@ class Alpha:
             "s3_bucket_fingerprint": self._handle_capability_fingerprint,
             "surface_discovery_probe": self._handle_surface_discovery,
             "graphql_fingerprint": self._handle_capability_fingerprint,
-            "odoo_fingerprint": self._handle_capability_fingerprint,
+            "odoo_fingerprint": self._handle_odoo_fingerprint,
             "wp_fingerprint": self._handle_capability_fingerprint,
             "wp_rest_routes": self._handle_wp_rest_routes,
             "wp_rest_users": self._handle_wp_rest_users,
@@ -1022,6 +1022,35 @@ class Alpha:
         if exposures > 0:
             self._findings += 1
         return exposures
+
+    def _handle_odoo_fingerprint(self, resp: Any, decision: Any, url: str) -> int:
+        """Thin wrapper over _handle_capability_fingerprint for Odoo Version Disclosure.
+
+        Explicitly checks _ran_campaigns (run-once) BEFORE delegating, guaranteeing
+        anti-#2 (no LLM starvation on subsequent pages).
+        """
+        if decision.tool in self._ran_campaigns:
+            return 0
+
+        # 1. Delegate generic label + seed behavior (it adds to _ran_campaigns for us)
+        added = self._handle_capability_fingerprint(resp, decision, url)
+
+        # 2. Check for version disclosure
+        from agent_alpha.recon.odoo_dbmanager_probe import verify_odoo_version
+
+        v_added = verify_odoo_version(
+            http_client=self.http_client,
+            url=url,
+            engagement_id=self._engagement_id,
+            auth=self.authorization,
+            graph_store=self.graph_store,
+            event_store=self.event_store,
+        )
+
+        if v_added > 0:
+            self._findings += 1
+
+        return added + v_added
 
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""
