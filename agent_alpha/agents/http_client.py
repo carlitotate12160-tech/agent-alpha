@@ -57,6 +57,17 @@ class HttpClientProtocol(Protocol):
         verify: bool | None = None,
     ) -> Any: ...
 
+    def post(
+        self,
+        url: str,
+        *,
+        data: dict[str, Any] | None = None,
+        json_body: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+        cookies: dict[str, str] | None = None,
+        verify: bool | None = None,
+    ) -> Any: ...
+
 
 class HttpClient:
     """httpx-backed HTTP client for production use."""

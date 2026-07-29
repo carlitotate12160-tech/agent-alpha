@@ -23,11 +23,10 @@ import json
 from typing import Any
 from urllib.parse import urlparse
 
-from agent_alpha.config import constants
-
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.http_client import HttpClientProtocol
 from agent_alpha.conductor.authorization import STATE_RANK
+from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
     AttackEdge,
@@ -197,14 +196,17 @@ def verify_odoo_dbmanager_exposure(
     return exposures
 
 
-def parse_odoo_version(payload: dict) -> str | None:
+def parse_odoo_version(payload: dict[str, Any]) -> str | None:
     """Tolerant parser for the Odoo version_info JSON-RPC result.
 
     Returns the raw server_version (e.g. "12.0-20221012") or None.
     Never raises.
     """
     try:
-        return payload.get("result", {}).get("server_version")
+        val = payload.get("result", {}).get("server_version")
+        if isinstance(val, str):
+            return val
+        return None
     except Exception:
         return None
 
@@ -234,7 +236,10 @@ def verify_odoo_version(
 
     target_url = f"https://{host}{constants.ODOO_VERSION_INFO_PATH}"
     try:
-        resp = http_client.post(target_url, json=constants.ODOO_VERSION_JSONRPC_BODY)
+        resp = http_client.post(
+            target_url,
+            json_body=constants.ODOO_VERSION_JSONRPC_BODY,
+        )
     except Exception:
         return 0  # network error -> skip, not a finding
 

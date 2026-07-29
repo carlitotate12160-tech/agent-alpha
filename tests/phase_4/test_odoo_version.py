@@ -5,17 +5,16 @@ import pathlib
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import NodeType, VulnerabilityProperties, RelationshipType
+from agent_alpha.graph.nodes import NodeType, VulnerabilityProperties
 from agent_alpha.llm.orchestrator import LLMOrchestrator
-from agent_alpha.tools.playbook import PlaybookEngine
 from agent_alpha.recon.odoo_dbmanager_probe import parse_odoo_version
+from agent_alpha.tools.playbook import PlaybookEngine
 
 _HOST = "target.example"
 _SEED = f"https://{_HOST}/"
@@ -34,7 +33,7 @@ _ODOO_PAGE = (
 class FakeResponse:
     status_code: int
     text: str = ""
-    headers: dict = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
 
 
 class FakeHttpClient:
@@ -48,15 +47,15 @@ class FakeHttpClient:
         self.get_calls.append(url)
         return self._routes.get("GET", {}).get(url, FakeResponse(404, ""))
 
-    def post(self, url: str, json: Any = None, **kwargs: Any) -> FakeResponse:
-        self.post_calls.append((url, json))
+    def post(self, url: str, json_body: Any = None, **kwargs: Any) -> FakeResponse:
+        self.post_calls.append((url, json_body))
         return self._routes.get("POST", {}).get(url, FakeResponse(404, ""))
 
 
 class _StubProvider:
     model = "stub"
 
-    def complete(self, *args: object, **kwargs: object):
+    def complete(self, *args: object, **kwargs: object) -> Any:
         return type(
             "R",
             (),
@@ -70,7 +69,7 @@ def _alpha(http: FakeHttpClient, do_enable_recon: bool = True) -> tuple[Alpha, s
     rec = auth.create_engagement(client_id="odoo_lab", target=_HOST)
     if do_enable_recon:
         auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_HOST], exclusions=[]))
-    
+
     engine = PlaybookEngine.from_directory(_REAL_PLAYBOOK_DIR, phase="recon")
     orchestrator = LLMOrchestrator(engine, _StubProvider())
     alpha = Alpha(
@@ -117,7 +116,7 @@ def test_odoo_fingerprint_mints_version_disclosure() -> None:
 
     # Edge EXPLOITS must exist
     edge = alpha.graph_store.get_edge(
-        source_id=f"asset:{_HOST}", 
+        source_id=f"asset:{_HOST}",
         target_id=vuln_id
     )
     assert edge is not None
@@ -140,7 +139,7 @@ def test_odoo_fingerprint_version_tier_negative() -> None:
     }
     http = FakeHttpClient(routes)
     alpha, eid = _alpha(http, do_enable_recon=False)
-    
+
     alpha.run_recon(eid, _SEED)
 
     assert len(http.post_calls) == 0
