@@ -65,6 +65,7 @@ class HttpClientProtocol(Protocol):
         json_body: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
+        allow_redirects: bool = True,
         verify: bool | None = None,
     ) -> Any: ...
 
@@ -137,6 +138,7 @@ class HttpClient:
         json_body: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
         cookies: dict[str, str] | None = None,
+        allow_redirects: bool = True,
         verify: bool | None = None,
     ) -> HttpResponse:
         """Issue a POST (e.g. a login form submission). Exactly one of ``data``
@@ -149,6 +151,7 @@ class HttpClient:
             cookies=cookies,
             data=data,
             json_body=json_body,
+            allow_redirects=allow_redirects,
             verify=verify,
         )
 

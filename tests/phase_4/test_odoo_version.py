@@ -41,14 +41,14 @@ class FakeHttpClient:
         # Map method -> url -> response
         self._routes = routes
         self.get_calls: list[str] = []
-        self.post_calls: list[tuple[str, Any]] = []
+        self.post_calls: list[tuple[str, Any, bool]] = []
 
     def get(self, url: str) -> FakeResponse:
         self.get_calls.append(url)
         return self._routes.get("GET", {}).get(url, FakeResponse(404, ""))
 
-    def post(self, url: str, json_body: Any = None, **kwargs: Any) -> FakeResponse:
-        self.post_calls.append((url, json_body))
+    def post(self, url: str, json_body: Any = None, allow_redirects: bool = True, **kwargs: Any) -> FakeResponse:
+        self.post_calls.append((url, json_body, allow_redirects))
         return self._routes.get("POST", {}).get(url, FakeResponse(404, ""))
 
 
@@ -147,6 +147,32 @@ def test_odoo_fingerprint_version_tier_negative() -> None:
     assert alpha._findings == 0
 
 
+def test_odoo_fingerprint_no_redirects() -> None:
+    # 3xx redirect -> should NOT be followed, returns 0, no finding
+    routes = {
+        "GET": {
+            _SEED: FakeResponse(200, _ODOO_PAGE),
+        },
+        "POST": {
+            f"https://{_HOST}{constants.ODOO_VERSION_INFO_PATH}": FakeResponse(
+                301, "<html>Redirecting</html>", headers={"Location": "https://other.com/evil"}
+            )
+        },
+    }
+    http = FakeHttpClient(routes)
+    alpha, eid = _alpha(http)
+
+    alpha.run_recon(eid, _SEED)
+
+    assert len(http.post_calls) == 1
+    # Check that allow_redirects=False was passed
+    url, body, allow_redirects = http.post_calls[0]
+    assert allow_redirects is False
+
+    assert alpha.graph_store.get_node(f"vuln:{_HOST}:odoo_version_disclosure") is None
+    assert alpha._findings == 0
+
+
 def test_odoo_fingerprint_anti_3_403_waf_blocked() -> None:
     # Anti-#3: WAF blocks version_info -> WAF_BLOCKED event, no finding, no version
     routes = {
@@ -196,18 +222,24 @@ def test_generic_handlers_still_dispatch() -> None:
     # Regression: Ensure that other fingerprint rules still dispatch correctly
     routes = {
         "GET": {
-            _SEED: FakeResponse(200, "tomcat server"),
+            _SEED: FakeResponse(200, "tomcat server", headers={"server": "tomcat"}),
         }
     }
-    alpha, eid = _alpha(FakeHttpClient(routes))
 
-    # Fake decision directly
-    class FakeDecision:
-        tool = "tomcat_fingerprint"
+    class TomcatStubProvider:
+        model = "stub"
+        def complete(self, *args: object, **kwargs: object) -> Any:
+            return type("R", (), {"text": '{"tool": "tomcat_fingerprint"}', "usage_cost_usd": 0.0, "model": "stub"})()
 
-    # Just asserting the map hasn't been broken
-    handler = alpha._dispatch_registry["tomcat_fingerprint"]
-    assert handler.__name__ == "_handle_capability_fingerprint"
+    http = FakeHttpClient(routes)
+    alpha, eid = _alpha(http)
+    alpha.orchestrator = LLMOrchestrator(
+        PlaybookEngine.from_directory(_REAL_PLAYBOOK_DIR, phase="recon"),
+        TomcatStubProvider(),
+    )
 
-    handler = alpha._dispatch_registry["odoo_fingerprint"]
-    assert handler.__name__ == "_handle_odoo_fingerprint"
+    alpha.run_recon(eid, _SEED)
+
+    asset = alpha.graph_store.get_node(f"asset:{_HOST}")
+    assert asset is not None
+    assert "tomcat" in asset.properties.tech_stack

@@ -204,7 +204,7 @@ def parse_odoo_version(payload: dict[str, Any]) -> str | None:
     """
     try:
         val = payload.get("result", {}).get("server_version")
-        if isinstance(val, str):
+        if isinstance(val, str) and val:
             return val
         return None
     except Exception:
@@ -239,6 +239,7 @@ def verify_odoo_version(
         resp = http_client.post(
             target_url,
             json_body=constants.ODOO_VERSION_JSONRPC_BODY,
+            allow_redirects=False,
         )
     except Exception:
         return 0  # network error -> skip, not a finding
