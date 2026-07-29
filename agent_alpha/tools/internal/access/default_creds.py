@@ -127,7 +127,10 @@ def _has_login_form(text: str) -> bool:
 
 
 # Session cookie allowlist (SSOT, anti-#7)
-SESSION_COOKIE_NAMES = frozenset({"session_id", "sessionid", "sid", "session", "auth", "token", "connect.sid"})
+SESSION_COOKIE_NAMES = frozenset(
+    {"session_id", "sessionid", "sid", "session", "auth", "token", "connect.sid"}
+)
+
 
 def _has_positive_auth_signal(
     auth_resp: Any,
