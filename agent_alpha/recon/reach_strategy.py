@@ -16,6 +16,7 @@ class ReachStrategy(enum.StrEnum):
     DIRECT = "direct"  # normal front-door
     EVASION = "evasion"  # transport_resilience (9a/9b/9c) — residential only
     ORIGIN_DIRECT = "origin_direct"  # scoping: hit authorized origin, bypass CDN
+    TLS_IMPERSONATE = "tls_impersonate"  # curl_cffi front-door with browser JA3
 
 
 def choose_reach(
@@ -23,15 +24,19 @@ def choose_reach(
     *,
     browser_solve_viable: bool,
     authorized_origin: str | None,
+    tls_impersonate_viable: bool = False,
 ) -> ReachStrategy:
     """Select a reach strategy based on the mitigation class.
 
     Decision table (differential — class drives strategy, anti-#11):
     * No mitigation              → DIRECT
     * CHALLENGE + viable solve   → EVASION
-    * RULE_DENY, or CHALLENGE without viable solve (e.g. datacenter IP)
-        → ORIGIN_DIRECT iff an authorized origin exists;
-          else DIRECT (front-door result, honestly blocked — never a silent cheat).
+    * Authorized origin present  → ORIGIN_DIRECT (origin beats CF front-door)
+    * FINGERPRINT + impersonate  → TLS_IMPERSONATE (datacenter-viable CF bypass)
+    * Otherwise                  → DIRECT (honest block — never a silent cheat).
+
+    Ordering is deliberate: ORIGIN_DIRECT (hitting the real origin) is preferred
+    over impersonating the CF front door when an authorized origin exists.
     """
     if mitigation is None:
         return ReachStrategy.DIRECT
@@ -39,4 +44,6 @@ def choose_reach(
         return ReachStrategy.EVASION
     if authorized_origin is not None:
         return ReachStrategy.ORIGIN_DIRECT
+    if mitigation is MitigationClass.FINGERPRINT and tls_impersonate_viable:
+        return ReachStrategy.TLS_IMPERSONATE
     return ReachStrategy.DIRECT

@@ -79,6 +79,7 @@ __all__ = [
     "EVASION_CONSECUTIVE_BLOCKED_N",
     "EVASION_MAX_ESCALATIONS_PER_HOST",
     "TECHNIQUE_FOR_MITIGATION_CLASS",
+    "REACH_TIMEOUT_S",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -467,3 +468,8 @@ TECHNIQUE_FOR_MITIGATION_CLASS: dict[str, str] = {
     "rule_deny": "none",
     "abort": "none",
 }
+# Reach-transport HTTP timeout (seconds). Single source (anti-#7): used by
+# origin_direct_fetch (httpx) and tls_impersonate_fetch (curl_cffi). Distinct
+# from HTTP_REQUEST_TIMEOUT_SEC (recon client) — reach transports may traverse
+# additional TLS negotiation or CDN edge hops.
+REACH_TIMEOUT_S: float = 15.0
