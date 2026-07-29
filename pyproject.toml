@@ -32,6 +32,7 @@ dependencies = [
     "git-dumper",
     "camoufox[geoip]>=0.5.4",
     "dnspython>=2.6.1",
+    "curl_cffi",
 ]
 
 [tool.setuptools.packages.find]

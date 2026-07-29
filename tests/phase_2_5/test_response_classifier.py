@@ -218,55 +218,55 @@ def test_js_secret_probe_uses_canonical_classifier() -> None:
 # ---------------------------------------------------------------------------
 
 _CF_SOFT200_INTERSTITIAL = (
-    '<html>\n<head>\n<title>One moment, please...</title>\n'
-    '<style>\n'
-    '#cf-spinner-please-wait { spinner-styles }\n'
-    '.spinner { border: 4px solid rgba(0,0,0,.1); border-radius: 50%; }\n'
-    '</style>\n</head>\n<body>\n'
+    "<html>\n<head>\n<title>One moment, please...</title>\n"
+    "<style>\n"
+    "#cf-spinner-please-wait { spinner-styles }\n"
+    ".spinner { border: 4px solid rgba(0,0,0,.1); border-radius: 50%; }\n"
+    "</style>\n</head>\n<body>\n"
     '<div id="cf-spinner-please-wait">\n'
     '<div class="spinner"></div>\n'
-    '<p>One moment, please...</p>\n'
-    '</div>\n'
-    '<script>\n'
-    'setTimeout(function(){window.location.reload();},5000);\n'
-    '</script>\n</body>\n</html>\n'
-    '<!-- padding to ~11.8KB -->\n' + (' ' * 11000) + '\n'
+    "<p>One moment, please...</p>\n"
+    "</div>\n"
+    "<script>\n"
+    "setTimeout(function(){window.location.reload();},5000);\n"
+    "</script>\n</body>\n</html>\n"
+    "<!-- padding to ~11.8KB -->\n" + (" " * 11000) + "\n"
 )
 
 _WP_HOMEPAGE = (
-    '<html>\n<head>\n<title>My WordPress Site</title>\n'
+    "<html>\n<head>\n<title>My WordPress Site</title>\n"
     '<link rel="stylesheet" href="/wp-content/themes/mytheme/style.css" />\n'
-    '</head>\n<body>\n'
-    '<header><nav>\n'
+    "</head>\n<body>\n"
+    "<header><nav>\n"
     '<a href="/about/">About Us</a>\n'
     '<a href="/blog/">Blog</a>\n'
     '<a href="/contact/">Contact</a>\n'
     '<a href="/services/">Services</a>\n'
-    '</nav></header>\n'
-    '<article>\n'
-    '<h1>Welcome to Our Site</h1>\n'
-    '<p>We are a leading company in our field.</p>\n'
+    "</nav></header>\n"
+    "<article>\n"
+    "<h1>Welcome to Our Site</h1>\n"
+    "<p>We are a leading company in our field.</p>\n"
     '<img src="/wp-content/uploads/2024/hero.jpg" />\n'
-    '</article>\n'
-    '<footer><p>&copy; 2024 My Company</p></footer>\n'
-    '</body>\n</html>\n'
+    "</article>\n"
+    "<footer><p>&copy; 2024 My Company</p></footer>\n"
+    "</body>\n</html>\n"
 )
 
 _META_REFRESH_REAL_PAGE = (
-    '<html>\n<head>\n<title>This page has moved</title>\n'
+    "<html>\n<head>\n<title>This page has moved</title>\n"
     '<meta http-equiv="refresh" content="2;url=/new-location" />\n'
-    '</head>\n<body>\n'
-    '<nav>\n'
+    "</head>\n<body>\n"
+    "<nav>\n"
     '<a href="/home">Home</a>\n'
     '<a href="/about">About</a>\n'
     '<a href="/products">Products</a>\n'
-    '</nav>\n'
-    '<article>\n'
-    '<h1>We have moved!</h1>\n'
-    '<p>This page has been relocated. You will be redirected automatically.</p>\n'
+    "</nav>\n"
+    "<article>\n"
+    "<h1>We have moved!</h1>\n"
+    "<p>This page has been relocated. You will be redirected automatically.</p>\n"
     '<p>If you are not redirected, <a href="/new-location">click here</a>.</p>\n'
-    '</article>\n'
-    '</body>\n</html>\n'
+    "</article>\n"
+    "</body>\n</html>\n"
 )
 
 

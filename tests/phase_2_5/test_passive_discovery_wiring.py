@@ -185,9 +185,7 @@ _SCOPE_ROOT = "ex.com"
 _SCOPE_TARGET_URL = f"https://{_SCOPE_ROOT}"
 
 # crt.sh returns both hosts; PassiveDiscovery partitions via is_in_scope.
-_INSCOPE_CRTSH_JSON = (
-    f'[{{"name_value":"{_INSCOPE_SUB}"}},{{"name_value":"{_OOS_HOST}"}}]'
-)
+_INSCOPE_CRTSH_JSON = f'[{{"name_value":"{_INSCOPE_SUB}"}},{{"name_value":"{_OOS_HOST}"}}]'
 
 
 class _InScopeCrtShClient:
@@ -221,9 +219,7 @@ def test_in_scope_subdomains_become_recon_targets(
         "build_recon_pipeline",
         lambda *a, **k: _fake_pipeline(auth, graph, store),
     )
-    monkeypatch.setattr(
-        recon_runner, "resolve_recon_targets", lambda record: [_SCOPE_TARGET_URL]
-    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_SCOPE_TARGET_URL])
 
     def _build_pd(*a: object, **k: object) -> PassiveDiscovery:
         return PassiveDiscovery(
@@ -275,4 +271,3 @@ def test_in_scope_subdomains_become_recon_targets(
     # Sanity: result metadata is coherent.
     assert result is not None
     assert result.targets_scanned >= 2  # root + in-scope subdomain
-

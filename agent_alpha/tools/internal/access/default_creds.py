@@ -126,6 +126,12 @@ def _has_login_form(text: str) -> bool:
     return 'type="password"' in lower or "type='password'" in lower
 
 
+# Session cookie allowlist (SSOT, anti-#7)
+SESSION_COOKIE_NAMES = frozenset(
+    {"session_id", "sessionid", "sid", "session", "auth", "token", "connect.sid"}
+)
+
+
 def _has_positive_auth_signal(
     auth_resp: Any,
     baseline_resp: Any,
@@ -139,9 +145,21 @@ def _has_positive_auth_signal(
       2. A redirect into an authenticated area (301/302).
       3. The login form disappeared (baseline had a password field, response does not).
     """
+    # 1. STATUS GATE first: an error status is a rejection, never access.
+    #    (e.g., Odoo 400 Bad Request still sets frontend_lang).
+    if auth_resp.status_code >= 400:
+        return False
+
     # Signal 1: session cookie issued.
-    if auth_resp.headers.get("set-cookie"):
-        return True
+    #   Odoo sets frontend_lang (language cookie) on EVERY response.
+    #   We enforce a default-deny allowlist based on cookie NAME so
+    #   non-auth cookies (frontend_lang, csrf, lang, locale, _ga) are ignored.
+    set_cookie = auth_resp.headers.get("set-cookie")
+    if set_cookie:
+        cookie_name = _cookie_name_only(set_cookie).lower()
+        if cookie_name in SESSION_COOKIE_NAMES:
+            return True
+
     # Signal 2: redirect to authenticated area.
     if auth_resp.status_code in (301, 302):
         return True

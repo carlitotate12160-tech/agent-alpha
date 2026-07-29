@@ -81,6 +81,7 @@ __all__ = [
     "TECHNIQUE_FOR_MITIGATION_CLASS",
     "ODOO_VERSION_INFO_PATH",
     "ODOO_VERSION_JSONRPC_BODY",
+    "REACH_TIMEOUT_S",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -469,6 +470,11 @@ TECHNIQUE_FOR_MITIGATION_CLASS: dict[str, str] = {
     "rule_deny": "none",
     "abort": "none",
 }
+# Reach-transport HTTP timeout (seconds). Single source (anti-#7): used by
+# origin_direct_fetch (httpx) and tls_impersonate_fetch (curl_cffi). Distinct
+# from HTTP_REQUEST_TIMEOUT_SEC (recon client) — reach transports may traverse
+# additional TLS negotiation or CDN edge hops.
+REACH_TIMEOUT_S: float = 15.0
 
 # ── Odoo ───────────────────────────────────────────────────────
 ODOO_VERSION_INFO_PATH = "/web/webclient/version_info"
