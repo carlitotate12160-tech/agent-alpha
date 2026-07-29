@@ -70,10 +70,10 @@ class NetworkXGraphStore:
         return cast(AttackEdge, self._graph.edges[source_id, target_id]["data"])
 
     def all_nodes(self) -> list[AttackNode]:
-        return [d["data"] for _, d in self._graph.nodes(data=True)]
+        return [d["data"] for _, d in self._graph.nodes(data=True) if "data" in d]
 
     def all_edges(self) -> list[AttackEdge]:
-        return [d["data"] for _, _, d in self._graph.edges(data=True)]
+        return [d["data"] for _, _, d in self._graph.edges(data=True) if "data" in d]
 
     def nodes_by_type(self, node_type: NodeType) -> list[AttackNode]:
         return [n for n in self.all_nodes() if n.type == node_type]
