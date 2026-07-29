@@ -62,7 +62,7 @@ def origin_direct_fetch(
 # is_tls_impersonate_available() gate lets the scout degrade to honest-block
 # when the dep is absent, rather than crashing at import time.
 try:
-    from curl_cffi import requests as cffi_requests  # type: ignore[import-untyped]
+    from curl_cffi import requests as cffi_requests
 
     _CURL_CFFI_AVAILABLE = True
 except ImportError:  # pragma: no cover — optional dependency
@@ -103,7 +103,7 @@ def tls_impersonate_fetch(
     try:
         resp = cffi_requests.get(
             url,
-            impersonate=impersonate,
+            impersonate=impersonate,  # type: ignore[arg-type]
             verify=verify_tls,
             timeout=constants.REACH_TIMEOUT_S,
         )
@@ -114,5 +114,5 @@ def tls_impersonate_fetch(
     return OriginDirectResult(
         status_code=resp.status_code,
         body=resp.text,
-        headers=dict(resp.headers),
+        headers={str(k): str(v) for k, v in resp.headers.items()},
     )
