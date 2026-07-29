@@ -25,7 +25,6 @@ from agent_alpha.recon.reach_transport import (
     tls_impersonate_fetch,
 )
 
-
 # ---------------------------------------------------------------------------
 # Stub for curl_cffi response
 # ---------------------------------------------------------------------------

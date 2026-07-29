@@ -42,6 +42,7 @@ from agent_alpha.graph.nodes import (
     ProofArtifact,
     RelationshipType,
     VerificationTier,
+    VulnerabilityProperties,
 )
 from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
@@ -426,6 +427,35 @@ class Beta:
         # Otherwise, mint a new CREDENTIAL node for default_creds.
         cred_node_id = finding.get("credential_node_id")
         if not cred_node_id:
+            vuln_node_id = f"vuln:{host}:default_credentials"
+            vuln_node = AttackNode(
+                id=vuln_node_id,
+                type=NodeType.VULNERABILITY,
+                properties=VulnerabilityProperties(
+                    affected_service=finding.get("service", "http"),
+                    cvss_score=9.8,
+                    exploit_available=True,
+                ),
+                confidence=result.confidence,
+                agent="beta",
+                timestamp_utc=now_utc,
+                verification=VerificationTier.SELF_VERIFIED,
+            )
+            persist_node(
+                self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="beta"
+            )
+            nodes_added += 1
+
+            vuln_edge = AttackEdge(
+                source_id=f"asset:{host}",
+                target_id=vuln_node_id,
+                relationship=RelationshipType.EXPLOITS,
+                confidence=result.confidence,
+            )
+            persist_edge(
+                self.event_store, self.graph_store, self._engagement_id, vuln_edge, agent="beta"
+            )
+
             cred_node_id = f"cred:{host}:{finding['username']}"
             cred_node = AttackNode(
                 id=cred_node_id,
@@ -445,6 +475,19 @@ class Beta:
                 self.event_store, self.graph_store, self._engagement_id, cred_node, agent="beta"
             )
             nodes_added += 1
+
+            cred_source_edge = AttackEdge(
+                source_id=vuln_node_id,
+                target_id=cred_node_id,
+                relationship=RelationshipType.ENABLES,
+                confidence=result.confidence,
+                technique_id=(
+                    winning_tool.mitre_technique if winning_tool is not None else decision.technique_id
+                ),
+            )
+            persist_edge(
+                self.event_store, self.graph_store, self._engagement_id, cred_source_edge, agent="beta"
+            )
 
         # ACCESS_LEVEL node (self-verified by tool — oracle upgrades to CROSS_VERIFIED).
         access_node = AttackNode(
