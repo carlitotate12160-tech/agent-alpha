@@ -111,11 +111,3 @@ class EventType(enum.StrEnum):
     # bypassing the CDN/WAF front door.  Audit-sensitive because it bypasses the
     # client's WAF — requires signed authorized_origins consent (§12.36).
     # Carries {host, origin_ip, authorized, discovered_via}.
-
-    # ── Phase 2.5 (TLS-impersonation reach — §12.33) ─────────────────
-    TLS_IMPERSONATE_ATTEMPT = "TlsImpersonateAttempt"
-    # ^ A TLS-impersonation fetch was attempted: agent re-fetched the front-door
-    # URL with a real browser TLS/JA3 fingerprint (curl_cffi) to bypass a
-    # WAF fingerprint block (403/503). Audit-sensitive because it actively
-    # evades a WAF control — requires signed allow_evasion consent (§12.36).
-    # Carries {host, technique, authorized}.

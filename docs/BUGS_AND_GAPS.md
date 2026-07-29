@@ -729,13 +729,18 @@ that makes the refactor safe.
 
 ---
 
-## TLS-Impersonate Transport — Deferred Refinements (Phase 4)
+## TLS-Impersonate Transport — Refinements
 
-Tracked here — do NOT build in the current slice.
+| id | Item |
+|----|------|
+| T4 | **tls_impersonate**: Zero SOW wins, unverified shell (bri 403->200) |
 
-| id | Item | Why deferred | Risk |
-|----|------|-------------|------|
-| T1 | **Ordering gap**: if `browser_solve` IS injected and the browser is also blocked, `_apply_host_reach_class` marks the host "blocked" and short-circuits BEFORE `_attempt_reach`, so `TLS_IMPERSONATE` never runs. | Safe for datacenter config (browser not injected). | Low — datacenter deployments never inject browser_solve. Refinement: try tls_impersonate before declaring a host reach-blocked when both lanes exist. |
-| T2 | **OriginDirectResult misnomer**: once reused by `tls_impersonate_fetch`, the name is misleading. Neutral rename to `ReachTransportResult`. | Sealed-type churn — 20+ call sites, all tests, no behavior change. | None — cosmetic. Defer until next type-surface surgery. |
-| T3 | **Per-host TLS-impersonate failure not cached**: a host that stays blocked after impersonation is re-attempted once per URL (bounded by `_reach_attempted` per-URL set, not infinite). | Bounded — at most one attempt per URL via existing `_reach_attempted` guard. | Low — redundant fetches on multi-path hosts, but each is bounded and recorded. Cache per-host failure when per-host reach-class refactors. |
+---
 
+## Odoo Recon — Refinements
+
+| id | Item |
+|----|------|
+| O1 | **RULE-OF-THREE version_disclosure**: version-disclosure now has wp_version, db_service server_version, and odoo. Extract a shared `version_disclosure` helper for ONE finding contract. |
+| O2 | **list_db JSON-RPC**: Reconcile with `odoo_access.py` XML-RPC `_discover_databases` (Bug #6). |
+| O3 | **Rename**: `odoo_dbmanager_probe.py` → `odoo_recon.py`. |
