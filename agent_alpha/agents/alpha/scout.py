@@ -742,9 +742,8 @@ class Alpha:
         # 3b. TLS-impersonate gate: curl_cffi importable AND profile authorizes
         #     evasion (§12.36). Datacenter-viable — needs NO browser, NO injected
         #     browser_solve. Separate from browser_solve_viable (different transport).
-        tls_impersonate_viable = (
-            is_tls_impersonate_available()
-            and getattr(self._engagement_profile, "allow_evasion", False)
+        tls_impersonate_viable = is_tls_impersonate_available() and getattr(
+            self._engagement_profile, "allow_evasion", False
         )
 
         # 4. Choose reach strategy (differential — mitigation class → strategy)
