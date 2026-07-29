@@ -48,7 +48,11 @@ from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.plugin_cve_catalog import lookup as cve_lookup
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
-from agent_alpha.recon.reach_transport import origin_direct_fetch
+from agent_alpha.recon.reach_transport import (
+    is_tls_impersonate_available,
+    origin_direct_fetch,
+    tls_impersonate_fetch,
+)
 from agent_alpha.recon.response_classifier import (  # noqa: F401
     VOLATILE_HEADERS,
     Verdict,
@@ -735,11 +739,20 @@ class Alpha:
             and getattr(self._engagement_profile, "allow_evasion", False)
         )
 
+        # 3b. TLS-impersonate gate: curl_cffi importable AND profile authorizes
+        #     evasion (§12.36). Datacenter-viable — needs NO browser, NO injected
+        #     browser_solve. Separate from browser_solve_viable (different transport).
+        tls_impersonate_viable = (
+            is_tls_impersonate_available()
+            and getattr(self._engagement_profile, "allow_evasion", False)
+        )
+
         # 4. Choose reach strategy (differential — mitigation class → strategy)
         strategy = choose_reach(
             mitigation,
             browser_solve_viable=browser_solve_viable,
             authorized_origin=authorized_origin,
+            tls_impersonate_viable=tls_impersonate_viable,
         )
 
         # 5. Dispatch
@@ -801,6 +814,39 @@ class Alpha:
                 self._emit(
                     "OBSERVE",
                     f"Reach: browser_solve did not solve challenge for {url}",
+                )
+                return None
+
+            return _ReachResponse(
+                status_code=result.status_code,
+                body=result.body,
+                headers=dict(result.headers),
+            )
+
+        if strategy is ReachStrategy.TLS_IMPERSONATE:
+            self._emit(
+                "OBSERVE",
+                f"Reach: TLS_IMPERSONATE for {url}",
+            )
+
+            # Audit event (TLS impersonation evades WAF fingerprint — audit-sensitive)
+            self.event_store.append(
+                EventType.TLS_IMPERSONATE_ATTEMPT,
+                self._engagement_id,
+                "alpha",
+                {
+                    "host": host,
+                    "technique": "tls_impersonate",
+                    "authorized": True,
+                },
+            )
+
+            try:
+                result = tls_impersonate_fetch(url)
+            except RuntimeError:
+                self._emit(
+                    "OBSERVE",
+                    f"Reach: tls_impersonate_fetch failed for {url}",
                 )
                 return None
 

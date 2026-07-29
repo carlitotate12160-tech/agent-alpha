@@ -72,6 +72,38 @@ class TestChooseReach:
         )
         assert result is ReachStrategy.ORIGIN_DIRECT
 
+    # ── FINGERPRINT + TLS_IMPERSONATE ────────────────────────────────────
+
+    def test_fingerprint_with_impersonate_viable_returns_tls_impersonate(self) -> None:
+        """FINGERPRINT + tls_impersonate_viable → TLS_IMPERSONATE."""
+        result = choose_reach(
+            MitigationClass.FINGERPRINT,
+            browser_solve_viable=False,
+            authorized_origin=None,
+            tls_impersonate_viable=True,
+        )
+        assert result is ReachStrategy.TLS_IMPERSONATE
+
+    def test_fingerprint_without_impersonate_viable_returns_direct(self) -> None:
+        """FINGERPRINT + tls_impersonate_viable=False → DIRECT (honest block)."""
+        result = choose_reach(
+            MitigationClass.FINGERPRINT,
+            browser_solve_viable=False,
+            authorized_origin=None,
+            tls_impersonate_viable=False,
+        )
+        assert result is ReachStrategy.DIRECT
+
+    def test_fingerprint_with_authorized_origin_prefers_origin_direct(self) -> None:
+        """FINGERPRINT + authorized_origin → ORIGIN_DIRECT (origin wins over impersonation)."""
+        result = choose_reach(
+            MitigationClass.FINGERPRINT,
+            browser_solve_viable=False,
+            authorized_origin="203.0.113.42",
+            tls_impersonate_viable=True,
+        )
+        assert result is ReachStrategy.ORIGIN_DIRECT
+
 
 # ── ReachStrategy is a proper StrEnum ─────────────────────────────────────────
 
@@ -82,6 +114,7 @@ class TestReachStrategyEnum:
             ReachStrategy.DIRECT,
             ReachStrategy.EVASION,
             ReachStrategy.ORIGIN_DIRECT,
+            ReachStrategy.TLS_IMPERSONATE,
         }
 
     def test_str_round_trip(self) -> None:
