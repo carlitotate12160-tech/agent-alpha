@@ -64,6 +64,7 @@ __all__ = [
     "WP_CONFIG_BACKUP_PATHS",
     "WP_REST_INTERESTING_ROUTES",
     "WP_VERSION_PATHS",
+    "WP_CRAWL_ALLOW_PATH_PREFIXES",
     "BACKUP_FILE_PATHS",
     "ACTUATOR_PATHS",
     "GIT_LEAK_PATHS",
@@ -296,6 +297,27 @@ WP_REST_ROUTES_CAP: int = 200
 # the site root's <meta generator> is the corroborating second request. Version
 # is taken from the body SIGNATURE, never status alone (WP soft-404 = 200 HTML).
 WP_VERSION_PATHS: tuple[str, ...] = ("/readme.html",)
+
+# Selective-crawl allowlist for a host already fingerprinted as WordPress
+# (STACK_WP). Applied ONLY to organically-discovered hrefs (Alpha's
+# frontier-expansion loop, scout.py _step_once) — NEVER to deterministic
+# catalog seeds (WP_VERSION_PATHS, wp_fingerprint.frontier_seeds,
+# WP_REST_INTERESTING_ROUTES escalation), which enqueue directly via
+# enqueue_discovered_url() and are already curated. Without this allowlist,
+# a same-origin href filter has no domain intelligence: every product/blog/
+# category page on the site queues for LLM-tier probing at the same priority
+# as an actual WP surface (field evidence: unibis.co.id, 2026-07-29 — 20min /
+# ~30 product-page probes / 0 findings from any of them). Content pages
+# (product/blog/category/about/contact) are intentionally NOT enumerated here
+# (unbounded — WP permalink structures vary per site); this is a positive
+# allowlist of the bounded, known WP-internal surface instead.
+WP_CRAWL_ALLOW_PATH_PREFIXES: tuple[str, ...] = (
+    "/wp-content/plugins/",
+    "/wp-content/themes/",
+    "/wp-json/",
+    "/wp-admin/",
+    "/xmlrpc.php",
+)
 
 BACKUP_FILE_PATHS: tuple[str, ...] = (
     "/.env.bak",
