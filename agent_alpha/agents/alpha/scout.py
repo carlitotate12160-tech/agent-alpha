@@ -173,6 +173,13 @@ class Alpha:
         self._reach_attempted: set[str] = set()
         self._reach_class: dict[str, str] = {}
         self._reach_body_cache: dict[str, Any] = {}
+        # host -> set of tech_stack labels fingerprinted THIS run (R2 selective
+        # crawl). Local to Alpha, NOT read from graph_store/world_model — keeps
+        # the gate pure/synchronous and avoids a graph query on every discovered
+        # href. Tagged at the END of _handle_capability_fingerprint (after its
+        # deterministic frontier_seeds are already enqueued), so catalog seeds
+        # are never subject to this gate — only hrefs parsed from page HTML are.
+        self._host_stack: dict[str, set[str]] = {}
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -213,6 +220,7 @@ class Alpha:
         self._reach_attempted = set()
         self._reach_class = {}
         self._reach_body_cache = {}
+        self._host_stack = {}
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -515,7 +523,8 @@ class Alpha:
         # re-inflate the very probing F2 trims).
         if verdict is Verdict.OK:
             for href in self._extract_hrefs(resp.text, url):
-                self.enqueue_discovered_url(href)
+                if self._frontier_expansion_allowed(href):
+                    self.enqueue_discovered_url(href)
 
         return _finish(
             nodes_added, decision.cost_usd, f"ACT: {decision.tool} on {url} -> {nodes_added} nodes"
@@ -1171,6 +1180,10 @@ class Alpha:
             if handler is not None:
                 handler(resp, SimpleNamespace(tool=follow_tool), url)
 
+        # R2 selective crawl (tag AFTER seeds/follow-ups above so this
+        # fingerprint's OWN deterministic seeds are never gated by it).
+        self._host_stack.setdefault(host, set()).add(spec.label)
+
         return 1
 
     def _handle_surface_discovery(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
@@ -1629,7 +1642,31 @@ class Alpha:
 
         return nodes_added
 
-    # ── Private: frontier expansion (R1) ───────────────────────
+    # ── Private: frontier expansion (R1/R2) ─────────────────────
+
+    def _frontier_expansion_allowed(self, url: str) -> bool:
+        """R2 selective-crawl gate for ORGANICALLY-discovered hrefs only.
+
+        Called exclusively from the ``_extract_hrefs`` loop in ``_step_once``
+        — never from deterministic catalog seeding (``WELL_KNOWN_LEAK_PATHS``,
+        ``SURFACE_DISCOVERY_PATHS``, ``wp_fingerprint.frontier_seeds``,
+        ``WP_REST_INTERESTING_ROUTES`` escalation, try_harder recovery), all of
+        which call ``enqueue_discovered_url`` directly and stay unfiltered —
+        those are already-curated security surface, not organic crawl.
+
+        Unknown/unfingerprinted hosts are PERMISSIVE (current FIFO behaviour,
+        byte-for-byte backward compatible — anti-#3: absence of a catalog
+        entry is never a silent reject). Once a host is tagged ``STACK_WP`` by
+        ``_handle_capability_fingerprint``, only ``WP_CRAWL_ALLOW_PATH_PREFIXES``
+        survive — content pages (product/blog/category/about/contact) never
+        reach the frontier, so they never burn an LLM-tier probe.
+        """
+        parsed = urlparse(url)
+        host = parsed.hostname or parsed.netloc
+        if constants.STACK_WP not in self._host_stack.get(host, ()):
+            return True
+        path = parsed.path.lower()
+        return any(path.startswith(p) for p in constants.WP_CRAWL_ALLOW_PATH_PREFIXES)
 
     def _extract_hrefs(self, html: str, base_url: str) -> list[str]:
         """Extract absolute same-origin hrefs from *html*.
