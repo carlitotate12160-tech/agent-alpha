@@ -16,6 +16,7 @@ from typing import Any
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
+from agent_alpha.conductor.applicator_factory import BoundApplicator
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -91,13 +92,14 @@ def test_session_token_value_never_persisted_to_event_store() -> None:
     eng = rec.engagement_id
 
     beta_events = InMemoryEventStore()
+    http = _Fake()
     beta = Beta(
-        cred_applicators=[HttpFormApplicator(http_client=None)],
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http), ENTRY)],
         authorization=auth,
         graph_store=NetworkXGraphStore(),
         event_store=beta_events,
         orchestrator=_StubOrchestrator(),
-        http_client=_Fake(),
+        http_client=http,
     )
 
     msg = beta.run_strike(eng, ENTRY)

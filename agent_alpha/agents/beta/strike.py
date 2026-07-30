@@ -323,7 +323,7 @@ class Beta:
                 graph_store=self.graph_store,
                 secrets_manager=self._secrets_manager,
             ),
-            DefaultCredsTool(http_client=self.http_client),
+            DefaultCredsTool(applicators=self._cred_applicators, http_client=self.http_client),
             OdooAccessTool(
                 http_client=self.http_client,
                 graph_store=self.graph_store,
