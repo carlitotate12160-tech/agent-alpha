@@ -250,19 +250,24 @@ class DefaultCredsTool:
 
             result = None
             for bound in bound_applicators:
+                if requests_used >= budget.max_requests:
+                    break
                 if not bound.applicator.applies_to("http", bound.target):
                     continue
                 # APPLY the credential — it MUST reach the wire (anti-Lyndon
-                # #3: no proof-theatre).
-                try:
-                    result = bound.applicator.apply(
-                        username=username,
-                        secret=password,
-                        target=bound.target,
-                        budget=budget,
-                    )
-                except Exception:
-                    continue
+                # #3: no proof-theatre). Unguarded, matching cred_reuse.py's
+                # own call to the same method: apply() already catches its
+                # own expected (network/transport) failures internally and
+                # returns AuthResult(success=False) — anything that still
+                # raises here is a genuine bug and must propagate, not be
+                # silently absorbed into "tried, no access" (which would be
+                # indistinguishable from a real negative result).
+                result = bound.applicator.apply(
+                    username=username,
+                    secret=password,
+                    target=bound.target,
+                    budget=budget,
+                )
                 requests_used += 3  # baseline + auth + confirm (upper bound)
                 if result.success:
                     break

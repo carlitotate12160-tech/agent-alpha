@@ -21,6 +21,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import pytest
+
 from agent_alpha.conductor.applicator_factory import BoundApplicator
 from agent_alpha.config import constants
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
@@ -162,4 +164,77 @@ def test_no_applicators_injected_falls_back_to_ctx_target_generic_post() -> None
     )
     assert all(url == HOMEPAGE for url, _d in http.posted), (
         "fallback path must only ever POST to ctx.target, never discover wp-login.php itself"
+    )
+
+
+# ── CodeRabbit #1: a genuine applicator bug must propagate, never be ──────
+# ── silently absorbed into "tried, no access" (indistinguishable from a ───
+# ── real negative result — a worse outcome than a loud crash). ────────────
+
+
+class _BrokenApplicator:
+    """Simulates a programming bug inside a CredentialApplicator (e.g. a
+    malformed budget object, wrong kwarg) — NOT an expected network/auth
+    failure (those are already caught inside apply() itself, per
+    applicator.py, and returned as AuthResult(success=False))."""
+
+    def applies_to(self, credential_service: str, target: str) -> bool:
+        return True
+
+    def apply(self, *, username: str, secret: str, target: str, budget: Any) -> Any:
+        raise AttributeError("simulated wiring bug — e.g. bad attribute access")
+
+
+def test_unexpected_applicator_bug_propagates_not_swallowed() -> None:
+    tool = DefaultCredsTool(
+        applicators=[BoundApplicator(_BrokenApplicator(), HOMEPAGE)],
+        http_client=_WpTarget(),
+    )
+    with pytest.raises(AttributeError):
+        tool.run(_ctx(), _budget())
+
+
+# ── CodeRabbit #2: budget must be checked before EVERY applicator attempt ─
+# ── within a single credential, not just once per credential — otherwise ──
+# ── a credential with N matching applicators can overshoot max_requests by
+# ── up to (N-1) * 3 before the outer loop ever re-checks. ─────────────────
+
+
+class _CountingRejectApplicator:
+    """Always applies_to=True, always fails — records how many times
+    apply() was actually invoked."""
+
+    def __init__(self) -> None:
+        self.apply_calls = 0
+
+    def applies_to(self, credential_service: str, target: str) -> bool:
+        return True
+
+    def apply(self, *, username: str, secret: str, target: str, budget: Any) -> Any:
+        self.apply_calls += 1
+
+        class _Fail:
+            success = False
+
+        return _Fail()
+
+
+def test_budget_checked_before_every_applicator_not_just_per_credential() -> None:
+    counters = [_CountingRejectApplicator() for _ in range(4)]
+    roster = [BoundApplicator(c, HOMEPAGE) for c in counters]
+    # 3 requests/apply(); budget=5 -> only the FIRST apply() call should fit
+    # (0 < 5 -> call #1, requests_used=3; 3 < 5 -> call #2, requests_used=6;
+    # 6 >= 5 -> stop). Exactly 2 of the 4 applicators get invoked for the
+    # first credential, then the outer loop's own check stops further
+    # credentials from starting at all.
+    tool = DefaultCredsTool(applicators=roster, http_client=_WpTarget())
+    budget = ResourceBudget(max_requests=5, max_seconds=60.0, max_cost_usd=0.0)
+
+    result = tool.run(_ctx(), budget)
+
+    assert result.success is False
+    total_apply_calls = sum(c.apply_calls for c in counters)
+    assert total_apply_calls == 2, (
+        f"expected exactly 2 apply() calls before budget (5) was exhausted, "
+        f"got {total_apply_calls} — inner loop is not budget-checked per attempt"
     )
