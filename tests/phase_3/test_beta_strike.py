@@ -23,6 +23,7 @@ from typing import Any
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
+from agent_alpha.conductor.applicator_factory import BoundApplicator
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -42,7 +43,7 @@ def _scope() -> Scope:
 
 def _beta(auth: AuthorizationStateMachine) -> Beta:
     return Beta(
-        cred_applicators=[HttpFormApplicator(http_client=None)],
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=None), IN_SCOPE_ENTRY)],
         authorization=auth,
         graph_store=NetworkXGraphStore(),
         event_store=InMemoryEventStore(),
@@ -167,13 +168,14 @@ def test_false_success_guard_empty_access_is_failed() -> None:
     """
     auth, eng = _new_auth()
     _advance_to_active(auth, eng)
+    rejecting = _RejectingHttpClient()
     beta = Beta(
-        cred_applicators=[HttpFormApplicator(http_client=None)],
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=rejecting), IN_SCOPE_ENTRY)],
         authorization=auth,
         graph_store=NetworkXGraphStore(),
         event_store=InMemoryEventStore(),
         orchestrator=_StubOrchestrator(),
-        http_client=_RejectingHttpClient(),
+        http_client=rejecting,
     )
     msg = beta.run_strike(eng, IN_SCOPE_ENTRY)
     payload = _decode(msg)

@@ -28,6 +28,7 @@ import pytest
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.beta.strike import Beta
+from agent_alpha.conductor.applicator_factory import BoundApplicator
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -110,7 +111,7 @@ def _active_engagement() -> tuple[AuthorizationStateMachine, str]:
 
 def _beta(auth: AuthorizationStateMachine, http: Any) -> Beta:
     return Beta(
-        cred_applicators=[HttpFormApplicator(http_client=http)],
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http), ENTRY)],
         authorization=auth,
         graph_store=NetworkXGraphStore(),
         event_store=InMemoryEventStore(),
@@ -171,7 +172,7 @@ def test_missing_dependencies_fail_loud() -> None:
     dep-precondition (Claude's lane) added after the scope gate."""
     auth, eng = _active_engagement()
     beta = Beta(
-        cred_applicators=[HttpFormApplicator(http_client=None)],
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=None), ENTRY)],
         authorization=auth,
         graph_store=NetworkXGraphStore(),
         event_store=InMemoryEventStore(),

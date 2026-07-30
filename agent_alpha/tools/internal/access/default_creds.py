@@ -36,6 +36,7 @@ The tool never writes to any store. Beta.step() redacts + persists.
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 from agent_alpha.config import constants
@@ -126,6 +127,18 @@ def _has_login_form(text: str) -> bool:
     return 'type="password"' in lower or "type='password'" in lower
 
 
+@dataclasses.dataclass(frozen=True)
+class _LocalBound:
+    """Fallback bound-applicator shape for callers that construct this tool
+    standalone (no injected roster) — same duck-typed (applicator, target)
+    shape as conductor.applicator_factory.BoundApplicator, defined locally
+    to avoid importing conductor/ from tools/ (layering: tools never import
+    conductor)."""
+
+    applicator: Any
+    target: str
+
+
 # Session cookie allowlist (SSOT, anti-#7)
 SESSION_COOKIE_NAMES = frozenset(
     {"session_id", "sessionid", "sid", "session", "auth", "token", "connect.sid"}
@@ -177,11 +190,16 @@ class DefaultCredsTool:
     required_auth = "ACTIVE_APPROVED"
     mitre_technique = "T1078.001"  # Valid Accounts: Default Accounts (built-in admin/admin)
 
-    def __init__(self, *, http_client: Any = None) -> None:
+    def __init__(self, *, applicators: list[Any] | None = None, http_client: Any = None) -> None:
         # Injected so run() can reach the wire (Tool.run(ctx, budget) carries no
         # transport). None is allowed for applies_to()/conformance use; run()
         # requires a real client.
         self._http_client = http_client
+        # Engagement-scoped roster from conductor.applicator_factory (same one
+        # cred_reuse uses — #6, one credential-application transport). None/[]
+        # falls back to a bare HttpFormApplicator bound to ctx.target (see
+        # run()) so standalone/unit-test construction keeps today's behaviour.
+        self._applicators = applicators
 
     def applies_to(self, ctx: TargetContext) -> float:
         """Relevance 0..1 from context — registry ranks, agent doesn't guess (K11).
@@ -198,105 +216,80 @@ class DefaultCredsTool:
         return score
 
     def run(self, ctx: TargetContext, budget: ResourceBudget) -> ToolResult:
-        """OFFENSIVE BODY — GLM 5.2 High (NOT Claude).
-
-        Try each built-in default credential against ``ctx.target`` via POST
-        (form login). VERIFY with a positive auth signal (session cookie /
-        redirect / login-form gone) — NOT merely 'text differs'. Confirm via
-        session cookie re-request.
+        """Try each built-in default credential via the injected
+        ``CredentialApplicator`` roster (WP-aware ``WpLoginApplicator`` +
+        generic ``HttpFormApplicator``, same roster ``cred_reuse`` uses — one
+        credential-application transport, #6). VERIFY is owned by the
+        applicator (positive auth signal, never body-diff).
 
         Returns **content**, not refs — Beta.step() persists + mints refs.
         """
         if self._http_client is None:
             raise ValueError("DefaultCredsTool.run requires an injected http_client")
 
-        # ── Baseline (unauthenticated GET) ──────────────────────────
-        try:
-            baseline = self._http_client.get(ctx.target)
-        except Exception:
-            return ToolResult(
-                tool=self.name,
-                success=False,
-                confidence=0.0,
-                error="baseline request failed",
-            )
+        # Deferred import: applicator.py imports FROM this module at top
+        # level (_has_positive_auth_signal / _parse_set_cookie) — a top-level
+        # import here would be circular. Safe at call time; both modules are
+        # fully loaded by then.
+        from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 
-        # ── Build credential list (generic + platform-specific) ─────
         creds = _build_credential_list(ctx.tech_stack)
 
-        # ── Iterate within budget ───────────────────────────────────
-        requests_used = 1  # baseline counted
+        # Engagement-scoped roster (WP-specific tried before generic — opsec,
+        # mirrors beta_web_applicators() ordering) when injected; otherwise a
+        # single bare HttpFormApplicator bound to ctx.target (byte-for-byte
+        # the prior standalone behaviour).
+        bound_applicators = self._applicators or [
+            _LocalBound(HttpFormApplicator(http_client=self._http_client), ctx.target)
+        ]
+
+        requests_used = 0
         for username, password in creds:
             if requests_used >= budget.max_requests:
                 break
 
-            # APPLY the credential via POST (form login) — the credential
-            # MUST reach the wire (anti-Lyndon #3: no proof-theatre).
-            try:
-                auth_resp = self._http_client.post(
-                    ctx.target,
-                    data={"username": username, "password": password},
+            result = None
+            for bound in bound_applicators:
+                if requests_used >= budget.max_requests:
+                    break
+                if not bound.applicator.applies_to("http", bound.target):
+                    continue
+                # APPLY the credential — it MUST reach the wire (anti-Lyndon
+                # #3: no proof-theatre). Unguarded, matching cred_reuse.py's
+                # own call to the same method: apply() already catches its
+                # own expected (network/transport) failures internally and
+                # returns AuthResult(success=False) — anything that still
+                # raises here is a genuine bug and must propagate, not be
+                # silently absorbed into "tried, no access" (which would be
+                # indistinguishable from a real negative result).
+                result = bound.applicator.apply(
+                    username=username,
+                    secret=password,
+                    target=bound.target,
+                    budget=budget,
                 )
-                requests_used += 1
-            except Exception:
+                requests_used += 3  # baseline + auth + confirm (upper bound)
+                if result.success:
+                    break
+
+            if result is None or not result.success:
                 continue
 
-            # VERIFY: positive auth signal required — a page that merely
-            # differs (e.g. "invalid password") is NOT access.
-            if not _has_positive_auth_signal(auth_resp, baseline):
-                continue
-
-            # ── Confirm via session cookie ──────────────────────────
-            set_cookie = auth_resp.headers.get("set-cookie", "")
-            cookies = _parse_set_cookie(set_cookie)
-            confirm_resp = auth_resp  # fallback for redirect/form-gone
-
-            if cookies:
-                try:
-                    confirm_resp = self._http_client.get(
-                        ctx.target,
-                        cookies=cookies,
-                    )
-                    requests_used += 1
-                except Exception:
-                    continue
-                # Cookie must grant access — if the confirmed response is
-                # identical to the unauthenticated baseline, the cookie
-                # didn't hold (session not established).
-                if confirm_resp.text == baseline.text:
-                    continue
-
-            # ── Access verified — determine access level ────────────
-            body_lower = (confirm_resp.text or "").lower()
-            access_level: str = (
-                "admin" if ("admin" in body_lower or "administrator" in body_lower) else "user"
-            )
-
-            # ── Build finding with raw content (tool returns content,
-            #    Beta.step() persists + mints refs) ──────────────────
+            # ── Access verified — build finding with raw content (tool
+            #    returns content, Beta.step() persists + mints refs) ──────
             finding: dict[str, Any] = {
                 "username": username,
                 "password": password,  # public default, not a secret
-                "access_level": access_level,
-                "proof_request": {
-                    "method": "POST",
-                    "url": ctx.target,
-                    "data_keys": ["username", "password"],
-                },
-                "proof_response": {
-                    "status_code": auth_resp.status_code,
-                    "header_names": list(auth_resp.headers.keys()),
-                    "body_excerpt": (auth_resp.text or "")[:500],
-                    "confirm_status_code": confirm_resp.status_code,
-                    "confirm_body_excerpt": (confirm_resp.text or "")[:500],
-                },
-                "session_cookie_name": _cookie_name_only(set_cookie) if set_cookie else None,
+                "access_level": result.access_level,
+                "proof_request": result.proof_request,
+                "proof_response": result.proof_response,
+                "session_cookie_name": result.session_cookie_name,
             }
 
             return ToolResult(
                 tool=self.name,
                 success=True,
-                confidence=0.85,
+                confidence=result.confidence,
                 findings=(finding,),
             )
 
