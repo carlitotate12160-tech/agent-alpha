@@ -66,7 +66,7 @@ try:
 
     _CURL_CFFI_AVAILABLE = True
 except ImportError:  # pragma: no cover — optional dependency
-    cffi_requests = None  # type: ignore[assignment]
+    cffi_requests = None  # type: ignore[assignment, unused-ignore]
     _CURL_CFFI_AVAILABLE = False
 
 
@@ -103,7 +103,7 @@ def tls_impersonate_fetch(
     try:
         resp = cffi_requests.get(
             url,
-            impersonate=impersonate,  # type: ignore[arg-type]
+            impersonate=impersonate,  # type: ignore[arg-type, unused-ignore]
             verify=verify_tls,
             timeout=constants.REACH_TIMEOUT_S,
         )
