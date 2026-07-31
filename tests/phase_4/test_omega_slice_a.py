@@ -695,3 +695,138 @@ def test_critical_path_selects_highest_impact() -> None:
     # The selected critical_path should end at data-long (the longer chain).
     assert report.critical_path, "critical_path should not be empty"
     assert report.critical_path[-1].to_node == "data-long"
+
+
+def test_standalone_vuln_evidence_no_chain() -> None:
+    """Standalone VULNERABILITY with proof but no chain adds evidence."""
+    graph = NetworkXGraphStore()
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com"},
+            "confidence": 1.0,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "vuln-1",
+            "type": "vulnerability",
+            "properties": {"cvss_score": 7.5},
+            "confidence": 1.0,
+            "verified": True,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-vuln",
+                    "type": "http_response",
+                    "storage_ref": "storage://vuln-proof",
+                    "description": "Exposed Odoo DB manager",
+                    "captured_at": "2026-07-31T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+    # No edges
+    omega = Omega(graph)
+    report = omega.generate_report("executive")
+
+    assert len(report.evidence) == 1
+    assert report.evidence[0].description == "Exposed Odoo DB manager"
+    assert report.evidence[0].artifact_ref == "storage://vuln-proof"
+    assert report.evidence[0].technique_id == ""
+
+
+def test_standalone_vuln_evidence_not_duplicated_when_on_chain() -> None:
+    """VULNERABILITY on critical path is not double-counted."""
+    graph = NetworkXGraphStore()
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset-1",
+            "type": "asset",
+            "properties": {"host": "example.com"},
+            "confidence": 1.0,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "vuln-1",
+            "type": "vulnerability",
+            "properties": {"cvss_score": 7.5},
+            "confidence": 1.0,
+            "verified": True,
+            "proof_artifacts": [
+                {
+                    "artifact_id": "artifact-vuln",
+                    "type": "http_response",
+                    "storage_ref": "storage://vuln-proof",
+                    "description": "Exposed Odoo DB manager",
+                    "captured_at": "2026-07-31T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "access-1",
+            "type": "access_level",
+            "properties": {"level": "admin"},
+            "confidence": 1.0,
+            "verified": False,
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "asset-1",
+            "target_id": "vuln-1",
+            "relationship": "leads_to",
+            "confidence": 1.0,
+            "technique_id": "T1190",
+        },
+    )
+    graph.apply_event(
+        "EdgeDiscovered",
+        {
+            "source_id": "vuln-1",
+            "target_id": "access-1",
+            "relationship": "enables",
+            "confidence": 1.0,
+            "technique_id": "T1190.001",
+        },
+    )
+
+    omega = Omega(graph)
+    report = omega.generate_report("executive")
+
+    assert len(report.evidence) == 1
+    assert report.evidence[0].artifact_ref == "storage://vuln-proof"
+
+
+def test_standalone_vuln_without_proof_is_skipped() -> None:
+    """VULNERABILITY with no proof artifacts is silently skipped."""
+    graph = NetworkXGraphStore()
+    graph.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "vuln-1",
+            "type": "vulnerability",
+            "properties": {"cvss_score": 7.5},
+            "confidence": 1.0,
+            "verified": True,
+            "proof_artifacts": [],  # Empty
+        },
+    )
+
+    omega = Omega(graph)
+    report = omega.generate_report("executive")
+
+    assert len(report.evidence) == 0
