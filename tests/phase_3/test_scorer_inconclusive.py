@@ -122,10 +122,26 @@ def test_run_live_fire_marks_failed_run_non_analyzable() -> None:
         ],
     )
     event_store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=event_store)
+
+    from agent_alpha.conductor.authorization import Scope
+    rec = auth.create_engagement(
+        client_id=config.client_id,
+        target=config.targets[0].host if config.targets else "",
+    )
+    auth.enable_recon(
+        rec.engagement_id,
+        Scope(
+            ip_ranges=config.scope_ip_ranges,
+            domains=config.scope_domains,
+            exclusions=[],
+        ),
+    )
 
     results = run_live_fire(
         config,
-        auth=AuthorizationStateMachine(event_store=event_store),
+        engagement_id=rec.engagement_id,
+        auth=auth,
         http_client=_FakeHttp(),
         orchestrator=_RaisingOrchestrator(),
         graph_store=NetworkXGraphStore(),

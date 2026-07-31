@@ -13,6 +13,7 @@ Reuses canonical types only — never redeclares (anti-Lyndon #6).
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import pathlib
 from dataclasses import dataclass
@@ -33,6 +34,8 @@ from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
+
+_log = logging.getLogger(__name__)
 
 # ── Data classes ──────────────────────────────────────────────────────
 
@@ -124,6 +127,7 @@ def ground_truth_from_config(config: EngagementConfig) -> dict[str, bool]:
 def run_live_fire(
     config: EngagementConfig,
     *,
+    engagement_id: str,
     auth: Any,
     http_client: Any,
     orchestrator: Any,
@@ -134,25 +138,11 @@ def run_live_fire(
 ) -> list[TargetResult]:
     """Run the live-fire pipeline: authorize → recon each target → predict.
 
-    Creates its own engagement and enables RECON_ONLY scope on the
-    supplied ``auth`` (the test passes a fresh AuthorizationStateMachine).
+    The CALLER creates and authorizes the engagement;
+    run_live_fire runs recon under the supplied engagement_id.
 
     Returns a list of :class:`TargetResult` — one per target in ``config``.
     """
-    # ── Authorize engagement ─────────────────────────────────────
-    rec = auth.create_engagement(
-        client_id=config.client_id,
-        target=config.targets[0].host if config.targets else "",
-    )
-    auth.enable_recon(
-        rec.engagement_id,
-        Scope(
-            ip_ranges=config.scope_ip_ranges,
-            domains=config.scope_domains,
-            exclusions=[],
-        ),
-    )
-
     # ── Build Alpha with injected dependencies ───────────────────
     alpha = Alpha(
         authorization=auth,
@@ -167,7 +157,7 @@ def run_live_fire(
     # ── Run recon per target and derive predictions ──────────────
     results: list[TargetResult] = []
     for t in config.targets:
-        msg = alpha.run_recon(rec.engagement_id, t.url)
+        msg = alpha.run_recon(engagement_id, t.url)
         payload = a2a_pb2.HandoffPayload()
         payload.ParseFromString(msg.payload)
         analyzable = payload.status != a2a_pb2.FAILED
@@ -208,19 +198,42 @@ def main(argv: list[str] | None = None) -> int:
     # ── Build lab engagement profile with allow_evasion=True ─────────────────────
     # lab consent: evasion authorized for field-prove runs
     from agent_alpha.conductor.engagement_profile import EngagementProfile
+    from agent_alpha.recon.origin_resolver import discover_origin_ips
 
     rec = auth.create_engagement(
         client_id=config.client_id,
         target=config.targets[0].host if config.targets else "",
     )
+    auth.enable_recon(
+        rec.engagement_id,
+        Scope(
+            ip_ranges=config.scope_ip_ranges,
+            domains=config.scope_domains,
+            exclusions=[],
+        ),
+    )
+    http_client = HttpClient(engagement_id=config.client_id)
+
+    # Discover real origin IPs for CF-protected targets.
+    # Returns [] if no CT subdomains found (honest — origin-direct not possible).
+    # lab consent: discovered IPs auto-authorized for field-prove runs only.
+    _target_domain = config.scope_domains[0] if config.scope_domains else ""
+    _origin_ips = (
+        discover_origin_ips(rec.engagement_id, _target_domain, http_client, auth)
+        if _target_domain
+        else []
+    )
+    if _origin_ips:
+        _log.info("runner: discovered %d origin IPs: %s", len(_origin_ips), _origin_ips)
+
     lab_profile = EngagementProfile(
         engagement_id=rec.engagement_id,
         client_id=config.client_id,
         targets=frozenset(t.host for t in config.targets),
+        authorized_origins=frozenset(_origin_ips),  # discovered origins
         authorization_level="RECON_ONLY",
         allow_evasion=True,  # lab consent — field-prove only
     )
-    http_client = HttpClient(engagement_id=config.client_id)
 
     api_key = os.environ["DEEPSEEK_API_KEY"]
     # Reasoning role -> provider is config-only (ADR §12.15 / C2).
@@ -236,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     # ── Run pipeline ─────────────────────────────────────────────
     results = run_live_fire(
         config,
+        engagement_id=rec.engagement_id,
         auth=auth,
         http_client=http_client,
         orchestrator=orchestrator,
