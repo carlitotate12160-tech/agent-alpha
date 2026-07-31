@@ -5,6 +5,7 @@ DNS is mocked, origin probe uses a fake.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from unittest.mock import patch
 
@@ -30,14 +31,37 @@ class _FakeHttp:
 
 
 def _crtsh_json(names: list[str]) -> str:
-    import json
     return json.dumps([{"name_value": n} for n in names])
+
+
+class _OkAuth:
+    def can_agent_proceed(self, agent_id: object, engagement_id: str) -> bool:
+        return True
+
+    def is_in_scope(self, engagement_id: str, domain: str) -> bool:
+        return True
+
+
+class _DenyAuth:
+    def can_agent_proceed(self, agent_id: object, engagement_id: str) -> bool:
+        return False
+
+    def is_in_scope(self, engagement_id: str, domain: str) -> bool:
+        return True
+
+
+class _OutOfScopeAuth:
+    def can_agent_proceed(self, agent_id: object, engagement_id: str) -> bool:
+        return True
+
+    def is_in_scope(self, engagement_id: str, domain: str) -> bool:
+        return False
 
 
 def test_discover_returns_empty_when_no_subdomains() -> None:
     """crt.sh with no results → [] (anti-#3: not a finding)."""
     http = _FakeHttp("[]")
-    result = discover_origin_ips("bernofarm.com", http)
+    result = discover_origin_ips("eng-1", "bernofarm.com", http, _OkAuth())
     assert result == []
 
 
@@ -49,7 +73,7 @@ def test_discover_filters_cf_ips() -> None:
         "agent_alpha.recon.origin_resolver._resolve_ipv4",
         return_value=["172.66.166.211"],
     ):
-        result = discover_origin_ips("example.com", http)
+        result = discover_origin_ips("eng-1", "example.com", http, _OkAuth())
     assert result == []
 
 
@@ -64,7 +88,7 @@ def test_discover_confirms_non_cf_origin() -> None:
         patch("agent_alpha.recon.origin_resolver._resolve_ipv4", return_value=["198.51.100.42"]),
         patch("agent_alpha.recon.origin_resolver._probe_as_origin", side_effect=fake_probe),
     ):
-        result = discover_origin_ips("example.com", http)
+        result = discover_origin_ips("eng-1", "example.com", http, _OkAuth())
     assert result == ["198.51.100.42"]
 
 
@@ -72,9 +96,10 @@ def test_discover_crtsh_failure_returns_empty() -> None:
     """crt.sh fetch exception → [] (anti-#3: no crash, honest result)."""
     class _BrokenHttp:
         def get(self, *_: object, **__: object) -> None:
-            raise OSError("network unreachable")
+            from agent_alpha.agents.http_client import HttpClientError
+            raise HttpClientError("network unreachable")
 
-    result = discover_origin_ips("example.com", _BrokenHttp())
+    result = discover_origin_ips("eng-1", "example.com", _BrokenHttp(), _OkAuth())
     assert result == []
 
 
@@ -108,25 +133,40 @@ def test_probe_confirms_real_origin_200() -> None:
         assert _probe_as_origin("198.51.100.42", "example.com") is True
 
 
+def test_discover_blocked_when_recon_not_enabled() -> None:
+    http = _FakeHttp(_crtsh_json(["sub.example.com"]))
+    assert discover_origin_ips("eng-1", "example.com", http, _DenyAuth()) == []
+
+
+def test_discover_blocked_when_domain_out_of_scope() -> None:
+    http = _FakeHttp(_crtsh_json(["sub.example.com"]))
+    assert discover_origin_ips("eng-1", "example.com", http, _OutOfScopeAuth()) == []
+
+
+def test_discover_negative_max_candidates_returns_empty() -> None:
+    http = _FakeHttp(_crtsh_json(["sub.example.com"]))
+    assert discover_origin_ips("eng-1", "example.com", http, _OkAuth(), max_probe_candidates=-1) == []
+
+
 def test_max_probe_candidates_bounds_probes() -> None:
     """max_probe_candidates caps how many IPs are probed (anti-#5)."""
     http = _FakeHttp(_crtsh_json([f"sub{i}.example.com" for i in range(20)]))
-    probe_calls: list[str] = []
 
-    def counting_probe(ip: str, host: str) -> bool:
-        probe_calls.append(ip)
-        return False
+    def unique_resolve(hostname: str) -> list[str]:
+        idx = hostname.replace("sub", "").split(".")[0]
+        return [f"198.51.100.{int(idx) + 1}"]
 
     with (
         patch(
             "agent_alpha.recon.origin_resolver._resolve_ipv4",
-            return_value=["198.51.100.1"],
+            side_effect=unique_resolve,
         ),
         patch(
             "agent_alpha.recon.origin_resolver._probe_as_origin",
-            side_effect=counting_probe,
-        ),
+            return_value=True,
+        ) as mock_probe,
     ):
-        discover_origin_ips("example.com", http, max_probe_candidates=3)
+        res = discover_origin_ips("eng-1", "example.com", http, _OkAuth(), max_probe_candidates=3)
 
-    assert len(probe_calls) <= 3
+    assert len(res) == 3
+    assert mock_probe.call_count == 3

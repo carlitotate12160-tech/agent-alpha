@@ -69,8 +69,10 @@ def _probe_as_origin(ip: str, host: str) -> bool:
 
 
 def discover_origin_ips(
+    engagement_id: str,
     domain: str,
     http_client: Any,
+    authorization: Any,
     *,
     crtsh_url_template: str = CRTSH_URL_TEMPLATE,
     max_probe_candidates: int = 10,
@@ -88,12 +90,22 @@ def discover_origin_ips(
     Caller must add returned IPs to EngagementProfile.authorized_origins before
     origin_direct_fetch will use them (auth gate — anti-bypass).
     """
+    # Fail-closed gate BEFORE any network I/O (anti-bypass).
+    if max_probe_candidates < 0:
+        return []
+    from agent_alpha.a2a import a2a_pb2
+    if not authorization.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
+        return []
+    if not authorization.is_in_scope(engagement_id, domain):
+        return []
+
     # Step 1: fetch crt.sh
     url = crtsh_url_template.format(domain=domain)
     try:
+        from agent_alpha.agents.http_client import HttpClientError
         resp = http_client.get(url)
         subdomains = parse_crtsh_names(resp.text, domain)
-    except OSError:  # network errors, DNS failures, etc.
+    except (HttpClientError, OSError):  # network errors, DNS failures, etc.
         _log.warning("origin_resolver: crt.sh fetch failed for %s", domain)
         return []
 

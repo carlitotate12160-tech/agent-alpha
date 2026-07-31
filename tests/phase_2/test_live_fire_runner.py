@@ -13,6 +13,7 @@ Target identity is the URL, not the host: two targets may share a host
 from __future__ import annotations
 
 import pathlib
+from typing import Any
 
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.events.store import InMemoryEventStore
@@ -40,7 +41,7 @@ class _StubProvider:
 
     model = "deepseek-v4-pro"
 
-    def complete(self, *a: object, **k: object):
+    def complete(self, *a: object, **k: object) -> Any:
         return type(
             "R",
             (),
@@ -68,7 +69,7 @@ def test_load_engagement_config() -> None:
 
 
 def test_run_live_fire_produces_clean_scorecard(
-    http_client, laravel_target_url, hardened_target_url
+    http_client: Any, laravel_target_url: str, hardened_target_url: str
 ) -> None:
     config = EngagementConfig(
         client_id="lab_client",
@@ -84,13 +85,30 @@ def test_run_live_fire_produces_clean_scorecard(
         ],
     )
 
+    event_store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=event_store)
+    from agent_alpha.conductor.authorization import Scope
+    rec = auth.create_engagement(
+        client_id=config.client_id,
+        target=config.targets[0].host if config.targets else "",
+    )
+    auth.enable_recon(
+        rec.engagement_id,
+        Scope(
+            ip_ranges=config.scope_ip_ranges,
+            domains=config.scope_domains,
+            exclusions=[],
+        ),
+    )
+
     results = run_live_fire(
         config,
-        auth=AuthorizationStateMachine(event_store=InMemoryEventStore()),
+        engagement_id=rec.engagement_id,
+        auth=auth,
         http_client=http_client,
         orchestrator=_orchestrator(),
         graph_store=NetworkXGraphStore(),
-        event_store=InMemoryEventStore(),
+        event_store=event_store,
     )
 
     # Keyed by URL — the canonical target identity.
@@ -136,13 +154,30 @@ def test_three_targets_one_host_not_collapsed() -> None:
     gt = ground_truth_from_config(config)
     assert len(gt) == 3  # NOT collapsed by the shared host
 
+    event_store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=event_store)
+    from agent_alpha.conductor.authorization import Scope
+    rec = auth.create_engagement(
+        client_id=config.client_id,
+        target=config.targets[0].host if config.targets else "",
+    )
+    auth.enable_recon(
+        rec.engagement_id,
+        Scope(
+            ip_ranges=config.scope_ip_ranges,
+            domains=config.scope_domains,
+            exclusions=[],
+        ),
+    )
+
     results = run_live_fire(
         config,
-        auth=AuthorizationStateMachine(event_store=InMemoryEventStore()),
+        engagement_id=rec.engagement_id,
+        auth=auth,
         http_client=http_client,
         orchestrator=_orchestrator(),
         graph_store=NetworkXGraphStore(),
-        event_store=InMemoryEventStore(),
+        event_store=event_store,
     )
 
     score = score_findings(results, gt)

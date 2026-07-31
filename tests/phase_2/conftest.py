@@ -118,7 +118,7 @@ def graph_store() -> NetworkXGraphStore:
 
 
 @pytest.fixture
-def recon_engagement(event_store: InMemoryEventStore):
+def recon_engagement(event_store: InMemoryEventStore) -> tuple[AuthorizationStateMachine, str]:
     """An engagement legally cleared to RECON_ONLY — the minimum auth state
     in which Alpha may proceed (authorization.can_agent_proceed(ALPHA, ...))."""
     auth = AuthorizationStateMachine(event_store=event_store)
