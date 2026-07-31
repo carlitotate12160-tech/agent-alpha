@@ -170,7 +170,9 @@ def test_false_success_guard_empty_access_is_failed() -> None:
     _advance_to_active(auth, eng)
     rejecting = _RejectingHttpClient()
     beta = Beta(
-        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=rejecting), IN_SCOPE_ENTRY)],
+        cred_applicators=[
+            BoundApplicator(HttpFormApplicator(http_client=rejecting), IN_SCOPE_ENTRY)
+        ],
         authorization=auth,
         graph_store=NetworkXGraphStore(),
         event_store=InMemoryEventStore(),

@@ -331,25 +331,25 @@ def test_regression_exploits_edge_unchanged():
 def test_proof_storage_ref_is_unique_per_observation():
     """Two observations of the same host should have distinct storage references based on artifact_id."""
     ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
-    
+
     # First observation
     verify_odoo_dbmanager_exposure(**ctx.args)
     vulns1 = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
     assert len(vulns1) == 1
     proof1 = vulns1[0].proof_artifacts[0]
-    
+
     # Second observation
     verify_odoo_dbmanager_exposure(**ctx.args)
-    # The vulnerability node is updated/merged, so there's still 1 vuln node, 
+    # The vulnerability node is updated/merged, so there's still 1 vuln node,
     # but the logic appends/overwrites. Wait, the store implementation might just overwrite the node,
-    # meaning the second call replaces it, OR it might append if it's a list. 
-    # Actually, the test can just call process_odoo_dbmanager_hit directly twice to get distinct graph nodes 
+    # meaning the second call replaces it, OR it might append if it's a list.
+    # Actually, the test can just call process_odoo_dbmanager_hit directly twice to get distinct graph nodes
     # or check the generated proof artifacts.
     # Since persist_node overrides by ID, if we just check the latest node, it will have the new proof.
     vulns2 = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
     assert len(vulns2) == 1
     proof2 = vulns2[0].proof_artifacts[0]
-    
+
     assert proof1.storage_ref != proof2.storage_ref
     assert proof1.artifact_id in proof1.storage_ref
     assert proof2.artifact_id in proof2.storage_ref

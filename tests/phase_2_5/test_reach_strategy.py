@@ -108,6 +108,7 @@ class TestChooseReach:
 
     def test_is_cloudflare_ip_known_cf_range(self) -> None:
         from agent_alpha.recon.reach_strategy import is_cloudflare_ip
+
         # 172.66.166.211 is in 172.64.0.0/13 (bernofarm real CF IP)
         assert is_cloudflare_ip("172.66.166.211") is True
         # 104.20.17.247 is in 104.16.0.0/13
@@ -115,6 +116,7 @@ class TestChooseReach:
 
     def test_is_cloudflare_ip_non_cf_returns_false(self) -> None:
         from agent_alpha.recon.reach_strategy import is_cloudflare_ip
+
         # TEST-NET-3 (RFC 5737) — documentation range, never CF
         assert is_cloudflare_ip("203.0.113.42") is False
         # Private range — not CF
