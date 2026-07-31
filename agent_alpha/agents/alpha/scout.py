@@ -1389,8 +1389,9 @@ class Alpha:
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
         artifact_id_wc = str(uuid.uuid4())
         evidence_wc = (
-            f"WooCommerce REST API (wc/v3) confirmed exposed at {url}; "
-            "wc/v3 namespace present in wp-json index without authentication gate."
+            f"WooCommerce REST API (wc/v3) registered and namespace-enumerable at {url}; "
+            "wc/v3 namespace present in wp-json REST index (installation detectable, "
+            "version enumeration enabled)."
         )
         vuln_id = f"vuln:{host}:woocommerce_exposed"
         vuln_node = AttackNode(
