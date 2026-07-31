@@ -605,6 +605,15 @@ class Alpha:
             # skip — we can't reach real content. If it's NOT a shell, fall
             # through to normal analysis (FP-safe: don't discard real content).
             if is_reload_shell(resp.text) or verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
+                # Origin-direct can still bypass CF even when browser_solve failed.
+                # Fall through to _attempt_reach if we have authorized origins.
+                has_authorized_origins = (
+                    self._origin_discovery is not None
+                    and self._engagement_profile is not None
+                    and getattr(self._engagement_profile, "authorized_origins", None)
+                )
+                if has_authorized_origins:
+                    return None  # fall through to _attempt_reach
                 return {
                     "discovered_nodes": 0,
                     "cost_usd": 0.0,

@@ -125,6 +125,7 @@ def test_run_live_fire_marks_failed_run_non_analyzable() -> None:
     auth = AuthorizationStateMachine(event_store=event_store)
 
     from agent_alpha.conductor.authorization import Scope
+
     rec = auth.create_engagement(
         client_id=config.client_id,
         target=config.targets[0].host if config.targets else "",

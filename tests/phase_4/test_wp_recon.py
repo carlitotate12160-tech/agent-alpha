@@ -343,9 +343,7 @@ def test_asset_props_survive_wp_reprofile() -> None:
 def test_plugin_namespace_accessible_mints_vuln() -> None:
     """Dangerous namespace + 200 probe response → VULNERABILITY node + finding."""
     probe_url = f"https://{_HOST}/wp-json/string-locator/v1/search"
-    http = FakeHttpClient(
-        routes={probe_url: FakeResponse(200, '{"results": ["wp-config.php"]}')}
-    )
+    http = FakeHttpClient(routes={probe_url: FakeResponse(200, '{"results": ["wp-config.php"]}')})
     alpha, _ = _alpha(http)
     keys = ["/wp/v2/posts", "/wp/v2/users"]
     namespaces = ["wp/v2", "string-locator/v1"]
@@ -404,7 +402,8 @@ def test_plugin_namespace_absent_skips_probe() -> None:
     assert alpha._findings == 0
     # No probe URL should have been called
     dangerous_urls = [
-        u for u in http.get_calls
+        u
+        for u in http.get_calls
         if any(ns in u for ns in ("string-locator", "duplicator", "wp-file-manager"))
     ]
     assert dangerous_urls == []

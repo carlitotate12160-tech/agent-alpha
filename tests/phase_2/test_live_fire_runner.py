@@ -88,6 +88,7 @@ def test_run_live_fire_produces_clean_scorecard(
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
     from agent_alpha.conductor.authorization import Scope
+
     rec = auth.create_engagement(
         client_id=config.client_id,
         target=config.targets[0].host if config.targets else "",
@@ -157,6 +158,7 @@ def test_three_targets_one_host_not_collapsed() -> None:
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
     from agent_alpha.conductor.authorization import Scope
+
     rec = auth.create_engagement(
         client_id=config.client_id,
         target=config.targets[0].host if config.targets else "",

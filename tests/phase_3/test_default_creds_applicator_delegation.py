@@ -115,7 +115,9 @@ def test_admin_admin_succeeds_via_wp_login_applicator_when_roster_injected() -> 
     result = tool.run(_ctx(), _budget())
 
     assert isinstance(result, ToolResult)
-    assert result.success is True, "admin/admin against wp-login.php must succeed via WpLoginApplicator"
+    assert result.success is True, (
+        "admin/admin against wp-login.php must succeed via WpLoginApplicator"
+    )
     assert result.findings[0]["access_level"] == "admin"
     assert result.findings[0]["username"] == "admin"
 

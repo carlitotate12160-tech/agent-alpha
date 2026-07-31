@@ -28,9 +28,7 @@ from agent_alpha.tools.playbook import PlaybookEngine
 
 _HOST = "laravel.example"
 _SITE_ROOT = f"https://{_HOST}/"
-_PLAYBOOK_DIR = (
-    pathlib.Path(__file__).resolve().parents[2] / "agent_alpha" / "tools" / "playbooks"
-)
+_PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parents[2] / "agent_alpha" / "tools" / "playbooks"
 
 
 @dataclass
@@ -65,9 +63,7 @@ def _alpha(http: FakeHttpClient) -> tuple[Alpha, str]:
     store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=store)
     rec = auth.create_engagement(client_id="budget_lab", target=_HOST)
-    auth.enable_recon(
-        rec.engagement_id, Scope(ip_ranges=[], domains=[_HOST], exclusions=[])
-    )
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_HOST], exclusions=[]))
     engine = PlaybookEngine.from_directory(_PLAYBOOK_DIR, phase="recon")
     orchestrator = LLMOrchestrator(engine, _StubProvider())
     alpha = Alpha(
@@ -84,9 +80,7 @@ def _alpha(http: FakeHttpClient) -> tuple[Alpha, str]:
 
 def _make_hrefs(host: str, prefix: str, count: int) -> str:
     """Build HTML with *count* same-origin <a> tags to /{prefix}/{i}."""
-    links = "".join(
-        f'<a href="/{prefix}/{i}">link {i}</a>' for i in range(count)
-    )
+    links = "".join(f'<a href="/{prefix}/{i}">link {i}</a>' for i in range(count))
     return f"<html><body>plain site{links}</body></html>"
 
 
@@ -122,9 +116,7 @@ def test_wp_host_product_hrefs_rejected_by_allowlist() -> None:
 
     The host is tagged STACK_WP during the run by including 'wp-content' in
     the homepage body, which triggers the wp_fingerprint playbook."""
-    links = "".join(
-        f'<a href="/product/{i}">link {i}</a>' for i in range(30)
-    )
+    links = "".join(f'<a href="/product/{i}">link {i}</a>' for i in range(30))
     homepage = f"<html><body>wp-content{links}</body></html>"
     routes = {
         _SITE_ROOT: FakeResponse(200, homepage),
@@ -151,9 +143,7 @@ def test_wp_host_allowlisted_paths_capped_by_budget() -> None:
 
     The host is tagged STACK_WP during the run by including 'wp-content' in
     the homepage body, which triggers the wp_fingerprint playbook."""
-    links = "".join(
-        f'<a href="/wp-content/plugins/{i}">plugin {i}</a>' for i in range(40)
-    )
+    links = "".join(f'<a href="/wp-content/plugins/{i}">plugin {i}</a>' for i in range(40))
     homepage = f"<html><body>wp-content{links}</body></html>"
     routes = {
         _SITE_ROOT: FakeResponse(200, homepage),
@@ -168,9 +158,7 @@ def test_wp_host_allowlisted_paths_capped_by_budget() -> None:
 
     alpha.run_recon(eng_id, _SITE_ROOT)
 
-    plugin_calls = [
-        c for c in http.get_calls if "/wp-content/plugins/" in c and c != _SITE_ROOT
-    ]
+    plugin_calls = [c for c in http.get_calls if "/wp-content/plugins/" in c and c != _SITE_ROOT]
     assert len(plugin_calls) == constants.MAX_ORGANIC_CRAWL_PER_HOST, (
         f"Budget must cap even allowlisted WP paths at "
         f"{constants.MAX_ORGANIC_CRAWL_PER_HOST}; got {len(plugin_calls)}"
@@ -200,8 +188,7 @@ def test_catalog_seeds_bypass_organic_budget() -> None:
 
     # The catalog seed must have been fetched despite budget exhaustion
     assert seed_url in http.get_calls, (
-        f"Catalog seed {seed_url} must bypass organic budget; "
-        f"calls: {http.get_calls}"
+        f"Catalog seed {seed_url} must bypass organic budget; calls: {http.get_calls}"
     )
 
 

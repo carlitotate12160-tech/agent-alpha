@@ -106,12 +106,11 @@ def test_gate_allows_wp_surface_after_wp_tag() -> None:
     """Security-relevant WP paths still pass once the host is tagged."""
     alpha, _ = _alpha(FakeHttpClient())
     alpha._host_stack[_HOST] = {constants.STACK_WP}
-    assert alpha._frontier_expansion_allowed(
-        f"https://{_HOST}/wp-content/plugins/foo/x.js"
-    ) is True
-    assert alpha._frontier_expansion_allowed(
-        f"https://{_HOST}/wp-content/themes/bar/style.css"
-    ) is True
+    assert alpha._frontier_expansion_allowed(f"https://{_HOST}/wp-content/plugins/foo/x.js") is True
+    assert (
+        alpha._frontier_expansion_allowed(f"https://{_HOST}/wp-content/themes/bar/style.css")
+        is True
+    )
     assert alpha._frontier_expansion_allowed(f"https://{_HOST}/wp-admin/plugins.php") is True
     assert alpha._frontier_expansion_allowed(f"https://{_HOST}/wp-json/wc/v3") is True
     assert alpha._frontier_expansion_allowed(f"https://{_HOST}/xmlrpc.php") is True

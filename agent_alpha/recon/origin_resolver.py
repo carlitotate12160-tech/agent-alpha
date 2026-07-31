@@ -76,6 +76,7 @@ def discover_origin_ips(
     *,
     crtsh_url_template: str = CRTSH_URL_TEMPLATE,
     max_probe_candidates: int = 10,
+    crtsh_timeout: float = 60.0,
 ) -> list[str]:
     """Discover real origin IPs for *domain* behind a CDN front-door.
 
@@ -100,7 +101,7 @@ def discover_origin_ips(
     if not authorization.is_in_scope(engagement_id, domain):
         return []
 
-    # Step 1: fetch crt.sh
+    # Step 1: fetch crt.sh (can be slow — use extended timeout)
     url = crtsh_url_template.format(domain=domain)
     try:
         from agent_alpha.agents.http_client import HttpClientError

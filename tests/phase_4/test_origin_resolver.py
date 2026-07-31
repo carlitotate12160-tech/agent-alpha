@@ -3,6 +3,7 @@
 No real network I/O: crt.sh is injected via FakeHttpClient,
 DNS is mocked, origin probe uses a fake.
 """
+
 from __future__ import annotations
 
 import json
@@ -94,9 +95,11 @@ def test_discover_confirms_non_cf_origin() -> None:
 
 def test_discover_crtsh_failure_returns_empty() -> None:
     """crt.sh fetch exception → [] (anti-#3: no crash, honest result)."""
+
     class _BrokenHttp:
         def get(self, *_: object, **__: object) -> None:
             from agent_alpha.agents.http_client import HttpClientError
+
             raise HttpClientError("network unreachable")
 
     result = discover_origin_ips("eng-1", "example.com", _BrokenHttp(), _OkAuth())
@@ -106,6 +109,7 @@ def test_discover_crtsh_failure_returns_empty() -> None:
 def test_probe_rejects_cloudflare_server_header() -> None:
     """IP returning server:cloudflare is NOT a real origin."""
     from agent_alpha.recon.reach_transport import OriginDirectResult
+
     fake_result = OriginDirectResult(
         status_code=200,
         body="...",
@@ -121,6 +125,7 @@ def test_probe_rejects_cloudflare_server_header() -> None:
 def test_probe_confirms_real_origin_200() -> None:
     """IP returning 200 without cloudflare header = confirmed origin."""
     from agent_alpha.recon.reach_transport import OriginDirectResult
+
     fake_result = OriginDirectResult(
         status_code=200,
         body="<html>real site</html>",
@@ -145,7 +150,9 @@ def test_discover_blocked_when_domain_out_of_scope() -> None:
 
 def test_discover_negative_max_candidates_returns_empty() -> None:
     http = _FakeHttp(_crtsh_json(["sub.example.com"]))
-    assert discover_origin_ips("eng-1", "example.com", http, _OkAuth(), max_probe_candidates=-1) == []
+    assert (
+        discover_origin_ips("eng-1", "example.com", http, _OkAuth(), max_probe_candidates=-1) == []
+    )
 
 
 def test_max_probe_candidates_bounds_probes() -> None:
