@@ -814,13 +814,13 @@ class Alpha:
                     headers=dict(result.headers),
                 )
                 last_response = candidate
-                
+
                 origin_verdict = classify_response(
                     status_code=candidate.status_code,
                     body=candidate.text,
                     headers=dict(candidate.headers),
                 )
-                
+
                 # Useful = real content, not a WAF block, not a redirect/not-found
                 if origin_verdict not in (Verdict.BLOCKED, Verdict.CHALLENGE) and (
                     candidate.status_code not in (301, 302, 303, 307, 308, 404)
