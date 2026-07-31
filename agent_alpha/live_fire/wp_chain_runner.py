@@ -129,6 +129,7 @@ def run_wp_chain_live_fire(
     graph_store: Any,
     event_store: Any,
     secrets_manager: Any,
+    engagement_profile: Any | None = None,
 ) -> WpChainResult:
     """Alpha recon → WP config-backup leak → Beta cred-reuse in ONE engagement."""
     rec = auth.create_engagement(client_id=config.client_id, target=config.scope_domains[0])
@@ -149,6 +150,7 @@ def run_wp_chain_live_fire(
         orchestrator=orchestrator,
         http_client=http_client,
         secrets_manager=secrets_manager,
+        engagement_profile=engagement_profile,
     )
     alpha.run_recon(rec.engagement_id, config.recon_url)
 
@@ -260,9 +262,21 @@ def main(argv: list[str] | None = None) -> int:
     orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), _NoLLMProvider())
     graph_store = NetworkXGraphStore()
 
+    # ── Build lab engagement profile with allow_evasion=True ─────────────────────
+    # lab consent: evasion authorized for field-prove runs
+    from agent_alpha.conductor.engagement_profile import EngagementProfile
+
+    rec = auth.create_engagement(client_id=config.client_id, target=config.scope_domains[0])
+    lab_profile = EngagementProfile(
+        engagement_id=rec.engagement_id,
+        client_id=config.client_id,
+        targets=frozenset(config.scope_domains),
+        authorization_level="RECON_ONLY",
+        allow_evasion=True,  # lab consent — field-prove only
+    )
+
     if args.recon_only:
         # ── RECON-only leg: leak discovery without ACTIVE escalation ────────
-        rec = auth.create_engagement(client_id=config.client_id, target=config.scope_domains[0])
         auth.enable_recon(
             rec.engagement_id,
             Scope(
@@ -278,6 +292,7 @@ def main(argv: list[str] | None = None) -> int:
             orchestrator=orchestrator,
             http_client=http_client,
             secrets_manager=secrets_manager,
+            engagement_profile=lab_profile,
         )
         alpha.run_recon(rec.engagement_id, config.recon_url)
         creds_added = verify_wp_config_leak(
@@ -320,6 +335,7 @@ def main(argv: list[str] | None = None) -> int:
             graph_store=graph_store,
             event_store=event_store,
             secrets_manager=secrets_manager,
+            engagement_profile=lab_profile,
         )
 
     mode = "RECON-ONLY" if args.recon_only else "FULL CHAIN"

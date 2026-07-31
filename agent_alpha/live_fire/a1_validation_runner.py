@@ -531,6 +531,7 @@ def main(argv: list[str] | None = None) -> int:
                 targets=frozenset({args.target}),
                 authorized_origins=frozenset({args.origin}),
                 authorization_level="RECON_ONLY",
+                allow_evasion=True,  # lab consent: allow_evasion=True for field-prove runs
             )
         else:
             # --origin without --profile and without --lab-unsigned → refuse.
