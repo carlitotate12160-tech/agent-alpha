@@ -229,6 +229,7 @@ class Omega:
         critical_paths = find_critical_paths(self.graph_store)
         critical_path_steps: list[PathStep] = []
         evidence_items: list[EvidenceItem] = []
+        seen_hashes: set[str] = set()
         blast_radius_result: BlastRadius | None = None
 
         if critical_paths:
@@ -268,7 +269,6 @@ class Omega:
                     # Attribute entry-node artifacts to the first edge on the path.
                     incoming_edges[path[0].id] = edges_along_path[0]
 
-                seen_hashes: set[str] = set()
                 for node in path:
                     incoming_edge = incoming_edges.get(node.id)
                     technique_id = incoming_edge.technique_id if incoming_edge else ""
@@ -291,6 +291,31 @@ class Omega:
                 # Compute blast radius from the entry node
                 if path:
                     blast_radius_result = self._compute_blast_radius(path[0].id)
+
+        # Collect evidence from vuln nodes that carry proof but are NOT on the critical path.
+        # These are recon-tier findings with no proven chain (Phase 4 recon-only engagements).
+        path_node_ids: set[str] = (
+            {n.id for path in critical_paths for n in path} if critical_paths else set()
+        )
+        for node in self.graph_store.all_nodes():
+            if node.type.value != "vulnerability":
+                continue
+            if node.id in path_node_ids:
+                continue  # already collected via critical path walk above
+            for artifact in node.proof_artifacts:
+                sha256 = hashlib.sha256(artifact.storage_ref.encode()).hexdigest()
+                if sha256 in seen_hashes:
+                    continue
+                seen_hashes.add(sha256)
+                evidence_items.append(
+                    EvidenceItem(
+                        technique_id="",
+                        description=artifact.description,
+                        artifact_ref=artifact.storage_ref,
+                        sha256=sha256,
+                        captured_at=artifact.captured_at,
+                    )
+                )
 
         critical_path_tuple = tuple(critical_path_steps)
         attack_flow_mermaid = render_attack_flow(critical_path_tuple)
