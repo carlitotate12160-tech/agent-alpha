@@ -438,7 +438,12 @@ def test_no_consent_is_unresolved_and_analyzes() -> None:
 # ORIGIN_DIRECT Reach Strategy Loop Tests (Phase 4)
 # ---------------------------------------------------------------------------
 def test_origin_direct_returns_first_useful() -> None:
-    """T1: Two origins; first returns 404, second returns 200 -> uses second."""
+    """Test that ORIGIN_DIRECT iterates through multiple authorized origins and returns the first useful one.
+
+    When the first origin returns a non-useful response (e.g., 404 Not Found),
+    the strategy must continue to the next origin. If the second origin returns a 200 OK,
+    that response should be returned and used for further analysis.
+    """
     from agent_alpha.recon.reach_transport import OriginDirectResult
     from unittest.mock import patch
     
@@ -466,7 +471,11 @@ def test_origin_direct_returns_first_useful() -> None:
 
 
 def test_origin_direct_skips_redirects() -> None:
-    """T2: Two origins; first returns 302, second returns 200 -> uses second."""
+    """Test that ORIGIN_DIRECT skips redirect responses and continues to the next origin.
+
+    When the first origin returns a 302 Found redirect, the strategy must skip it
+    and continue to the next authorized origin. If the second returns 200 OK, it is used.
+    """
     from agent_alpha.recon.reach_transport import OriginDirectResult
     from unittest.mock import patch
     
@@ -494,7 +503,11 @@ def test_origin_direct_skips_redirects() -> None:
 
 
 def test_origin_direct_single_origin_works() -> None:
-    """T3: Single origin -> 200 -> returned (no regression)."""
+    """Test that ORIGIN_DIRECT works correctly with a single authorized origin.
+
+    Ensures no regression in the fallback logic: if there is only one origin
+    and it returns a 200 OK, that response is returned immediately.
+    """
     from agent_alpha.recon.reach_transport import OriginDirectResult
     from unittest.mock import patch
     
@@ -520,7 +533,12 @@ def test_origin_direct_single_origin_works() -> None:
 
 
 def test_origin_direct_all_origins_raise() -> None:
-    """T4: All origins -> RuntimeError -> returns None."""
+    """Test that ORIGIN_DIRECT gracefully falls back if all origins raise exceptions.
+
+    If every fetch attempt to the authorized origins results in a RuntimeError
+    (e.g., connection reset), the strategy must catch these exceptions and
+    ultimately return None, signaling that reach is not viable.
+    """
     from unittest.mock import patch
     
     alpha, eng, store, orchestrator, http_client = _make_alpha(
@@ -544,7 +562,11 @@ def test_origin_direct_all_origins_raise() -> None:
 
 
 def test_origin_direct_returns_first_useful_immediately() -> None:
-    """T5: First origin -> 200 -> returned immediately, second NOT called."""
+    """Test that ORIGIN_DIRECT short-circuits and returns early upon finding a useful response.
+
+    If the first origin returns a useful response (e.g., 200 OK), the strategy
+    must return it immediately without issuing requests to the remaining origins.
+    """
     from agent_alpha.recon.reach_transport import OriginDirectResult
     from unittest.mock import patch
     
@@ -574,7 +596,12 @@ def test_origin_direct_returns_first_useful_immediately() -> None:
 
 
 def test_origin_direct_skips_blocked_verdicts() -> None:
-    """T6: Two origins, first -> 200-but-BLOCKED-verdict (WAF page), second -> clean 200 -> returns clean."""
+    """Test that ORIGIN_DIRECT skips responses classified as BLOCKED, even if they return 200 OK.
+
+    Some WAFs (e.g., Imperva) may return a 200 OK status code but serve an "Access Denied"
+    block page. The strategy must use the classifier to determine if the response is actually
+    useful, and if blocked, continue to the next origin.
+    """
     from agent_alpha.recon.reach_transport import OriginDirectResult
     from unittest.mock import patch
     
