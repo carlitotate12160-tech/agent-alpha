@@ -737,18 +737,17 @@ class Alpha:
         #    signed authorized_origins (C9: candidate ≠ authorization)
         #    AND filter out Cloudflare edge IPs — hitting CF edge with Host header
         #    is NOT origin-direct (it still hits CF WAF).
-        authorized_origin: str | None = None
+        authorized_origins_list: list[str] = []
         if self._origin_discovery is not None:
             candidates = self._origin_discovery.candidates(host)
-            authorized_origin = next(
-                (
-                    ip
-                    for ip in candidates
-                    if ip in self._engagement_profile.authorized_origins
-                    and not is_cloudflare_ip(ip)  # CF edge IPs are not valid origins
-                ),
-                None,
-            )
+            authorized_origins_list = [
+                ip
+                for ip in candidates
+                if ip in self._engagement_profile.authorized_origins
+                and not is_cloudflare_ip(ip)  # CF edge IPs are not valid origins
+            ]
+
+        authorized_origin = authorized_origins_list[0] if authorized_origins_list else None
 
         # 3. Capability gate: browser_solve viable only if transport is
         #    injected AND profile authorizes evasion (§12.36)
@@ -777,41 +776,61 @@ class Alpha:
         if strategy is ReachStrategy.ORIGIN_DIRECT and authorized_origin is not None:
             from agent_alpha.conductor.engagement_profile import assert_origin_authorized
 
-            # C8: fail-closed — raises OriginNotAuthorizedError if not authorized
-            assert_origin_authorized(authorized_origin, host, self._engagement_profile)
+            last_response: _ReachResponse | None = None
+            for origin_ip in authorized_origins_list:
+                # C8: fail-closed — raises OriginNotAuthorizedError if not authorized
+                assert_origin_authorized(origin_ip, host, self._engagement_profile)
 
-            self._emit(
-                "OBSERVE",
-                f"Reach: ORIGIN_DIRECT for {url} via {authorized_origin}",
-            )
-
-            # Audit event (origin-direct bypasses WAF — audit-sensitive)
-            self.event_store.append(
-                EventType.ORIGIN_DIRECT_ATTEMPT,
-                self._engagement_id,
-                "alpha",
-                {
-                    "host": host,
-                    "origin_ip": authorized_origin,
-                    "authorized": True,
-                    "discovered_via": "origin_discovery",
-                },
-            )
-
-            try:
-                result = origin_direct_fetch(host, authorized_origin, path)
-            except RuntimeError:
                 self._emit(
                     "OBSERVE",
-                    f"Reach: origin_direct_fetch failed for {url}",
+                    f"Reach: ORIGIN_DIRECT for {url} via {origin_ip}",
                 )
-                return None
 
-            return _ReachResponse(
-                status_code=result.status_code,
-                body=result.body,
-                headers=dict(result.headers),
-            )
+                # Audit event (origin-direct bypasses WAF — audit-sensitive)
+                self.event_store.append(
+                    EventType.ORIGIN_DIRECT_ATTEMPT,
+                    self._engagement_id,
+                    "alpha",
+                    {
+                        "host": host,
+                        "origin_ip": origin_ip,
+                        "authorized": True,
+                        "discovered_via": "origin_discovery",
+                    },
+                )
+
+                try:
+                    result = origin_direct_fetch(host, origin_ip, path)
+                except RuntimeError:
+                    self._emit(
+                        "OBSERVE",
+                        f"Reach: origin_direct_fetch failed for {url} via {origin_ip}",
+                    )
+                    continue
+
+                candidate = _ReachResponse(
+                    status_code=result.status_code,
+                    body=result.body,
+                    headers=dict(result.headers),
+                )
+                last_response = candidate
+                
+                origin_verdict = classify_response(
+                    status_code=candidate.status_code,
+                    body=candidate.text,
+                    headers=dict(candidate.headers),
+                )
+                
+                # Useful = real content, not a WAF block, not a redirect/not-found
+                if origin_verdict not in (Verdict.BLOCKED, Verdict.CHALLENGE) and (
+                    candidate.status_code not in (301, 302, 303, 307, 308, 404)
+                ):
+                    return candidate
+
+            # No origin returned useful content — return the last response seen
+            # (honest: caller re-classifies; a 404/redirect is still non-block
+            # evidence) or None if every origin raised.
+            return last_response
 
         if strategy is ReachStrategy.EVASION and self._browser_solve is not None:
             self._emit(
