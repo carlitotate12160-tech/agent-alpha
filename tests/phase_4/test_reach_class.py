@@ -432,3 +432,206 @@ def test_no_consent_is_unresolved_and_analyzes() -> None:
     assert len(orchestrator.calls) > 0, (
         "Without consent, the page must still be analyzed (FP-safe fallback)"
     )
+
+
+# ---------------------------------------------------------------------------
+# ORIGIN_DIRECT Reach Strategy Loop Tests (Phase 4)
+# ---------------------------------------------------------------------------
+def test_origin_direct_returns_first_useful() -> None:
+    """Test that ORIGIN_DIRECT iterates through multiple authorized origins and returns the first useful one.
+
+    When the first origin returns a non-useful response (e.g., 404 Not Found),
+    the strategy must continue to the next origin. If the second origin returns a 200 OK,
+    that response should be returned and used for further analysis.
+    """
+    from agent_alpha.recon.reach_transport import OriginDirectResult
+    from unittest.mock import patch
+    
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={_SEED: _Resp(403, _CF_SHELL, {"server": "cloudflare"}, _SEED)}
+    )
+    alpha._engagement_profile.authorized_origins = ["198.51.100.1", "198.51.100.2"]
+    
+    class FakeOriginDiscovery:
+        def candidates(self, host: str) -> list[str]:
+            return ["198.51.100.1", "198.51.100.2"]
+            
+    alpha._origin_discovery = FakeOriginDiscovery()
+    
+    def fake_origin_direct(host: str, origin_ip: str, path: str) -> OriginDirectResult:
+        if origin_ip == "198.51.100.1":
+            return OriginDirectResult(404, "Not Found", {"server": "nginx"})
+        return OriginDirectResult(200, "Real Content", {"server": "nginx"})
+
+    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+        alpha.run_recon(eng, _SEED)
+        
+    assert len(orchestrator.calls) == 1
+    assert "Real Content" in orchestrator.calls[0].get("body", "")
+
+
+def test_origin_direct_skips_redirects() -> None:
+    """Test that ORIGIN_DIRECT skips redirect responses and continues to the next origin.
+
+    When the first origin returns a 302 Found redirect, the strategy must skip it
+    and continue to the next authorized origin. If the second returns 200 OK, it is used.
+    """
+    from agent_alpha.recon.reach_transport import OriginDirectResult
+    from unittest.mock import patch
+    
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={_SEED: _Resp(403, _CF_SHELL, {"server": "cloudflare"}, _SEED)}
+    )
+    alpha._engagement_profile.authorized_origins = ["198.51.100.1", "198.51.100.2"]
+    
+    class FakeOriginDiscovery:
+        def candidates(self, host: str) -> list[str]:
+            return ["198.51.100.1", "198.51.100.2"]
+            
+    alpha._origin_discovery = FakeOriginDiscovery()
+    
+    def fake_origin_direct(host: str, origin_ip: str, path: str) -> OriginDirectResult:
+        if origin_ip == "198.51.100.1":
+            return OriginDirectResult(302, "Found", {"location": "/login"})
+        return OriginDirectResult(200, "Real Content", {"server": "nginx"})
+
+    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+        alpha.run_recon(eng, _SEED)
+        
+    assert len(orchestrator.calls) == 1
+    assert "Real Content" in orchestrator.calls[0].get("body", "")
+
+
+def test_origin_direct_single_origin_works() -> None:
+    """Test that ORIGIN_DIRECT works correctly with a single authorized origin.
+
+    Ensures no regression in the fallback logic: if there is only one origin
+    and it returns a 200 OK, that response is returned immediately.
+    """
+    from agent_alpha.recon.reach_transport import OriginDirectResult
+    from unittest.mock import patch
+    
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={_SEED: _Resp(403, _CF_SHELL, {"server": "cloudflare"}, _SEED)}
+    )
+    alpha._engagement_profile.authorized_origins = ["198.51.100.1"]
+    
+    class FakeOriginDiscovery:
+        def candidates(self, host: str) -> list[str]:
+            return ["198.51.100.1"]
+            
+    alpha._origin_discovery = FakeOriginDiscovery()
+    
+    def fake_origin_direct(host: str, origin_ip: str, path: str) -> OriginDirectResult:
+        return OriginDirectResult(200, "Single Origin Content", {"server": "nginx"})
+
+    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+        alpha.run_recon(eng, _SEED)
+        
+    assert len(orchestrator.calls) == 1
+    assert "Single Origin Content" in orchestrator.calls[0].get("body", "")
+
+
+def test_origin_direct_all_origins_raise() -> None:
+    """Test that ORIGIN_DIRECT gracefully falls back if all origins raise exceptions.
+
+    If every fetch attempt to the authorized origins results in a RuntimeError
+    (e.g., connection reset), the strategy must catch these exceptions and
+    ultimately return None, signaling that reach is not viable.
+    """
+    from unittest.mock import patch
+    
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={_SEED: _Resp(403, _CF_SHELL, {"server": "cloudflare"}, _SEED)}
+    )
+    alpha._engagement_profile.authorized_origins = ["198.51.100.1", "198.51.100.2"]
+    
+    class FakeOriginDiscovery:
+        def candidates(self, host: str) -> list[str]:
+            return ["198.51.100.1", "198.51.100.2"]
+            
+    alpha._origin_discovery = FakeOriginDiscovery()
+    
+    def fake_origin_direct(host: str, origin_ip: str, path: str) -> None:
+        raise RuntimeError("Connection reset")
+
+    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+        alpha.run_recon(eng, _SEED)
+        
+    assert len(orchestrator.calls) == 0
+
+
+def test_origin_direct_returns_first_useful_immediately() -> None:
+    """Test that ORIGIN_DIRECT short-circuits and returns early upon finding a useful response.
+
+    If the first origin returns a useful response (e.g., 200 OK), the strategy
+    must return it immediately without issuing requests to the remaining origins.
+    """
+    from agent_alpha.recon.reach_transport import OriginDirectResult
+    from unittest.mock import patch
+    
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={_SEED: _Resp(403, _CF_SHELL, {"server": "cloudflare"}, _SEED)}
+    )
+    alpha._engagement_profile.authorized_origins = ["198.51.100.1", "198.51.100.2"]
+    
+    class FakeOriginDiscovery:
+        def candidates(self, host: str) -> list[str]:
+            return ["198.51.100.1", "198.51.100.2"]
+            
+    alpha._origin_discovery = FakeOriginDiscovery()
+    
+    call_count = 0
+    def fake_origin_direct(host: str, origin_ip: str, path: str) -> OriginDirectResult:
+        nonlocal call_count
+        call_count += 1
+        return OriginDirectResult(200, "First Content", {"server": "nginx"})
+
+    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+        alpha.run_recon(eng, _SEED)
+        
+    assert call_count == 1
+    assert len(orchestrator.calls) == 1
+    assert "First Content" in orchestrator.calls[0].get("body", "")
+
+
+def test_origin_direct_skips_blocked_verdicts() -> None:
+    """Test that ORIGIN_DIRECT skips responses classified as BLOCKED, even if they return 200 OK.
+
+    Some WAFs (e.g., Imperva) may return a 200 OK status code but serve an "Access Denied"
+    block page. The strategy must use the classifier to determine if the response is actually
+    useful, and if blocked, continue to the next origin.
+    """
+    from agent_alpha.recon.reach_transport import OriginDirectResult
+    from unittest.mock import patch
+    
+    alpha, eng, store, orchestrator, http_client = _make_alpha(
+        routes={_SEED: _Resp(403, _CF_SHELL, {"server": "cloudflare"}, _SEED)}
+    )
+    alpha._engagement_profile.authorized_origins = ["198.51.100.1", "198.51.100.2"]
+    
+    class FakeOriginDiscovery:
+        def candidates(self, host: str) -> list[str]:
+            return ["198.51.100.1", "198.51.100.2"]
+            
+    alpha._origin_discovery = FakeOriginDiscovery()
+    
+    def fake_origin_direct(host: str, origin_ip: str, path: str) -> OriginDirectResult:
+        if origin_ip == "198.51.100.1":
+            return OriginDirectResult(200, "Access Denied by WAF", {"server": "imperva"})
+        return OriginDirectResult(200, "Clean Content", {"server": "nginx"})
+
+    from agent_alpha.recon.response_classifier import Verdict
+    original_classify = __import__("agent_alpha.recon.response_classifier", fromlist=["classify_response"]).classify_response
+    
+    def fake_classify(*, status_code: int, body: str, headers: dict[str, str]) -> Verdict:
+        if "Access Denied" in body:
+            return Verdict.BLOCKED
+        return original_classify(status_code=status_code, body=body, headers=headers)
+
+    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+        with patch("agent_alpha.agents.alpha.scout.classify_response", side_effect=fake_classify):
+            alpha.run_recon(eng, _SEED)
+        
+    assert len(orchestrator.calls) == 1
+    assert "Clean Content" in orchestrator.calls[0].get("body", "")
