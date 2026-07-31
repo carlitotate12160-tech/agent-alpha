@@ -2474,53 +2474,92 @@ added where it already holds both bodies. Register the host-reach path as wiring
 
 ---
 
-### 12.42 Attacker Vantage — Agent-Alpha is an EXTERNAL, unauthenticated adversary — PROPOSED (lock on confirm)
+### 12.42 Attacker Vantage + Footprint + Doctrine — EXTERNAL, agentless, exhaustive-surface — PROPOSED (lock on confirm)
 
-**Context / gap.** Agent-Alpha's vantage was never decided as a first-class ADR item. It is
-implied everywhere (reach arc, origin discovery §12.38, adaptive evasion §12.33, Epsilon
-"pivot to internal network", PRD internet→crown-jewel) but never stated. The two design
-references occupy DIFFERENT vantages; copying their mechanics without pinning ours invites
-scope drift (#4 generic architecture, #5 scope creep):
+**Context / gap.** Agent-Alpha's vantage was never a first-class ADR item. Implied by the reach
+arc, origin discovery (§12.38), adaptive evasion (§12.33), Epsilon "pivot to internal network",
+PRD internet→crown-jewel — never stated. The design references occupy DIFFERENT vantages;
+copying their mechanics without pinning ours invites scope drift (#4 generic, #5 creep).
+NodeZero (Ref #1) = assumed-internal / agentless (foothold already inside; no perimeter to
+breach). Strix (Ref #N) = dev/CI / source-available.
 
-- **NodeZero (Ref #1)** — assumed-internal / agentless. Runs from a foothold ALREADY inside
-  the client network ("real attacks run safely in production"). No perimeter to breach. Reach /
-  WAF-evasion / origin-discovery are IRRELEVANT to its vantage.
-- **Strix (Ref #N)** — dev/CI / source-available. "Run your code, hack it." Starts from the
-  code, not the perimeter.
+**Decision — two axes, both pinned.**
+- **Vantage = EXTERNAL, unauthenticated adversary.** Engagement begins from the public internet
+  with only a client-owned domain — no implant, VPN, source, or inside foothold at t0 (black-box).
+  Breaching the perimeter (reach: TLS-fingerprint bypass, origin discovery, CDN/WAF
+  discrimination) is IN-SCOPE and is the FIRST kill-chain segment, not an afterthought.
+- **Footprint = AGENTLESS.** No persistent implant installed on client targets — ever. Post-
+  exploitation stays agentless (LOLBin / in-memory / existing-protocol reuse, §8g). "Safe in
+  production, nothing left behind" is a first-class selling property, claimable today.
+- Internal / assumed-breach vantage (NodeZero-style AD/GOAD from a foothold) = LATER, SECONDARY
+  profile (Phase 5, Epsilon onward), reached only by pivot AFTER external foothold proven — never
+  the default entry.
 
-Agent-Alpha borrows their COGNITION (Cognitive Loop) and PROOF discipline (prove-exploitability)
-but is neither internal-foothold nor source-assisted.
+**Attacker Doctrine (how the agent must THINK).** Buyer question = "how strongly can our
+perimeter be breached." The agent reasons like a real attacker: "where can I get in — I don't
+care how." A guarded front door does not end the engagement; the attacker tries side windows,
+the roof, the tunnel. Operationalised — NOT as an ever-growing hardcoded vector list, but as:
+1. **Exhaustive surface map.** The platform's job is to enumerate the ENTIRE attack surface
+   (apex, www, subdomains, origin IPs behind CDN, alternate ports/protocols/services, API and
+   mobile backends, auth portals, third-party integrations) into the AttackGraph — not 3 doors.
+   A door the agent cannot SEE (e.g. frameset links, BUG 3) is a hole left open.
+2. **Stop only when surface is exhausted, not when N paths fail.** A BLOCKED path must not
+   collapse the engagement while un-probed surface remains (§12.24 bounded-autonomy stall).
+   `next_action = f(graph)` (§12.0), never a static pipeline.
+3. **Vuln-classes are added as GATED, oracle-verified lanes over that surface** (pattern §12.40),
+   one at a time — never a parallel build-out. This is the guard against #1/#5.
+4. **Business-logic / "black-swan" flaws = DEFERRED to Phase 5/6** (require Gamma + an
+   outcome-oracle). The true long-term differentiator, explicitly NOT built now (recon must be
+   proven on a real target first — feature-before-foundation).
 
-**Decision.** Agent-Alpha's canonical vantage = **EXTERNAL, UNAUTHENTICATED ADVERSARY**. An
-engagement begins from the public internet with only a client-owned domain — no implant, no
-VPN, no source, no inside foothold at t0 (black-box). Breaching the perimeter (reach:
-TLS-fingerprint bypass, origin discovery, CDN/WAF discrimination) is IN-SCOPE and is the FIRST
-kill-chain segment, not an afterthought. Internal / assumed-breach vantage (NodeZero-style AD /
-GOAD from a foothold) is a LATER, SECONDARY engagement profile (Phase 5, Epsilon onward),
-reached only by pivoting inward AFTER an external foothold is proven — never the default entry.
+**Consequences.** Reach is on the critical path BECAUSE we are external — de-prioritising it
+abandons the vantage. Recon is black-box (fingerprint-driven, passive-first R2, no source
+shortcuts). Competitive story = "external attacker simulation"; overlap with NodeZero/Strix is
+MECHANISM (proof, graph), never vantage. Any proposal assuming inside foothold / source / implant
+at START is OUT unless an explicit post-pivot secondary profile.
 
-**Consequences (why this is load-bearing, not cosmetic).**
-1. **Reach is not optional.** It is precisely WHY §12.33 / §12.38 / tls_impersonate exist. The
-   reach arc sits on the critical path to the success bar BECAUSE we are external.
-   De-prioritizing reach = abandoning the vantage.
-2. **Recon is black-box** (no source, no creds at t0) — governs Alpha (fingerprint-driven,
-   passive-first R2, no source-assisted shortcuts).
-3. **Competitive story sharpened:** "external attacker simulation" — what a real internet
-   adversary does — distinct from NodeZero (internal breach-and-attack sim) and Strix
-   (dev-time). Overlap with them is MECHANISM (proof, graph), never vantage.
-4. **Scope guard:** any proposal assuming an inside foothold, source access, or a pre-placed
-   implant at engagement START is OUT (violates vantage), unless explicitly a post-pivot
-   secondary profile.
-
-**Anti-Lyndon.** Pins the entry vantage so every feature is judged against it — closes #4
-(generic architecture) and #5 (scope creep). One vantage, one entry model.
+**Anti-Lyndon.** Pins entry vantage + footprint + the exhaustive-vs-creep boundary so every
+feature is judged against them — closes #4 and gives #5 a written test.
 
 **Integration.** No code change — matches the built path (recon_lab, origin_resolver,
-transport_resilience). PRD §2 gains a one-line positioning pointer to this §. Epsilon's
-"internal network" goal is re-labeled post-pivot secondary, consistent with Phase 5 gating.
+transport_resilience). PRD §2 gains a positioning pointer. Epsilon "internal network" = post-pivot
+secondary, consistent with Phase 5 gating.
 
-#### Lyndon check
-- #1 feature-before-foundation: NO — documents a decision already realised in the built path.
-- #2 dead code: N/A — no code; governs existing wired reach path.
-- #4 generic architecture: this is the fix — nails the security/attacker vantage explicitly.
-- #5 scope creep: this is the guard against it — out-of-vantage proposals now fail a written test.
+---
+
+### 12.43 Proof Standard — zero-FP via independent oracle + human-legible artifact — PROPOSED (lock on confirm)
+
+**Extends** §12.31 (verification tiers) and §12.32 (auth-vs-unauth diff). Does NOT redefine them
+(anti-#6).
+
+**Principle.** A finding is payable ONLY when BOTH hold: (1) an INDEPENDENT oracle confirms it —
+failure mode DIFFERENT from the finder (re-authenticate, re-fetch ground truth), reaching
+`cross_verified` per §12.31; AND (2) a human-legible ProofArtifact is attached (screenshot + raw
+request/response HAR), stored in the vault, referenced by `storage_ref`.
+
+**Critical distinction (anti-#3).** The screenshot is the EXHIBIT, not the oracle. A screenshot
+can render a login page, a cached page, or a soft-200 — pixels prove nothing alone. The zero-FP
+GATE for an access/login-class finding = with the harvested credential, an INDEPENDENT fresh
+session obtains an authenticated-only ground-truth marker the unauthenticated session did NOT
+(auth-vs-unauth diff §12.32): e.g. the logged-in user's own account id, an admin-only DOM element,
+a session/CSRF token bound to the account. Only AFTER that oracle passes is the screenshot taken.
+
+**ProofArtifact tiers (single canonical enum, extends §12.31).**
+- `asserted` (L0) — tool/LLM said so. NOT a finding.
+- `self_verified` (L1) — finder re-checked (same failure mode). Weak; not payable alone.
+- `crossverified` (L2) — independent oracle confirmed (different failure mode). PAYABLE floor.
+
+Every L2 finding MUST carry `{oracle_evidence (the independent request/response), visual_artifact
+(screenshot), storage_ref}`. Missing the oracle OR the visual → downgrade to L1, excluded from KPI
+(PRD §5 "no silent success").
+
+**Consequence.** Raises Omega report quality (client sees the dashboard, not a claim) AND enforces
+the zero-FP bar mechanically (unverified never counts toward a KPI). Screenshot capture = Camoufox
+(§12.16 shared browser capability), gated exactly like browser_solve (lab / authorized only).
+
+**Integration.** ProofArtifact is already minted by the dbmanager / WP handlers; this mandates the
+oracle+visual PAIR for the ACCESS/login class specifically. AuthenticatedCrawlMode (§12.32)
+supplies the diff oracle. No new agent, no new canonical type.
+
+**Lyndon check.** #3 false success — this IS the fix (screenshot-as-claim would BE #3; the oracle
+gate prevents it). #6 duplication — extends the §12.31 enum, never redefines it.
