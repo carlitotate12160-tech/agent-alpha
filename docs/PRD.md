@@ -47,6 +47,12 @@ report a client will pay for — at a price point a scanner-plus-consultant cann
 - **User of the report:** internal security/blue team + management/compliance.
 - **Geography first:** Indonesia, then SE Asia. Local-context templates are a moat.
 
+**Positioning (vantage).** Agent-Alpha simulates an EXTERNAL, unauthenticated internet adversary
+(black-box: no implant, source, or foothold at t0). Perimeter breach — reach, WAF/CDN evasion,
+origin discovery — is the first kill-chain segment, not an add-on. Internal / assumed-breach
+engagements (NodeZero-style) are a later, secondary profile reached by pivot, not the default
+entry. (Architecture form: ADR §12.42.)
+
 ## 3. Jobs-to-be-done
 
 1. "Prove to me which of my findings an attacker can *actually* exploit." (triage by proof)

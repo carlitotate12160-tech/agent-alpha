@@ -2471,3 +2471,56 @@ added where it already holds both bodies. Register the host-reach path as wiring
 - #5 scope creep: cookie-replay, perfect classifier, cross-engagement persist all explicitly carved out.
 - #6/#7 duplication: reuses `_attempt_reach` / `choose_reach` (no second reach path); reach_class is
   a single per-host memo, single source.
+
+---
+
+### 12.42 Attacker Vantage — Agent-Alpha is an EXTERNAL, unauthenticated adversary — PROPOSED (lock on confirm)
+
+**Context / gap.** Agent-Alpha's vantage was never decided as a first-class ADR item. It is
+implied everywhere (reach arc, origin discovery §12.38, adaptive evasion §12.33, Epsilon
+"pivot to internal network", PRD internet→crown-jewel) but never stated. The two design
+references occupy DIFFERENT vantages; copying their mechanics without pinning ours invites
+scope drift (#4 generic architecture, #5 scope creep):
+
+- **NodeZero (Ref #1)** — assumed-internal / agentless. Runs from a foothold ALREADY inside
+  the client network ("real attacks run safely in production"). No perimeter to breach. Reach /
+  WAF-evasion / origin-discovery are IRRELEVANT to its vantage.
+- **Strix (Ref #N)** — dev/CI / source-available. "Run your code, hack it." Starts from the
+  code, not the perimeter.
+
+Agent-Alpha borrows their COGNITION (Cognitive Loop) and PROOF discipline (prove-exploitability)
+but is neither internal-foothold nor source-assisted.
+
+**Decision.** Agent-Alpha's canonical vantage = **EXTERNAL, UNAUTHENTICATED ADVERSARY**. An
+engagement begins from the public internet with only a client-owned domain — no implant, no
+VPN, no source, no inside foothold at t0 (black-box). Breaching the perimeter (reach:
+TLS-fingerprint bypass, origin discovery, CDN/WAF discrimination) is IN-SCOPE and is the FIRST
+kill-chain segment, not an afterthought. Internal / assumed-breach vantage (NodeZero-style AD /
+GOAD from a foothold) is a LATER, SECONDARY engagement profile (Phase 5, Epsilon onward),
+reached only by pivoting inward AFTER an external foothold is proven — never the default entry.
+
+**Consequences (why this is load-bearing, not cosmetic).**
+1. **Reach is not optional.** It is precisely WHY §12.33 / §12.38 / tls_impersonate exist. The
+   reach arc sits on the critical path to the success bar BECAUSE we are external.
+   De-prioritizing reach = abandoning the vantage.
+2. **Recon is black-box** (no source, no creds at t0) — governs Alpha (fingerprint-driven,
+   passive-first R2, no source-assisted shortcuts).
+3. **Competitive story sharpened:** "external attacker simulation" — what a real internet
+   adversary does — distinct from NodeZero (internal breach-and-attack sim) and Strix
+   (dev-time). Overlap with them is MECHANISM (proof, graph), never vantage.
+4. **Scope guard:** any proposal assuming an inside foothold, source access, or a pre-placed
+   implant at engagement START is OUT (violates vantage), unless explicitly a post-pivot
+   secondary profile.
+
+**Anti-Lyndon.** Pins the entry vantage so every feature is judged against it — closes #4
+(generic architecture) and #5 (scope creep). One vantage, one entry model.
+
+**Integration.** No code change — matches the built path (recon_lab, origin_resolver,
+transport_resilience). PRD §2 gains a one-line positioning pointer to this §. Epsilon's
+"internal network" goal is re-labeled post-pivot secondary, consistent with Phase 5 gating.
+
+#### Lyndon check
+- #1 feature-before-foundation: NO — documents a decision already realised in the built path.
+- #2 dead code: N/A — no code; governs existing wired reach path.
+- #4 generic architecture: this is the fix — nails the security/attacker vantage explicitly.
+- #5 scope creep: this is the guard against it — out-of-vantage proposals now fail a written test.
