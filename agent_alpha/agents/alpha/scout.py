@@ -180,6 +180,7 @@ class Alpha:
         # deterministic frontier_seeds are already enqueued), so catalog seeds
         # are never subject to this gate — only hrefs parsed from page HTML are.
         self._host_stack: dict[str, set[str]] = {}
+        self._organic_crawl_count: dict[str, int] = {}
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -221,6 +222,7 @@ class Alpha:
         self._reach_class = {}
         self._reach_body_cache = {}
         self._host_stack = {}
+        self._organic_crawl_count = {}
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -524,6 +526,8 @@ class Alpha:
         if verdict is Verdict.OK:
             for href in self._extract_hrefs(resp.text, url):
                 if self._frontier_expansion_allowed(href):
+                    h = urlparse(href).hostname or urlparse(href).netloc
+                    self._organic_crawl_count[h] = self._organic_crawl_count.get(h, 0) + 1
                     self.enqueue_discovered_url(href)
 
         return _finish(
@@ -1654,6 +1658,12 @@ class Alpha:
         which call ``enqueue_discovered_url`` directly and stay unfiltered —
         those are already-curated security surface, not organic crawl.
 
+        A stack-agnostic per-host organic-crawl budget
+        (``MAX_ORGANIC_CRAWL_PER_HOST``) is checked FIRST, before the WP
+        allowlist. Once the budget is exhausted for a host, no further organic
+        hrefs are enqueued for that host — but catalog seeds still pass through
+        ``enqueue_discovered_url`` directly (uncounted).
+
         Unknown/unfingerprinted hosts are PERMISSIVE (current FIFO behaviour,
         byte-for-byte backward compatible — anti-#3: absence of a catalog
         entry is never a silent reject). Once a host is tagged ``STACK_WP`` by
@@ -1663,6 +1673,8 @@ class Alpha:
         """
         parsed = urlparse(url)
         host = parsed.hostname or parsed.netloc
+        if self._organic_crawl_count.get(host, 0) >= constants.MAX_ORGANIC_CRAWL_PER_HOST:
+            return False
         if constants.STACK_WP not in self._host_stack.get(host, ()):
             return True
         path = parsed.path.lower()

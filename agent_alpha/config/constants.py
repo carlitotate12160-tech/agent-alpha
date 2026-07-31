@@ -83,6 +83,7 @@ __all__ = [
     "ODOO_VERSION_INFO_PATH",
     "ODOO_VERSION_JSONRPC_BODY",
     "REACH_TIMEOUT_S",
+    "MAX_ORGANIC_CRAWL_PER_HOST",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -497,6 +498,16 @@ TECHNIQUE_FOR_MITIGATION_CLASS: dict[str, str] = {
 # from HTTP_REQUEST_TIMEOUT_SEC (recon client) — reach transports may traverse
 # additional TLS negotiation or CDN edge hops.
 REACH_TIMEOUT_S: float = 15.0
+
+# ── Organic-Crawl Budget (stack-agnostic backstop) ───────────────
+# Universal per-host cap on ORGANIC-crawl hrefs (hrefs parsed from page HTML
+# by _extract_hrefs).  Catalog seeds (WELL_KNOWN_LEAK_PATHS,
+# SURFACE_DISCOVERY_PATHS, fingerprint frontier_seeds, WP_REST_INTERESTING_ROUTES
+# escalation) call enqueue_discovered_url() directly and are NOT counted —
+# they are already-curated security surface, not organic crawl.
+# Field evidence: unibis.co.id 2026-07-29 — 20min / 30+ product-page probes /
+# 0 findings from any of them; Laravel/Odoo/unknown hosts had no backstop.
+MAX_ORGANIC_CRAWL_PER_HOST: int = 25
 
 # ── Odoo ───────────────────────────────────────────────────────
 ODOO_VERSION_INFO_PATH = "/web/webclient/version_info"
