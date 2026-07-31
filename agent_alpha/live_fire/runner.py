@@ -130,6 +130,7 @@ def run_live_fire(
     graph_store: Any,
     event_store: Any,
     secrets_manager: Any = None,
+    engagement_profile: Any | None = None,
 ) -> list[TargetResult]:
     """Run the live-fire pipeline: authorize → recon each target → predict.
 
@@ -160,6 +161,7 @@ def run_live_fire(
         orchestrator=orchestrator,
         http_client=http_client,
         secrets_manager=secrets_manager,
+        engagement_profile=engagement_profile,
     )
 
     # ── Run recon per target and derive predictions ──────────────
@@ -202,6 +204,22 @@ def main(argv: list[str] | None = None) -> int:
     # ── Build real dependencies ──────────────────────────────────
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
+
+    # ── Build lab engagement profile with allow_evasion=True ─────────────────────
+    # lab consent: evasion authorized for field-prove runs
+    from agent_alpha.conductor.engagement_profile import EngagementProfile
+
+    rec = auth.create_engagement(
+        client_id=config.client_id,
+        target=config.targets[0].host if config.targets else "",
+    )
+    lab_profile = EngagementProfile(
+        engagement_id=rec.engagement_id,
+        client_id=config.client_id,
+        targets=frozenset(t.host for t in config.targets),
+        authorization_level="RECON_ONLY",
+        allow_evasion=True,  # lab consent — field-prove only
+    )
     http_client = HttpClient(engagement_id=config.client_id)
 
     api_key = os.environ["DEEPSEEK_API_KEY"]
@@ -224,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
         graph_store=graph_store,
         event_store=event_store,
         secrets_manager=secrets_manager,
+        engagement_profile=lab_profile,
     )
 
     # ── Score findings ───────────────────────────────────────────
