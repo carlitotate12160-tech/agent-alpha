@@ -1291,80 +1291,89 @@ class Alpha:
         # For each namespace present in the curated dangerous list, attempt ONE
         # inline GET. A 200 with a non-WP-error body = unauthenticated access
         # confirmed = VULNERABILITY. A 401/403/404 = auth-gated or absent = no finding.
-        detected_namespaces: set[str] = set(data.get("namespaces", []))
-        for ns, (
-            probe_path,
-            affected_service,
-            cvss,
-        ) in constants.WP_PLUGIN_DANGEROUS_NAMESPACES.items():
-            if ns not in detected_namespaces:
-                continue
-            # Normalize: url is the /wp-json/ index root; probe_path is absolute
-            # starting with /wp-json/, so we build from scheme+host only.
-            parsed_root = urlparse(url)
-            probe_url = f"{parsed_root.scheme}://{parsed_root.netloc}{probe_path}"
-            try:
-                probe_resp = self.http_client.get(probe_url)
-            except HttpClientError:
-                continue  # transport failure = not provably accessible
-            if probe_resp.status_code != 200:
-                continue  # auth-gated (401/403) or absent (404) = no finding
-            # Reject WP-standard error envelope {"code":..., "data":{"status":...}}
-            try:
-                probe_json = json.loads(probe_resp.text)
-                if isinstance(probe_json, dict) and "code" in probe_json and "data" in probe_json:
-                    continue  # WP error response — not accessible
-            except (ValueError, TypeError):
-                pass  # non-JSON 200 is fine (some plugins return HTML); still accessible
-            if not probe_resp.text.strip():
-                continue  # empty body = not meaningful
-            artifact_id_ns = str(uuid.uuid4())
-            evidence_ns = (
-                f"WordPress plugin namespace '{ns}' detected in REST index at {url} "
-                f"and endpoint {probe_url} returned HTTP 200 without authentication. "
-                f"Affected plugin: {affected_service}. Response preview: "
-                f"{probe_resp.text[:300]!r}"
-            )
-            vuln_id_ns = f"vuln:{host}:{affected_service}_unauthenticated_rest"
-            vuln_ns = AttackNode(
-                id=vuln_id_ns,
-                type=NodeType.VULNERABILITY,
-                properties=VulnerabilityProperties(
-                    affected_service=affected_service,
-                    cvss_score=cvss,
-                    exploit_available=False,
-                ),
-                confidence=0.9,
-                agent="alpha",
-                timestamp_utc=now_utc,
-                proof_artifacts=[
-                    ProofArtifact(
-                        artifact_id=artifact_id_ns,
-                        type="http_response",
-                        storage_ref=f"engagements/{self._engagement_id}/proofs/{artifact_id_ns}",
-                        description=evidence_ns,
-                        captured_at=now_utc,
-                        agent="alpha",
-                        target=probe_url,
-                    )
-                ],
-            )
-            persist_node(
-                self.event_store,
-                self.graph_store,
-                self._engagement_id,
-                vuln_ns,
-                agent="alpha",
-            )
-            self._persist_wp_asset(host, vuln_id_ns, now_utc)
-            self._findings += 1
+        nodes_added = 1  # the asset node persisted above
+        probe_campaign_key = f"wp_rest_plugin_probe:{host}"
+        if probe_campaign_key not in self._ran_campaigns:
+            self._ran_campaigns.add(probe_campaign_key)
+            detected_namespaces: set[str] = set(data.get("namespaces", []))
+            for ns, (
+                probe_path,
+                affected_service,
+                cvss,
+            ) in constants.WP_PLUGIN_DANGEROUS_NAMESPACES.items():
+                if ns not in detected_namespaces:
+                    continue
+                # Normalize: url is the /wp-json/ index root; probe_path is absolute
+                # starting with /wp-json/, so we build from scheme+host only.
+                parsed_root = urlparse(url)
+                probe_url = f"{parsed_root.scheme}://{parsed_root.netloc}{probe_path}"
+                try:
+                    probe_resp = self.http_client.get(probe_url, allow_redirects=False)
+                except HttpClientError:
+                    continue  # transport failure = not provably accessible
+                if probe_resp.status_code != 200:
+                    continue  # auth-gated (401/403) or absent (404) = no finding
+                # Reject WP-standard error envelope {"code":..., "data":{"status":...}}
+                try:
+                    probe_json = json.loads(probe_resp.text)
+                    if (
+                        isinstance(probe_json, dict)
+                        and "code" in probe_json
+                        and "data" in probe_json
+                    ):
+                        continue  # WP error response — not accessible
+                except (ValueError, TypeError):
+                    pass  # non-JSON 200 is fine (some plugins return HTML); still accessible
+                if not probe_resp.text.strip():
+                    continue  # empty body = not meaningful
+                artifact_id_ns = str(uuid.uuid4())
+                evidence_ns = (
+                    f"WordPress plugin namespace '{ns}' detected in REST index at {url} "
+                    f"and endpoint {probe_url} returned HTTP 200 without authentication. "
+                    f"Affected plugin: {affected_service}. Response preview: "
+                    f"{probe_resp.text[:300]!r}"
+                )
+                vuln_id_ns = f"vuln:{host}:{affected_service}_unauthenticated_rest"
+                vuln_ns = AttackNode(
+                    id=vuln_id_ns,
+                    type=NodeType.VULNERABILITY,
+                    properties=VulnerabilityProperties(
+                        affected_service=affected_service,
+                        cvss_score=cvss,
+                        exploit_available=False,
+                    ),
+                    confidence=0.9,
+                    agent="alpha",
+                    timestamp_utc=now_utc,
+                    proof_artifacts=[
+                        ProofArtifact(
+                            artifact_id=artifact_id_ns,
+                            type="http_response",
+                            storage_ref=f"engagements/{self._engagement_id}/proofs/{artifact_id_ns}",
+                            description=evidence_ns,
+                            captured_at=now_utc,
+                            agent="alpha",
+                            target=probe_url,
+                        )
+                    ],
+                )
+                persist_node(
+                    self.event_store,
+                    self.graph_store,
+                    self._engagement_id,
+                    vuln_ns,
+                    agent="alpha",
+                )
+                nodes_added += 1
+                self._persist_wp_asset(host, vuln_id_ns, now_utc)
+                self._findings += 1
 
         # Escalate ONLY allowlisted routes through the in-scope guard.
         for key in route_keys:
             full = "/wp-json" + key if key.startswith("/") else "/wp-json/" + key
             if full in constants.WP_REST_INTERESTING_ROUTES:
                 self.enqueue_discovered_url(urljoin(url, full))
-        return 1
+        return nodes_added
 
     def _handle_wp_rest_users(self, resp: Any, decision: Any, url: str) -> int:
         """FINDING: WordPress REST username disclosure (``/wp-json/wp/v2/users``).
