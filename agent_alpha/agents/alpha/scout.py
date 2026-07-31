@@ -525,10 +525,9 @@ class Alpha:
         # re-inflate the very probing F2 trims).
         if verdict is Verdict.OK:
             for href in self._extract_hrefs(resp.text, url):
-                if self._frontier_expansion_allowed(href):
+                if self._frontier_expansion_allowed(href) and self.enqueue_discovered_url(href):
                     h = urlparse(href).hostname or urlparse(href).netloc
                     self._organic_crawl_count[h] = self._organic_crawl_count.get(h, 0) + 1
-                    self.enqueue_discovered_url(href)
 
         return _finish(
             nodes_added, decision.cost_usd, f"ACT: {decision.tool} on {url} -> {nodes_added} nodes"
@@ -1702,8 +1701,11 @@ class Alpha:
                 hrefs.append(absolute)
         return hrefs
 
-    def enqueue_discovered_url(self, url: str) -> None:
+    def enqueue_discovered_url(self, url: str) -> bool:
         """Add *url* to ``_work_queue`` if in-scope and not already seen.
+
+        Returns True if the URL was enqueued, False otherwise (out-of-scope,
+        already probed, already queued, or CDN-excluded).
 
         Scope is validated through the authorisation gate — the same gate that
         guards ``run_recon`` — so discovered hrefs cannot expand recon outside
@@ -1719,7 +1721,7 @@ class Alpha:
         # Exclude CDN-infrastructure paths before scope/dedup check
         for prefix in constants.CDN_INFRA_EXCLUDE_PREFIXES:
             if parsed.path.startswith(prefix):
-                return
+                return False
         host = parsed.hostname or parsed.netloc
         if (
             self.authorization.is_in_scope(self._engagement_id, host)
@@ -1727,6 +1729,8 @@ class Alpha:
             and url not in self._work_queue
         ):
             self._work_queue.append(url)
+            return True
+        return False
 
     # ── Private: helpers ────────────────────────────────────────
 

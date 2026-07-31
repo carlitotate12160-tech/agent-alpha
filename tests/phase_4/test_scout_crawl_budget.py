@@ -234,3 +234,54 @@ def test_budget_resets_between_run_recon_calls() -> None:
         f"Budget must reset between runs; second run got {second_count} "
         f"product fetches (expected {constants.MAX_ORGANIC_CRAWL_PER_HOST})"
     )
+
+
+# ── 6. Duplicate hrefs do not consume budget (regression) ────────────────────
+
+
+def test_duplicate_hrefs_do_not_consume_budget() -> None:
+    """Duplicate hrefs rejected by enqueue_discovered_url() must not consume
+    the organic crawl budget. The budget increment now happens only when
+    enqueue_discovered_url() returns True (successful enqueue)."""
+    import pytest
+
+    # Monkeypatch the budget cap to 4 for this test (1 for /same-link, 3 for distinct)
+    original_cap = constants.MAX_ORGANIC_CRAWL_PER_HOST
+    constants.MAX_ORGANIC_CRAWL_PER_HOST = 4
+
+    try:
+        # Homepage with 3 duplicate hrefs to /same-link + 3 distinct hrefs
+        homepage = (
+            "<html><body>"
+            '<a href="/same-link">link1</a>'
+            '<a href="/same-link">link2</a>'
+            '<a href="/same-link">link3</a>'
+            '<a href="/distinct/0">distinct0</a>'
+            '<a href="/distinct/1">distinct1</a>'
+            '<a href="/distinct/2">distinct2</a>'
+            "</body></html>"
+        )
+        routes = {_SITE_ROOT: FakeResponse(200, homepage)}
+        # Add 3 distinct hrefs that should be enqueued
+        for i in range(3):
+            url = f"https://{_HOST}/distinct/{i}"
+            routes[url] = FakeResponse(200, "<html></html>")
+        http = FakeHttpClient(routes)
+        alpha, eng_id = _alpha(http)
+
+        alpha.run_recon(eng_id, _SITE_ROOT)
+
+        # All 3 distinct hrefs must be enqueued (budget not exhausted by duplicates)
+        distinct_calls = [c for c in http.get_calls if "/distinct/" in c]
+        assert len(distinct_calls) == 3, (
+            f"Expected 3 distinct hrefs enqueued, got {len(distinct_calls)}: {distinct_calls}"
+        )
+
+        # Budget count must be 4 (1 for /same-link + 3 for distinct), not 6
+        assert alpha._organic_crawl_count.get(_HOST, 0) == 4, (
+            f"Budget count must be 4 (1 duplicate + 3 distinct), got "
+            f"{alpha._organic_crawl_count.get(_HOST, 0)}"
+        )
+    finally:
+        # Restore original cap
+        constants.MAX_ORGANIC_CRAWL_PER_HOST = original_cap
