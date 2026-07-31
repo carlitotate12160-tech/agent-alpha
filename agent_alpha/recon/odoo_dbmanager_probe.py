@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import uuid
 from typing import Any
 from urllib.parse import urlparse
 
@@ -32,6 +33,7 @@ from agent_alpha.graph.nodes import (
     AttackEdge,
     AttackNode,
     NodeType,
+    ProofArtifact,
     RelationshipType,
     VulnerabilityProperties,
 )
@@ -130,14 +132,35 @@ def process_odoo_dbmanager_hit(
     if verdict != EXPOSED:
         return 0
 
+    # Build reproducible evidence from the already-fetched body.
+    matched_actions = [a for a in ODOO_DBMANAGER_ACTION_MARKERS if a in body.lower()]
+    evidence = (
+        f"Odoo /web/database/manager EXPOSED (HTTP 200) at {url}; "
+        f"live management actions present: {matched_actions}. "
+        f"Create/backup/drop is master-password-gated and UNPROVEN at RECON tier."
+    )
+
+    artifact_id = str(uuid.uuid4())
     vuln_node = AttackNode(
         id=f"vuln:{host}:odoo_dbmanager_exposed",
         type=NodeType.VULNERABILITY,
         properties=VulnerabilityProperties(
             affected_service="web",
+            cvss_score=constants.ODOO_DBMANAGER_EXPOSURE_CVSS,
             exploit_available=False,
         ),
         confidence=0.85,
+        proof_artifacts=[
+            ProofArtifact(
+                artifact_id=artifact_id,
+                type="http_response",
+                storage_ref=f"engagements/{engagement_id}/proofs/{artifact_id}",
+                description=evidence,
+                captured_at=now_utc,
+                agent="alpha",
+                target=url,
+            )
+        ],
         agent="alpha",
         timestamp_utc=now_utc,
     )
