@@ -47,7 +47,7 @@ from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.plugin_cve_catalog import lookup as cve_lookup
-from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
+from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach, is_cloudflare_ip
 from agent_alpha.recon.reach_transport import (
     is_tls_impersonate_available,
     origin_direct_fetch,
@@ -735,11 +735,18 @@ class Alpha:
 
         # 2. Resolve authorized origin: discovery candidates filtered against
         #    signed authorized_origins (C9: candidate ≠ authorization)
+        #    AND filter out Cloudflare edge IPs — hitting CF edge with Host header
+        #    is NOT origin-direct (it still hits CF WAF).
         authorized_origin: str | None = None
         if self._origin_discovery is not None:
             candidates = self._origin_discovery.candidates(host)
             authorized_origin = next(
-                (ip for ip in candidates if ip in self._engagement_profile.authorized_origins),
+                (
+                    ip
+                    for ip in candidates
+                    if ip in self._engagement_profile.authorized_origins
+                    and not is_cloudflare_ip(ip)  # CF edge IPs are not valid origins
+                ),
                 None,
             )
 
