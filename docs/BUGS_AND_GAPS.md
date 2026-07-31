@@ -38,6 +38,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 22 | Beta FAILED → chain halts (noop), Omega never dispatched | **RESOLVED** | Low | Report never generated on failed access |
 | 23 | Beta next_recommended always GAMMA even on FAILED | **RESOLVED** | Low | Advance logic receives GAMMA but status=FAILED → noop |
 | 24 | response_classifier `challenge-platform` false positive on CF-proxied sites | High | Low | All CF-proxied sites misclassified as CHALLENGE | **FIXED** |
+| 25 | DefaultCredsTool ignores harvested USER nodes — only tries hardcoded creds | High | Medium | Beta can't spray discovered usernames | **OPEN** |
 
 ## Recommended Fix Order
 
@@ -274,6 +275,66 @@ Removed `challenge-platform` from `CHALLENGE_STRONG_MARKERS`. Added body-size gu
 
 - Bug #18/#19 (CF challenge classification) — same area; this is a follow-up false positive from the original fix
 - ADR §12.27 — CHALLENGE verdict and body-marker detection
+
+---
+
+## Bug #25: DefaultCredsTool Ignores Harvested USER Nodes — Only Tries Hardcoded Creds
+
+- **Status**: OPEN
+- **Priority**: High
+- **Effort**: Medium
+- **Blocks**: Beta can't credential-spray discovered usernames from Alpha recon
+
+### Root Cause
+
+`DefaultCredsTool` uses a hardcoded `_DEFAULT_CREDENTIALS` dictionary (`default_creds.py:62-95`) with generic pairs like `admin/admin`, `root/root`. It does **not** read `graph_store` for USER nodes harvested by Alpha (e.g. via `wp_rest_user_disclosure` which found 9 usernames on solusibersama.co.id).
+
+`CredReuseTool` also doesn't help — it requires CREDENTIAL nodes (with `secret_ref` from vault), not USER nodes. USER nodes only carry `username` + `slug`, no password.
+
+The result: Alpha discovers 9 valid WordPress users (`admin`, `ahmadsahbana`, `dani`, `inggit`, `jodhi69`, `kurniawan`, `nanda`, `sam`, `vita`), but Beta only tries `admin/admin` and `admin/password` — 7 usernames are completely ignored.
+
+### Evidence
+
+Re-run engagement `eng_0c3fd380` on solusibersama.co.id (2026-07-30, post-PR #296):
+
+```
+[ALPHA] Findings: 3 (3 vuln, 0 cred)
+  - vuln:solusibersama.co.id:wp_rest_user_disclosure — 9 users
+  - vuln:solusibersama.co.id:wp_version_disclosure — WordPress 6.7.5
+  - vuln:solusibersama.co.id:woocommerce_exposed
+
+[BETA] applicators count=4
+[BETA]   applicator[0]: target=https://solusibersama.co.id (WpLoginApplicator)
+[BETA]   applicator[1]: target=https://solusibersama.co.id/wp-login.php (WpLoginApplicator)
+[BETA]   applicator[2]: target=https://solusibersama.co.id (HttpFormApplicator)
+[BETA]   applicator[3]: target=https://solusibersama.co.id/wp-login.php (HttpFormApplicator)
+[BETA] Done in 15.5s — status: FAILED, proofs: 0
+```
+
+Beta tried 10 credential pairs (8 generic + 2 WP-specific, deduplicated) across 4 applicators, but **none used the 8 harvested usernames** (ahmadsahbana, dani, inggit, jodhi69, kurniawan, nanda, sam, vita).
+
+### Impact
+
+- **Missed access**: Target may have weak password on non-admin user (e.g. `dani/dani`, `vita/password`) — Agent-Alpha never tries
+- **Wasted recon**: Alpha's `wp_rest_user_disclosure` finding produces 9 USER nodes that Beta never consumes
+- **False negative**: Engagement reports "no access" when credential spray on harvested usernames might succeed
+- **Competitor gap**: Strix and other tools spray harvested usernames; Agent-Alpha only tries known defaults
+
+### Affected Files
+
+- `agent_alpha/tools/internal/access/default_creds.py:62-95` — `_DEFAULT_CREDENTIALS` hardcoded, `_build_credential_list()` doesn't accept graph_store
+- `agent_alpha/tools/internal/access/cred_reuse.py` — requires CREDENTIAL nodes (vault), not USER nodes
+- `agent_alpha/agents/beta/strike.py` — no tool bridges USER nodes → credential attempts
+
+### Proposed Fix
+
+See **GAP-015** below for the detailed design (Opsi A: `cred_spray` tool baru).
+
+### Cross-reference
+
+- GAP-015 (cred_spray tool) — the fix for this bug
+- GAP-013 (Credential pattern mutation, ADR §12.34) — related: pattern mutation from harvested creds, but requires cred_spray as prerequisite for username harvesting
+- Bug #22 (Beta FAILED → chain halts) — Bug #25 is a root cause of Beta FAILED status
 
 ---
 
@@ -683,6 +744,121 @@ for url in targets:
 
 ---
 
+## GAP-015: Credential Spray Tool — Harvested Usernames × Common Passwords
+
+- **Status**: OPEN
+- **Severity**: High — Beta can't use USER nodes from Alpha recon for credential spray
+- **Related Bug**: Bug #25 (DefaultCredsTool ignores harvested USER nodes)
+- **MITRE Technique**: T1110.003 (Password Spraying) — distinct from T1078.001 (Default Accounts)
+
+### Context
+
+Alpha's `wp_rest_user_disclosure` handler harvests usernames from `/wp-json/wp/v2/users` and persists them as USER nodes in the graph. On solusibersama.co.id, 9 users were discovered. However, no Beta tool reads USER nodes for credential attempts:
+
+- `DefaultCredsTool` — hardcoded dictionary, doesn't read graph_store
+- `CredReuseTool` — requires CREDENTIAL nodes (with `secret_ref` from vault), not USER nodes
+
+### Design: Opsi A (Recommended) — New `cred_spray` Tool
+
+**Konsep**: Tool terpisah, MITRE T1110.003 (Password Spraying) — distinct dari T1078.001 (Default Accounts).
+
+```
+Alpha (USER nodes) ──→ cred_spray ──→ applicator roster ──→ wp-login.php
+                         │
+                         ├─ Baca USER nodes dari graph_store
+                         ├─ Spray × common password list
+                         ├─ Rate limit (lockout prevention)
+                         └─ Return ToolResult (same shape as default_creds)
+```
+
+**Password list** (WP-aware):
+```python
+_SPRAY_PASSWORDS = [
+    "admin", "password", "admin123", "wordpress",
+    "changeme", "123456", "Password1", "wp-admin",
+    # username-as-password (common WP mistake)
+    # → dinamis: set(username.lower() for username in harvested)
+]
+```
+
+**Safety**:
+- Max 3 passwords per user (anti-lockout)
+- Delay between attempts (configurable, default 2s)
+- Stop on first success per user
+
+**Pros**:
+- Clean separation #6 — `default_creds` = "known defaults", `cred_spray` = "harvested usernames × common passwords"
+- Distinct MITRE technique (T1110.003 vs T1078.001)
+- Bisa di-rank terpisah di ToolRegistry (cred_spray > default_creds karena context-aware)
+- Safety gate (rate limit) terisolasi di tool ini, tidak bocor ke default_creds
+
+**Cons**:
+- File baru + test baru + wiring di `strike.py`
+- ~200 LOC implementation + ~150 LOC test
+
+**Files affected**:
+- `agent_alpha/tools/internal/access/cred_spray.py` (new)
+- `agent_alpha/agents/beta/strike.py` (add to candidates)
+- `tests/phase_3/test_cred_spray.py` (new)
+
+### Design: Opsi B (Alternative) — Expand `DefaultCredsTool`
+
+**Konsep**: `DefaultCredsTool` baca USER nodes dari graph, inject ke credential list.
+
+```python
+def _build_credential_list(tech_stack, graph_store=None):
+    creds = list(_DEFAULT_CREDENTIALS["generic"])
+    if graph_store:
+        for node in graph_store.nodes_by_type(NodeType.USER):
+            username = node.properties.username
+            for pwd in _SPRAY_PASSWORDS:
+                creds.append((username, pwd))
+    return list(dict.fromkeys(creds))
+```
+
+**Pros**: Minimal code change (~30 LOC), reuse existing applicator infrastructure
+**Cons**: Mix concept (#6 violation), wrong MITRE technique, no rate limit safety, budget explosion (9 users × 8 passwords × 4 applicators = 288 attempts)
+
+### Design: Opsi C (Minimal) — Expand Password List Only
+
+Hanya tambah password list di `_DEFAULT_CREDENTIALS[STACK_WP]`, tetap hanya untuk username `admin`.
+
+**Pros**: ~5 LOC change
+**Cons**: Tidak pakai harvested usernames — gap utama tidak tertutup
+
+### Perbandingan
+
+| Kriteria | Opsi A (cred_spray) | Opsi B (expand default_creds) | Opsi C (expand password list) |
+|----------|-------------------|------------------------------|------------------------------|
+| Pakai harvested usernames | ✅ Semua 9 | ✅ Semua 9 | ❌ Hanya admin |
+| #6 (one concept per tool) | ✅ Clean | ❌ Mix | ✅ Tetap |
+| MITRE technique correct | ✅ T1110.003 | ❌ T1078.001 untuk semua | ✅ T1078.001 |
+| Rate limit / lockout safety | ✅ Built-in | ❌ Tidak ada | ❌ Tidak ada |
+| Budget control | ✅ Max 3 pwd/user | ❌ Bisa meledak | ✅ Tetap kecil |
+| Effort | ~350 LOC | ~80 LOC | ~5 LOC |
+| ToolRegistry ranking | ✅ cred_spray > default_creds | ❌ Same tool | ❌ Same tool |
+
+### Recommendation
+
+**Opsi A** — `cred_spray` tool baru. Alasan:
+
+1. **#6 compliance** — default_creds = "known defaults", cred_spray = "harvested usernames × common passwords". Concept berbeda.
+2. **Safety** — password spraying butuh rate limit (lockout prevention). Kalau di-mix ke default_creds, safety gate bocor.
+3. **ToolRegistry ranking** — cred_spray harus di-rank **di atas** default_creds (context-aware > blind). Kalau same tool, tidak bisa di-rank terpisah.
+4. **Budget** — 9 users × N passwords × 4 applicators bisa meledak. Tool baru bisa punya budget logic sendiri (max 3 pwd/user, delay between attempts).
+
+### Prerequisites
+
+- None blocking — applicator roster already built (merged #296), USER nodes already persisted by `wp_rest_user_disclosure` handler.
+
+### Cross-reference
+
+- Bug #25 (DefaultCredsTool ignores harvested USER nodes) — the bug this GAP fixes
+- GAP-013 (Credential pattern mutation, ADR §12.34) — cred_spray is prerequisite for pattern mutation (mutation needs harvested usernames to mutate from)
+- ADR §12.34 — within-engagement credential mutation
+
+---
+
 ## GAP Priority & Build Order
 
 Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
@@ -702,6 +878,7 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 | 11 | GAP-012 (Adaptive evasion) | Medium | GAP-005 (PolicyEnforcer untuk dynamic OPSEC) | Agent mengubah teknik saat terdeteksi, bukan catat dan lanjut |
 | 12 | GAP-011 (Authenticated crawl) | High | GAP-004 (planner untuk post-access objective), GAP-010 (goal-completion untuk next objective) | Re-discovery dengan sesi aktif: IDOR, broken access control, priv esc |
 | 13 | GAP-014 (Fan-out parallel worker wiring) | Low | — | N-target engagement latency: sequential → parallel (alpha=10, beta=4, gamma=2). Interface built, pure wiring debt |
+| 14 | GAP-015 (Credential spray tool) | Medium | None blocking — applicator roster built (merged 296), USER nodes persisted by wp_rest_user_disclosure | Beta can spray harvested usernames × common passwords. Fixes Bug #25. Prerequisite for GAP-013 (pattern mutation) |
 
 > ToolComposer (review GAP 8) sengaja tidak dimasukkan — akan di-build nantinya sebagai bagian dari Gamma phase.
 > GAP 7 (4 agents missing: Gamma/Delta/Epsilon) sengaja tidak dimasukkan — sedang dalam proses.
