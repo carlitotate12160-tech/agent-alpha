@@ -1315,17 +1315,35 @@ class Alpha:
             return 0  # anti-#3: no body signature (soft-404 / wrong shape) = not a finding
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        artifact_id_users = str(uuid.uuid4())
+        evidence_users = (
+            f"WordPress REST API user enumeration confirmed at {url}; "
+            f"{len(slugs)} account(s) disclosed: {', '.join(slugs)}. "
+            "No authentication required to retrieve username list."
+        )
         vuln_id = f"vuln:{host}:wp_rest_user_disclosure"
         vuln_node = AttackNode(
             id=vuln_id,
             type=NodeType.VULNERABILITY,
             properties=VulnerabilityProperties(
                 affected_service="web",
+                cvss_score=5.3,
                 exploit_available=False,
             ),
             confidence=0.9,
             agent="alpha",
             timestamp_utc=now_utc,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=artifact_id_users,
+                    type="http_response",
+                    storage_ref=f"engagements/{self._engagement_id}/proofs/{artifact_id_users}",
+                    description=evidence_users,
+                    captured_at=now_utc,
+                    agent="alpha",
+                    target=url,
+                )
+            ],
         )
         persist_node(
             self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
@@ -1369,17 +1387,35 @@ class Alpha:
             return 0  # InsufficientData — WooCommerce not present
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        artifact_id_wc = str(uuid.uuid4())
+        evidence_wc = (
+            f"WooCommerce REST API (wc/v3) registered and namespace-enumerable at {url}; "
+            "wc/v3 namespace present in wp-json REST index (installation detectable, "
+            "version enumeration enabled)."
+        )
         vuln_id = f"vuln:{host}:woocommerce_exposed"
         vuln_node = AttackNode(
             id=vuln_id,
             type=NodeType.VULNERABILITY,
             properties=VulnerabilityProperties(
                 affected_service="woocommerce",
+                cvss_score=5.3,
                 exploit_available=False,
             ),
             confidence=0.85,
             agent="alpha",
             timestamp_utc=now_utc,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=artifact_id_wc,
+                    type="http_response",
+                    storage_ref=f"engagements/{self._engagement_id}/proofs/{artifact_id_wc}",
+                    description=evidence_wc,
+                    captured_at=now_utc,
+                    agent="alpha",
+                    target=url,
+                )
+            ],
         )
         persist_node(
             self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
@@ -1426,6 +1462,10 @@ class Alpha:
             return 0  # no body signature — not a finding
 
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        artifact_id_ver = str(uuid.uuid4())
+        evidence_ver = (
+            f"WordPress {version} version disclosed via readme.html / meta generator tag at {url}."
+        )
         vuln_id = f"vuln:{host}:wp_version_disclosure"
         vuln_node = AttackNode(
             id=vuln_id,
@@ -1438,6 +1478,17 @@ class Alpha:
             confidence=0.8,
             agent="alpha",
             timestamp_utc=now_utc,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=artifact_id_ver,
+                    type="http_response",
+                    storage_ref=f"engagements/{self._engagement_id}/proofs/{artifact_id_ver}",
+                    description=evidence_ver,
+                    captured_at=now_utc,
+                    agent="alpha",
+                    target=url,
+                )
+            ],
         )
         persist_node(
             self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"

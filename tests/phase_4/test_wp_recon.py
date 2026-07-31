@@ -129,6 +129,13 @@ def test_rest_users_disclosure_from_body() -> None:
     assert len(users) == 2, "each disclosed slug must become a USER node (cred-reuse feed)"
     vulns = {n.id for n in graph.nodes_by_type(NodeType.VULNERABILITY)}
     assert f"vuln:{_HOST}:wp_rest_user_disclosure" in vulns
+    vuln_nodes = {n.id: n for n in graph.nodes_by_type(NodeType.VULNERABILITY)}
+    disclosure = vuln_nodes[f"vuln:{_HOST}:wp_rest_user_disclosure"]
+    assert disclosure.properties.cvss_score == 5.3
+    assert len(disclosure.proof_artifacts) == 1
+    assert "admin" in disclosure.proof_artifacts[0].description
+    assert "editor" in disclosure.proof_artifacts[0].description
+    assert disclosure.proof_artifacts[0].artifact_id != ""
 
 
 # ── 2. CARDINAL: soft-404 (200 + HTML) is NOT a finding ──────────────────────
@@ -204,7 +211,32 @@ def test_only_allowlisted_routes_escalate() -> None:
     )
 
 
-# ── 6. WooCommerce absent = InsufficientData (not error, not finding) ────────
+# ── 6. WooCommerce exposed has proof and CVSS ────────────────────────────────
+
+
+def test_woocommerce_exposed_has_proof_and_cvss() -> None:
+    """WooCommerce wc/v3 body signature → VULNERABILITY node with CVSS 5.3 + proof."""
+    graph = NetworkXGraphStore()
+    alpha, _ = _alpha(FakeHttpClient(), graph)
+
+    # Body that _confirms_woocommerce accepts (wc/v3 namespace present)
+    wc_body = json.dumps({"namespace": "wc/v3", "name": "WooCommerce", "routes": {}})
+    decision = SimpleNamespace(tool="woocommerce")
+    added = alpha._handle_woocommerce(FakeResponse(200, wc_body), decision, _WC_URL)
+
+    assert added > 0, "wc/v3 body signature must mint a finding"
+    assert alpha._findings == 1
+    vulns = {n.id: n for n in graph.nodes_by_type(NodeType.VULNERABILITY)}
+    assert f"vuln:{_HOST}:woocommerce_exposed" in vulns
+    assert f"vuln:{_HOST}:wp_rest_user_disclosure" not in vulns
+    vuln = vulns[f"vuln:{_HOST}:woocommerce_exposed"]
+    assert vuln.properties.cvss_score == 5.3
+    assert len(vuln.proof_artifacts) == 1
+    assert "wc/v3" in vuln.proof_artifacts[0].description
+    assert vuln.proof_artifacts[0].artifact_id != ""
+
+
+# ── 7. WooCommerce absent = InsufficientData (not error, not finding) ────────
 
 
 def test_woocommerce_absent_is_insufficient_not_error() -> None:
@@ -249,9 +281,13 @@ def test_wp_version_from_readme_and_meta() -> None:
     vuln_id = f"vuln:{_HOST}:wp_version_disclosure"
     assert vuln_id in vulns
     assert "6.5.2" in vulns[vuln_id].properties.affected_service
+    assert vulns[vuln_id].properties.cvss_score == 3.1
+    assert len(vulns[vuln_id].proof_artifacts) == 1
+    assert "6.5.2" in vulns[vuln_id].proof_artifacts[0].description
+    assert vulns[vuln_id].proof_artifacts[0].artifact_id != ""
 
 
-# ── 8. CARDINAL: asset properties survive a WP reprofile (anti-clobber) ──────
+# ── 9. CARDINAL: asset properties survive a WP reprofile (anti-clobber) ──────
 
 
 def test_asset_props_survive_wp_reprofile() -> None:
@@ -301,7 +337,7 @@ def test_asset_props_survive_wp_reprofile() -> None:
     )
 
 
-# ── 9. wp_version corroboration does NOT follow an off-scope 3xx ─────────────
+# ── 10. wp_version corroboration does NOT follow an off-scope 3xx ─────────────
 
 
 def test_wp_version_corroboration_does_not_follow_offscope_redirect() -> None:
@@ -335,7 +371,7 @@ def test_wp_version_corroboration_does_not_follow_offscope_redirect() -> None:
     )
 
 
-# ── 10. CARDINAL WIRING: WP battery auto-fires on fingerprint ────────────────
+# ── 11. CARDINAL WIRING: WP battery auto-fires on fingerprint ────────────────
 
 
 def test_wp_battery_autofires_on_fingerprint() -> None:
@@ -383,7 +419,7 @@ def test_wp_battery_autofires_on_fingerprint() -> None:
     )
 
 
-# ── 11. REGRESSION: wp_config probe still fires on single-page WP site ───────
+# ── 12. REGRESSION: wp_config probe still fires on single-page WP site ───────
 
 
 def test_wp_config_dist_leak_is_caught_on_single_page() -> None:
@@ -418,7 +454,7 @@ def test_wp_config_dist_leak_is_caught_on_single_page() -> None:
     assert creds, "wp-config.php.dist leak missed — WP-unique backup path not covered"
 
 
-# ── 12. CARDINAL: patched plugin version is NOT a finding (anti-#3) ──────────
+# ── 13. CARDINAL: patched plugin version is NOT a finding (anti-#3) ──────────
 
 
 def test_plugin_patched_version_is_not_a_finding() -> None:
@@ -439,7 +475,7 @@ def test_plugin_patched_version_is_not_a_finding() -> None:
     assert not vulns, "patched plugin version must not be a CVE finding"
 
 
-# ── 13. Plugin CVE confirmed from asset path (SELF_VERIFIED) ─────────────────
+# ── 14. Plugin CVE confirmed from asset path (SELF_VERIFIED) ─────────────────
 
 
 def test_plugin_cve_confirmed_from_asset_path() -> None:
@@ -462,7 +498,7 @@ def test_plugin_cve_confirmed_from_asset_path() -> None:
     assert vulns["CVE-2020-25213"].properties.exploit_available is True
 
 
-# ── 14. Unknown plugin -> no finding ─────────────────────────────────────────
+# ── 15. Unknown plugin -> no finding ─────────────────────────────────────────
 
 
 def test_unknown_plugin_no_finding() -> None:
@@ -477,7 +513,7 @@ def test_unknown_plugin_no_finding() -> None:
     ]
 
 
-# ── 15. Plugin version absent -> no CVE claim (anti-#3) ──────────────────────
+# ── 16. Plugin version absent -> no CVE claim (anti-#3) ──────────────────────
 
 
 def test_plugin_version_absent_no_cve_claim() -> None:
@@ -492,7 +528,7 @@ def test_plugin_version_absent_no_cve_claim() -> None:
     ]
 
 
-# ── 16. CARDINAL: JSON-body tool on HTML re-routes, never silent 0 (anti-#3) ──
+# ── 17. CARDINAL: JSON-body tool on HTML re-routes, never silent 0 (anti-#3) ──
 
 
 def test_json_body_tool_on_html_reroutes_not_silent() -> None:
@@ -558,7 +594,7 @@ def test_json_body_tool_on_html_reroutes_not_silent() -> None:
     )
 
 
-# ── 17. REGRESSION: real JSON index still dispatches wp_rest_routes ───────────
+# ── 18. REGRESSION: real JSON index still dispatches wp_rest_routes ───────────
 
 
 def test_json_index_still_dispatches_wp_rest_routes() -> None:
