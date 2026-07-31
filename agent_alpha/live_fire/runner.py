@@ -13,6 +13,7 @@ Reuses canonical types only — never redeclares (anti-Lyndon #6).
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import pathlib
 from dataclasses import dataclass
@@ -33,6 +34,8 @@ from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.security.secrets import SecretsManager
 from agent_alpha.tools.playbook import PlaybookEngine
+
+_log = logging.getLogger(__name__)
 
 # ── Data classes ──────────────────────────────────────────────────────
 
@@ -208,19 +211,30 @@ def main(argv: list[str] | None = None) -> int:
     # ── Build lab engagement profile with allow_evasion=True ─────────────────────
     # lab consent: evasion authorized for field-prove runs
     from agent_alpha.conductor.engagement_profile import EngagementProfile
+    from agent_alpha.recon.origin_resolver import discover_origin_ips
 
     rec = auth.create_engagement(
         client_id=config.client_id,
         target=config.targets[0].host if config.targets else "",
     )
+    http_client = HttpClient(engagement_id=config.client_id)
+
+    # Discover real origin IPs for CF-protected targets.
+    # Returns [] if no CT subdomains found (honest — origin-direct not possible).
+    # lab consent: discovered IPs auto-authorized for field-prove runs only.
+    _target_domain = config.targets[0].host if config.targets else ""
+    _origin_ips = discover_origin_ips(_target_domain, http_client) if _target_domain else []
+    if _origin_ips:
+        _log.info("runner: discovered %d origin IPs: %s", len(_origin_ips), _origin_ips)
+
     lab_profile = EngagementProfile(
         engagement_id=rec.engagement_id,
         client_id=config.client_id,
         targets=frozenset(t.host for t in config.targets),
         authorization_level="RECON_ONLY",
         allow_evasion=True,  # lab consent — field-prove only
+        authorized_origins=frozenset(_origin_ips),
     )
-    http_client = HttpClient(engagement_id=config.client_id)
 
     api_key = os.environ["DEEPSEEK_API_KEY"]
     # Reasoning role -> provider is config-only (ADR §12.15 / C2).
