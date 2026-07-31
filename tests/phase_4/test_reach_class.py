@@ -624,10 +624,10 @@ def test_origin_direct_skips_blocked_verdicts() -> None:
     from agent_alpha.recon.response_classifier import Verdict
     original_classify = __import__("agent_alpha.recon.response_classifier", fromlist=["classify_response"]).classify_response
     
-    def fake_classify(status_code: int, body: str, headers: dict[str, str]) -> Verdict:
+    def fake_classify(*, status_code: int, body: str, headers: dict[str, str]) -> Verdict:
         if "Access Denied" in body:
             return Verdict.BLOCKED
-        return original_classify(status_code, body, headers)
+        return original_classify(status_code=status_code, body=body, headers=headers)
 
     with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
         with patch("agent_alpha.agents.alpha.scout.classify_response", side_effect=fake_classify):
