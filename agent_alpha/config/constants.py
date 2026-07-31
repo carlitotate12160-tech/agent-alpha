@@ -64,6 +64,7 @@ __all__ = [
     "WP_CONFIG_BACKUP_PATHS",
     "WP_REST_INTERESTING_ROUTES",
     "WP_VERSION_PATHS",
+    "WP_PLUGIN_DANGEROUS_NAMESPACES",
     "WP_CRAWL_ALLOW_PATH_PREFIXES",
     "BACKUP_FILE_PATHS",
     "ACTUATOR_PATHS",
@@ -293,6 +294,29 @@ WP_REST_INTERESTING_ROUTES: tuple[str, ...] = (
 # Maximum number of REST routes stored on an asset (anti-unbounded-graph). Beyond
 # this the inventory is truncated and total_count records the real size.
 WP_REST_ROUTES_CAP: int = 200
+
+# High-risk WP plugin REST namespaces curated for targeted unauthenticated probing.
+# Value: (probe_path_relative_to_root, affected_service, cvss_score)
+# probe_path must be the full absolute path starting with /wp-json/.
+# CVSSv3 base scores from published CVEs; scores are conservative (public
+# disclosure severity, not exploitability on a hardened site).
+WP_PLUGIN_DANGEROUS_NAMESPACES: dict[str, tuple[str, str, float]] = {
+    "string-locator/v1": (
+        "/wp-json/string-locator/v1/search",
+        "string-locator",
+        8.8,
+    ),
+    "duplicator/v1": (
+        "/wp-json/duplicator/v1/packages",
+        "duplicator",
+        7.5,
+    ),
+    "wp-file-manager-remote/v1": (
+        "/wp-json/wp-file-manager-remote/v1/",
+        "wp-file-manager",
+        9.8,
+    ),
+}
 
 # WordPress version-disclosure surfaces (passive GET, RECON_ONLY). readme.html
 # carries the "Semantic Personal Publishing Platform" tagline + a Version line;

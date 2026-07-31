@@ -337,6 +337,102 @@ def test_asset_props_survive_wp_reprofile() -> None:
     )
 
 
+# ── Plugin namespace prober ───────────────────────────────────────────────
+
+
+def test_plugin_namespace_accessible_mints_vuln() -> None:
+    """Dangerous namespace + 200 probe response → VULNERABILITY node + finding."""
+    probe_url = f"https://{_HOST}/wp-json/string-locator/v1/search"
+    http = FakeHttpClient(
+        routes={probe_url: FakeResponse(200, '{"results": ["wp-config.php"]}')}
+    )
+    alpha, _ = _alpha(http)
+    keys = ["/wp/v2/posts", "/wp/v2/users"]
+    namespaces = ["wp/v2", "string-locator/v1"]
+    decision = SimpleNamespace(tool="wp_rest_routes")
+    alpha._handle_wp_rest_routes(
+        FakeResponse(200, _route_index(keys, namespaces=namespaces)),
+        decision,
+        _REST_ROOT,
+    )
+    assert alpha._findings == 1
+    nodes = [n for n in alpha.graph_store.all_nodes() if n.type.value == "vulnerability"]
+    assert len(nodes) == 1
+    assert nodes[0].properties.cvss_score == 8.8
+    assert nodes[0].properties.affected_service == "string-locator"
+    assert len(nodes[0].proof_artifacts) == 1
+    assert "string-locator/v1" in nodes[0].proof_artifacts[0].description
+
+
+def test_plugin_namespace_auth_gated_is_no_finding() -> None:
+    """Dangerous namespace present but probe returns 401 → no VULNERABILITY."""
+    probe_url = f"https://{_HOST}/wp-json/string-locator/v1/search"
+    http = FakeHttpClient(
+        routes={
+            probe_url: FakeResponse(
+                401,
+                '{"code":"rest_forbidden","message":"Sorry, you are not allowed.","data":{"status":401}}',
+            )
+        }
+    )
+    alpha, _ = _alpha(http)
+    keys = ["/wp/v2/posts"]
+    namespaces = ["wp/v2", "string-locator/v1"]
+    decision = SimpleNamespace(tool="wp_rest_routes")
+    alpha._handle_wp_rest_routes(
+        FakeResponse(200, _route_index(keys, namespaces=namespaces)),
+        decision,
+        _REST_ROOT,
+    )
+    assert alpha._findings == 0
+    nodes = [n for n in alpha.graph_store.all_nodes() if n.type.value == "vulnerability"]
+    assert nodes == []
+
+
+def test_plugin_namespace_absent_skips_probe() -> None:
+    """No dangerous namespace in index → http_client.get() never called for probe."""
+    http = FakeHttpClient()
+    alpha, _ = _alpha(http)
+    keys = ["/wp/v2/posts"]
+    namespaces = ["wp/v2", "wc/v3"]  # safe namespaces only
+    decision = SimpleNamespace(tool="wp_rest_routes")
+    alpha._handle_wp_rest_routes(
+        FakeResponse(200, _route_index(keys, namespaces=namespaces)),
+        decision,
+        _REST_ROOT,
+    )
+    assert alpha._findings == 0
+    # No probe URL should have been called
+    dangerous_urls = [
+        u for u in http.get_calls
+        if any(ns in u for ns in ("string-locator", "duplicator", "wp-file-manager"))
+    ]
+    assert dangerous_urls == []
+
+
+def test_plugin_namespace_wp_error_body_is_no_finding() -> None:
+    """Probe returns 200 but body is WP error envelope → no VULNERABILITY."""
+    probe_url = f"https://{_HOST}/wp-json/duplicator/v1/packages"
+    http = FakeHttpClient(
+        routes={
+            probe_url: FakeResponse(
+                200,
+                '{"code":"rest_no_route","message":"No route found.","data":{"status":404}}',
+            )
+        }
+    )
+    alpha, _ = _alpha(http)
+    keys = ["/wp/v2/posts"]
+    namespaces = ["wp/v2", "duplicator/v1"]
+    decision = SimpleNamespace(tool="wp_rest_routes")
+    alpha._handle_wp_rest_routes(
+        FakeResponse(200, _route_index(keys, namespaces=namespaces)),
+        decision,
+        _REST_ROOT,
+    )
+    assert alpha._findings == 0
+
+
 # ── 10. wp_version corroboration does NOT follow an off-scope 3xx ─────────────
 
 
