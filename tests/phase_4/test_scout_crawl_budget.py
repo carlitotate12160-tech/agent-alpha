@@ -250,12 +250,15 @@ def test_duplicate_hrefs_do_not_consume_budget() -> None:
     constants.MAX_ORGANIC_CRAWL_PER_HOST = 3
 
     try:
-        # Homepage with 3 duplicate hrefs to /same-link
+        # Homepage with 3 duplicate hrefs to /same-link + 3 distinct hrefs
         homepage = (
             "<html><body>"
             '<a href="/same-link">link1</a>'
             '<a href="/same-link">link2</a>'
             '<a href="/same-link">link3</a>'
+            '<a href="/distinct/0">distinct0</a>'
+            '<a href="/distinct/1">distinct1</a>'
+            '<a href="/distinct/2">distinct2</a>'
             "</body></html>"
         )
         routes = {_SITE_ROOT: FakeResponse(200, homepage)}
