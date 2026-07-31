@@ -220,7 +220,8 @@ def main(argv: list[str] | None = None) -> int:
     _target_domain = config.scope_domains[0] if config.scope_domains else ""
     _origin_ips = (
         discover_origin_ips(rec.engagement_id, _target_domain, http_client, auth)
-        if _target_domain else []
+        if _target_domain
+        else []
     )
     if _origin_ips:
         _log.info("runner: discovered %d origin IPs: %s", len(_origin_ips), _origin_ips)

@@ -94,6 +94,7 @@ def discover_origin_ips(
     if max_probe_candidates < 0:
         return []
     from agent_alpha.a2a import a2a_pb2
+
     if not authorization.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
         return []
     if not authorization.is_in_scope(engagement_id, domain):
@@ -103,6 +104,7 @@ def discover_origin_ips(
     url = crtsh_url_template.format(domain=domain)
     try:
         from agent_alpha.agents.http_client import HttpClientError
+
         resp = http_client.get(url)
         subdomains = parse_crtsh_names(resp.text, domain)
     except (HttpClientError, OSError):  # network errors, DNS failures, etc.
