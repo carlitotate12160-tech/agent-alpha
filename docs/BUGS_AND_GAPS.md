@@ -849,7 +849,7 @@ Hanya tambah password list di `_DEFAULT_CREDENTIALS[STACK_WP]`, tetap hanya untu
 
 ### Prerequisites
 
-- None blocking — applicator roster already built (PR #296), USER nodes already persisted by `wp_rest_user_disclosure` handler.
+- None blocking — applicator roster already built (merged #296), USER nodes already persisted by `wp_rest_user_disclosure` handler.
 
 ### Cross-reference
 
@@ -878,7 +878,7 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 | 11 | GAP-012 (Adaptive evasion) | Medium | GAP-005 (PolicyEnforcer untuk dynamic OPSEC) | Agent mengubah teknik saat terdeteksi, bukan catat dan lanjut |
 | 12 | GAP-011 (Authenticated crawl) | High | GAP-004 (planner untuk post-access objective), GAP-010 (goal-completion untuk next objective) | Re-discovery dengan sesi aktif: IDOR, broken access control, priv esc |
 | 13 | GAP-014 (Fan-out parallel worker wiring) | Low | — | N-target engagement latency: sequential → parallel (alpha=10, beta=4, gamma=2). Interface built, pure wiring debt |
-| 14 | GAP-015 (Credential spray tool) | Medium | None blocking — applicator roster built (#296), USER nodes persisted by wp_rest_user_disclosure | Beta can spray harvested usernames × common passwords. Fixes Bug #25. Prerequisite for GAP-013 (pattern mutation) |
+| 14 | GAP-015 (Credential spray tool) | Medium | None blocking — applicator roster built (merged 296), USER nodes persisted by wp_rest_user_disclosure | Beta can spray harvested usernames × common passwords. Fixes Bug #25. Prerequisite for GAP-013 (pattern mutation) |
 
 > ToolComposer (review GAP 8) sengaja tidak dimasukkan — akan di-build nantinya sebagai bagian dari Gamma phase.
 > GAP 7 (4 agents missing: Gamma/Delta/Epsilon) sengaja tidak dimasukkan — sedang dalam proses.
