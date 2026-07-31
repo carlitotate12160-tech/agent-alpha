@@ -26,13 +26,16 @@ from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import NodeType
+from agent_alpha.config import constants
+from agent_alpha.graph.nodes import NodeType, RelationshipType
 from agent_alpha.recon.odoo_dbmanager_probe import (
     EXPOSED,
     NOT_ODOO,
+    ODOO_DBMANAGER_ACTION_MARKERS,
     ODOO_DBMANAGER_PATH,
     PRESENT_LOCKED,
     classify_odoo_dbmanager,
+    process_odoo_dbmanager_hit,
     verify_odoo_dbmanager_exposure,
 )
 
@@ -222,3 +225,131 @@ def test_network_error_is_not_a_finding():
     n = verify_odoo_dbmanager_exposure(**ctx.args)
     assert n == 0
     assert ctx.graph.nodes_by_type(NodeType.VULNERABILITY) == []
+
+
+# ── CVSS 7.5 valuation + proof artifact (Bug fix) ─────────────────
+
+
+def test_exposed_vuln_has_cvss_7_5_not_zero():
+    """EXPOSED body → vuln node cvss_score == 7.5 (NOT 0.0)."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    vulns = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    assert len(vulns) == 1
+    assert vulns[0].properties.cvss_score == 7.5
+    assert vulns[0].properties.cvss_score == constants.ODOO_DBMANAGER_EXPOSURE_CVSS
+
+
+def test_exposed_vuln_exploit_available_is_false():
+    """exploit_available stays False — RECON tier only, no offensive action."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    vulns = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    assert len(vulns) == 1
+    assert vulns[0].properties.exploit_available is False
+
+
+def test_exposed_vuln_has_proof_artifacts():
+    """EXPOSED body → proof_artifacts non-empty."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    vulns = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    assert len(vulns) == 1
+    assert len(vulns[0].proof_artifacts) >= 1
+    proof = vulns[0].proof_artifacts[0]
+    assert proof.type == "http_response"
+    assert proof.agent == "alpha"
+    assert proof.artifact_id  # non-empty UUID
+
+
+def test_proof_description_contains_url_and_actions():
+    """Proof is reproducible: description names the exact URL + HTTP 200 + matched markers."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    vulns = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    proof = vulns[0].proof_artifacts[0]
+    desc = proof.description
+    # Must name the exact /web/database/manager URL
+    assert _url() in desc
+    assert "EXPOSED (HTTP 200)" in desc
+    # Must contain matched action markers
+    for marker in ODOO_DBMANAGER_ACTION_MARKERS:
+        if marker in _EXPOSED_BODY.lower():
+            assert marker in desc
+    # Must contain RECON-tier caveat
+    assert "UNPROVEN at RECON tier" in desc
+
+
+def test_proof_target_is_the_probe_url():
+    """proof.target == the exact /web/database/manager URL."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    vulns = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    proof = vulns[0].proof_artifacts[0]
+    assert proof.target == _url()
+
+
+def test_present_locked_still_no_vuln_node():
+    """PRESENT_LOCKED body → still no vuln node (regression guard)."""
+    ctx = _ctx({_url(): FakeResponse(200, _LOCKED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    assert ctx.graph.nodes_by_type(NodeType.VULNERABILITY) == []
+    # But Odoo asset IS still merged (present_locked → asset with odoo label)
+    assets = ctx.graph.nodes_by_type(NodeType.ASSET)
+    assert len(assets) == 1
+    assert "odoo" in assets[0].properties.tech_stack
+
+
+def test_regression_node_id_unchanged():
+    """Regression: node id format is vuln:{host}:odoo_dbmanager_exposed."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    vulns = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    assert vulns[0].id == f"vuln:{_HOST}:odoo_dbmanager_exposed"
+
+
+def test_regression_asset_merge_tech_stack_odoo():
+    """Regression: asset merge adds 'odoo' to tech_stack."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    assets = ctx.graph.nodes_by_type(NodeType.ASSET)
+    assert len(assets) == 1
+    assert "odoo" in assets[0].properties.tech_stack
+
+
+def test_regression_exploits_edge_unchanged():
+    """Regression: ASSET → VULNERABILITY edge is EXPLOITS relationship."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    edges = ctx.graph.all_edges()
+    assert len(edges) == 1
+    assert edges[0].relationship == RelationshipType.EXPLOITS
+    assert edges[0].source_id == f"asset:{_HOST}"
+    assert edges[0].target_id == f"vuln:{_HOST}:odoo_dbmanager_exposed"
+
+
+def test_proof_storage_ref_is_unique_per_observation():
+    """Two observations of the same host should have distinct storage references based on artifact_id."""
+    ctx = _ctx({_url(): FakeResponse(200, _EXPOSED_BODY)})
+    
+    # First observation
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    vulns1 = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    assert len(vulns1) == 1
+    proof1 = vulns1[0].proof_artifacts[0]
+    
+    # Second observation
+    verify_odoo_dbmanager_exposure(**ctx.args)
+    # The vulnerability node is updated/merged, so there's still 1 vuln node, 
+    # but the logic appends/overwrites. Wait, the store implementation might just overwrite the node,
+    # meaning the second call replaces it, OR it might append if it's a list. 
+    # Actually, the test can just call process_odoo_dbmanager_hit directly twice to get distinct graph nodes 
+    # or check the generated proof artifacts.
+    # Since persist_node overrides by ID, if we just check the latest node, it will have the new proof.
+    vulns2 = ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+    assert len(vulns2) == 1
+    proof2 = vulns2[0].proof_artifacts[0]
+    
+    assert proof1.storage_ref != proof2.storage_ref
+    assert proof1.artifact_id in proof1.storage_ref
+    assert proof2.artifact_id in proof2.storage_ref

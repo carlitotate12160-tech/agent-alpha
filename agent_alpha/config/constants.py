@@ -84,6 +84,7 @@ __all__ = [
     "ODOO_VERSION_JSONRPC_BODY",
     "REACH_TIMEOUT_S",
     "MAX_ORGANIC_CRAWL_PER_HOST",
+    "ODOO_DBMANAGER_EXPOSURE_CVSS",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -512,3 +513,9 @@ MAX_ORGANIC_CRAWL_PER_HOST: int = 25
 # ── Odoo ───────────────────────────────────────────────────────
 ODOO_VERSION_INFO_PATH = "/web/webclient/version_info"
 ODOO_VERSION_JSONRPC_BODY = {"jsonrpc": "2.0", "method": "call", "params": {}}
+
+# CVSS v3.1 vector: AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N = 7.5
+# I/A stay N because create/backup/drop is master_pwd-gated and UNPROVEN at
+# RECON tier; escalates to CRITICAL only once the master_pwd oracle proves it
+# (Improvement 2). Single source (anti-#7).
+ODOO_DBMANAGER_EXPOSURE_CVSS: float = 7.5
