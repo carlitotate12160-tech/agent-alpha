@@ -6,8 +6,29 @@ separate (§12.33).  No network I/O lives here; pure decision logic.
 """
 
 import enum
+import ipaddress
 
+from agent_alpha.config.constants import CF_IP_RANGES
 from agent_alpha.recon.transport_resilience import MitigationClass
+
+# Cache parsed networks once at module load (not per-call).
+_CF_NETWORKS: tuple[ipaddress.IPv4Network, ...] = tuple(
+    ipaddress.IPv4Network(r) for r in CF_IP_RANGES
+)
+
+
+def is_cloudflare_ip(ip: str) -> bool:
+    """True iff *ip* belongs to a Cloudflare published IPv4 range.
+
+    Used to filter CF edge IPs from origin candidates: hitting a CF
+    edge with a Host header is NOT origin-direct — it still hits the
+    WAF. Only non-CF IPs qualify as valid origin candidates.
+    """
+    try:
+        addr = ipaddress.IPv4Address(ip)
+    except ValueError:
+        return False  # IPv6 or malformed — not in our CF list
+    return any(addr in net for net in _CF_NETWORKS)
 
 
 class ReachStrategy(enum.StrEnum):

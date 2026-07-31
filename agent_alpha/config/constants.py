@@ -524,6 +524,28 @@ TECHNIQUE_FOR_MITIGATION_CLASS: dict[str, str] = {
 # additional TLS negotiation or CDN edge hops.
 REACH_TIMEOUT_S: float = 15.0
 
+# Cloudflare published IPv4 CIDR ranges (https://www.cloudflare.com/ips/).
+# Single source for CF edge IP detection (anti-#7). Update when CF publishes
+# new ranges. Used by is_cloudflare_ip() to filter edge IPs from origin
+# candidates — hitting a CF edge with Host-header spoofing is NOT origin-direct.
+CF_IP_RANGES: tuple[str, ...] = (
+    "173.245.48.0/20",
+    "103.21.244.0/22",
+    "103.22.200.0/22",
+    "103.31.4.0/22",
+    "141.101.64.0/18",
+    "108.162.192.0/18",
+    "190.93.240.0/20",
+    "188.114.96.0/20",
+    "197.234.240.0/22",
+    "198.41.128.0/17",
+    "162.158.0.0/15",
+    "104.16.0.0/13",
+    "104.24.0.0/14",
+    "172.64.0.0/13",
+    "131.0.72.0/22",
+)
+
 # ── Organic-Crawl Budget (stack-agnostic backstop) ───────────────
 # Universal per-host cap on ORGANIC-crawl hrefs (hrefs parsed from page HTML
 # by _extract_hrefs).  Catalog seeds (WELL_KNOWN_LEAK_PATHS,
