@@ -245,9 +245,9 @@ def test_duplicate_hrefs_do_not_consume_budget() -> None:
     enqueue_discovered_url() returns True (successful enqueue)."""
     import pytest
 
-    # Monkeypatch the budget cap to 3 for this test
+    # Monkeypatch the budget cap to 4 for this test (1 for /same-link, 3 for distinct)
     original_cap = constants.MAX_ORGANIC_CRAWL_PER_HOST
-    constants.MAX_ORGANIC_CRAWL_PER_HOST = 3
+    constants.MAX_ORGANIC_CRAWL_PER_HOST = 4
 
     try:
         # Homepage with 3 duplicate hrefs to /same-link + 3 distinct hrefs
@@ -277,9 +277,9 @@ def test_duplicate_hrefs_do_not_consume_budget() -> None:
             f"Expected 3 distinct hrefs enqueued, got {len(distinct_calls)}: {distinct_calls}"
         )
 
-        # Budget count must be 3 (not 6), because duplicates were deduped before increment
-        assert alpha._organic_crawl_count.get(_HOST, 0) == 3, (
-            f"Budget count must be 3 (distinct enqueues), got "
+        # Budget count must be 4 (1 for /same-link + 3 for distinct), not 6
+        assert alpha._organic_crawl_count.get(_HOST, 0) == 4, (
+            f"Budget count must be 4 (1 duplicate + 3 distinct), got "
             f"{alpha._organic_crawl_count.get(_HOST, 0)}"
         )
     finally:
