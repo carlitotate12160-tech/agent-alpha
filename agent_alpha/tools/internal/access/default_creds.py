@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Any
+from urllib.parse import urlparse
 
 from agent_alpha.config import constants
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
@@ -190,7 +191,13 @@ class DefaultCredsTool:
     required_auth = "ACTIVE_APPROVED"
     mitre_technique = "T1078.001"  # Valid Accounts: Default Accounts (built-in admin/admin)
 
-    def __init__(self, *, applicators: list[Any] | None = None, http_client: Any = None) -> None:
+    def __init__(
+        self,
+        *,
+        applicators: list[Any] | None = None,
+        http_client: Any = None,
+        lockout: Any | None = None,
+    ) -> None:
         # Injected so run() can reach the wire (Tool.run(ctx, budget) carries no
         # transport). None is allowed for applies_to()/conformance use; run()
         # requires a real client.
@@ -200,6 +207,10 @@ class DefaultCredsTool:
         # falls back to a bare HttpFormApplicator bound to ctx.target (see
         # run()) so standalone/unit-test construction keeps today's behaviour.
         self._applicators = applicators
+        # Credential-attempt lockout governor (§12.22 D2). None = ungoverned
+        # (standalone/unit construction); Beta injects a shared, engagement-
+        # scoped governor so submissions are bounded per (host, username).
+        self._lockout = lockout
 
     def applies_to(self, ctx: TargetContext) -> float:
         """Relevance 0..1 from context — registry ranks, agent doesn't guess (K11).
@@ -243,6 +254,7 @@ class DefaultCredsTool:
             _LocalBound(HttpFormApplicator(http_client=self._http_client), ctx.target)
         ]
 
+        lockout_host = urlparse(ctx.target).hostname or ctx.target
         requests_used = 0
         for username, password in creds:
             if requests_used >= budget.max_requests:
@@ -262,12 +274,18 @@ class DefaultCredsTool:
                 # raises here is a genuine bug and must propagate, not be
                 # silently absorbed into "tried, no access" (which would be
                 # indistinguishable from a real negative result).
+                if self._lockout is not None and not self._lockout.may_attempt(
+                    lockout_host, username
+                ):
+                    break  # per-(host, username) budget spent — never risk lockout
                 result = bound.applicator.apply(
                     username=username,
                     secret=password,
                     target=bound.target,
                     budget=budget,
                 )
+                if self._lockout is not None:
+                    self._lockout.record_attempt(lockout_host, username)
                 requests_used += 3  # baseline + auth + confirm (upper bound)
                 if result.success:
                     break

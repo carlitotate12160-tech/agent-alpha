@@ -80,6 +80,8 @@ __all__ = [
     "JSON_BODY_TOOLS",
     "EVASION_CONSECUTIVE_BLOCKED_N",
     "EVASION_MAX_ESCALATIONS_PER_HOST",
+    "CRED_LOCKOUT_MAX_ATTEMPTS_PER_USERNAME",
+    "CRED_LOCKOUT_MAX_ATTEMPTS_PER_HOST",
     "TECHNIQUE_FOR_MITIGATION_CLASS",
     "ODOO_VERSION_INFO_PATH",
     "ODOO_VERSION_JSONRPC_BODY",
@@ -508,6 +510,16 @@ EVASION_CONSECUTIVE_BLOCKED_N = 5
 # Maximum escalation attempts per host before the LockoutGovernor forces ABORT.
 # Bounded autonomy: the agent CANNOT retry indefinitely (§12.22 D2).
 EVASION_MAX_ESCALATIONS_PER_HOST = 3
+# ── Credential-attempt lockout (§12.22 D2 — cred-spray safety) ───────────────
+# Distinct concept from EVASION_MAX_ESCALATIONS_PER_HOST (that bounds reach
+# escalations); these bound LOGIN attempts so Beta never locks out a client's
+# real accounts. Single source (anti-#7).
+# Per-username: kept BELOW the common provider lockout threshold (~5) so a real
+# account is never driven into lockout by our own attempts.
+CRED_LOCKOUT_MAX_ATTEMPTS_PER_USERNAME = 3
+# Per-host aggregate: bounds total login noise across ALL usernames on a host
+# (IP-ban / WAF-trip safety), even when each account stays under its own cap.
+CRED_LOCKOUT_MAX_ATTEMPTS_PER_HOST = 20
 # Class-driven technique selection (anti-#11: class drives technique, NOT a
 # fixed ladder). Key = MitigationClass.value, value = EvasionTechnique.value.
 # "abort" → "none" means never escalate on that class.
