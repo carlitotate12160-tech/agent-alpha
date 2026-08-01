@@ -21,7 +21,7 @@ Boundary (READ BEFORE EDITING):
     shape, and `derive_login_candidates()` (deterministic derivation — non-offensive).
   * Offensive-body author (GLM/DeepSeek — NOT Claude) owns: run() — for each USER node,
     apply each derived candidate via the injected CredentialApplicator roster, GATED by
-    self._lockout.may_attempt/record_attempt, verify with an INDEPENDENT positive-auth
+    the GovernedApplicator seam (lockout-gated at the roster), verify with an INDEPENDENT
     signal (attestation, §12.43 — never body-diff self-report), return CONTENT.
     NotImplementedError until authored + wiring-debt registered.
 
@@ -91,12 +91,10 @@ class UserDerivedCredsTool:
         graph_store: Any = None,
         http_client: Any = None,
         applicators: list[Any] | None = None,
-        lockout: Any | None = None,
     ) -> None:
         self._graph_store = graph_store
         self._http_client = http_client
         self._applicators = applicators or []
-        self._lockout = lockout
 
     def applies_to(self, ctx: TargetContext) -> float:
         """High when Alpha has enumerated usernames (USER nodes) AND no harvested
@@ -117,13 +115,13 @@ class UserDerivedCredsTool:
 
         Contract for the author: for each USER node, call
         ``derive_login_candidates(username, host)``; submit each via an injected
-        CredentialApplicator; GATE every submission with
-        ``self._lockout.may_attempt(host, username)`` / ``record_attempt`` (never
-        skip — lockout safety); VERIFY with an INDEPENDENT auth signal (attestation
-        §12.43, not the tool's own self-report); return CONTENT (no raw secret),
-        Beta.step persists + mints refs + redacts.
+        CredentialApplicator — already GovernedApplicator-wrapped by the factory, so
+        every submission is lockout-gated at the seam (§12.22 D2, no per-tool gate);
+        VERIFY with an INDEPENDENT auth signal (attestation §12.43, not the tool's own
+        self-report); return CONTENT (no raw secret), Beta.step persists + mints refs.
         """
         raise NotImplementedError(
             "user_derived_creds.run is the GLM/DeepSeek offensive lane; author the "
-            "apply+lockout+attestation loop before wiring this into a live engagement."
+            "apply+attestation loop before wiring this into a live engagement "
+            "(lockout is enforced at the GovernedApplicator seam)."
         )

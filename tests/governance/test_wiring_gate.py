@@ -78,6 +78,10 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
         ("conductor/advance.py",),
         "GAP-006 / attack-route prioritization (HVT), not report-only",
     ),
+    "CredentialLockoutGovernor": (
+        ("tools/internal/access/odoo_access.py",),
+        "§12.22 D2: odoo submits creds via its own http path (off-roster) — must route through the lockout governor",
+    ),
 }
 
 

@@ -38,9 +38,11 @@ from agent_alpha.config import constants
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
 from agent_alpha.tools.internal.access.applicator import (
     CredentialApplicator,
+    GovernedApplicator,
     HttpFormApplicator,
     WpLoginApplicator,
 )
+from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 
 # required_auth label -> minimum engagement state that satisfies it.
 _REQUIRED_AUTH_TO_STATE: dict[str, int] = {
@@ -122,6 +124,7 @@ def build_applicators_for_engagement(
     graph_store: Any,
     web_target: str | None = None,
     candidates: Sequence[_Applicator],
+    lockout: Any | None = None,
 ) -> list[BoundApplicator]:
     """Select and bind the applicators cred_reuse is permitted to use this engagement.
 
@@ -140,6 +143,9 @@ def build_applicators_for_engagement(
         not an error).
     """
     current_state = auth.get_state(engagement_id)
+    # One credential-attempt lockout governor per engagement roster (§12.22 D2):
+    # every applicator is wrapped here so all cred tools inherit the gate (anti-#6/#7).
+    governor = lockout or CredentialLockoutGovernor()
     bound: list[BoundApplicator] = []
     for applicator in candidates:
         if not _tier_satisfied(applicator.required_auth, current_state):
@@ -151,7 +157,9 @@ def build_applicators_for_engagement(
             graph_store=graph_store,
             web_target=web_target,
         ):
-            bound.append(BoundApplicator(applicator=applicator, target=target))
+            bound.append(
+                BoundApplicator(applicator=GovernedApplicator(applicator, governor), target=target)
+            )
     return bound
 
 
