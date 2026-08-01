@@ -31,12 +31,14 @@ Conforms to agent_alpha.tools.contracts.Tool (single canonical contract, #6).
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 from publicsuffix2 import get_sld
 
 from agent_alpha.config import constants
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
+from agent_alpha.tools.internal.access.cred_finding_catalog import CredFindingClass
 
 
 def _domain_stem(host: str) -> str:
@@ -111,17 +113,94 @@ class UserDerivedCredsTool:
         return 0.75 if users else 0.0
 
     def run(self, ctx: TargetContext, budget: ResourceBudget) -> ToolResult:
-        """OFFENSIVE body — GLM/DeepSeek lane, NotImplementedError until authored.
+        """Prove predictable-credential reuse from Alpha-enumerated usernames.
 
-        Contract for the author: for each USER node, call
-        ``derive_login_candidates(username, host)``; submit each via an injected
-        CredentialApplicator — already GovernedApplicator-wrapped by the factory, so
-        every submission is lockout-gated at the seam (§12.22 D2, no per-tool gate);
-        VERIFY with an INDEPENDENT auth signal (attestation §12.43, not the tool's own
-        self-report); return CONTENT (no raw secret), Beta.step persists + mints refs.
+        Composition over PROVEN primitives (not a novel exploit body): for each USER
+        node, ``derive_login_candidates`` (deterministic) → submit via the injected
+        CredentialApplicator roster — already ``GovernedApplicator``-wrapped by the
+        factory, so every submission is lockout-gated at the seam (§12.22 D2). The
+        applicator owns the actual login + positive-auth VERIFY; this method never
+        touches the wire or the governor directly. On the FIRST verified access it
+        returns a content finding tagged ``finding_class=predictable_credential`` so
+        Beta.step mints the accurate vuln node (§ cred_finding_catalog). Independent
+        CROSS_VERIFIED runs later in ``run_verification_pass`` (attestation §12.43).
+
+        Safety: NO standalone/ungoverned fallback (unlike default_creds). If no
+        governed applicator is injected, nothing is submitted — derived guessing must
+        never run on an ungoverned wire.
         """
-        raise NotImplementedError(
-            "user_derived_creds.run is the GLM/DeepSeek offensive lane; author the "
-            "apply+attestation loop before wiring this into a live engagement "
-            "(lockout is enforced at the GovernedApplicator seam)."
+        if self._http_client is None:
+            raise ValueError("UserDerivedCredsTool.run requires an injected http_client")
+        if self._graph_store is None:
+            return ToolResult(
+                tool=self.name, success=False, confidence=0.0, error="no graph_store available"
+            )
+
+        user_nodes = self._graph_store.nodes_by_type(NodeType.USER)
+        if not user_nodes:
+            return ToolResult(
+                tool=self.name,
+                success=False,
+                confidence=0.0,
+                error="no enumerated usernames in graph",
+            )
+
+        bound_applicators = self._applicators  # governed roster; no ungoverned fallback
+        host = urlparse(ctx.target).hostname or ctx.target
+
+        requests_used = 0
+        for user_node in user_nodes:
+            username = getattr(user_node.properties, "username", "")
+            if not username:
+                continue
+            for uname, password in derive_login_candidates(username, host):
+                if requests_used >= budget.max_requests:
+                    break
+                result = None
+                for bound in bound_applicators:
+                    if requests_used >= budget.max_requests:
+                        break
+                    if not bound.applicator.applies_to("http", bound.target):
+                        continue
+                    # apply() reaches the wire through the GovernedApplicator seam
+                    # (lockout-gated). It catches its own transport failures and
+                    # returns AuthResult(success=False); a raise here is a real bug
+                    # and must propagate (anti-Lyndon #3, mirrors default_creds).
+                    result = bound.applicator.apply(
+                        username=uname,
+                        secret=password,
+                        target=bound.target,
+                        budget=budget,
+                    )
+                    requests_used += 3  # baseline + auth + confirm (upper bound)
+                    if result.success:
+                        break
+
+                if result is not None and result.success:
+                    # A working DERIVED guess is a REAL secret — Beta.step never
+                    # persists it raw (records metadata + redacted proof only).
+                    finding: dict[str, Any] = {
+                        "username": uname,
+                        "password": password,
+                        "access_level": result.access_level,
+                        "proof_request": result.proof_request,
+                        "proof_response": result.proof_response,
+                        "session_cookie_name": result.session_cookie_name,
+                        "service": "http",
+                        "finding_class": CredFindingClass.PREDICTABLE_CREDENTIAL,
+                    }
+                    return ToolResult(
+                        tool=self.name,
+                        success=True,
+                        confidence=result.confidence,
+                        findings=(finding,),
+                    )
+            if requests_used >= budget.max_requests:
+                break
+
+        return ToolResult(
+            tool=self.name,
+            success=False,
+            confidence=0.0,
+            error="no derived credential produced a positive auth signal",
         )
