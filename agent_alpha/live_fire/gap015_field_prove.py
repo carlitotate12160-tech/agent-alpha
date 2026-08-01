@@ -204,7 +204,10 @@ def main(argv: list[str] | None = None) -> int:
     # (§12.38). [] is honest (no CT origin-sibling → origin-direct impossible → reach
     # may be IP-gated; that is a valid finding, not a failure).
     origin_ips = discover_origin_ips(
-        rec.engagement_id, rec_domain, http_client, auth,
+        rec.engagement_id,
+        rec_domain,
+        http_client,
+        auth,
         seed_hosts=config.scope_domains,
     )
     print(f"[origin] discovered {len(origin_ips)} non-CF origin IP(s): {origin_ips}")
