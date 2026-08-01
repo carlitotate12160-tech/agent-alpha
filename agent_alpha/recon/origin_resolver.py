@@ -137,20 +137,24 @@ def discover_origin_ips(
         domain,
     )
 
-    # Step 2+3: resolve and filter
-    candidates: set[str] = set()
+    # Step 2+3: resolve and filter — preserve hostname→IP mapping so the probe
+    # uses the correct Host header (origin may not respond to the apex domain).
+    candidates: dict[str, str] = {}  # ip → hostname
     for hostname in candidate_hosts:
         for ip in _resolve_ipv4(hostname):
-            if not is_cloudflare_ip(ip):
-                candidates.add(ip)
+            if not is_cloudflare_ip(ip) and ip not in candidates:
+                candidates[ip] = hostname
 
     _log.info("origin_resolver: %d non-CF candidate IPs for %s", len(candidates), domain)
 
     # Step 4: probe (bounded — anti-#5 unbounded probe)
     confirmed: list[str] = []
     for ip in list(candidates)[:max_probe_candidates]:
-        if _probe_as_origin(ip, domain):
-            _log.info("origin_resolver: confirmed origin IP %s for %s", ip, domain)
+        probe_host = candidates[ip]
+        if _probe_as_origin(ip, probe_host):
+            _log.info(
+                "origin_resolver: confirmed origin IP %s for %s (via %s)", ip, domain, probe_host
+            )
             confirmed.append(ip)
 
     return confirmed
