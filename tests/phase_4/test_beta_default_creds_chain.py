@@ -179,7 +179,9 @@ def test_no_fabricated_edge_to_unrelated_vuln():
             assert e.target_id != f"cred:{_HOST}:admin", "Fabricated edge found"
 
 
-def _run_beta_with_finding(finding: dict) -> tuple[NetworkXGraphStore, str]:
+def _run_beta_with_finding(
+    finding: dict,
+) -> tuple[NetworkXGraphStore, InMemoryEventStore, str, str]:
     """Drive Beta.step once with a mocked tool returning *finding*; return the graph +
     host so the caller can inspect the minted vuln node. Mirrors the harness above."""
     auth = AuthorizationStateMachine(event_store=InMemoryEventStore())
@@ -229,7 +231,7 @@ def _run_beta_with_finding(finding: dict) -> tuple[NetworkXGraphStore, str]:
         mock_tool.mitre_technique = "T1110.001"
         mock_registry.return_value.ranked.return_value = [mock_tool]
         beta.step({})
-    return graph_store, _HOST
+    return graph_store, event_store, eng_id, _HOST
 
 
 def test_beta_mints_predictable_credential_vuln_from_finding_class() -> None:
@@ -246,12 +248,17 @@ def test_beta_mints_predictable_credential_vuln_from_finding_class() -> None:
         "service": "http",
         "finding_class": "predictable_credential",
     }
-    graph, host = _run_beta_with_finding(finding)
+    graph, event_store, eng_id, host = _run_beta_with_finding(finding)
 
     predictable = graph.get_node(f"vuln:{host}:predictable_credential")
     assert predictable is not None, "predictable-credential win was not minted under its own id"
     assert predictable.properties.cvss_score == 8.8
     assert graph.get_node(f"vuln:{host}:default_credentials") is None, "mislabelled as default"
+
+    # audit event must ALSO be class-accurate (not default_credential_validated)
+    types = [e.payload.get("type") for e in event_store.get_events(eng_id)]
+    assert "predictable_credential_validated" in types
+    assert "default_credential_validated" not in types
 
 
 def test_beta_defaults_to_default_credentials_when_class_absent() -> None:
@@ -266,8 +273,12 @@ def test_beta_defaults_to_default_credentials_when_class_absent() -> None:
         "session_cookie_name": "session",
         "service": "http",
     }
-    graph, host = _run_beta_with_finding(finding)
+    graph, event_store, eng_id, host = _run_beta_with_finding(finding)
 
     default = graph.get_node(f"vuln:{host}:default_credentials")
     assert default is not None
     assert default.properties.cvss_score == 9.8
+
+    # backward-compat: audit event type unchanged for the default class
+    types = [e.payload.get("type") for e in event_store.get_events(eng_id)]
+    assert "default_credential_validated" in types

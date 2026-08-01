@@ -25,11 +25,14 @@ from agent_alpha.tools.internal.access.cred_finding_catalog import (
 
 
 def test_default_credentials_spec_is_accurate() -> None:
+    """Default-credential class carries the correct id, CVSS 9.8, CWE-1392, and the
+    exact historical audit-event type (backward compatibility)."""
     spec = CRED_FINDING_CATALOG[CredFindingClass.DEFAULT_CREDENTIALS]
     assert spec.vuln_id_suffix == "default_credentials"
     assert spec.cvss == 9.8
     assert spec.cwe == "CWE-1392"
     assert spec.exploit_available is True
+    assert spec.validated_event_type == "default_credential_validated"
 
 
 def test_predictable_credential_spec_is_distinct_and_accurate() -> None:
@@ -41,6 +44,8 @@ def test_predictable_credential_spec_is_distinct_and_accurate() -> None:
     default = CRED_FINDING_CATALOG[CredFindingClass.DEFAULT_CREDENTIALS]
     assert spec.vuln_id_suffix != default.vuln_id_suffix
     assert spec.cwe != default.cwe
+    assert spec.validated_event_type == "predictable_credential_validated"
+    assert spec.validated_event_type != default.validated_event_type
 
 
 def test_resolve_none_is_default_backward_compat() -> None:
@@ -50,6 +55,7 @@ def test_resolve_none_is_default_backward_compat() -> None:
 
 
 def test_resolve_known_class_by_string() -> None:
+    """A known class string resolves to its spec (the predictable-credential CVSS 8.8)."""
     spec = resolve_cred_finding_spec("predictable_credential")
     assert spec.vuln_id_suffix == "predictable_credential"
     assert spec.cvss == 8.8

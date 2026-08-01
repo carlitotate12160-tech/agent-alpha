@@ -34,6 +34,7 @@ class CredFindingSpec:
     cwe: str
     label: str
     exploit_available: bool
+    validated_event_type: str  # audit-event `type` when this credential class is proven
 
 
 CRED_FINDING_CATALOG: dict[CredFindingClass, CredFindingSpec] = {
@@ -43,6 +44,7 @@ CRED_FINDING_CATALOG: dict[CredFindingClass, CredFindingSpec] = {
         cwe="CWE-1392",  # Use of Default Credentials
         label="Default credentials accepted",
         exploit_available=True,
+        validated_event_type="default_credential_validated",  # exact historical string (back-compat)
     ),
     CredFindingClass.PREDICTABLE_CREDENTIAL: CredFindingSpec(
         vuln_id_suffix="predictable_credential",
@@ -50,6 +52,7 @@ CRED_FINDING_CATALOG: dict[CredFindingClass, CredFindingSpec] = {
         cwe="CWE-521",  # Weak Password Requirements — guessable from a public identity
         label="Predictable credential derived from an enumerated username",
         exploit_available=True,
+        validated_event_type="predictable_credential_validated",
     ),
 }
 

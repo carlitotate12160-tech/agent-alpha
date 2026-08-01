@@ -360,6 +360,10 @@ class Beta:
         #    from content, like scout/Laravel #45) ──────────────────
         finding = result.findings[0]
         access_level: str = finding["access_level"]
+        # Resolve the credential-finding class ONCE (SSOT catalog) so BOTH the audit
+        # event and the vuln node are labelled accurately — a predictable-credential
+        # win is never recorded as a default credential (report + audit accuracy).
+        spec = resolve_cred_finding_spec(finding.get("finding_class"))
 
         # DEEP-REDACT proof before persisting — recursively redact all
         # strings in nested dicts/lists so no raw header/cookie value
@@ -393,7 +397,7 @@ class Beta:
                 self._engagement_id,
                 "beta",
                 {
-                    "type": "default_credential_validated",
+                    "type": spec.validated_event_type,
                     "username": finding["username"],
                     "target": self._entry_point,
                     "access_level": access_level,
@@ -437,11 +441,8 @@ class Beta:
         # Otherwise, mint a new CREDENTIAL node for default_creds.
         cred_node_id = finding.get("credential_node_id")
         if not cred_node_id:
-            # Vuln class + CVSS come from the finding's declared class (SSOT catalog),
-            # not hardcoded — so a predictable-credential win (GAP-015) is reported
-            # ACCURATELY, not mislabelled as a default credential. Absent class →
-            # DEFAULT_CREDENTIALS (byte-identical to prior default_creds behaviour).
-            spec = resolve_cred_finding_spec(finding.get("finding_class"))
+            # Vuln id + CVSS from the SSOT catalog spec resolved above — one resolve
+            # feeds both the audit event and this node (no second lookup, #7).
             vuln_node_id = f"vuln:{host}:{spec.vuln_id_suffix}"
             vuln_node = AttackNode(
                 id=vuln_node_id,
