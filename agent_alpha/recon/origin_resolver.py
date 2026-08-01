@@ -27,10 +27,10 @@ _PROBE_PATH: str = "/"
 
 # Status codes that confirm the IP is serving the domain
 # (any non-error response that isn't a CF WAF 403)
-_CONFIRMING_STATUSES: frozenset[int] = frozenset({200, 301, 302, 401, 404})
-# 401 = origin exists and has auth; 404 = origin exists, path absent
-# Both confirm the IP is the real origin.
-# 403 = likely WAF block; 5xx = server error (inconclusive)
+_CONFIRMING_STATUSES: frozenset[int] = frozenset({200, 301, 302, 303, 307, 308, 401, 404})
+# 3xx = origin alive + serving (redirect, incl. 303 See Other — Odoo /web backends);
+# 401 = origin exists behind auth; 404 = origin exists, path absent. All confirm.
+# 403 = likely WAF/CF block (never confirm); 5xx = server error (inconclusive).
 
 
 def _resolve_ipv4(hostname: str) -> list[str]:
@@ -137,24 +137,34 @@ def discover_origin_ips(
         domain,
     )
 
-    # Step 2+3: resolve and filter — preserve hostname→IP mapping so the probe
-    # uses the correct Host header (origin may not respond to the apex domain).
-    candidates: dict[str, str] = {}  # ip → hostname
-    for hostname in candidate_hosts:
+    # Step 2+3: resolve and filter — keep ALL in-scope hostnames per IP so the probe
+    # can try each Host header. Multiple vhosts often share one origin IP and respond
+    # differently (odoo → 303 to /web, wp → 200); the first hostname alone is not
+    # enough (RC3). Sorted iteration = deterministic, no hash-order dependence (RC1).
+    ip_to_hosts: dict[str, list[str]] = {}
+    for hostname in sorted(candidate_hosts):
         for ip in _resolve_ipv4(hostname):
-            if not is_cloudflare_ip(ip) and ip not in candidates:
-                candidates[ip] = hostname
+            if is_cloudflare_ip(ip):
+                continue
+            hosts = ip_to_hosts.setdefault(ip, [])
+            if hostname not in hosts:
+                hosts.append(hostname)
 
-    _log.info("origin_resolver: %d non-CF candidate IPs for %s", len(candidates), domain)
+    _log.info("origin_resolver: %d non-CF candidate IP(s) for %s", len(ip_to_hosts), domain)
 
-    # Step 4: probe (bounded — anti-#5 unbounded probe)
+    # Step 4: probe each candidate IP with EACH of its hostnames until one confirms
+    # (bounded to max_probe_candidates IPs — anti-#5 unbounded probe).
     confirmed: list[str] = []
-    for ip in list(candidates)[:max_probe_candidates]:
-        probe_host = candidates[ip]
-        if _probe_as_origin(ip, probe_host):
-            _log.info(
-                "origin_resolver: confirmed origin IP %s for %s (via %s)", ip, domain, probe_host
-            )
-            confirmed.append(ip)
+    for ip in sorted(ip_to_hosts)[:max_probe_candidates]:
+        for probe_host in ip_to_hosts[ip]:
+            if _probe_as_origin(ip, probe_host):
+                _log.info(
+                    "origin_resolver: confirmed origin IP %s for %s (via %s)",
+                    ip,
+                    domain,
+                    probe_host,
+                )
+                confirmed.append(ip)
+                break  # one confirming Host is enough for this IP
 
     return confirmed
