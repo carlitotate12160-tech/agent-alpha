@@ -158,9 +158,7 @@ def build_applicators_for_engagement(
             web_target=web_target,
         ):
             bound.append(
-                BoundApplicator(
-                    applicator=GovernedApplicator(applicator, governor), target=target
-                )
+                BoundApplicator(applicator=GovernedApplicator(applicator, governor), target=target)
             )
     return bound
 

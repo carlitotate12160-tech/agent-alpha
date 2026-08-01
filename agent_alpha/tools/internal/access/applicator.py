@@ -314,6 +314,4 @@ class GovernedApplicator:
                 error="credential-attempt budget exhausted (lockout safety, §12.22 D2)",
             )
         self._governor.record_attempt(host, username)
-        return self._inner.apply(
-            username=username, secret=secret, target=target, budget=budget
-        )
+        return self._inner.apply(username=username, secret=secret, target=target, budget=budget)
