@@ -21,10 +21,9 @@ from __future__ import annotations
 from typing import Any
 
 from agent_alpha.config import constants
-from agent_alpha.tools.contracts import ResourceBudget, TargetContext
-from agent_alpha.tools.internal.access.applicator import AuthResult
+from agent_alpha.tools.contracts import ResourceBudget
+from agent_alpha.tools.internal.access.applicator import AuthResult, GovernedApplicator
 from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
-from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 
 _HOST = "app.example.com"
 
@@ -71,12 +70,16 @@ def test_counts_are_scoped_per_host() -> None:
     assert gov.may_attempt("other.example.com", "admin") is True
 
 
-# ── RUNNER-SEAL ≠ WIRED: default_creds must honour the governor on the live path ──
+# ── SEAM: GovernedApplicator enforces the governor for EVERY cred tool ──────────
+
+_BUDGET = ResourceBudget(max_requests=10, max_seconds=5, max_cost_usd=0.0)
 
 
 class _RecordingApplicator:
-    """Records every username that actually reaches the wire (apply()). Returns a
-    failed AuthResult so the tool keeps iterating other accounts."""
+    """CredentialApplicator double: records every username that reaches apply()."""
+
+    service = "http"
+    required_auth = "ACTIVE_APPROVED"
 
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -96,32 +99,40 @@ class _RecordingApplicator:
         )
 
 
-class _Bound:
-    def __init__(self, applicator: Any, target: str) -> None:
-        self.applicator = applicator
-        self.target = target
+def test_governed_applicator_refuses_when_budget_exhausted() -> None:
+    """Once the (host, username) budget is spent, GovernedApplicator.apply returns a
+    failed AuthResult WITHOUT touching the wire — the account is never locked out."""
+    gov = CredentialLockoutGovernor(max_per_username=1, max_per_host=100)
+    gov.record_attempt(_HOST, "admin")  # pre-exhaust the account
+    inner = _RecordingApplicator()
+    governed = GovernedApplicator(inner, gov)
 
-
-def test_default_creds_stops_submitting_when_account_locked_out() -> None:
-    """Non-island: with a governor already at the per-username cap for 'admin',
-    DefaultCredsTool.run() must NOT submit another 'admin' attempt to the wire."""
-    gov = CredentialLockoutGovernor(max_per_username=2, max_per_host=100)
-    # Pre-exhaust the 'admin' account budget (as if 2 attempts already happened).
-    gov.record_attempt(_HOST, "admin")
-    gov.record_attempt(_HOST, "admin")
-
-    applicator = _RecordingApplicator()
-    tool = DefaultCredsTool(
-        applicators=[_Bound(applicator, f"https://{_HOST}")],
-        http_client=object(),  # non-None so run() proceeds; wire is the fake applicator
-        lockout=gov,
+    res = governed.apply(
+        username="admin", secret="x", target=f"https://{_HOST}/login", budget=_BUDGET
     )
-    ctx = TargetContext(engagement_id="eng-lockout", tenant_id=None, target=f"https://{_HOST}")
-    budget = ResourceBudget(max_requests=50, max_seconds=5, max_cost_usd=0.0)
 
-    result = tool.run(ctx, budget)
+    assert res.success is False
+    assert "admin" not in inner.calls, "locked-out account reached the wire — seam not enforced"
 
-    assert "admin" not in applicator.calls, (
-        "default_creds submitted a locked-out 'admin' attempt — governor not wired"
+
+def test_governed_applicator_records_and_delegates_when_budget_remains() -> None:
+    """With budget remaining, the wrapper records the attempt and delegates to the
+    wrapped applicator (the submission actually happens)."""
+    gov = CredentialLockoutGovernor(max_per_username=3, max_per_host=100)
+    inner = _RecordingApplicator()
+    governed = GovernedApplicator(inner, gov)
+
+    governed.apply(
+        username="editor", secret="x", target=f"https://{_HOST}/login", budget=_BUDGET
     )
-    assert result.success is False
+
+    assert inner.calls == ["editor"], "attempt did not reach the wrapped applicator"
+    assert gov.remaining_for_username(_HOST, "editor") == 2, "attempt was not recorded"
+
+
+def test_governed_applicator_exposes_inner_metadata() -> None:
+    """service / required_auth must pass through so the registry + factory still see
+    the applicator's real selection metadata (wrap is transparent)."""
+    governed = GovernedApplicator(_RecordingApplicator(), CredentialLockoutGovernor())
+    assert governed.service == "http"
+    assert governed.required_auth == "ACTIVE_APPROVED"

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Any, Protocol, runtime_checkable
+from urllib.parse import urlparse
 
 from agent_alpha.tools.contracts import ResourceBudget
 from agent_alpha.tools.internal.access.default_creds import (
@@ -279,4 +280,40 @@ class WpLoginApplicator(CredentialApplicator):
                 "header_names": list(resp.headers.keys()),
             },
             session_cookie_name=session_cookie_name,
+        )
+
+
+class GovernedApplicator:
+    """Wraps a CredentialApplicator with the CredentialLockoutGovernor (§12.22 D2) —
+    the SINGLE credential-attempt safety seam. Every submission is bounded per
+    (host, username); once the account or host budget is spent, ``apply`` returns a
+    failed AuthResult WITHOUT touching the wire, so a client's real accounts are never
+    driven into lockout. ``build_applicators_for_engagement`` wraps every applicator
+    here, so all cred tools that use the roster (cred_reuse, default_creds,
+    user_derived) inherit the gate with no per-tool code (anti-#6/#7)."""
+
+    def __init__(self, applicator: CredentialApplicator, governor: Any) -> None:
+        self._inner = applicator
+        self._governor = governor
+        self.service = applicator.service
+        self.required_auth = applicator.required_auth
+
+    def applies_to(self, credential_service: str, target: str) -> bool:
+        return self._inner.applies_to(credential_service, target)
+
+    def apply(self, username: str, secret: str, target: str, budget: ResourceBudget) -> AuthResult:
+        host = urlparse(target).hostname or target
+        if not self._governor.may_attempt(host, username):
+            return AuthResult(
+                success=False,
+                access_level="",
+                service=self.service,
+                confidence=0.0,
+                proof_request={},
+                proof_response={},
+                error="credential-attempt budget exhausted (lockout safety, §12.22 D2)",
+            )
+        self._governor.record_attempt(host, username)
+        return self._inner.apply(
+            username=username, secret=secret, target=target, budget=budget
         )

@@ -26,6 +26,7 @@ from agent_alpha.graph.nodes import (
     NodeType,
     ServiceProperties,
 )
+from agent_alpha.tools.internal.access.applicator import GovernedApplicator
 
 ENG = "eng_test01"
 WEB_TARGET = "https://app.client.example/login"
@@ -342,9 +343,27 @@ def test_wp_login_applicator_binds_to_wp_login_target() -> None:
     wp_login = [b for b in bound if b.target.rstrip("/").endswith("wp-login.php")]
     assert wp_login, "factory did not derive a wp-login.php target from the WP asset"
 
-    order = [type(b.applicator) for b in wp_login]
+    order = [type(b.applicator._inner) for b in wp_login]
     assert order.index(WpLoginApplicator) < order.index(HttpFormApplicator)
 
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_factory_wraps_every_applicator_with_governor() -> None:
+    """§12.22 D2 seam: every bound applicator is a GovernedApplicator, so all cred
+    tools inherit credential-attempt lockout via the roster — no per-tool gate (#6/#7)."""
+    auth = FakeAuth(state=a2a_pb2.ACTIVE_APPROVED, in_scope_endpoints=set())
+    graph = FakeGraph([])
+    bound = build_applicators_for_engagement(
+        engagement_id=ENG,
+        auth=auth,
+        graph_store=graph,
+        web_target=WEB_TARGET,
+        candidates=[_http()],
+    )
+    assert bound, "expected at least one bound applicator"
+    assert all(isinstance(b.applicator, GovernedApplicator) for b in bound)
+    # transparent: service metadata still readable through the wrapper
+    assert {b.applicator.service for b in bound} == {"http"}
