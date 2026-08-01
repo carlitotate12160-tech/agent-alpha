@@ -37,16 +37,16 @@ class NetworkXGraphStore:
             self._graph.add_edge(edge.source_id, edge.target_id, data=edge)
         elif event_type == "NodeVerified":
             node_id = payload["node_id"]
-            # Provenance gate: only oracle-confirmed events may promote to
+            # Provenance gate: only attestor-confirmed events may promote to
             # CROSS_VERIFIED.  The primary guard is at EMISSION — only
             # run_verification_pass emits NodeVerified, always with provenance.
             # This consumption-side check is defense-in-depth.  Silent no-op
             # (not raise) so event replay on legacy/malformed events does not
             # crash; the invariant is enforced by not promoting.
-            oracle_name = payload.get("oracle")
-            if not oracle_name:
+            attestor_name = payload.get("attestor") or payload.get("oracle")  # tolerant: legacy key
+            if not attestor_name:
                 logger.warning(
-                    "NodeVerified event for %s lacks oracle provenance — "
+                    "NodeVerified event for %s lacks attestor provenance — "
                     "skipping CROSS_VERIFIED promotion (defense-in-depth; "
                     "primary guard is at emission via run_verification_pass)",
                     node_id,

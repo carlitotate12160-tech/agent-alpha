@@ -1,14 +1,14 @@
-# tests/phase_4/test_cred_reuse_oracle.py
-"""Phase 5 (Moat): CredReuseOracle + VerificationTier semantics + live-path wiring.
+# tests/phase_4/test_attestor.py
+"""Phase 5 (Moat): CredReuseAttestor + VerificationTier semantics + live-path wiring.
 
 Tests verify:
   T1: CONFIRMED on real auth backing (proof artifact + harvested cred + ENABLES edge).
   T2: INCONCLUSIVE on inferred access (no proof artifacts).
-  T3: Oracle rejects self-report — does not rely on node.verified.
+  T3: Attestor rejects self-report — does not rely on node.verified.
   T4: verified property is True only for CROSS_VERIFIED.
   T5: Migration guard — existing code passing verified=True gets SELF_VERIFIED (NOT CROSS).
   T6: SELF_VERIFIED nodes have verified=False.
-  T9: Oracle satisfies the Protocol.
+  T9: Attestor satisfies the Protocol.
   T10: Non-ACCESS_LEVEL node → INCONCLUSIVE.
 
   NON-ISLAND (de-island proof):
@@ -17,8 +17,8 @@ Tests verify:
   T13: A1 runner invokes run_verification_pass (wiring proof).
 
   PROVENANCE:
-  T14: NodeVerified without oracle provenance does NOT promote.
-  T15: NodeVerified WITH oracle provenance promotes.
+  T14: NodeVerified without attestor provenance does NOT promote.
+  T15: NodeVerified WITH attestor provenance promotes.
 
   LEGACY:
   T16: Legacy verified=True reconstructs to SELF_VERIFIED, never CROSS_VERIFIED.
@@ -30,6 +30,12 @@ import uuid
 from typing import Any
 from unittest.mock import ANY, patch
 
+from agent_alpha.attestation.attestor import (
+    Attestor,
+    CredReuseAttestor,
+    Verdict,
+    run_verification_pass,
+)
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import (
@@ -45,12 +51,11 @@ from agent_alpha.graph.nodes import (
     _reconstruct_node,
     node_to_dict,
 )
-from agent_alpha.oracle.verifier import CredReuseOracle, Oracle, Verdict, run_verification_pass
 
 _HOST = "oracle.lab.internal"
 _CRED_ID = f"cred:{_HOST}:admin"
 _ACCESS_ID = f"access:{_HOST}"
-_ENGAGEMENT_ID = "eng-oracle-test"
+_ENGAGEMENT_ID = "eng-attestor-test"
 
 
 def _emit_node(store: NetworkXGraphStore, node: AttackNode) -> None:
@@ -82,7 +87,7 @@ def _proven_store() -> NetworkXGraphStore:
             type=NodeType.CREDENTIAL,
             properties=CredentialProperties(
                 username="admin",
-                secret_ref="vault://eng/secret-oracle-1",
+                secret_ref="vault://eng/secret-attestor-1",
                 service="http",
                 access_level="admin",
             ),
@@ -131,7 +136,7 @@ def _inferred_store() -> NetworkXGraphStore:
             type=NodeType.CREDENTIAL,
             properties=CredentialProperties(
                 username="admin",
-                secret_ref="vault://eng/secret-oracle-2",
+                secret_ref="vault://eng/secret-attestor-2",
                 service="http",
                 access_level="admin",
             ),
@@ -161,16 +166,16 @@ def _inferred_store() -> NetworkXGraphStore:
 # ── T1: CONFIRMED on real auth backing ──────────────────────────────────────
 
 
-def test_oracle_confirms_only_bound_proof() -> None:
-    """Oracle returns CONFIRMED when access node is backed by a real
+def test_attestor_confirms_only_bound_proof() -> None:
+    """Attestor returns CONFIRMED when access node is backed by a real
     authenticated_request proof + harvested credential with secret_ref,
     and the proof is properly bound to the credential and target."""
     store = _proven_store()
-    oracle = CredReuseOracle()
+    attestor = CredReuseAttestor()
     node = store.get_node(_ACCESS_ID)
     assert node is not None
 
-    verdict = oracle.verify(node, store)
+    verdict = attestor.verify(node, store)
     assert verdict == Verdict.CONFIRMED
 
 
@@ -215,10 +220,10 @@ def test_oracle_rejects_unbound_proof() -> None:
     )
     _emit_edge(store, AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"))
 
-    oracle = CredReuseOracle()
+    attestor = CredReuseAttestor()
     node = store.get_node(_ACCESS_ID)
     assert node is not None
-    assert oracle.verify(node, store) == Verdict.INCONCLUSIVE
+    assert attestor.verify(node, store) == Verdict.INCONCLUSIVE
 
 
 def test_invalid_c7_run_emits_no_nodeverified() -> None:
@@ -277,21 +282,21 @@ def test_invalid_c7_run_emits_no_nodeverified() -> None:
 
 
 def test_inconclusive_on_inferred_access() -> None:
-    """Oracle returns INCONCLUSIVE when access node has no proof artifacts."""
+    """Attestor returns INCONCLUSIVE when access node has no proof artifacts."""
     store = _inferred_store()
-    oracle = CredReuseOracle()
+    attestor = CredReuseAttestor()
     node = store.get_node(_ACCESS_ID)
     assert node is not None
 
-    verdict = oracle.verify(node, store)
+    verdict = attestor.verify(node, store)
     assert verdict == Verdict.INCONCLUSIVE
 
 
-# ── T3: Oracle rejects self-report ──────────────────────────────────────────
+# ── T3: Attestor rejects self-report ──────────────────────────────────────────
 
 
-def test_oracle_rejects_self_report() -> None:
-    """Oracle does NOT confirm a node just because it has verification=SELF_VERIFIED.
+def test_attestor_rejects_self_report() -> None:
+    """Attestor does NOT confirm a node just because it has verification=SELF_VERIFIED.
     Without proof artifacts, even a SELF_VERIFIED node stays INCONCLUSIVE."""
     store = NetworkXGraphStore()
     _emit_node(
@@ -306,11 +311,11 @@ def test_oracle_rejects_self_report() -> None:
             # No proof, no credential backing — just the tool's self-report.
         ),
     )
-    oracle = CredReuseOracle()
+    attestor = CredReuseAttestor()
     node = store.get_node(_ACCESS_ID)
     assert node is not None
 
-    verdict = oracle.verify(node, store)
+    verdict = attestor.verify(node, store)
     assert verdict == Verdict.INCONCLUSIVE
 
 
@@ -394,20 +399,20 @@ def test_self_verified_has_verified_false() -> None:
     assert node.verification == VerificationTier.SELF_VERIFIED
 
 
-# ── T9: Oracle satisfies the Protocol ────────────────────────────────────────
+# ── T9: Attestor satisfies the Protocol ────────────────────────────────────────
 
 
-def test_cred_reuse_oracle_satisfies_protocol() -> None:
-    """CredReuseOracle is a valid Oracle (structural subtyping)."""
-    oracle = CredReuseOracle()
-    assert isinstance(oracle, Oracle)
+def test_cred_reuse_attestor_satisfies_protocol() -> None:
+    """CredReuseAttestor is a valid Attestor (structural subtyping)."""
+    attestor = CredReuseAttestor()
+    assert isinstance(attestor, Attestor)
 
 
 # ── T10: Non-ACCESS_LEVEL node → INCONCLUSIVE ───────────────────────────────
 
 
 def test_non_access_level_node_is_inconclusive() -> None:
-    """Oracle only verifies ACCESS_LEVEL nodes; others are INCONCLUSIVE."""
+    """Attestor only verifies ACCESS_LEVEL nodes; others are INCONCLUSIVE."""
     store = NetworkXGraphStore()
     asset = AttackNode(
         id="asset:x",
@@ -416,11 +421,11 @@ def test_non_access_level_node_is_inconclusive() -> None:
         confidence=0.9,
     )
     _emit_node(store, asset)
-    oracle = CredReuseOracle()
+    attestor = CredReuseAttestor()
     node = store.get_node("asset:x")
     assert node is not None
 
-    assert oracle.verify(node, store) == Verdict.INCONCLUSIVE
+    assert attestor.verify(node, store) == Verdict.INCONCLUSIVE
 
 
 # ── T11: NON-ISLAND — run_verification_pass promotes confirmed access ────────
@@ -430,7 +435,7 @@ def test_verification_pass_promotes_confirmed_access() -> None:
     """NON-ISLAND proof: build an A1-shaped graph where the access node is
     SELF_VERIFIED and backed by a real auth ground-truth (harvested cred +
     authenticated_request proof). Run run_verification_pass. Assert the
-    access node is now CROSS_VERIFIED — proving the LIVE oracle path
+    access node is now CROSS_VERIFIED — proving the LIVE attestor path
     promotes, not a constructed node."""
     store = _proven_store()
     event_store = InMemoryEventStore()
@@ -440,8 +445,8 @@ def test_verification_pass_promotes_confirmed_access() -> None:
     assert node_before is not None
     assert node_before.verification == VerificationTier.SELF_VERIFIED
 
-    # Run the live oracle path.
-    run_verification_pass(store, event_store, [CredReuseOracle()], _ENGAGEMENT_ID)
+    # Run the live attestor path.
+    run_verification_pass(store, event_store, [CredReuseAttestor()], _ENGAGEMENT_ID)
 
     # Post-condition: access node is now CROSS_VERIFIED.
     node_after = store.get_node(_ACCESS_ID)
@@ -449,13 +454,13 @@ def test_verification_pass_promotes_confirmed_access() -> None:
     assert node_after.verification == VerificationTier.CROSS_VERIFIED
     assert node_after.verified is True
 
-    # The event store must have a NodeVerified event with oracle provenance.
+    # The event store must have a NodeVerified event with attestor provenance.
     events = event_store.get_events(_ENGAGEMENT_ID)
     node_verified_events = [e for e in events if e.event_type == "NodeVerified"]
     assert len(node_verified_events) == 1
     evt = node_verified_events[0]
     assert evt.payload["node_id"] == _ACCESS_ID
-    assert evt.payload["oracle"] == "CredReuseOracle"
+    assert evt.payload["attestor"] == "CredReuseAttestor"
     assert evt.payload["verdict"] == "confirmed"
 
 
@@ -465,7 +470,7 @@ def test_verification_pass_promotes_confirmed_access() -> None:
 def test_verification_pass_no_promote_on_inferred() -> None:
     """DIFFERENTIAL proof: identical graph SHAPE but no auth ground-truth
     (no authenticated_request proof). Run the pass. Assert the node stays
-    SELF_VERIFIED (NOT promoted) — proves the oracle uses the independent
+    SELF_VERIFIED (NOT promoted) — proves the attestor uses the independent
     signal, not graph shape."""
     store = _inferred_store()
     event_store = InMemoryEventStore()
@@ -475,8 +480,8 @@ def test_verification_pass_no_promote_on_inferred() -> None:
     assert node_before is not None
     assert node_before.verification == VerificationTier.SELF_VERIFIED
 
-    # Run the live oracle path.
-    run_verification_pass(store, event_store, [CredReuseOracle()], _ENGAGEMENT_ID)
+    # Run the live attestor path.
+    run_verification_pass(store, event_store, [CredReuseAttestor()], _ENGAGEMENT_ID)
 
     # Post-condition: access node is STILL SELF_VERIFIED (not promoted).
     node_after = store.get_node(_ACCESS_ID)
@@ -499,7 +504,7 @@ def test_a1_runner_invokes_verification_pass() -> None:
     from agent_alpha.live_fire.a1_validation_runner import run_a1_validation
 
     with (
-        patch("agent_alpha.oracle.verifier.run_verification_pass") as mock_pass,
+        patch("agent_alpha.attestation.attestor.run_verification_pass") as mock_pass,
         patch("agent_alpha.live_fire.a1_validation_runner.classify_mitigation") as mock_classify,
     ):
         from agent_alpha.recon.transport_resilience import MitigationClass
@@ -519,7 +524,7 @@ def test_a1_runner_invokes_verification_pass() -> None:
         mock_pass.assert_called_once_with(
             ANY,  # graph_store
             ANY,  # event_store
-            ANY,  # [CredReuseOracle()]
+            ANY,  # [CredReuseAttestor()]
             "eng-test-wiring",  # engagement_id
         )
 
@@ -551,12 +556,12 @@ class _StubResponse:
     headers: dict[str, str] = {}
 
 
-# ── T14: NodeVerified without oracle provenance does NOT promote ─────────────
+# ── T14: NodeVerified without attestor provenance does NOT promote ─────────────
 
 
-def test_nodeverified_requires_oracle_provenance() -> None:
-    """apply_event("NodeVerified", {node_id, ...}) WITHOUT an "oracle" field
-    does NOT promote to CROSS_VERIFIED; WITH oracle provenance it does."""
+def test_nodeverified_requires_attestor_provenance() -> None:
+    """apply_event("NodeVerified", {node_id, ...}) WITHOUT an "attestor" field
+    does NOT promote to CROSS_VERIFIED; WITH attestor provenance it does."""
     store = NetworkXGraphStore()
     _emit_node(
         store,
@@ -579,7 +584,7 @@ def test_nodeverified_requires_oracle_provenance() -> None:
     # With provenance — MUST promote.
     store.apply_event(
         "NodeVerified",
-        {"node_id": "n-prov", "oracle": "CredReuseOracle", "verdict": "confirmed"},
+        {"node_id": "n-prov", "attestor": "CredReuseAttestor", "verdict": "confirmed"},
     )
     node = store.get_node("n-prov")
     assert node is not None

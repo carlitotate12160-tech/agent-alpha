@@ -1,5 +1,5 @@
-# agent_alpha/oracle/verifier.py
-"""Oracle protocol and CredReuseOracle — independent verification (Phase 5 Moat).
+# agent_alpha/attestation/attestor.py
+"""Attestor protocol and CredReuseAttestor — independent verification (Phase 5 Moat).
 
 DOCTRINE: Independent Verification Axiom — the verification mechanism MUST differ
 in failure mode from the finder. A tool self-reporting "I got access" is
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class Verdict(StrEnum):
-    """Result of an oracle verification attempt.
+    """Result of an attestor verification attempt.
 
     Confidence mapping:
       - CONFIRMED: independent signal validates the access claim. The access
@@ -41,19 +41,19 @@ class Verdict(StrEnum):
 
 
 @runtime_checkable
-class Oracle(Protocol):
-    """Independent verification oracle — confirms, refutes, or is inconclusive."""
+class Attestor(Protocol):
+    """Independent verification attestor — confirms, refutes, or is inconclusive."""
 
     def verify(self, node: Any, graph: Any) -> Verdict: ...
 
 
-class CredReuseOracle:
+class CredReuseAttestor:
     """Verifies ACCESS_LEVEL nodes by checking for real auth events backed by
     harvested credential reuse.
 
-    Lyndon check: this oracle exists because a tool's self-report ("I got admin")
+    Lyndon check: this attestor exists because a tool's self-report ("I got admin")
     is NOT proof. The tool and the verifier MUST differ in failure mode — a bug in
-    the exploit tool should not also fool the verifier. CredReuseOracle checks for
+    the exploit tool should not also fool the verifier. CredReuseAttestor checks for
     an independent auth signal (proof_artifacts of type "authenticated_request")
     that the finder tool did NOT produce as part of its own self-report.
 
@@ -61,8 +61,8 @@ class CredReuseOracle:
       - UNVERIFIED: node discovered, no tool has claimed success.
       - SELF_VERIFIED: tool self-reports success (e.g. beta login returned 200).
         This is the tool's own claim — not independently confirmed.
-      - CROSS_VERIFIED: an oracle (this class) has independently confirmed the
-        claim via run_verification_pass. ONLY reachable through the oracle +
+      - CROSS_VERIFIED: an attestor (this class) has independently confirmed the
+        claim via run_verification_pass. ONLY reachable through the attestor +
         provenance-checked NodeVerified event. Never from tool self-report,
         graph walk, or direct construction in production.
 
@@ -73,9 +73,9 @@ class CredReuseOracle:
       4. Access node has proof_artifacts containing "authenticated_request".
       5. Does NOT rely on node.verified (tool self-report).
 
-    Integration: CredReuseOracle is consumed by run_verification_pass(), which
-    iterates ACCESS_LEVEL nodes, runs each oracle, and emits NodeVerified events
-    with oracle provenance on CONFIRMED. The graph store promotes nodes to
+    Integration: CredReuseAttestor is consumed by run_verification_pass(), which
+    iterates ACCESS_LEVEL nodes, runs each attestor, and emits NodeVerified events
+    with attestor provenance on CONFIRMED. The graph store promotes nodes to
     CROSS_VERIFIED only when the event carries provenance.
 
     CONFIRMED: access node has proof_artifacts with type "authenticated_request"
@@ -156,21 +156,21 @@ class CredReuseOracle:
 def run_verification_pass(
     graph_store: Any,
     event_store: Any,
-    oracles: list[Oracle],
+    attestors: list[Attestor],
     engagement_id: str,
 ) -> None:
-    """Run all oracles against ACCESS_LEVEL nodes and emit NodeVerified events.
+    """Run all attestors against ACCESS_LEVEL nodes and emit NodeVerified events.
 
-    Pure orchestration: reads the graph, runs each oracle, emits events.
+    Pure orchestration: reads the graph, runs each attestor, emits events.
     Tier promotion (SELF_VERIFIED → CROSS_VERIFIED) happens via the
     NodeVerified event in the graph store (event-sourced), NOT by
     mutating the node directly.
 
     The provenance guard is on BOTH sides:
-      - EMISSION (here): every NodeVerified event carries oracle provenance
-        (oracle class name + verdict) so the source is auditable.
+      - EMISSION (here): every NodeVerified event carries attestor provenance
+        (attestor class name + verdict) so the source is auditable.
       - CONSUMPTION (networkx_store.apply_event): only promotes to
-        CROSS_VERIFIED when the event payload contains a non-empty "oracle"
+        CROSS_VERIFIED when the event payload contains a non-empty "attestor"
         field. A tool or arbitrary caller that emits NodeVerified without
         provenance will NOT promote the node.
 
@@ -181,7 +181,7 @@ def run_verification_pass(
         graph_store: the NetworkXGraphStore (or duck-type) to read nodes/edges from
             and to apply the emitted NodeVerified events to.
         event_store: the EventStore to append NodeVerified events to (audit trail).
-        oracles: list of Oracle instances to run against each ACCESS_LEVEL node.
+        attestors: list of Attestor instances to run against each ACCESS_LEVEL node.
         engagement_id: the engagement ID for the event store.
     """
     from agent_alpha.graph.nodes import NodeType
@@ -189,28 +189,28 @@ def run_verification_pass(
     access_nodes = graph_store.nodes_by_type(NodeType.ACCESS_LEVEL)
 
     for node in access_nodes:
-        for oracle in oracles:
-            verdict = oracle.verify(node, graph_store)
+        for attestor in attestors:
+            verdict = attestor.verify(node, graph_store)
             if verdict == Verdict.CONFIRMED:
                 payload = {
                     "node_id": node.id,
-                    "oracle": type(oracle).__name__,
+                    "attestor": type(attestor).__name__,
                     "verdict": "confirmed",
                 }
                 # Append to the durable event store (audit trail).
                 event_store.append(
                     "NodeVerified",
                     engagement_id,
-                    "oracle",
+                    "attestor",
                     payload,
                 )
                 # Apply to the graph store (promote tier via event-sourced path).
                 graph_store.apply_event("NodeVerified", payload)
                 logger.info(
-                    "Oracle %s CONFIRMED node %s — promoted to CROSS_VERIFIED",
-                    type(oracle).__name__,
+                    "Attestor %s CONFIRMED node %s — promoted to CROSS_VERIFIED",
+                    type(attestor).__name__,
                     node.id,
                 )
-                # First oracle to confirm wins — no need to run remaining oracles
+                # First attestor to confirm wins — no need to run remaining attestors
                 # for this node (the node is already promoted).
                 break
