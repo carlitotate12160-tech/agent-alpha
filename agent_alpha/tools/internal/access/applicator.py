@@ -299,7 +299,8 @@ class GovernedApplicator:
         self.required_auth = applicator.required_auth
 
     def applies_to(self, credential_service: str, target: str) -> bool:
-        return self._inner.applies_to(credential_service, target)
+        result: bool = self._inner.applies_to(credential_service, target)
+        return result
 
     def apply(self, username: str, secret: str, target: str, budget: ResourceBudget) -> AuthResult:
         host = urlparse(target).hostname or target
@@ -314,4 +315,7 @@ class GovernedApplicator:
                 error="credential-attempt budget exhausted (lockout safety, §12.22 D2)",
             )
         self._governor.record_attempt(host, username)
-        return self._inner.apply(username=username, secret=secret, target=target, budget=budget)
+        result: AuthResult = self._inner.apply(
+            username=username, secret=secret, target=target, budget=budget
+        )
+        return result
