@@ -48,6 +48,7 @@ from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
+from agent_alpha.tools.internal.access.cred_finding_catalog import resolve_cred_finding_spec
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 from agent_alpha.tools.internal.access.odoo_access import OdooAccessTool
@@ -359,6 +360,10 @@ class Beta:
         #    from content, like scout/Laravel #45) ──────────────────
         finding = result.findings[0]
         access_level: str = finding["access_level"]
+        # Resolve the credential-finding class ONCE (SSOT catalog) so BOTH the audit
+        # event and the vuln node are labelled accurately — a predictable-credential
+        # win is never recorded as a default credential (report + audit accuracy).
+        spec = resolve_cred_finding_spec(finding.get("finding_class"))
 
         # DEEP-REDACT proof before persisting — recursively redact all
         # strings in nested dicts/lists so no raw header/cookie value
@@ -392,7 +397,7 @@ class Beta:
                 self._engagement_id,
                 "beta",
                 {
-                    "type": "default_credential_validated",
+                    "type": spec.validated_event_type,
                     "username": finding["username"],
                     "target": self._entry_point,
                     "access_level": access_level,
@@ -436,14 +441,16 @@ class Beta:
         # Otherwise, mint a new CREDENTIAL node for default_creds.
         cred_node_id = finding.get("credential_node_id")
         if not cred_node_id:
-            vuln_node_id = f"vuln:{host}:default_credentials"
+            # Vuln id + CVSS from the SSOT catalog spec resolved above — one resolve
+            # feeds both the audit event and this node (no second lookup, #7).
+            vuln_node_id = f"vuln:{host}:{spec.vuln_id_suffix}"
             vuln_node = AttackNode(
                 id=vuln_node_id,
                 type=NodeType.VULNERABILITY,
                 properties=VulnerabilityProperties(
                     affected_service=finding.get("service", "http"),
-                    cvss_score=9.8,
-                    exploit_available=True,
+                    cvss_score=spec.cvss,
+                    exploit_available=spec.exploit_available,
                 ),
                 confidence=result.confidence,
                 agent="beta",
