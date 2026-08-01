@@ -1850,8 +1850,10 @@ class Alpha:
     def _extract_hrefs(self, html: str, base_url: str) -> list[str]:
         """Extract absolute same-origin hrefs from *html*.
 
-        Resolves relative paths against *base_url*, skips anchors/mailto/
-        javascript/tel, and filters to the same scheme+host as *base_url*.
+        Matches ``href`` on ``<a>`` and ``src`` on ``<frame>``/``<iframe>``
+        (frameset and framed-content sites carry their navigation there, not
+        in ``<a>`` tags).  Resolves relative paths against *base_url*, skips
+        mailto/javascript/tel, and filters to the same scheme+host as *base_url*.
         Scope-gate (``authorization.is_in_scope``) is applied separately in
         ``enqueue_discovered_url`` — this is the HTML-level same-origin filter.
         """
@@ -1859,7 +1861,11 @@ class Alpha:
         base_origin = (base.scheme, base.hostname or "")
 
         hrefs: list[str] = []
-        for match in re.finditer(r'<a\s[^>]*href=["\']([^"\'#][^"\']*)["\']', html, re.IGNORECASE):
+        for match in re.finditer(
+            r'<(?:a\s[^>]*href|i?frame\s[^>]*src)=["\']([^"\'#][^"\']*)["\']',
+            html,
+            re.IGNORECASE,
+        ):
             raw = match.group(1).strip()
             if not raw or raw.startswith(("mailto:", "javascript:", "tel:")):
                 continue
