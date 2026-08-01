@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import socket
+from collections.abc import Sequence
 from typing import Any
 
 from agent_alpha.recon.passive_discovery import CRTSH_URL_TEMPLATE, parse_crtsh_names
@@ -74,6 +75,7 @@ def discover_origin_ips(
     http_client: Any,
     authorization: Any,
     *,
+    seed_hosts: Sequence[str] = (),
     crtsh_url_template: str = CRTSH_URL_TEMPLATE,
     max_probe_candidates: int = 10,
     crtsh_timeout: float = 60.0,
@@ -87,7 +89,9 @@ def discover_origin_ips(
       4. Probe each candidate with Host:domain header
       5. Return confirmed origin IPs (up to max_probe_candidates checked)
 
-    Returns [] if crt.sh returns no subdomains or all IPs are CF/unresponsive.
+    Candidates come from crt.sh subdomains AND *seed_hosts* (in-scope authorized
+    target hostnames) — a grey-cloud subdomain CT never logged is still found.
+    Returns [] if no candidate resolves to a confirmed non-CF origin.
     Caller must add returned IPs to EngagementProfile.authorized_origins before
     origin_direct_fetch will use them (auth gate — anti-bypass).
     """
@@ -101,23 +105,42 @@ def discover_origin_ips(
     if not authorization.is_in_scope(engagement_id, domain):
         return []
 
-    # Step 1: fetch crt.sh (can be slow — use extended timeout)
+    # Step 1: fetch crt.sh (best-effort — a CT miss must NOT abort; the in-scope
+    # seed_hosts are an independent origin-candidate source, §12.44).
     url = crtsh_url_template.format(domain=domain)
+    subdomains: list[str] = []
     try:
         from agent_alpha.agents.http_client import HttpClientError
 
         resp = http_client.get(url)
         subdomains = parse_crtsh_names(resp.text, domain)
     except (HttpClientError, OSError):  # network errors, DNS failures, etc.
-        _log.warning("origin_resolver: crt.sh fetch failed for %s", domain)
-        return []
+        _log.warning(
+            "origin_resolver: crt.sh fetch failed for %s (seed_hosts may still yield)", domain
+        )
 
-    _log.info("origin_resolver: %d subdomains from CT for %s", len(subdomains), domain)
+    # Origin candidates = crt.sh subdomains ∪ in-scope seed hosts (authorized target
+    # subdomains). A grey-cloud subdomain (non-CF) that CT never logged — e.g. under a
+    # wildcard / CF Universal-SSL cert — is the #1 real origin leak. Resolving a KNOWN
+    # authorized host is discovery (the IP comes from DNS), NOT a hand-fed origin.
+    candidate_hosts: set[str] = set(subdomains)
+    for raw in seed_hosts:
+        host = (raw or "").strip().lower()
+        if host and authorization.is_in_scope(engagement_id, host):
+            candidate_hosts.add(host)
+
+    _log.info(
+        "origin_resolver: %d CT subdomain(s) + %d seed → %d candidate host(s) for %s",
+        len(subdomains),
+        len(tuple(seed_hosts)),
+        len(candidate_hosts),
+        domain,
+    )
 
     # Step 2+3: resolve and filter
     candidates: set[str] = set()
-    for subdomain in subdomains:
-        for ip in _resolve_ipv4(subdomain):
+    for hostname in candidate_hosts:
+        for ip in _resolve_ipv4(hostname):
             if not is_cloudflare_ip(ip):
                 candidates.add(ip)
 

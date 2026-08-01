@@ -15,7 +15,11 @@ client_id: "alpha_ai_lab"
 scope:
   ip_ranges: []
   domains:
-    - "alpha-ai.web.id"        # covers wp/laravel/odoo/direct subdomains + origin discovery
+    - "alpha-ai.web.id"        # root domain
+    - "wp.alpha-ai.web.id"     # WP target (recon + cred strike)
+    - "laravel.alpha-ai.web.id"  # Laravel sibling (origin discovery via CT)
+    - "odoo.alpha-ai.web.id"   # Odoo sibling (origin discovery via CT)
+    - "direct.alpha-ai.web.id" # Direct (non-CF) sibling
   exclusions: []
 
 recon_url: "https://wp.alpha-ai.web.id/"            # WP root → wp_fingerprint → wp_rest_users

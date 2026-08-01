@@ -177,3 +177,77 @@ def test_max_probe_candidates_bounds_probes() -> None:
 
     assert len(res) == 3
     assert mock_probe.call_count == 3
+
+
+# ── seed_hosts: origin found even when crt.sh misses the grey-cloud subdomain ──
+# (root cause of the alpha-ai.web.id field-prove: wp.<domain> has no own CT entry;
+#  it resolves DIRECT to the non-CF origin. Seeding the authorized target finds it.)
+
+
+class _ScopedAuth:
+    def __init__(self, hosts: set[str]) -> None:
+        self._hosts = hosts
+
+    def can_agent_proceed(self, agent_id: object, engagement_id: str) -> bool:
+        return True
+
+    def is_in_scope(self, engagement_id: str, domain: str) -> bool:
+        return domain in self._hosts or any(domain.endswith("." + h) for h in self._hosts)
+
+
+class _RaisingHttp:
+    def get(self, url: str, **_: object) -> object:
+        from agent_alpha.agents.http_client import HttpClientError
+
+        raise HttpClientError("crt.sh down")
+
+
+_DNS = {"alpha-ai.web.id": ["172.67.139.199"], "wp.alpha-ai.web.id": ["168.110.192.62"]}
+
+
+def _fake_resolve(host: str) -> list[str]:
+    return _DNS.get(host, [])
+
+
+def _fake_is_cf(ip: str) -> bool:
+    return ip.startswith("172.67.") or ip.startswith("104.21.")
+
+
+@patch("agent_alpha.recon.origin_resolver._probe_as_origin", return_value=True)
+@patch("agent_alpha.recon.origin_resolver.is_cloudflare_ip", side_effect=_fake_is_cf)
+@patch("agent_alpha.recon.origin_resolver._resolve_ipv4", side_effect=_fake_resolve)
+def test_seed_host_discovers_origin_crtsh_missed(_r: object, _cf: object, _p: object) -> None:
+    """crt.sh only has the CF-fronted apex; the in-scope target subdomain (grey-cloud)
+    resolves to the real origin. Seeding it discovers what CT never logged (§12.44)."""
+    http = _FakeHttp(_crtsh_json(["alpha-ai.web.id"]))
+    ips = discover_origin_ips(
+        "eng", "alpha-ai.web.id", http, _OkAuth(), seed_hosts=["wp.alpha-ai.web.id"]
+    )
+    assert ips == ["168.110.192.62"]
+
+
+@patch("agent_alpha.recon.origin_resolver._probe_as_origin", return_value=True)
+@patch("agent_alpha.recon.origin_resolver.is_cloudflare_ip", side_effect=_fake_is_cf)
+@patch("agent_alpha.recon.origin_resolver._resolve_ipv4", side_effect=_fake_resolve)
+def test_crtsh_failure_still_yields_via_seed(_r: object, _cf: object, _p: object) -> None:
+    """A crt.sh outage must NOT abort — seed_hosts are an independent candidate source."""
+    ips = discover_origin_ips(
+        "eng", "alpha-ai.web.id", _RaisingHttp(), _OkAuth(), seed_hosts=["wp.alpha-ai.web.id"]
+    )
+    assert ips == ["168.110.192.62"]
+
+
+@patch("agent_alpha.recon.origin_resolver._probe_as_origin", return_value=True)
+@patch("agent_alpha.recon.origin_resolver.is_cloudflare_ip", side_effect=_fake_is_cf)
+@patch("agent_alpha.recon.origin_resolver._resolve_ipv4", side_effect=_fake_resolve)
+def test_out_of_scope_seed_host_dropped(_r: object, _cf: object, _p: object) -> None:
+    """An out-of-scope seed host is never resolved (scope gate holds on seeds too)."""
+    http = _FakeHttp(_crtsh_json([]))
+    ips = discover_origin_ips(
+        "eng",
+        "alpha-ai.web.id",
+        http,
+        _ScopedAuth({"alpha-ai.web.id"}),
+        seed_hosts=["wp.other-evil.com"],
+    )
+    assert ips == []
