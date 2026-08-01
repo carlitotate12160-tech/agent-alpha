@@ -326,3 +326,62 @@ def test_frontier_grows_on_multi_link_target_not_on_dead_end(
     # Exact expectation: multi-link has seed + 2; dead-end has seed only
     assert len(alpha_multi_link._work_queue) == 3  # seed + /products + /contact
     assert len(alpha_single_page._work_queue) == 1  # seed only
+
+
+# ---------------------------------------------------------------------------
+# T7 — frameset / framed-content href extraction  (BUG 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def alpha_frameset() -> Alpha:
+    """Alpha whose target is a frameset shell — the only in-scope links live in
+    ``<frame src>`` / ``<iframe src>``, not in any ``<a href>``.
+
+    Mirrors framed-content sites whose homepage is a bare frameset: an
+    ``<a>``-only extractor sees zero links and the whole site stays invisible
+    to recon (BUG 3)."""
+    body = """<html>
+    <frameset cols="200,*">
+      <frame src="/menu" name="nav">
+      <frame src="https://target.example.com/main-content">
+    </frameset>
+    <iframe src="/embed/report.php"></iframe>
+    <iframe src="https://evil.com/tracker"></iframe>
+    </html>"""
+    return _make_alpha(body=body)
+
+
+def test_extract_hrefs_frameset_extracts_frame_and_iframe_src(alpha_frameset: Alpha) -> None:
+    """``_extract_hrefs`` must pull same-origin ``<frame src>`` and ``<iframe src>``
+    so frameset sites yield crawlable links instead of an empty frontier.
+
+    RED before the fix: the ``<a>``-only regex returns []."""
+    seed = f"https://{_SCOPE_HOST}"
+    body = alpha_frameset.http_client.get(seed).text
+    hrefs = alpha_frameset._extract_hrefs(body, seed)
+
+    assert f"https://{_SCOPE_HOST}/menu" in hrefs
+    assert f"https://{_SCOPE_HOST}/main-content" in hrefs
+    assert f"https://{_SCOPE_HOST}/embed/report.php" in hrefs
+
+
+def test_extract_hrefs_frameset_drops_cross_origin_src(alpha_frameset: Alpha) -> None:
+    """The same-origin filter still applies to frame/iframe src: an out-of-scope
+    ``<iframe src>`` must never enter the frontier (no scope bypass via framing)."""
+    seed = f"https://{_SCOPE_HOST}"
+    body = alpha_frameset.http_client.get(seed).text
+    hrefs = alpha_frameset._extract_hrefs(body, seed)
+
+    assert not any("evil.com" in h for h in hrefs), f"cross-origin src leaked: {hrefs}"
+
+
+def test_extract_hrefs_frame_src_uppercase_and_attr_before_src(alpha: Alpha) -> None:
+    """Real frameset markup varies: uppercase tags, attributes before ``src``,
+    single-quoted values. ``_extract_hrefs`` must handle them (case-insensitive)."""
+    seed = f"https://{_SCOPE_HOST}"
+    body = "<FRAME NAME='nav' SRC='/dashboard'><IFRAME class='x' src=\"/panel\"></IFRAME>"
+    hrefs = alpha._extract_hrefs(body, seed)
+
+    assert f"https://{_SCOPE_HOST}/dashboard" in hrefs
+    assert f"https://{_SCOPE_HOST}/panel" in hrefs
