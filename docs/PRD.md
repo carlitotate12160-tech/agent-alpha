@@ -48,11 +48,12 @@ report a client will pay for — at a price point a scanner-plus-consultant cann
 - **Geography first:** Indonesia, then SE Asia. Local-context templates are a moat.
 
 **Positioning (vantage + footprint).** Agent-Alpha simulates an EXTERNAL, unauthenticated internet
-adversary (black-box: no implant, source, or foothold at t0) and is AGENTLESS (nothing installed
-on client targets, safe-in-production). Perimeter breach — reach, WAF/CDN evasion, origin
-discovery — is the first kill-chain segment. Every payable finding is independently verified AND
-carries visual proof (see ADR §12.42 / §12.43). Internal/assumed-breach engagements are a later
-secondary profile via pivot, not the default entry.
+adversary (black-box: no implant, source, or foothold at t0) and is AGENTLESS (no software installed
+on client targets). Perimeter breach — reach, WAF/CDN evasion, origin discovery — is the first
+kill-chain segment. Every payable finding is independently verified (`cross_verified`) and carries
+a human-legible ProofArtifact (screenshot + HAR); see ADR §12.42 / §12.43 for the full proof
+contract. Internal/assumed-breach engagements are a later secondary profile via pivot, not the
+default entry.
 
 ## 3. Jobs-to-be-done
 

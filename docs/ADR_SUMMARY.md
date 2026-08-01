@@ -154,5 +154,6 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   vs #4/#5.
 - **12.43** Proof standard (extends §12.31/§12.32): payable finding needs BOTH an INDEPENDENT
   oracle (different failure mode → cross_verified) AND a human-legible ProofArtifact (screenshot +
-  HAR, storage_ref). Screenshot = EXHIBIT, not oracle (anti-#3). Access/login oracle = auth-vs-
-  unauth ground-truth diff. Missing oracle or visual → downgrade, excluded from KPI.
+  HAR, storage_ref). Raw HAR vault-only; redacted artifact for client reports. Screenshot = EXHIBIT,
+  not oracle (anti-#3). Access/login oracle = auth-vs-unauth ground-truth diff. Missing OR invalid
+  oracle, visual, or storage_ref → downgrade, excluded from KPI.
