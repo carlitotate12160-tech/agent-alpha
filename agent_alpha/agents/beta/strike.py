@@ -48,6 +48,7 @@ from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
+from agent_alpha.tools.internal.access.cred_finding_catalog import resolve_cred_finding_spec
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 from agent_alpha.tools.internal.access.odoo_access import OdooAccessTool
@@ -436,14 +437,19 @@ class Beta:
         # Otherwise, mint a new CREDENTIAL node for default_creds.
         cred_node_id = finding.get("credential_node_id")
         if not cred_node_id:
-            vuln_node_id = f"vuln:{host}:default_credentials"
+            # Vuln class + CVSS come from the finding's declared class (SSOT catalog),
+            # not hardcoded — so a predictable-credential win (GAP-015) is reported
+            # ACCURATELY, not mislabelled as a default credential. Absent class →
+            # DEFAULT_CREDENTIALS (byte-identical to prior default_creds behaviour).
+            spec = resolve_cred_finding_spec(finding.get("finding_class"))
+            vuln_node_id = f"vuln:{host}:{spec.vuln_id_suffix}"
             vuln_node = AttackNode(
                 id=vuln_node_id,
                 type=NodeType.VULNERABILITY,
                 properties=VulnerabilityProperties(
                     affected_service=finding.get("service", "http"),
-                    cvss_score=9.8,
-                    exploit_available=True,
+                    cvss_score=spec.cvss,
+                    exploit_available=spec.exploit_available,
                 ),
                 confidence=result.confidence,
                 agent="beta",
