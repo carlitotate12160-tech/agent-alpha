@@ -82,6 +82,7 @@ __all__ = [
     "EVASION_MAX_ESCALATIONS_PER_HOST",
     "CRED_LOCKOUT_MAX_ATTEMPTS_PER_USERNAME",
     "CRED_LOCKOUT_MAX_ATTEMPTS_PER_HOST",
+    "USER_DERIVED_MAX_CANDIDATES_PER_USER",
     "TECHNIQUE_FOR_MITIGATION_CLASS",
     "ODOO_VERSION_INFO_PATH",
     "ODOO_VERSION_JSONRPC_BODY",
@@ -520,6 +521,10 @@ CRED_LOCKOUT_MAX_ATTEMPTS_PER_USERNAME = 3
 # Per-host aggregate: bounds total login noise across ALL usernames on a host
 # (IP-ban / WAF-trip safety), even when each account stays under its own cap.
 CRED_LOCKOUT_MAX_ATTEMPTS_PER_HOST = 20
+# Max login candidates DERIVED per enumerated username (GAP-015 derive-not-spray).
+# Bounds the candidate space per account so there is no combinatorial blow-up;
+# candidates are context-derived only (no static wordlist). Single source (#7).
+USER_DERIVED_MAX_CANDIDATES_PER_USER = 4
 # Class-driven technique selection (anti-#11: class drives technique, NOT a
 # fixed ladder). Key = MitigationClass.value, value = EvasionTechnique.value.
 # "abort" → "none" means never escalate on that class.

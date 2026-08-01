@@ -52,6 +52,7 @@ from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGove
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 from agent_alpha.tools.internal.access.odoo_access import OdooAccessTool
+from agent_alpha.tools.internal.access.user_derived_creds import UserDerivedCredsTool
 from agent_alpha.tools.registry import ToolRegistry
 
 # Budget for the default-creds tool — generous enough for the full dictionary
@@ -331,6 +332,12 @@ class Beta:
             DefaultCredsTool(
                 applicators=self._cred_applicators,
                 http_client=self.http_client,
+                lockout=self._cred_lockout,
+            ),
+            UserDerivedCredsTool(
+                graph_store=self.graph_store,
+                http_client=self.http_client,
+                applicators=self._cred_applicators,
                 lockout=self._cred_lockout,
             ),
             OdooAccessTool(
