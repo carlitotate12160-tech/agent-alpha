@@ -33,6 +33,7 @@ dependencies = [
     "camoufox[geoip]>=0.5.4",
     "dnspython>=2.6.1",
     "curl_cffi",
+    "publicsuffix2==2.20191221",
 ]
 
 [tool.setuptools.packages.find]
