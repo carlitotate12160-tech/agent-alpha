@@ -48,11 +48,11 @@ from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
+from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 from agent_alpha.tools.internal.access.odoo_access import OdooAccessTool
 from agent_alpha.tools.registry import ToolRegistry
-from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 
 # Budget for the default-creds tool — generous enough for the full dictionary
 # but bounded (anti-Lyndon #7: single source, not a magic number in step).

@@ -20,12 +20,10 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 from agent_alpha.config import constants
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext
-from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 from agent_alpha.tools.internal.access.applicator import AuthResult
+from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 
 _HOST = "app.example.com"
