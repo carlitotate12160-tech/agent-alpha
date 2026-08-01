@@ -1,0 +1,22 @@
+# GAP-015 field-prove — alpha-ai.web.id (self-owned lab, origin-exposure + predictable-cred)
+#
+# Consumed by: agent_alpha/live_fire/gap015_field_prove.py -> load_config()
+# Run:         python -m agent_alpha.live_fire.gap015_field_prove <this-file.yaml>
+#
+# Scenario A: wp.alpha-ai.web.id is CF-Proxied; a grey-cloud sibling (direct/laravel/
+# odoo) exposes the origin 168.110.192.62 via a CT-logged LE cert. origin_resolver
+# discovers it (crt.sh) → origin-direct bypasses CF → Alpha enumerates WP users →
+# Beta UserDerivedCredsTool derives a predictable credential → admin.
+#
+# AUTHORIZATION: every host is self-owned + in lab_guard._LAB_HOSTS (ownership-proofed).
+
+client_id: "alpha_ai_lab"
+
+scope:
+  ip_ranges: []
+  domains:
+    - "alpha-ai.web.id"        # covers wp/laravel/odoo/direct subdomains + origin discovery
+  exclusions: []
+
+recon_url: "https://wp.alpha-ai.web.id/"            # WP root → wp_fingerprint → wp_rest_users
+entry_point: "https://wp.alpha-ai.web.id/wp-login.php"
