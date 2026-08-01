@@ -48,6 +48,7 @@ from agent_alpha.graph.persist import persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, Tool
+from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 from agent_alpha.tools.internal.access.cred_reuse import CredReuseTool
 from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 from agent_alpha.tools.internal.access.odoo_access import OdooAccessTool
@@ -170,6 +171,7 @@ class Beta:
         secrets_manager: Any = None,
         cred_applicators: list[Any] | None = None,
         session_store: Any | None = None,
+        cred_lockout: Any | None = None,
     ) -> None:
         self.authorization = authorization
         self.graph_store = graph_store
@@ -179,6 +181,9 @@ class Beta:
         self._secrets_manager = secrets_manager
         self._cred_applicators = cred_applicators or []
         self.session_store = session_store
+        # Shared, engagement-scoped credential-attempt lockout (§12.22 D2):
+        # one governor across all cred tools so per-account/host caps hold.
+        self._cred_lockout = cred_lockout or CredentialLockoutGovernor()
 
         # Per-run state (initialised in run_strike).
         self._engagement_id: str = ""
@@ -323,7 +328,11 @@ class Beta:
                 graph_store=self.graph_store,
                 secrets_manager=self._secrets_manager,
             ),
-            DefaultCredsTool(applicators=self._cred_applicators, http_client=self.http_client),
+            DefaultCredsTool(
+                applicators=self._cred_applicators,
+                http_client=self.http_client,
+                lockout=self._cred_lockout,
+            ),
             OdooAccessTool(
                 http_client=self.http_client,
                 graph_store=self.graph_store,
