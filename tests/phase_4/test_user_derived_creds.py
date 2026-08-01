@@ -20,8 +20,9 @@ from typing import Any
 
 from agent_alpha.config import constants
 from agent_alpha.graph.nodes import AttackNode, NodeType, UserProperties
-from agent_alpha.tools.contracts import TargetContext
+from agent_alpha.tools.contracts import ResourceBudget, TargetContext
 from agent_alpha.tools.internal.access import user_derived_creds as mod
+from agent_alpha.tools.internal.access.applicator import AuthResult
 from agent_alpha.tools.internal.access.user_derived_creds import (
     UserDerivedCredsTool,
     derive_login_candidates,
@@ -106,3 +107,90 @@ def test_applies_low_when_credential_already_harvested() -> None:
     """A harvested credential outranks guessing — cred_reuse takes over."""
     tool = UserDerivedCredsTool(graph_store=_FakeGraph(["admin"]))
     assert tool.applies_to(_ctx(prior=("credential leaked",))) == 0.1
+
+
+# ── run(): compose derived candidates through the governed applicator roster ─────
+
+_BUDGET = ResourceBudget(max_requests=50, max_seconds=5, max_cost_usd=0.0)
+
+
+class _FakeApplicator:
+    """Records every (username, password) that reaches the wire; 'succeeds' only for
+    the pairs in *wins*."""
+
+    def __init__(self, wins: set[tuple[str, str]]) -> None:
+        self.wins = wins
+        self.calls: list[tuple[str, str]] = []
+
+    def applies_to(self, credential_service: str, target: str) -> bool:  # noqa: ARG002
+        return True
+
+    def apply(self, *, username: str, secret: str, target: str, budget: Any) -> AuthResult:  # noqa: ARG002
+        self.calls.append((username, secret))
+        ok = (username, secret) in self.wins
+        return AuthResult(
+            success=ok,
+            access_level="admin" if ok else "",
+            service="http",
+            confidence=0.9 if ok else 0.0,
+            proof_request={},
+            proof_response={},
+            session_cookie_name="session" if ok else None,
+        )
+
+
+class _FakeBound:
+    def __init__(self, applicator: Any, target: str) -> None:
+        self.applicator = applicator
+        self.target = target
+
+
+def _tool(users: list[str], applicator: Any) -> UserDerivedCredsTool:
+    return UserDerivedCredsTool(
+        graph_store=_FakeGraph(users),
+        http_client=object(),  # non-None; wire is the fake applicator
+        applicators=[_FakeBound(applicator, "https://bernofarm.com")],
+    )
+
+
+def test_run_returns_predictable_credential_finding_on_success() -> None:
+    """A derived guess that works yields a success ToolResult tagged
+    finding_class='predictable_credential' (so Beta.step mints the accurate node)."""
+    app = _FakeApplicator(wins={("editor", "editor123")})
+    result = _tool(["editor"], app).run(_ctx(), _BUDGET)
+
+    assert result.success is True
+    finding = result.findings[0]
+    assert finding["username"] == "editor"
+    assert finding["password"] == "editor123"
+    assert finding["access_level"] == "admin"
+    assert finding["finding_class"] == "predictable_credential"
+
+
+def test_run_only_tries_derived_candidates_no_spray() -> None:
+    """Every submission is a context-derived candidate — no external wordlist, bounded
+    to the 4 derivations of the username + domain stem."""
+    app = _FakeApplicator(wins=set())  # nothing works → exhausts the derived set
+    _tool(["editor"], app).run(_ctx(), _BUDGET)
+
+    tried = {pw for _, pw in app.calls}
+    assert tried <= {"editor", "editor123", "bernofarm", "bernofarm123"}
+    assert all(u == "editor" for u, _ in app.calls)
+
+
+def test_run_no_enumerated_users_is_failure() -> None:
+    """Without USER nodes the tool has no input — honest failure, no wire touched."""
+    app = _FakeApplicator(wins=set())
+    result = _tool([], app).run(_ctx(), _BUDGET)
+    assert result.success is False
+    assert app.calls == []
+
+
+def test_run_never_submits_on_ungoverned_wire() -> None:
+    """Safety: with NO governed applicator injected, nothing is submitted — derived
+    guessing must never run off an ungoverned wire (no standalone fallback)."""
+    tool = UserDerivedCredsTool(
+        graph_store=_FakeGraph(["editor"]), http_client=object(), applicators=[]
+    )
+    result = tool.run(_ctx(), _BUDGET)
+    assert result.success is False

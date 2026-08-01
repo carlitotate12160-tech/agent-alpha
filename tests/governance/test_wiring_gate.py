@@ -48,6 +48,12 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "discovered_in_scope": (
         "conductor/recon_runner.py",
     ),  # §12.41: in-scope passive subdomains → recon targets
+    "UserDerivedCredsTool": (
+        "agents/beta/strike.py",
+    ),  # GAP-015: username-derived cred tool wired + run() authored (live)
+    "GovernedApplicator": (
+        "conductor/applicator_factory.py",
+    ),  # §12.22 D2: lockout seam wraps every applicator in the factory
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
