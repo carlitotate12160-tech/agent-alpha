@@ -157,3 +157,12 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   HAR, storage_ref). Raw HAR vault-only; redacted artifact for client reports. Screenshot = EXHIBIT,
   not oracle (anti-#3). Access/login oracle = auth-vs-unauth ground-truth diff. Missing OR invalid
   oracle, visual, or storage_ref → downgrade, excluded from KPI.
+- **12.44** Evasion technique catalog (extends §12.33/§12.42): ROI ladder — (1) origin-direct = bypass
+  the edge, defeats ALL classes, datacenter-viable, highest ROI (invest in origin-discovery breadth);
+  (2) fingerprint parity JA4/HTTP2/header-triad (FINGERPRINT, datacenter); (3) rate/behavioral +
+  cf_clearance reuse; (4) IP-reputation/managed-challenge = INFRA-bound (residential proxy OR
+  client-side SOW whitelist/lower-protection), NOT code, CAPTCHA solvers FORBIDDEN; (5) WAF-signature =
+  DeepSeek/Gamma. `evasion/` package = EvasionTechnique registry + executors, each declaring class +
+  viability(datacenter|infra|client_side|forbidden). Evasion is EXTERNAL-vantage-specific (irrelevant
+  to a future internal product). Build slice-by-slice on real obstacles, not up front. alpha-ai.web.id
+  full-CF from datacenter → only viable code lever is origin-direct.

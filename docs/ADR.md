@@ -2571,3 +2571,89 @@ finding classes use their class-appropriate independent oracle. No new agent, no
 
 **Lyndon check.** #3 false success — this IS the fix (screenshot-as-claim would BE #3; the oracle
 gate prevents it). #6 duplication — extends the §12.31 enum, never redefines it.
+
+---
+
+### 12.44 Evasion technique catalog — datacenter-viable vs infra-bound — PROPOSED (lock on confirm)
+
+**Extends** §12.33 (adaptive evasion, class-scoped) and §12.42 (external vantage). Does NOT
+re-decide §12.33's class→technique mapping; it widens the technique space and classifies each by
+network-position dependency, and defines the home for executors (the empty `evasion/` package).
+
+**Context / gap.** §12.33 locked THREE techniques (rate_throttle, browser_solve, tls_impersonate)
++ the reach-strategy origin-direct, and proved the residential-IP ceiling. But the technique space
+is wider, and the current map conflates "we can't beat this" (infra) with "we haven't built this
+yet" (code). An EXTERNAL agent (§12.42) needs the full catalog, honestly split, so investment goes
+to the datacenter-viable, high-ROI techniques — not to chasing an infra-bound ceiling.
+
+**Positioning note (why this arc is external-specific).** Agent-Alpha is external-first (§12.42).
+The entire evasion arc exists BECAUSE the agent starts on the public internet behind the edge.
+A future internal / assumed-breach product (NodeZero-style, separate name) makes most of this
+irrelevant — from inside, there is no CDN/WAF edge to bypass. So evasion is an EXTERNAL-vantage
+investment and is correctly prioritised now; it is NOT carried into the internal product later.
+
+**Decision — reframe: evasion ROI is a ladder, not "beat the challenge".** For an external
+datacenter-egress agent the value order is:
+
+1. **BYPASS THE EDGE (origin-direct)** — datacenter-viable, defeats ALL classes at once. If the
+   real origin IP is discovered and hit with the owned `Host`, CF/Imperva/Akamai is bypassed
+   entirely (no challenge, no fingerprint check). Gated by §12.38 (two-proof origin ownership).
+   The investment here is ORIGIN DISCOVERY BREADTH — DNS history, cert-SAN correlation, favicon-hash
+   pivot (Shodan/Censys), MX/mail infra sharing, non-fronted subdomains, mis-scoped DNS. Highest ROI;
+   this is also the sellable proposition (origin-exposure bypass), not challenge-defeat.
+2. **FINGERPRINT PARITY** — datacenter-viable, defeats MitigationClass.FINGERPRINT (passive bot
+   block, e.g. bernofarm 403). tls_impersonate/JA3 is the START. Extend: JA4/JA4+, HTTP/2 fingerprint
+   (Akamai h2 SETTINGS/window/priority/pseudo-header order), header order+casing fidelity, client
+   hints (`sec-ch-ua`). INVARIANT: the UA ↔ TLS ↔ HTTP/2 triad must be CONSISTENT — a mismatch is an
+   instant bot flag, worse than no impersonation.
+3. **BEHAVIORAL / RATE REALISM** — datacenter-viable, defeats RATE_LIMIT + soft behavioral scoring.
+   rate_throttle executor + jitter/backoff; session-warming (visit benign paths to earn a
+   `cf_clearance` cookie, then reuse it across the httpx transport — amortise the expensive step).
+4. **IP REPUTATION + INTERACTIVE CHALLENGE** — INFRA-bound, NOT a code problem. Levers:
+   (a) residential/mobile proxy egress (infra); (b) client-side, the professional path for authorized
+   red team — SOW clause: client whitelists the scanner IP OR lowers edge protection during the
+   pentest window. CF managed challenge from a datacenter ASN is IP-reputation-driven; no fingerprint
+   beats it (§12.33, field-proven). Commercial CAPTCHA solvers = FORBIDDEN (§12.33, confidentiality).
+5. **WAF SIGNATURE (RULE_DENY)** — mostly WEAPONISED-PAYLOAD evasion (encoding/mutation, request
+   smuggling, parameter pollution) = DeepSeek lane, Gamma phase — NOT recon reach. For reach,
+   RULE_DENY is not transport-evadable; lever = origin-direct or an alternate recon vector (§12.33).
+
+**Viability matrix (the honest split).**
+
+| Technique | Mitigation class | Datacenter-viable? | Lane / home |
+|-----------|------------------|--------------------|-------------|
+| origin-direct (+ origin discovery breadth) | ALL (bypass) | YES | reach strategy + §12.38 |
+| tls_impersonate (JA3) | FINGERPRINT | YES (built) | evasion/ executor |
+| JA4/JA4+, HTTP/2 fp, header-order, client-hints | FINGERPRINT | YES | evasion/ executor (extend) |
+| rate_throttle + jitter | RATE_LIMIT | YES | evasion/ executor |
+| session-warming / cf_clearance reuse | CHALLENGE (compute) | YES (if IP not blocked) | evasion/ executor |
+| browser_solve (JS-compute challenge) | CHALLENGE | YES only if IP not reputation-gated | browser capability |
+| residential/mobile egress | CHALLENGE (managed) / IP rep | NO — infra | engagement setup, not code |
+| client whitelist / lower-protection window | IP rep / managed | N/A — client-side | SOW clause |
+| commercial CAPTCHA solver | interactive CAPTCHA | FORBIDDEN | — (never) |
+| payload mutation / smuggling | RULE_DENY | (Gamma) | DeepSeek lane, later |
+
+**`evasion/` package structure (the empty folder's purpose).** Home for an `EvasionTechnique`
+registry + EXECUTORS (today the 3 executors live inside `recon/transport_resilience.py`; migrate
+incrementally). Each technique declares: (a) the `MitigationClass` it defeats, (b) `viability`
+(`datacenter` | `infra` | `client_side` | `forbidden`), (c) its executor. The §12.33 planner
+selects by observed obstacle class AND viability — it must NEVER propose an `infra`/`forbidden`
+technique as if it were code-solvable (that is the honesty the current 3-technique map lacks).
+
+**Phase discipline (build order — NOT part of this lock).** Do NOT build the catalog up front.
+§12.33 itself defers by need ("9b deferred — no FINGERPRINT vector in the A1 lab"). Build slice by
+slice, each driven by a REAL obstacle hit on a real target (anti Lyndon #1/#5). Current milestone is
+GAP-015 field-prove, not evasion breadth.
+
+**Current lab reality (alpha-ai.web.id, full CF, datacenter egress).** The obstacle this lab
+presents is CHALLENGE = CF managed challenge, which is IP-reputation-gated → browser_solve NOT
+viable from Oracle (§12.33, empirically). So on THIS lab the only datacenter-viable code lever is
+ORIGIN-DIRECT (discover the origin IP + §12.38 ownership proof); fingerprint parity would not help
+(the block is not fingerprint-class). This directly shapes GAP-015 field-prove: reaching the WP
+login behind full CF requires origin-direct first, or the challenge is unsolvable from datacenter —
+honest, and it tells us WHICH evasion slice (origin discovery) has real pull, not fingerprint.
+
+**Anti-Lyndon.** #1/#5: this is a MENU + honesty classification, not a build order — the guard
+against building evasion breadth speculatively. #3: forbids the planner from presenting an
+infra-bound technique as code-solvable (false capability). #7: technique→class mapping stays single
+-source in constants/§12.33; this ADR widens the menu, does not fork the mapping.
