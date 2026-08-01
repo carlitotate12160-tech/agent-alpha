@@ -292,7 +292,7 @@ class GovernedApplicator:
     here, so all cred tools that use the roster (cred_reuse, default_creds,
     user_derived) inherit the gate with no per-tool code (anti-#6/#7)."""
 
-    def __init__(self, applicator: CredentialApplicator, governor: Any) -> None:
+    def __init__(self, applicator: Any, governor: Any) -> None:
         self._inner = applicator
         self._governor = governor
         self.service = applicator.service
