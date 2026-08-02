@@ -23,9 +23,28 @@ from dataclasses import dataclass
 # Gambling / SEO-spam lexicon (Indonesian + generic). Data-tier — expand as observed.
 _SPAM_TERMS: frozenset[str] = frozenset(
     {
-        "judi", "slot", "togel", "casino", "poker", "gacor", "bandar", "sbobet",
-        "maxwin", "rtp", "pragmatic", "toto", "bola", "taruhan", "jackpot", "pokerv",
-        "domino", "qq", "situs judi", "slot online", "judi online", "slot gacor",
+        "judi",
+        "slot",
+        "togel",
+        "casino",
+        "poker",
+        "gacor",
+        "bandar",
+        "sbobet",
+        "maxwin",
+        "rtp",
+        "pragmatic",
+        "toto",
+        "bola",
+        "taruhan",
+        "jackpot",
+        "pokerv",
+        "domino",
+        "qq",
+        "situs judi",
+        "slot online",
+        "judi online",
+        "slot gacor",
     }
 )
 
@@ -98,7 +117,7 @@ def detect_seo_injection(html: str) -> SeoInjectionResult | None:
     # Hidden container carrying spam terms = cloaked injection (strong signal even at low count).
     hidden_block = False
     for m in _HIDDEN_RE.finditer(html):
-        window = html[m.start(): m.start() + 2000]  # bounded look-ahead into the hidden block
+        window = html[m.start() : m.start() + 2000]  # bounded look-ahead into the hidden block
         if _spam_hits(window):
             hidden_block = True
             matched.update(_spam_hits(window))

@@ -44,6 +44,7 @@ from agent_alpha.graph.nodes import (
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
+from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
