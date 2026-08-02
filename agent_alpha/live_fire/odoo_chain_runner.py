@@ -33,9 +33,9 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega, Report
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.conductor.verification import verify_access_nodes
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.conductor.verification import verify_access_nodes
 from agent_alpha.graph.nodes import NodeType, RelationshipType, VerificationTier
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider, _scan_leak
 from agent_alpha.llm.orchestrator import LLMOrchestrator
