@@ -167,6 +167,13 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
     LabHost("decoy.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
     LabHost("dead.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
     LabHost("hardened.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    # Client-approved external target (Odoo behind Cloudflare)
+    LabHost(
+        "quantum-laboratories.com",
+        "natanael",
+        "dns-txt:agent-alpha=client-approved",
+        "#335",
+    ),
 )
 
 # Derived allowlist — backward compatible with all 13 callers.

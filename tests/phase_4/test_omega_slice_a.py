@@ -8,6 +8,7 @@ technique_id AND be backed by >= 1 ProofArtifact (anti-#3 at report level).
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 from agent_alpha.agents.omega.roaster import EvidenceItem, Omega, PathStep, Report
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -830,3 +831,278 @@ def test_standalone_vuln_without_proof_is_skipped() -> None:
     report = omega.generate_report("executive")
 
     assert len(report.evidence) == 0
+
+
+# ── Finding contract (RED-first — these tests are the gate for this slice) ─────
+
+
+def _emit_node(store: NetworkXGraphStore, raw: dict[str, Any]) -> None:
+    """Apply a NodeDiscovered event from a raw dict to the graph store."""
+    store.apply_event("NodeDiscovered", raw)
+
+
+def _emit_edge(store: NetworkXGraphStore, raw: dict[str, Any]) -> None:
+    """Apply an EdgeDiscovered event from a raw dict to the graph store."""
+    store.apply_event("EdgeDiscovered", raw)
+
+
+def test_standalone_proven_vuln_becomes_payable_finding() -> None:
+    """CARDINAL: a proof-backed vuln node with NO chain → exactly 1 Finding.
+
+    Represents the quantum-labs field scenario: exposed Odoo DB manager,
+    CVSS 7.5 (high), no cred-reuse chain, still payable.
+    Before this slice: no findings field / empty → RED.
+    """
+    from agent_alpha.agents.omega.roaster import Finding
+
+    graph = NetworkXGraphStore()
+
+    _emit_node(
+        graph,
+        {
+            "id": "asset:odoo.lab",
+            "type": "asset",
+            "properties": {"host": "odoo.lab"},
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+    _emit_node(
+        graph,
+        {
+            "id": "vuln:odoo.lab:odoo_dbmanager_exposed",
+            "type": "vulnerability",
+            "properties": {
+                "affected_service": "web",
+                "cvss_score": 7.5,
+                "exploit_available": False,
+            },
+            "confidence": 0.85,
+            "verification": "self_verified",
+            "proof_artifacts": [
+                {
+                    "artifact_id": "a1",
+                    "type": "http_response",
+                    "storage_ref": "engagements/eng-1/proofs/a1",
+                    "description": "Odoo DB manager exposed at /web/database/manager",
+                    "captured_at": "2026-08-02T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+    _emit_edge(
+        graph,
+        {
+            "source_id": "asset:odoo.lab",
+            "target_id": "vuln:odoo.lab:odoo_dbmanager_exposed",
+            "relationship": "exploits",
+            "confidence": 0.85,
+            "technique_id": "",
+        },
+    )
+
+    report = Omega(graph).generate_report("technical")
+
+    assert hasattr(report, "findings"), "Report must have a findings field"
+    assert len(report.findings) == 1
+    f = report.findings[0]
+    assert isinstance(f, Finding)
+    assert f.severity == "high", f"Expected severity='high' for CVSS 7.5, got {f.severity!r}"
+    assert abs(f.cvss_score - 7.5) < 0.01
+    assert f.affected_asset == "asset:odoo.lab"
+    assert f.verification == "self_verified"
+    assert f.remediation != ""
+    assert f.on_chain is False
+    assert len(f.evidence) == 1
+    # chain_finding is unaffected (no chain)
+    assert report.chain_finding is None
+
+
+def test_findings_are_stack_agnostic() -> None:
+    """GENERAL: a git_exposure proof-backed node also yields a Finding.
+
+    Proves the Finding walk is keyed on node shape (type=VULNERABILITY +
+    proof_artifacts), not on a specific stack name or vuln-id literal.
+    """
+    from agent_alpha.agents.omega.roaster import Finding
+
+    graph = NetworkXGraphStore()
+
+    _emit_node(
+        graph,
+        {
+            "id": "asset:git.lab",
+            "type": "asset",
+            "properties": {"host": "git.lab"},
+            "confidence": 0.9,
+            "verified": False,
+        },
+    )
+    _emit_node(
+        graph,
+        {
+            "id": "vuln:git.lab:git_exposure",
+            "type": "vulnerability",
+            "properties": {
+                "affected_service": "web",
+                "cvss_score": 8.1,
+                "exploit_available": False,
+            },
+            "confidence": 0.9,
+            "verification": "unverified",
+            "proof_artifacts": [
+                {
+                    "artifact_id": "g1",
+                    "type": "http_response",
+                    "storage_ref": "engagements/eng-2/proofs/g1",
+                    "description": "Git config exposed at /.git/config",
+                    "captured_at": "2026-08-02T00:00:00Z",
+                    "agent": "alpha",
+                }
+            ],
+        },
+    )
+    _emit_edge(
+        graph,
+        {
+            "source_id": "asset:git.lab",
+            "target_id": "vuln:git.lab:git_exposure",
+            "relationship": "exploits",
+            "confidence": 0.9,
+            "technique_id": "",
+        },
+    )
+
+    report = Omega(graph).generate_report("technical")
+
+    assert len(report.findings) == 1
+    f = report.findings[0]
+    assert isinstance(f, Finding)
+    assert f.severity == "high"  # CVSS 8.1 → high
+    assert f.title == "Git Repository Exposed"
+    assert f.remediation != ""
+    assert f.finding_id == "vuln:git.lab:git_exposure"
+
+
+def test_unproven_vuln_is_not_a_finding() -> None:
+    """NEGATIVE: a vuln node with EMPTY proof_artifacts never appears in findings.
+
+    Anti-#3: unproven ≠ payable. An empty-artifact node must be completely
+    absent from report.findings.
+    """
+    graph = NetworkXGraphStore()
+
+    _emit_node(
+        graph,
+        {
+            "id": "vuln:silent.lab:some_finding",
+            "type": "vulnerability",
+            "properties": {"cvss_score": 9.8},
+            "confidence": 0.95,
+            "proof_artifacts": [],  # no proof → never a Finding
+        },
+    )
+
+    report = Omega(graph).generate_report("technical")
+
+    assert report.findings == (), "Vuln node with empty proof_artifacts must NOT produce a Finding"
+
+
+def test_chain_finding_still_produced() -> None:
+    """NO-REGRESSION: a cred-reuse chain graph still yields chain_finding.
+
+    The chain-path vuln node also appears in report.findings with on_chain=True.
+    generate_report semantics for chain_finding and critical_path are unchanged.
+    """
+    from agent_alpha.graph.nodes import (
+        AccessLevelProperties,
+        AssetProperties,
+        AttackEdge,
+        AttackNode,
+        CredentialProperties,
+        NodeType,
+        ProofArtifact,
+        RelationshipType,
+        VerificationTier,
+        VulnerabilityProperties,
+        node_to_dict,
+    )
+
+    graph = NetworkXGraphStore()
+
+    def emit(node: AttackNode) -> None:
+        graph.apply_event("NodeDiscovered", node_to_dict(node))
+
+    def emit_e(edge: AttackEdge) -> None:
+        graph.apply_event(
+            "EdgeDiscovered",
+            {
+                "source_id": edge.source_id,
+                "target_id": edge.target_id,
+                "relationship": edge.relationship.value,
+                "confidence": edge.confidence,
+                "technique_id": edge.technique_id,
+            },
+        )
+
+    host = "chain.lab"
+    asset_id = f"asset:{host}"
+    vuln_id = f"vuln:{host}:wp_config_leak"
+    cred_id = f"cred:{host}:db"
+    access_id = f"access:{host}"
+
+    emit(AttackNode(asset_id, NodeType.ASSET, AssetProperties(host=host), 0.9))
+    emit(
+        AttackNode(
+            vuln_id,
+            NodeType.VULNERABILITY,
+            VulnerabilityProperties(affected_service="web", cvss_score=8.8),
+            0.85,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id="p1",
+                    type="http_response",
+                    storage_ref="engagements/e1/proofs/p1",
+                    description="wp-config.php backup leaked DB_PASSWORD",
+                    captured_at="2026-08-02T00:00:00Z",
+                    agent="alpha",
+                )
+            ],
+        )
+    )
+    emit(
+        AttackNode(
+            cred_id,
+            NodeType.CREDENTIAL,
+            CredentialProperties(
+                username="wp_user",
+                secret_ref="secret_wp_db",
+                service="database",
+                access_level="admin",
+            ),
+            0.85,
+        )
+    )
+    emit(
+        AttackNode(
+            access_id,
+            NodeType.ACCESS_LEVEL,
+            AccessLevelProperties(level="admin"),
+            0.80,
+            verification=VerificationTier.CROSS_VERIFIED,
+        )
+    )
+
+    emit_e(AttackEdge(asset_id, vuln_id, RelationshipType.EXPLOITS, 0.85))
+    emit_e(AttackEdge(vuln_id, cred_id, RelationshipType.LEADS_TO, 0.85))
+    emit_e(AttackEdge(cred_id, access_id, RelationshipType.ENABLES, 0.80, "T1078"))
+
+    report = Omega(graph).generate_report("technical")
+
+    # chain_finding still populated (no regression)
+    assert report.chain_finding is not None
+    # The vuln node on the chain path also appears as a Finding
+    chain_findings = [f for f in report.findings if f.on_chain]
+    assert len(chain_findings) >= 1, "Chain-path vuln must appear as a Finding with on_chain=True"
+    assert chain_findings[0].on_chain is True

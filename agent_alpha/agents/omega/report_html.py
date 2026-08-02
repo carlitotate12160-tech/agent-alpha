@@ -241,7 +241,43 @@ def render_report_html(report: Report) -> str:
     else:
         sev_table_html = '<p class="no-data">No findings recorded in summary table.</p>'
 
-    # 2. Attack Path SVG
+    # 2. Payable Findings (severity-sorted; rendered BEFORE the attack path SVG)
+    if report.findings:
+        pf_blocks: list[str] = []
+        for idx, f in enumerate(report.findings, start=1):
+            sev_cls = html.escape(f.severity.lower())
+            sev_label = html.escape(f.severity.upper())
+            cvss_str = f"{f.cvss_score:.1f}"
+            title_esc = html.escape(f.title)
+            asset_esc = html.escape(f.affected_asset)
+            verif_esc = html.escape(f.verification)
+            verif_cls = "unverified" if f.verification == "unverified" else ""
+            remed_esc = html.escape(f.remediation)
+            chain_label = "On-chain" if f.on_chain else "Standalone"
+            ev_lines = "".join(
+                f'<div class="proof mono">'
+                f"Proof: {html.escape(e.artifact_ref)} &middot; sha256&nbsp;{html.escape(e.sha256[:16])}&hellip; "
+                f"&middot; {html.escape(e.captured_at)}</div>\n    "
+                for e in f.evidence
+            )
+            pf_blocks.append(
+                f'  <div class="finding {sev_cls}">\n'
+                f'    <div class="hd"><h3>2.{idx}&nbsp; {title_esc}</h3>'
+                f'<span class="id sev-tag {sev_cls}">{sev_label} &middot; CVSS {cvss_str}</span></div>\n'
+                f'    <table class="meta" style="margin:6px 0;">\n'
+                f'      <tr><td class="k">Affected asset</td><td class="mono">{asset_esc}</td></tr>\n'
+                f'      <tr><td class="k">Verification</td><td><span class="sev-tag {verif_cls}">{verif_esc}</span></td></tr>\n'
+                f'      <tr><td class="k">Scope</td><td>{chain_label}</td></tr>\n'
+                f"    </table>\n"
+                f"    {ev_lines}"
+                f'    <p style="margin-top:8px;"><strong>Remediation:</strong> {remed_esc}</p>\n'
+                f"  </div>"
+            )
+        payable_findings_html = "\n".join(pf_blocks)
+    else:
+        payable_findings_html = '  <p class="no-data">No payable findings (no proof-backed vulnerability nodes detected).</p>'
+
+    # 3. Attack Path SVG
     attack_path_svg = render_attack_path_svg(report.critical_path)
 
     # 3. Findings and Proof Blocks
@@ -382,9 +418,11 @@ def render_report_html(report: Report) -> str:
   table.sev th, table.sev td {{ border: 1px solid var(--line); padding: 7px 10px; text-align: left; }}
   table.sev th {{ background: var(--panel); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }}
   .sev-tag {{ font-weight: 600; font-size: 12px; }}
-  .sev-tag.high, .sev-tag.critical {{ color: var(--sev-high); }}
+  .sev-tag.critical {{ color: #8b0000; }}
+  .sev-tag.high {{ color: var(--sev-high); }}
   .sev-tag.med, .sev-tag.medium {{ color: var(--sev-med); }}
   .sev-tag.low {{ color: var(--sev-low); }}
+  .sev-tag.unverified {{ color: var(--faint); font-style: italic; }}
   .finding {{ border: 1px solid var(--line); border-left: 3px solid var(--line); margin: 12px 0; padding: 12px 14px; }}
   .finding.high, .finding.critical {{ border-left-color: var(--sev-high); }}
   .finding.med, .finding.medium {{ border-left-color: var(--sev-med); }}
@@ -437,17 +475,20 @@ def render_report_html(report: Report) -> str:
 {narrative_p}
 {sev_table_html}
 
-  <h2>2 &nbsp; Attack path</h2>
+  <h2>2 &nbsp; Payable findings</h2>
+{payable_findings_html}
+
+  <h2>3 &nbsp; Attack path</h2>
   <p>The verified attack path established during the assessment:</p>
 {attack_path_svg}
 
-  <h2>3 &nbsp; Findings and proof</h2>
+  <h2>4 &nbsp; Findings and proof</h2>
 {findings_html}
 
-  <h2>4 &nbsp; Impact and blast radius</h2>
+  <h2>5 &nbsp; Impact and blast radius</h2>
 {blast_html}
 
-  <h2>5 &nbsp; Recommendations</h2>
+  <h2>6 &nbsp; Recommendations</h2>
   <p>1. Restrict origin server access to authorized entry points only.</p>
   <p>2. Rotate leaked credentials and secrets immediately.</p>
   <p>3. Remove hardcoded secrets from client-delivered JavaScript and assets.</p>
