@@ -186,11 +186,77 @@ def test_run_no_enumerated_users_is_failure() -> None:
     assert app.calls == []
 
 
-def test_run_never_submits_on_ungoverned_wire() -> None:
-    """Safety: with NO governed applicator injected, nothing is submitted — derived
-    guessing must never run off an ungoverned wire (no standalone fallback)."""
+def test_run_with_no_roster_self_builds_governed_fallback() -> None:
+    """RUNNER-SEAL≠WIRED regression (solusibersama: 9 users harvested, GAP-015 did
+    nothing): with applicators=[] the tool SELF-BUILDS a governed roster and still
+    attempts derived logins — never a silent no-op, never ungoverned. Direct assert,
+    no try/except."""
     tool = UserDerivedCredsTool(
-        graph_store=_FakeGraph(["editor"]), http_client=object(), applicators=[]
+        graph_store=_FakeGraph(["editor"]),
+        http_client=_FakeWpHttp(),
+        applicators=[],
     )
-    result = tool.run(_ctx(), _BUDGET)
-    assert result.success is False
+    ctx = TargetContext(
+        engagement_id="eng", tenant_id=None, target="https://bernofarm.com/wp-login.php"
+    )
+    result = tool.run(ctx, ResourceBudget(max_requests=50, max_seconds=5, max_cost_usd=0.0))
+    assert result.success is True, "governed fallback did not fire (silent no-op regression)"
+    assert result.findings[0]["username"] == "editor"
+    assert result.findings[0]["finding_class"] == "predictable_credential"
+
+
+def test_fallback_governor_is_cached_across_runs() -> None:
+    """CodeRabbit actionable #1: the fallback governor must PERSIST across run() calls
+    (built once), so per-(host, username) attempt caps accumulate instead of resetting."""
+    tool = UserDerivedCredsTool(
+        graph_store=_FakeGraph(["editor"]), http_client=_FakeWpHttp(), applicators=[]
+    )
+    ctx = TargetContext(
+        engagement_id="eng", tenant_id=None, target="https://bernofarm.com/wp-login.php"
+    )
+    budget = ResourceBudget(max_requests=50, max_seconds=5, max_cost_usd=0.0)
+    tool.run(ctx, budget)
+    first = tool._fallback_governor
+    tool.run(ctx, budget)
+    assert tool._fallback_governor is first, "fallback governor was rebuilt — lockout cap resets"
+
+
+# ── Regression (solusibersama): tool fires even when NO roster is injected ──
+
+
+class _WpResp:
+    def __init__(self, status_code: int, text: str = "", headers: dict | None = None) -> None:
+        self.status_code = status_code
+        self.text = text
+        self.headers = headers or {}
+
+
+class _FakeWpHttp:
+    """Minimal WP-login transport for the SELF-BUILT (governed) fallback roster."""
+
+    def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _WpResp:  # noqa: ARG002
+        return _WpResp(200, "<html>login form</html>", {})
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        allow_redirects: bool = True,
+    ) -> _WpResp:
+        d = data or {}
+        if d.get("log") == "editor" and d.get("pwd") == "editor123":
+            return _WpResp(
+                302,
+                "",
+                {
+                    "location": "https://bernofarm.com/wp-admin/",
+                    "set-cookie": "wordpress_logged_in_abc=xyz; Path=/; HttpOnly",
+                },
+            )
+        return _WpResp(200, "<html>login form — try again</html>", {})
+
+
