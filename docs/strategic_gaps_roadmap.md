@@ -39,7 +39,7 @@ crawl-depth (= Lyndon #5).**
 - G15. Validation self-referential (self-owned labs only) — never vs a real target + Nuclei baseline.
 - G16. Go execution engine (throughput/stealth) not built; all Python.
 - G17. Discipline's shadow: perfecting easy recon foundations = sophisticated avoidance of hard exploitation work.
-- G18. Fan-out interface built but not wired to runtime — multi-target engagements run sequential (Shape B), not parallel (Shape A). ADR §12.13 LOCKED but wiring debt fell through cracks (PROGRESS_TRACKER marked DONE, Session_Handoff doesn't track).
+- G18. Fan-out interface built but not wired to runtime — multi-target engagements run sequential (Shape B), not parallel (Shape A). ADR §12.13 LOCKED but wiring debt fell through cracks (PROGRESS_TRACKER marked DONE, docs/Session_Handoff.md doesn't track).
 
 ### Cross-reference: G-items → BUGS_AND_GAPS.md ledger ids
 
@@ -147,7 +147,7 @@ Note: current stack IS viable TODAY for the un-WAF'd SME segment — a parallel 
 
 ## Moat Depth Roadmap (2026-07-23 update)
 
-> DERIVED leverage-narrative view. Canonical status → Session_Handoff.md.
+> DERIVED leverage-narrative view. Canonical status → docs/Session_Handoff.md.
 > Durable verification doctrine → CLAUDE.md + ADR §12.31.
 
 How Agent-Alpha deepens its defensibility — and the order that maximizes leverage for a solo

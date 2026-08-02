@@ -1,4 +1,4 @@
-> CANONICAL SOURCE: durable doctrine ONLY (role, Lyndon patterns, non-negotiables). Status → Session_Handoff.md.
+> CANONICAL SOURCE: durable doctrine ONLY (role, Lyndon patterns, non-negotiables). Status → docs/Session_Handoff.md.
 
 # Instructions for Claude — Agent-Alpha Sessions
 
@@ -160,18 +160,17 @@ If yes → don't patch, redesign the interface.
 
 ## Current Project Status
 
-Status lives in ONE place: repo `Session_Handoff.md` ("THE ONLY status doc"). Do NOT
+Status lives in ONE place: repo `docs/Session_Handoff.md` ("THE ONLY status doc"). Do NOT
 duplicate phase/done/next here — a second copy diverges (Lyndon #7 on the docs). This file
-holds durable doctrine only.
+holds durable doctrine only. (Root ./Session_Handoff.md is a retired redirect stub.)
 
-Quick pointer (2026-07-28): Phase 4 (recon + reach) — reach arc (§12.40 + §12.41) SEALED.
-WP recon battery + plugin_cve verifier MERGED (#274–#277). Per-host reach-class + browser_solve
-wiring MERGED (#279–#283). Slice-2 subdomain→recon-targets MERGED. Success bar (find what a
-scanner missed + prove exploitable + payable report on a REAL target) = STILL UNMET — root
-cause = REACH (CF-403 fingerprint block from datacenter). NEXT = build tls_impersonate
-transport (curl_cffi) + wire EvasionPlanner into FINGERPRINT-class reach ladder. browser_solve
-= lab-only (Managed-Challenge-ceilinged from datacenter). Do NOT start the conductor refactor.
-Full detail + field results + open gaps: see Session_Handoff.md.
+Quick pointer (2026-08-02): Phase 4 (recon + reach + initial-access proof). MILESTONE — proven
+cred-reuse chain on alpha-ai.web.id (self-owned full-CF): origin-exposure bypass -> wp-config.php.bak
+leak -> DB password -> reused on Odoo XML-RPC -> uid=2 admin (SELF_VERIFIED). NEXT (one slice at a
+time): (1) CROSS_VERIFIED the alpha-ai chain via the CONDUCTOR autonomous path (verify_access_nodes
+already runs at conductor/main.py; the chain was proven on the odoo_chain_runner ISLAND — RUNNER-SEAL
+!= AUTONOMOUS-WIRED), (2) dedup backup_file_leak vs wp_config_leak. Do NOT build Gamma. #331 merged but
+on Windows tests only (Lyndon #9) — re-seal on Oracle. Full detail: see docs/Session_Handoff.md.
 
 Gap ledger of record: docs/BUGS_AND_GAPS.md. Durable doctrine: this file + the
 agent-alpha-architect skill (role, Lyndon patterns, naming convention, Devin model roster,
