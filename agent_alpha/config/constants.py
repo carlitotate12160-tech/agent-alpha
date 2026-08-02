@@ -517,7 +517,7 @@ EVASION_MAX_ESCALATIONS_PER_HOST = 3
 # real accounts. Single source (anti-#7).
 # Per-username: kept BELOW the common provider lockout threshold (~5) so a real
 # account is never driven into lockout by our own attempts.
-CRED_LOCKOUT_MAX_ATTEMPTS_PER_USERNAME = 3
+CRED_LOCKOUT_MAX_ATTEMPTS_PER_USERNAME = 4  # = USER_DERIVED max candidates; still < ~5 lockout
 # Per-host aggregate: bounds total login noise across ALL usernames on a host
 # (IP-ban / WAF-trip safety), even when each account stays under its own cap.
 CRED_LOCKOUT_MAX_ATTEMPTS_PER_HOST = 20

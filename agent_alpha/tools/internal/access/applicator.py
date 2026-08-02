@@ -105,6 +105,11 @@ class HttpFormApplicator(CredentialApplicator):
         self._http_client = http_client
 
     def applies_to(self, credential_service: str, target: str) -> bool:
+        # WordPress login is owned by the WP-specific applicator (POSTs log/pwd). NEVER
+        # fire a generic username/password POST at wp-login.php — wrong fields, wasted
+        # lockout budget, and an opsec-visible failed login (Issue 4). Defer it.
+        if target.rstrip("/").endswith("wp-login.php"):
+            return False
         # HTTP is the default web transport: handle http creds and http(s) targets.
         return credential_service in ("", "http", "https") or target.startswith("http")
 

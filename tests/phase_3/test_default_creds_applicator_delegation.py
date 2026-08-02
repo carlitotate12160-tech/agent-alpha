@@ -241,3 +241,14 @@ def test_budget_checked_before_every_applicator_not_just_per_credential() -> Non
         f"expected exactly 2 apply() calls before budget (5) was exhausted, "
         f"got {total_apply_calls} — inner loop is not budget-checked per attempt"
     )
+
+
+def test_http_form_applicator_defers_wp_login_target() -> None:
+    """Issue 4: HttpFormApplicator must NOT claim wp-login.php — the WP-specific
+    applicator owns it (correct log/pwd fields). Firing a generic username/password
+    POST there wastes a lockout attempt and is opsec-visible. Generic pages still handled."""
+    a = HttpFormApplicator(http_client=object())
+    assert a.applies_to("http", "https://h/wp-login.php") is False
+    assert a.applies_to("http", "https://h/wp-login.php/") is False  # trailing slash
+    assert a.applies_to("http", "https://h/") is True
+    assert a.applies_to("http", "https://h/login") is True
