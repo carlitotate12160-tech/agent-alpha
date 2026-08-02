@@ -101,6 +101,7 @@ def test_run_layer_v_derives_entry_point(monkeypatch: pytest.MonkeyPatch) -> Non
             edge_from_harvested_cred=True,
             db_enumerated=True,
             leak_suspected=False,
+            cross_verified=True,
         )
 
     monkeypatch.setattr(runner_module, "run_odoo_chain_live_fire", fake_odoo_chain)
@@ -168,6 +169,7 @@ def test_host_discovery_sourced_false_when_no_event(monkeypatch: pytest.MonkeyPa
             edge_from_harvested_cred=True,
             db_enumerated=True,
             leak_suspected=False,
+            cross_verified=True,
         )
 
     monkeypatch.setattr(runner_module, "run_odoo_chain_live_fire", fake_odoo_chain)
@@ -276,6 +278,7 @@ def test_layer_v_authorizes_discovered_hosts_and_drops_excluded(
             edge_from_harvested_cred=True,
             db_enumerated=True,
             leak_suspected=False,
+            cross_verified=True,
         )
 
     monkeypatch.setattr(runner_module, "run_odoo_chain_live_fire", fake_odoo_chain)
