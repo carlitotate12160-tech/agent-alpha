@@ -41,6 +41,7 @@ class Fake:
         json_body: Any = None,
         headers: Any = None,
         cookies: Any = None,
+        allow_redirects: bool = True,
     ) -> _R:
         d = data or {}
         if d.get("log") and d.get("pwd") == self._right:
@@ -75,6 +76,7 @@ class FakeRecordingFields:
         json_body: Any = None,
         headers: Any = None,
         cookies: Any = None,
+        allow_redirects: bool = True,
     ) -> _R:
         self.posted_data = dict(data or {})
         return _R(302, "", {"location": "https://h/wp-admin/"}, url)
@@ -94,6 +96,7 @@ class Fake200NoRedirect:
         json_body: Any = None,
         headers: Any = None,
         cookies: Any = None,
+        allow_redirects: bool = True,
     ) -> _R:
         return _R(200, "<html>login form — try again</html>", {}, url)
 
@@ -115,6 +118,7 @@ class FakeCountingPosts:
         json_body: Any = None,
         headers: Any = None,
         cookies: Any = None,
+        allow_redirects: bool = True,
     ) -> _R:
         self.post_calls += 1
         return _R(302, "", {"location": "https://h/wp-admin/"}, url)
@@ -193,3 +197,53 @@ def test_secret_never_in_result() -> None:
         username="wpvuln", secret="S3cr3tPW", target=TARGET, budget=B
     )
     assert "S3cr3tPW" not in str(res)
+
+
+# ── RC: without allow_redirects=False, httpx follows the 302 and the auth signals
+#       (Location + wordpress_logged_in cookie) are lost — login mis-read as failed. ──
+
+
+class _FollowsRedirects:
+    """Simulates httpx: follows the 302 UNLESS allow_redirects=False is passed. For the
+    right creds, the real WP 302→/wp-admin (+ wordpress_logged_in cookie) — but if
+    FOLLOWED, it collapses to a 200 with no Location and no login cookie (the bug)."""
+
+    def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _R:
+        return _R(200, "<html>login form</html>", {}, url)
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+        allow_redirects: bool = True,
+    ) -> _R:
+        d = data or {}
+        if not (d.get("log") and d.get("pwd") == "RIGHT"):
+            return _R(200, "<html>login form — try again</html>", {}, url)
+        if allow_redirects:
+            # httpx followed the 302 → final /wp-admin page; signals gone (the bug).
+            return _R(200, "<html>dashboard</html>", {"set-cookie": "wp-settings-1=deleted"}, url)
+        # allow_redirects=False → the raw 302 carrying the auth signals.
+        return _R(
+            302,
+            "",
+            {
+                "location": "https://h/wp-admin/",
+                "set-cookie": "wordpress_logged_in_abc=xyz; Path=/; HttpOnly",
+            },
+            url,
+        )
+
+
+def test_wp_login_requests_no_redirect_to_read_auth_signal() -> None:
+    """WpLoginApplicator MUST request allow_redirects=False so it sees the 302 +
+    wordpress_logged_in cookie. RED before the fix: following the redirect loses both
+    signals and a correct login is mis-reported as success=False."""
+    a = WpLoginApplicator(http_client=_FollowsRedirects())
+    result = a.apply(username="admin", secret="RIGHT", target=TARGET, budget=B)
+    assert result.success is True, "correct WP login mis-read as failed (redirect followed)"
+    assert result.access_level == "admin"

@@ -240,6 +240,8 @@ class WpLoginApplicator(CredentialApplicator):
                     "testcookie": "1",
                 },
                 cookies=cookies,
+                allow_redirects=False,  # MUST see the 302→/wp-admin + wordpress_logged_in
+                #                         cookie; following the redirect hides both signals.
             )
         except Exception:
             return _fail("auth request failed")

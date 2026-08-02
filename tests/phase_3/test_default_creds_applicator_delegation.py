@@ -62,6 +62,7 @@ class _WpTarget:
         json_body: Any = None,
         headers: Any = None,
         cookies: Any = None,
+        allow_redirects: bool = True,
     ) -> _R:
         d = dict(data or {})
         self.posted.append((url, d))
