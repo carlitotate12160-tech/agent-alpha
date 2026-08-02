@@ -347,6 +347,45 @@ def test_wp_login_applicator_binds_to_wp_login_target() -> None:
     assert order.index(WpLoginApplicator) < order.index(HttpFormApplicator)
 
 
+# ── RC: web_target already ending in /wp-login.php must NOT produce a
+#       duplicated /wp-login.php/wp-login.php target (wastes lockout budget). ──
+
+
+def test_wp_login_target_not_duplicated_when_web_target_already_has_wp_login() -> None:
+    """When web_target is already https://host/wp-login.php (e.g. gap015 entry_point),
+    the factory must NOT append another /wp-login.php — the duplicated target
+    /wp-login.php/wp-login.php wastes 2 of the 3 per-username lockout attempts on a
+    broken URL, starving UserDerivedCredsTool before it can try the correct password."""
+    from agent_alpha.conductor.applicator_factory import beta_web_applicators
+
+    wp_host = "shop.example.com"
+    web_target = f"https://{wp_host}/wp-login.php"
+    auth = FakeAuth(state=a2a_pb2.ACTIVE_APPROVED, in_scope_endpoints=set())
+    graph = FakeGraph(
+        [
+            AttackNode(
+                id=f"asset_{wp_host}",
+                type=NodeType.ASSET,
+                properties=AssetProperties(host=wp_host, tech_stack=["wp"]),
+                confidence=0.9,
+            ),
+        ]
+    )
+
+    bound = build_applicators_for_engagement(
+        engagement_id="eng_dup",
+        auth=auth,
+        graph_store=graph,
+        web_target=web_target,
+        candidates=beta_web_applicators(http_client=object()),
+    )
+
+    targets = [b.target for b in bound]
+    assert not any("/wp-login.php/wp-login.php" in t for t in targets), (
+        f"duplicated wp-login.php target — wastes lockout budget: {targets}"
+    )
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
 
