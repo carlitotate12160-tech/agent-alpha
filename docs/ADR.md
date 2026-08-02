@@ -2657,3 +2657,56 @@ honest, and it tells us WHICH evasion slice (origin discovery) has real pull, no
 against building evasion breadth speculatively. #3: forbids the planner from presenting an
 infra-bound technique as code-solvable (false capability). #7: technique→class mapping stays single
 -source in constants/§12.33; this ADR widens the menu, does not fork the mapping.
+
+---
+
+### 12.45 Credential-result semantics + password recall ladder — PROPOSED (lock on confirm)
+
+**Extends** §12.43 (proof standard) and the cred_finding_catalog (§3a). Governs what a credential
+RESULT means in a report — especially a NEGATIVE one.
+
+**Context / gap.** GAP-015 predictable-credential is a HIGH-precision, LOW-recall, safe-online
+vector: it derives ≤4 bounded candidates (username / username+123 / domain_stem / domain_stem+123)
+per enumerated user. A POSITIVE is a proven finding. But a NEGATIVE (no derived candidate worked)
+means ONLY "not trivially derivable from the username/domain by a handful of bounded guesses" — it
+says NOTHING about the password's real strength. If a report phrases that negative as
+"password is safe / not predictable / secure", and a real attacker later cracks it, the report was
+falsely reassuring — a credibility-destroying false assurance.
+
+**Decision — a red team NEVER certifies "safe". Absence of a finding ≠ absence of vulnerability.**
+1. **Positive only is a finding.** A credential finding is minted ONLY on a proven positive
+   (finding_class=predictable_credential, §3a). There is NO "credential_safe" / "password_strong"
+   node, event, or report claim — ever.
+2. **Negatives carry a methodology caveat, never a verdict.** Where a report must mention a
+   credential test that found nothing, it states the METHOD and its LIMIT, not a strength verdict:
+   e.g. "bounded online derivation (≤4 candidates/user, lockout-safe) found no reusable credential
+   for user X — this is NOT a password-strength assessment; offline cracking, credential stuffing,
+   and large wordlists were out of engagement scope." Omega is FORBIDDEN from emitting
+   "safe/secure/strong/not predictable" from a negative credential result.
+3. **Methodology transparency.** Every credential section states what WAS and WAS NOT tested (the
+   vectors + their recall). This is how a red team avoids over-claiming absence.
+
+**Password recall ladder (how findings scale to match a real attacker — roadmap, NOT built now).**
+Online guessing is inherently low-recall (lockout caps it at ~4-5). A real attacker cracks
+strong-looking passwords via, in order of value:
+1. **Offline hash crack** — the strong one. When Alpha HARVESTS password hashes (DB dump / backup /
+   wp-config→DB access), crack them OFFLINE with hashcat + rockyou + rules (billions of guesses, NO
+   lockout, safe). This matches how real attackers crack "safe-looking" passwords. Gamma-adjacent
+   (needs the hash-harvest chain). A negative here (uncracked with a stated wordlist+ruleset+budget)
+   is a MUCH stronger — though still not absolute — signal than a negative online guess.
+2. **Credential stuffing** — check enumerated identities against known breach corpuses (reuse across
+   services is rife). Needs an ethical/legal breach-data source (paid). Roadmap.
+3. **OSINT-targeted wordlist + rules** — company/year/season/local terms → hashcat rules. Broader
+   than the 4 derived candidates but still online-lockout-bounded.
+
+Recall is scaled by offline-crack + credential-stuffing, NEVER by unsafe online spray (which stays
+low-recall AND risks locking out real accounts, §12.22 D2).
+
+**Anti-Lyndon.** #3 false success — a negative reported as "safe" is a false NEGATIVE-success
+(over-claiming absence); this doctrine forbids it. One concept: findings assert only what was
+PROVEN; methodology transparency covers the rest.
+
+**Integration.** No code now. Enforcement hooks (later): Omega report builder must have no
+"safe/strong" credential phrasing path; the offline-hash-crack + credential-stuffing vectors are
+tracked roadmap (register in docs/BUGS_AND_GAPS.md), built as gated slices when the hash-harvest
+chain (Gamma-adjacent) lands.
