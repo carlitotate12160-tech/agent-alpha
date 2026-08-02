@@ -837,10 +837,12 @@ def test_standalone_vuln_without_proof_is_skipped() -> None:
 
 
 def _emit_node(store: NetworkXGraphStore, raw: dict[str, Any]) -> None:
+    """Apply a NodeDiscovered event from a raw dict to the graph store."""
     store.apply_event("NodeDiscovered", raw)
 
 
 def _emit_edge(store: NetworkXGraphStore, raw: dict[str, Any]) -> None:
+    """Apply an EdgeDiscovered event from a raw dict to the graph store."""
     store.apply_event("EdgeDiscovered", raw)
 
 
