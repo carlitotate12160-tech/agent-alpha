@@ -384,6 +384,7 @@ def run_a1_validation(
         edge_from_harvested_cred=edge_from_harvested_cred,
         db_enumerated=True,
         leak_suspected=False,
+        cross_verified=False,
     )
     verdict = compare(chain_result, nuclei_findings)
 
