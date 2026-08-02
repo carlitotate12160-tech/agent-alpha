@@ -690,7 +690,7 @@ Setelah implementasi, re-test terhadap target yang sama:
 
 ADR §12.13 LOCKED a hybrid orchestrated fan-out design: Conductor partitions a phase's scope into bounded `WorkUnit`s, enqueues them via Celery, up to `MAX_WORKERS_PER_ROLE` execute in parallel. Per-role caps are defined in `constants.py` (alpha=10, beta=4, gamma=2, delta=4, epsilon=4).
 
-The **interface** was built and tested (C3 — `FanOutDispatcher`, `WorkUnit`, `partition_targets`, `DispatchResult` — Oracle-green). PROGRESS_TRACKER.md marked C6b as DONE. However, PROGRESS_TRACKER.md is **superseded** by Session_Handoff.md, which does not mention fan-out. The **runtime wiring** was never completed.
+The **interface** was built and tested (C3 — `FanOutDispatcher`, `WorkUnit`, `partition_targets`, `DispatchResult` — Oracle-green). PROGRESS_TRACKER.md marked C6b as DONE. However, PROGRESS_TRACKER.md is **superseded** by docs/Session_Handoff.md, which does not mention fan-out. The **runtime wiring** was never completed.
 
 ### Root Cause
 
@@ -710,13 +710,13 @@ for url in targets:
 - `recon_runner.py:246` — comment: *"Shape B (single-task): one worker scans all targets in sequence"*
 - `constants.py:338-345` — caps defined (alpha=10, beta=4, gamma=2) but unused at runtime
 - PROGRESS_TRACKER.md:88 — *"C6b — Per-unit fan-out execution + live-fire FP<20% (DONE)"* — but doc is superseded
-- Session_Handoff.md — no mention of fan-out or parallel workers
+- docs/Session_Handoff.md — no mention of fan-out or parallel workers
 
 ### Impact
 
 - **N-target latency**: engagement with 5 targets takes ~5x longer than necessary (sequential vs parallel)
 - **Wasted design**: `FanOutDispatcher`, `WorkUnit`, `DispatchResult`, `partition_targets`, per-role caps — all built and tested, but dead code in production
-- **False done-status**: PROGRESS_TRACKER marked C6b DONE, but canonical doc (Session_Handoff) doesn't track it, and code is sequential
+- **False done-status**: PROGRESS_TRACKER marked C6b DONE, but canonical doc (docs/Session_Handoff.md) doesn't track it, and code is sequential
 
 ### Affected Files
 

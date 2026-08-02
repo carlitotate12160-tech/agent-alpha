@@ -1,4 +1,4 @@
-> CANONICAL SOURCE: durable doctrine ONLY (role, Lyndon patterns, non-negotiables). Status → Session_Handoff.md.
+> CANONICAL SOURCE: durable doctrine ONLY (role, Lyndon patterns, non-negotiables). Status → docs/Session_Handoff.md.
 
 # Instructions for Claude — Agent-Alpha Sessions
 
