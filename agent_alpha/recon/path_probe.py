@@ -43,7 +43,7 @@ from agent_alpha.graph.nodes import (
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
-from agent_alpha.security.leak_extraction import extract_secrets
+from agent_alpha.security.leak_extraction import canonical_leak_vuln_suffix, extract_secrets
 
 
 class RecoverStrategy(enum.StrEnum):
@@ -209,7 +209,7 @@ def process_path_hit(
         return 0  # exposure/backup without a recoverable secret is not payable (anti-#3)
 
     now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
-    vuln_node_id = f"vuln:{host}:{spec.vuln_suffix}"
+    vuln_node_id = f"vuln:{host}:{canonical_leak_vuln_suffix(_logical_path(urlparse(url).path), default=spec.vuln_suffix)}"
 
     vuln_node = AttackNode(
         id=vuln_node_id,
