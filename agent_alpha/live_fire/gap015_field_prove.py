@@ -30,7 +30,10 @@ import yaml
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
-from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
+from agent_alpha.conductor.applicator_factory import (
+    beta_web_applicators,
+    build_applicators_for_engagement,
+)
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.engagement_profile import EngagementProfile
 from agent_alpha.events.store import InMemoryEventStore
@@ -39,7 +42,6 @@ from agent_alpha.graph.nodes import NodeType
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.recon.origin_resolver import discover_origin_ips
 from agent_alpha.security.secrets import SecretsManager
-from agent_alpha.tools.internal.access.applicator import HttpFormApplicator, WpLoginApplicator
 from agent_alpha.tools.playbook import PlaybookEngine
 
 
@@ -142,10 +144,7 @@ def run_gap015_field_prove(
         auth=auth,
         graph_store=graph_store,
         web_target=config.entry_point,
-        candidates=[
-            HttpFormApplicator(http_client=http_client),
-            WpLoginApplicator(http_client=http_client),
-        ],
+        candidates=beta_web_applicators(http_client),  # WpLogin BEFORE HttpForm (#7, opsec)
     )
 
     # 4) Beta strike — registry ranks UserDerivedCredsTool (USER nodes present) →

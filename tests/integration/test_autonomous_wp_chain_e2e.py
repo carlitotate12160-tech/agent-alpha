@@ -98,6 +98,7 @@ class _WpAutonomousFake:
         json_body: Any = None,
         headers: Any = None,
         cookies: Any = None,
+        allow_redirects: bool = True,
     ) -> _R:
         self.calls.append(url)
         if "wp-login" in url:

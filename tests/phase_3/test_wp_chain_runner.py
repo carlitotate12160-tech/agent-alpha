@@ -91,6 +91,7 @@ class _WpChainFake:
         json_body: Any = None,
         headers: Any = None,
         cookies: Any = None,
+        allow_redirects: bool = True,
     ) -> _R:
         if "wp-login" in url:
             if self._login_fails:
