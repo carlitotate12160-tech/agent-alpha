@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import json
 
-from agent_alpha.recon.wp_config_probe import parse_wp_config
-
 
 def _merge_in(target: dict[str, str], source: dict[str, str]) -> None:
     for key, value in source.items():
@@ -108,6 +106,8 @@ def _extract_from_actuator_env(body: str) -> dict[str, str]:
 
 
 def extract_secrets(recovered: dict[str, str]) -> dict[str, str]:
+    from agent_alpha.recon.wp_config_probe import parse_wp_config
+
     leaked: dict[str, str] = {}
 
     for path, content in recovered.items():
@@ -123,3 +123,17 @@ def extract_secrets(recovered: dict[str, str]) -> dict[str, str]:
             _merge_in(leaked, _extract_from_actuator_env(content))
 
     return leaked
+
+
+def canonical_leak_vuln_suffix(logical_path: str, *, default: str) -> str:
+    """SINGLE source (anti-#6/#7) for the vuln-node suffix a leaked-file path maps to,
+    so the SAME physical artifact never mints two vuln nodes under different probes.
+    wp-config backups are the SPECIFIC class and WIN over the generic backup_file class;
+    .git wins as git_exposure. Anything else falls back to the caller's own `default`
+    so non-leak-file specs (actuator, etc.) are never hijacked."""
+    p = logical_path.lower()
+    if "wp-config.php" in p:
+        return "wp_config_leak"
+    if "/.git/" in p or p.rstrip("/").endswith("/.git/config"):
+        return "git_exposure"
+    return default
