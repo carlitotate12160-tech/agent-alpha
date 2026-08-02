@@ -1096,9 +1096,22 @@ class Alpha:
 
         Single-target: probes only the current target host. Idempotency guard
         prevents re-run if step() fires multiple times.
+
+        Bug fix: the LLM tier can pick ``odoo_dbmanager_probe`` for a non-manager
+        page (e.g. homepage with 214-byte CF challenge body).  If the body does
+        NOT carry Odoo DB-manager markers, we return 0 WITHOUT burning the
+        idempotency guard, so the tool can still fire on the real
+        /web/database/manager page later.
         """
         if decision.tool in self._ran_campaigns:
             return 0
+
+        from agent_alpha.recon.odoo_dbmanager_probe import EXPOSED, classify_odoo_dbmanager
+
+        body = resp.text if hasattr(resp, "text") else str(resp)
+        if classify_odoo_dbmanager(body) != EXPOSED:
+            return 0
+
         self._ran_campaigns.add(decision.tool)
 
         host = urlparse(url).hostname
