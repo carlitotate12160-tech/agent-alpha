@@ -67,3 +67,32 @@ def test_no_wordlist_file_or_llm() -> None:
     assert "open(" not in src, "must not read an external wordlist file"
     assert "import openai" not in src and "LLMOrchestrator" not in src
     assert "provider.generate" not in src and ".complete(" not in src
+
+
+def test_cloaked_external_link_farm_without_keywords_is_flagged() -> None:
+    """Bernofarm (Strix #1/#2): 3 HIDDEN external links to random compromised domains,
+    cloaked via position:absolute;left:-9999px, carrying NO gambling keyword. The
+    keyword-based path would miss it; the structural hidden-link-farm signal must catch it."""
+    html = (
+        "<html><body><h1>Bernofarm</h1>"
+        '<div style="position:absolute; left:-9999px;">'
+        '<a href="https://synergyformusic.com/x">music</a>'
+        '<a href="https://pd-vosac.hr/y">vosac</a>'
+        '<a href="https://scherpfondstad.org/z">stad</a>'
+        "</div><p>Welcome.</p></body></html>"
+    )
+    result = detect_seo_injection(html)
+    assert result is not None
+    assert result.hidden_link_farm is True
+
+
+def test_visible_social_footer_is_not_flagged() -> None:
+    """Precision: a VISIBLE footer with external social links is normal — no FP."""
+    html = (
+        "<html><body><footer>"
+        '<a href="https://facebook.com/us">FB</a>'
+        '<a href="https://twitter.com/us">TW</a>'
+        '<a href="https://instagram.com/us">IG</a>'
+        "</footer></body></html>"
+    )
+    assert detect_seo_injection(html) is None

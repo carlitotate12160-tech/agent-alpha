@@ -58,6 +58,22 @@ _HIDDEN_RE = re.compile(
     r'style=["\'][^"\']*(display\s*:\s*none|font-size\s*:\s*0|position\s*:\s*absolute[^"\']*left\s*:\s*-)',
     re.IGNORECASE,
 )
+# STRONG cloak (almost never legitimate UI): off-screen positioning / zero font /
+# negative text-indent. Used for the keyword-INDEPENDENT structural signal below —
+# a hacked site often injects hidden links to random compromised third-party domains
+# (bernofarm: synergyformusic.com, pd-vosac.hr) that carry NO gambling keyword.
+_STRONG_CLOAK_RE = re.compile(
+    r'style=["\'][^"\']*('
+    r"font-size\s*:\s*0"
+    r'|position\s*:\s*absolute[^"\']*left\s*:\s*-\s*\d{3,}'
+    r"|text-indent\s*:\s*-\s*\d{3,}"
+    r"|left\s*:\s*-\s*\d{4,}"
+    r")",
+    re.IGNORECASE,
+)
+_EXTERNAL_LINK_RE = re.compile(r'<a\b[^>]*\bhref=["\']https?://', re.IGNORECASE)
+# A cloaked block carrying at least this many external links = injected hidden link farm.
+_MIN_CLOAKED_EXTERNAL_LINKS: int = 3
 
 
 @dataclass(frozen=True)
@@ -83,6 +99,7 @@ class SeoInjectionResult:
     matched_terms: tuple[str, ...]
     spam_anchor_count: int
     hidden_block: bool
+    hidden_link_farm: bool = False  # cloaked block w/ external links, keyword-independent
 
 
 def _spam_hits(text: str) -> list[str]:
@@ -123,10 +140,21 @@ def detect_seo_injection(html: str) -> SeoInjectionResult | None:
             matched.update(_spam_hits(window))
             break
 
-    if spam_anchor_count >= _MIN_SPAM_ANCHORS or hidden_block:
+    # Keyword-INDEPENDENT structural signal: a strongly-cloaked block carrying several
+    # external links. Catches injected hidden link farms to arbitrary compromised domains
+    # (the bernofarm SEO-spam case) that no gambling-keyword match would ever flag.
+    hidden_link_farm = False
+    for m in _STRONG_CLOAK_RE.finditer(html):
+        window = html[m.start() : m.start() + 3000]
+        if len(_EXTERNAL_LINK_RE.findall(window)) >= _MIN_CLOAKED_EXTERNAL_LINKS:
+            hidden_link_farm = True
+            break
+
+    if spam_anchor_count >= _MIN_SPAM_ANCHORS or hidden_block or hidden_link_farm:
         return SeoInjectionResult(
             matched_terms=tuple(sorted(matched)),
             spam_anchor_count=spam_anchor_count,
             hidden_block=hidden_block,
+            hidden_link_farm=hidden_link_farm,
         )
     return None
