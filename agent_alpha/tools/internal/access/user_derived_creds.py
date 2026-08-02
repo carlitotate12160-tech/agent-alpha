@@ -37,7 +37,14 @@ from publicsuffix2 import get_sld
 
 from agent_alpha.config import constants
 from agent_alpha.graph.nodes import NodeType
+from agent_alpha.conductor.applicator_factory import BoundApplicator
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
+from agent_alpha.tools.internal.access.applicator import (
+    GovernedApplicator,
+    HttpFormApplicator,
+    WpLoginApplicator,
+)
+from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 from agent_alpha.tools.internal.access.cred_finding_catalog import CredFindingClass
 
 
@@ -97,6 +104,10 @@ class UserDerivedCredsTool:
         self._graph_store = graph_store
         self._http_client = http_client
         self._applicators = applicators or []
+        # Cached fallback governor (§12.22 D2): built once per engagement so
+        # per-(host, username) attempt counts PERSIST across run() calls — a fresh
+        # governor per call would reset the cap and defeat lockout safety.
+        self._fallback_governor: CredentialLockoutGovernor | None = None
 
     def applies_to(self, ctx: TargetContext) -> float:
         """High when Alpha has enumerated usernames (USER nodes) AND no harvested
@@ -112,6 +123,29 @@ class UserDerivedCredsTool:
         # (0.7 auth-surface) — enumerated usernames make this MORE targeted than blind.
         return 0.75 if users else 0.0
 
+    def _build_fallback_roster(self, ctx: TargetContext) -> list[BoundApplicator]:
+        """GOVERNED fallback roster for when no roster was injected (e.g. a full-chain
+        runner that skipped build_applicators_for_engagement). WpLogin + HttpForm bound
+        to ctx.target, each GovernedApplicator-wrapped by ONE cached lockout governor so
+        attempt caps persist across run() calls — never an ungoverned wire (§12.22 D2)."""
+        if self._fallback_governor is None:
+            self._fallback_governor = CredentialLockoutGovernor()
+        governor = self._fallback_governor
+        return [
+            BoundApplicator(
+                applicator=GovernedApplicator(
+                    WpLoginApplicator(http_client=self._http_client), governor
+                ),
+                target=ctx.target,
+            ),
+            BoundApplicator(
+                applicator=GovernedApplicator(
+                    HttpFormApplicator(http_client=self._http_client), governor
+                ),
+                target=ctx.target,
+            ),
+        ]
+
     def run(self, ctx: TargetContext, budget: ResourceBudget) -> ToolResult:
         """Prove predictable-credential reuse from Alpha-enumerated usernames.
 
@@ -125,9 +159,11 @@ class UserDerivedCredsTool:
         Beta.step mints the accurate vuln node (§ cred_finding_catalog). Independent
         CROSS_VERIFIED runs later in ``run_verification_pass`` (attestation §12.43).
 
-        Safety: NO standalone/ungoverned fallback (unlike default_creds). If no
-        governed applicator is injected, nothing is submitted — derived guessing must
-        never run on an ungoverned wire.
+        Safety: if no governed applicator is injected, a GOVERNED fallback roster
+        (WpLoginApplicator + HttpFormApplicator, each wrapped in GovernedApplicator
+        sharing one cached CredentialLockoutGovernor) is self-built and used. Derived
+        guessing is never run on an ungoverned wire, but an empty roster no longer
+        results in a silent no-op (RUNNER-SEAL≠WIRED regression, solusibersama).
         """
         if self._http_client is None:
             raise ValueError("UserDerivedCredsTool.run requires an injected http_client")
@@ -145,40 +181,7 @@ class UserDerivedCredsTool:
                 error="no enumerated usernames in graph",
             )
 
-        # Prefer the injected governed roster. If none was built (e.g. a full-chain
-        # runner that skipped build_applicators_for_engagement), fall back to a
-        # SELF-BUILT roster — still GovernedApplicator-wrapped (§12.22 D2), so derived
-        # guessing is NEVER ungoverned. This removes the silent no-op that starved
-        # GAP-015 on the autonomous path (solusibersama: 9 users harvested, tool did
-        # nothing because the roster was empty). default_creds' bare fallback is
-        # ungoverned (latent gap); this one is not.
-        bound_applicators = self._applicators
-        if not bound_applicators:
-            from agent_alpha.conductor.applicator_factory import BoundApplicator
-            from agent_alpha.tools.internal.access.applicator import (
-                GovernedApplicator,
-                HttpFormApplicator,
-                WpLoginApplicator,
-            )
-            from agent_alpha.tools.internal.access.cred_lockout import (
-                CredentialLockoutGovernor,
-            )
-
-            governor = CredentialLockoutGovernor()
-            bound_applicators = [
-                BoundApplicator(
-                    applicator=GovernedApplicator(
-                        WpLoginApplicator(http_client=self._http_client), governor
-                    ),
-                    target=ctx.target,
-                ),
-                BoundApplicator(
-                    applicator=GovernedApplicator(
-                        HttpFormApplicator(http_client=self._http_client), governor
-                    ),
-                    target=ctx.target,
-                ),
-            ]
+        bound_applicators = self._applicators or self._build_fallback_roster(ctx)
         host = urlparse(ctx.target).hostname or ctx.target
 
         requests_used = 0

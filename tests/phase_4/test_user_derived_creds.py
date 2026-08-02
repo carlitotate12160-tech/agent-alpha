@@ -187,24 +187,41 @@ def test_run_no_enumerated_users_is_failure() -> None:
 
 
 def test_run_with_no_roster_self_builds_governed_fallback() -> None:
-    """Safety: with NO governed applicator injected, the tool SELF-BUILDS a governed
-    roster (§12.22 D2) rather than silently no-op'ing. The fallback is still
-    GovernedApplicator-wrapped — never ungoverned. With a non-functional http_client
-    (object()), the applicator will fail to connect, yielding an honest failure —
-    but NOT a silent no-op."""
+    """RUNNER-SEAL≠WIRED regression (solusibersama: 9 users harvested, GAP-015 did
+    nothing): with applicators=[] the tool SELF-BUILDS a governed roster and still
+    attempts derived logins — never a silent no-op, never ungoverned. Direct assert,
+    no try/except."""
     tool = UserDerivedCredsTool(
-        graph_store=_FakeGraph(["editor"]), http_client=object(), applicators=[]
+        graph_store=_FakeGraph(["editor"]),
+        http_client=_FakeWpHttp(),
+        applicators=[],
     )
-    # The self-built roster will try to use object() as http_client and fail.
-    # This is expected — the point is the tool TRIES, not silently skips.
-    try:
-        result = tool.run(_ctx(), _BUDGET)
-        assert result.success is False  # failed because object() can't make HTTP calls
-    except Exception:
-        pass  # acceptable — object() is not a real http_client; the tool tried
+    ctx = TargetContext(
+        engagement_id="eng", tenant_id=None, target="https://bernofarm.com/wp-login.php"
+    )
+    result = tool.run(ctx, ResourceBudget(max_requests=50, max_seconds=5, max_cost_usd=0.0))
+    assert result.success is True, "governed fallback did not fire (silent no-op regression)"
+    assert result.findings[0]["username"] == "editor"
+    assert result.findings[0]["finding_class"] == "predictable_credential"
 
 
-# ── Regression (solusibersama): tool must fire even when NO roster is injected ──
+def test_fallback_governor_is_cached_across_runs() -> None:
+    """CodeRabbit actionable #1: the fallback governor must PERSIST across run() calls
+    (built once), so per-(host, username) attempt caps accumulate instead of resetting."""
+    tool = UserDerivedCredsTool(
+        graph_store=_FakeGraph(["editor"]), http_client=_FakeWpHttp(), applicators=[]
+    )
+    ctx = TargetContext(
+        engagement_id="eng", tenant_id=None, target="https://bernofarm.com/wp-login.php"
+    )
+    budget = ResourceBudget(max_requests=50, max_seconds=5, max_cost_usd=0.0)
+    tool.run(ctx, budget)
+    first = tool._fallback_governor
+    tool.run(ctx, budget)
+    assert tool._fallback_governor is first, "fallback governor was rebuilt — lockout cap resets"
+
+
+# ── Regression (solusibersama): tool fires even when NO roster is injected ──
 
 
 class _WpResp:
@@ -243,22 +260,3 @@ class _FakeWpHttp:
         return _WpResp(200, "<html>login form — try again</html>", {})
 
 
-def test_run_fires_with_governed_fallback_when_no_roster_injected() -> None:
-    """RUNNER-SEAL≠WIRED regression (solusibersama: 9 users harvested, GAP-015 did
-    nothing): with applicators=[] the tool must SELF-BUILD a governed roster and still
-    attempt derived logins — never silently no-op, never ungoverned."""
-    tool = UserDerivedCredsTool(
-        graph_store=_FakeGraph(["editor"]),
-        http_client=_FakeWpHttp(),
-        applicators=[],  # no roster injected — the fallback must kick in
-    )
-    ctx = TargetContext(
-        engagement_id="eng",
-        tenant_id=None,
-        target="https://bernofarm.com/wp-login.php",
-    )
-    result = tool.run(ctx, ResourceBudget(max_requests=50, max_seconds=5, max_cost_usd=0.0))
-
-    assert result.success is True, "governed fallback did not fire (silent no-op regression)"
-    assert result.findings[0]["username"] == "editor"
-    assert result.findings[0]["finding_class"] == "predictable_credential"
