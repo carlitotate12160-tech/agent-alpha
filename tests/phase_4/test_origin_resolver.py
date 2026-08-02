@@ -251,3 +251,54 @@ def test_out_of_scope_seed_host_dropped(_r: object, _cf: object, _p: object) -> 
         seed_hosts=["wp.other-evil.com"],
     )
     assert ips == []
+
+
+# ── RC2: redirect statuses (incl. 303 See Other, Odoo /web) confirm an origin ──
+
+
+def test_probe_confirms_on_303_redirect() -> None:
+    """303 (and 307/308) mean the origin is alive and serving — must confirm (RC2).
+    Odoo backends 303 See Other to /web; the old allowlist missed it."""
+    from agent_alpha.recon.reach_transport import OriginDirectResult
+
+    fake = OriginDirectResult(status_code=303, body="", headers={"server": "nginx"})
+    with patch("agent_alpha.recon.origin_resolver.origin_direct_fetch", return_value=fake):
+        assert _probe_as_origin("168.110.192.62", "odoo.alpha-ai.web.id") is True
+
+
+def test_probe_still_rejects_403_waf() -> None:
+    """403 stays non-confirming (CF/WAF block) — the whole point of origin discovery."""
+    from agent_alpha.recon.reach_transport import OriginDirectResult
+
+    fake = OriginDirectResult(status_code=403, body="", headers={})
+    with patch("agent_alpha.recon.origin_resolver.origin_direct_fetch", return_value=fake):
+        assert _probe_as_origin("1.2.3.4", "x.example") is False
+
+
+# ── RC1 + RC3: try EVERY hostname mapped to a candidate IP, deterministically ──
+
+
+@patch("agent_alpha.recon.origin_resolver.is_cloudflare_ip", return_value=False)
+@patch("agent_alpha.recon.origin_resolver._resolve_ipv4", return_value=["168.110.192.62"])
+def test_probes_all_hostnames_per_ip_until_one_confirms(_r: object, _cf: object) -> None:
+    """Two in-scope hosts share one origin IP; only ONE Host header confirms (vhosts
+    differ). The probe must try both — not just the first (RC3) — and do so
+    deterministically regardless of set order (RC1)."""
+    tried: list[str] = []
+
+    def fake_probe(ip: str, host: str) -> bool:
+        tried.append(host)
+        return host == "wp.alpha-ai.web.id"
+
+    http = _FakeHttp(_crtsh_json([]))
+    with patch("agent_alpha.recon.origin_resolver._probe_as_origin", side_effect=fake_probe):
+        ips = discover_origin_ips(
+            "eng",
+            "alpha-ai.web.id",
+            http,
+            _OkAuth(),
+            seed_hosts=["odoo.alpha-ai.web.id", "wp.alpha-ai.web.id"],
+        )
+
+    assert ips == ["168.110.192.62"]  # confirmed via the fallback hostname
+    assert "wp.alpha-ai.web.id" in tried  # did not stop at the first (odoo) host
