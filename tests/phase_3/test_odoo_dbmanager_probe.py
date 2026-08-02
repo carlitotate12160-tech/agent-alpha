@@ -353,3 +353,46 @@ def test_proof_storage_ref_is_unique_per_observation():
     assert proof1.storage_ref != proof2.storage_ref
     assert proof1.artifact_id in proof1.storage_ref
     assert proof2.artifact_id in proof2.storage_ref
+
+
+# ── Regression: Odoo 17 manager (alpha-ai eng_461fbdd4) has NO master_pwd/list_db ──
+
+_ODOO17_BODY_NO_LEGACY_MARKERS = (
+    '<html><head><title>Odoo</title>'
+    '<script src="/web/static/lib.js"></script></head>'
+    '<body><h2>Manage Databases</h2>'
+    '<form action="/web/database/create"></form>'
+    '<a href="/web/database/backup">Backup</a>'
+    '<a href="/web/database/duplicate">Duplicate</a>'
+    '<a href="/web/database/drop">Delete</a>'
+    '<label>Set Master Password</label></body></html>'
+)
+
+
+def test_odoo17_manager_without_legacy_markers_is_exposed() -> None:
+    """Regression (alpha-ai eng_461fbdd4): the Odoo 17 /web/database/manager page carries
+    NO 'master_pwd'/'list_db', only the action-URL markers. It MUST classify EXPOSED
+    deterministically — the earlier miss ('LLM orient failed') lost a payable finding
+    because the RULE trigger + classifier disagreed. Now aligned (anti-#7)."""
+    assert "master_pwd" not in _ODOO17_BODY_NO_LEGACY_MARKERS
+    assert "list_db" not in _ODOO17_BODY_NO_LEGACY_MARKERS
+    assert classify_odoo_dbmanager(_ODOO17_BODY_NO_LEGACY_MARKERS) == EXPOSED
+
+
+def test_dbmanager_rule_markers_match_odoo17_body() -> None:
+    """The RULE playbook must FIRE on the Odoo 17 body (else the tool never runs and we
+    fall back to LLM). Pins rule↔classifier alignment: at least one rule indicator present."""
+    import pathlib
+
+    import yaml as _yaml
+
+    rule = _yaml.safe_load(
+        pathlib.Path("agent_alpha/tools/playbooks/odoo_dbmanager.yaml").read_text()
+    )
+    indicators = [
+        d["body_contains"] for d in rule["match"]["any_indicator"] if "body_contains" in d
+    ]
+    low = _ODOO17_BODY_NO_LEGACY_MARKERS.lower()
+    assert any(m.lower() in low for m in indicators), (
+        "odoo_dbmanager.yaml would NOT fire on an Odoo 17 manager page — rule too narrow"
+    )
