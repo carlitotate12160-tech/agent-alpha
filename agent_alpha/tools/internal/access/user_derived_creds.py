@@ -145,7 +145,40 @@ class UserDerivedCredsTool:
                 error="no enumerated usernames in graph",
             )
 
-        bound_applicators = self._applicators  # governed roster; no ungoverned fallback
+        # Prefer the injected governed roster. If none was built (e.g. a full-chain
+        # runner that skipped build_applicators_for_engagement), fall back to a
+        # SELF-BUILT roster — still GovernedApplicator-wrapped (§12.22 D2), so derived
+        # guessing is NEVER ungoverned. This removes the silent no-op that starved
+        # GAP-015 on the autonomous path (solusibersama: 9 users harvested, tool did
+        # nothing because the roster was empty). default_creds' bare fallback is
+        # ungoverned (latent gap); this one is not.
+        bound_applicators = self._applicators
+        if not bound_applicators:
+            from agent_alpha.conductor.applicator_factory import BoundApplicator
+            from agent_alpha.tools.internal.access.applicator import (
+                GovernedApplicator,
+                HttpFormApplicator,
+                WpLoginApplicator,
+            )
+            from agent_alpha.tools.internal.access.cred_lockout import (
+                CredentialLockoutGovernor,
+            )
+
+            governor = CredentialLockoutGovernor()
+            bound_applicators = [
+                BoundApplicator(
+                    applicator=GovernedApplicator(
+                        WpLoginApplicator(http_client=self._http_client), governor
+                    ),
+                    target=ctx.target,
+                ),
+                BoundApplicator(
+                    applicator=GovernedApplicator(
+                        HttpFormApplicator(http_client=self._http_client), governor
+                    ),
+                    target=ctx.target,
+                ),
+            ]
         host = urlparse(ctx.target).hostname or ctx.target
 
         requests_used = 0
