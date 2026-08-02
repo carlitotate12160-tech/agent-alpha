@@ -35,6 +35,7 @@ from agent_alpha.graph.nodes import (
     NodeType,
     ProofArtifact,
     RelationshipType,
+    VerificationTier,
     VulnerabilityProperties,
 )
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
@@ -141,6 +142,11 @@ def process_odoo_dbmanager_hit(
     )
 
     artifact_id = str(uuid.uuid4())
+    # GENERAL RULE: a proof-backed finding whose classifier distinguishes a
+    # true-positive from a look-alike (here: EXPOSED vs PRESENT_LOCKED — action
+    # markers, not bare HTTP 200) constitutes a tool self-report → SELF_VERIFIED.
+    # Generalising this to other recon exposure probes (git, backup, actuator) is
+    # a fast-follow micro-slice; scope THIS slice to the Odoo probe only.
     vuln_node = AttackNode(
         id=f"vuln:{host}:odoo_dbmanager_exposed",
         type=NodeType.VULNERABILITY,
@@ -163,6 +169,7 @@ def process_odoo_dbmanager_hit(
         ],
         agent="alpha",
         timestamp_utc=now_utc,
+        verification=VerificationTier.SELF_VERIFIED,
     )
     persist_node(event_store, graph_store, engagement_id, vuln_node, agent="alpha")
 

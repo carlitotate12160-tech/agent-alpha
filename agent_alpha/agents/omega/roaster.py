@@ -25,7 +25,7 @@ from agent_alpha.graph.narrative import (
     summarize_chain_finding,
     to_narrative,
 )
-from agent_alpha.graph.nodes import AttackEdge
+from agent_alpha.graph.nodes import AttackEdge, RelationshipType, VulnerabilityProperties
 from agent_alpha.graph.store import GraphStore
 
 logger = logging.getLogger(__name__)
@@ -152,6 +152,131 @@ class EvidenceItem:
     captured_at: str
 
 
+# ── Finding catalog (SSOT — keyed on the vuln-id suffix, i.e. the last
+# ':'-separated token of a vuln node id). Suffixes are sourced directly from
+# the minting code: odoo_dbmanager_probe.py, path_probe.py (PATH_PROBE_CATALOG),
+# scout.py, js_secret_probe.py. No client-specific strings, no fallback-masking.
+_FINDING_TITLE_CATALOG: dict[str, str] = {
+    "odoo_dbmanager_exposed": "Unauthenticated Odoo Database Manager Exposure",
+    "odoo_version_disclosure": "Odoo Version Disclosure",
+    "git_exposure": "Git Repository Exposed",
+    "backup_file_leak": "Sensitive Backup File Exposed",
+    "actuator_exposure": "Spring Boot Actuator Environment Disclosure",
+    "wp_config_leak": "WordPress Configuration File Exposed",
+    "js_secret_leak": "Secret Leaked via Client-Side JavaScript",
+    "laravel_debug": "Laravel Debug Page Information Disclosure",
+    "wp_version_disclosure": "WordPress Version Disclosure",
+    "default_credentials": "Default Credentials Accepted",
+    "predictable_credential": "Predictable Credential Accepted",
+    "seo_injection_compromise": "SEO Injection / Content Compromise",
+}
+
+_FINDING_REMEDIATION_CATALOG: dict[str, str] = {
+    "odoo_dbmanager_exposed": (
+        "Restrict /web/database/manager to localhost or internal networks only; "
+        "set list_db = False in odoo.conf."
+    ),
+    "odoo_version_disclosure": (
+        "Disable the /web/webclient/version_info endpoint or restrict via WAF rule "
+        "to prevent version fingerprinting."
+    ),
+    "git_exposure": (
+        "Block public access to /.git/ via web-server config (deny all on that prefix); "
+        "remove the directory from the document root entirely."
+    ),
+    "backup_file_leak": (
+        "Remove backup and temporary copies of configuration files from the web root; "
+        "add deny rules for .bak/.orig/.swp/.old extensions in the server config."
+    ),
+    "actuator_exposure": (
+        "Restrict /actuator endpoints to the management port or internal network; "
+        "never expose env, beans, or httptrace endpoints publicly."
+    ),
+    "wp_config_leak": (
+        "Remove backup copies of wp-config.php from the web root; "
+        "configure the web server to deny access to any .php.bak/.php~ variants."
+    ),
+    "js_secret_leak": (
+        "Move secrets server-side; never embed API keys or tokens in client-delivered JS. "
+        "Rotate the exposed credential immediately."
+    ),
+    "laravel_debug": (
+        "Disable APP_DEBUG in production (APP_DEBUG=false in .env); "
+        "ensure APP_ENV=production so debug pages are never served."
+    ),
+    "wp_version_disclosure": (
+        "Remove or block /readme.html and strip the wp-generator meta tag "
+        "to prevent version fingerprinting."
+    ),
+    "default_credentials": (
+        "Change all default credentials immediately; enforce a strong-password policy "
+        "and disable or rename default accounts."
+    ),
+    "predictable_credential": (
+        "Enforce strong, randomly-generated passwords; rotate the exposed credential "
+        "and audit login history for unauthorized access."
+    ),
+    "seo_injection_compromise": (
+        "Audit and remove injected content; harden CMS write-access, rotate admin "
+        "credentials, and scan for webshells or persistent backdoors."
+    ),
+}
+_FINDING_FALLBACK_REMEDIATION = (
+    "Restrict public access to this surface; apply vendor patch or configuration "
+    "hardening. Consult the vendor's security advisories for the specific version in use."
+)
+
+# Severity band thresholds (CVSSv3.1 base-score breakpoints).
+_SEVERITY_RANK: dict[str, int] = {"critical": 3, "high": 2, "medium": 1, "low": 0}
+
+
+def _cvss_to_severity(cvss: float) -> str:
+    """Derive a severity label from a CVSSv3.1 base score."""
+    if cvss >= 9.0:
+        return "critical"
+    if cvss >= 7.0:
+        return "high"
+    if cvss >= 4.0:
+        return "medium"
+    return "low"
+
+
+def _humanize_node_id(node_id: str) -> str:
+    """Turn e.g. 'vuln:host.com:odoo_dbmanager_exposed' into a readable title."""
+    suffix = node_id.rsplit(":", 1)[-1]
+    return suffix.replace("_", " ").title()
+
+
+@dataclass(frozen=True)
+class Finding:
+    """First-class payable finding derived from a proof-backed VULNERABILITY node.
+
+    GENERAL contract: keyed on (node.type == VULNERABILITY AND node.proof_artifacts
+    non-empty). Never client-specific. Title and remediation are keyed on the
+    vuln-id suffix (the FINDING CLASS) from the SSOT catalog above, with a
+    generic fallback for unlisted classes.
+
+    Anti-#3: a Finding with NO proof_artifacts is NEVER constructed.
+    """
+
+    finding_id: str
+    # Human-readable title from _FINDING_TITLE_CATALOG[suffix] or humanized node id.
+    title: str
+    # Severity band derived from cvss_score: >=9 critical, >=7 high, >=4 medium, else low.
+    severity: str
+    cvss_score: float
+    # ASSET node reached via the incoming EXPLOITS edge; fallback = host parsed from finding_id.
+    affected_asset: str
+    # node.verification.value — one of: unverified | self_verified | cross_verified.
+    verification: str
+    # This finding's own proof artifacts (non-empty by construction).
+    evidence: tuple[EvidenceItem, ...]
+    # Remediation from _FINDING_REMEDIATION_CATALOG[suffix] or generic fallback.
+    remediation: str
+    # True if the vuln node is on the critical chain path.
+    on_chain: bool
+
+
 @dataclass(frozen=True)
 class Report:
     """Immutable report produced by :class:`Omega`."""
@@ -164,6 +289,9 @@ class Report:
     blocked_hosts: tuple[str, ...] = ()
     critical_path: tuple[PathStep, ...] = ()
     evidence: tuple[EvidenceItem, ...] = ()
+    # Payable Findings: one per proof-backed VULNERABILITY node (chain + standalone).
+    # Sorted by severity desc then cvss desc. Empty when no proof-backed vulns exist.
+    findings: tuple[Finding, ...] = ()
     blast_radius: BlastRadius | None = None
     attack_flow_mermaid: str = ""
     target: str = ""
@@ -320,6 +448,9 @@ class Omega:
         critical_path_tuple = tuple(critical_path_steps)
         attack_flow_mermaid = render_attack_flow(critical_path_tuple)
 
+        # Build first-class Findings from every proof-backed VULNERABILITY node.
+        findings = self._build_findings(path_node_ids)
+
         return Report(
             narrative=narrative,
             mitre_techniques=mitre_techniques,
@@ -329,6 +460,7 @@ class Omega:
             blocked_hosts=blocked_hosts,
             critical_path=critical_path_tuple,
             evidence=tuple(evidence_items),
+            findings=tuple(findings),
             blast_radius=blast_radius_result,
             attack_flow_mermaid=attack_flow_mermaid,
             target=target,
@@ -341,3 +473,71 @@ class Omega:
         from agent_alpha.graph.narrative import calculate_blast_radius
 
         return calculate_blast_radius(self.graph_store, from_node_id)
+
+    def _build_findings(self, path_node_ids: set[str]) -> list[Finding]:
+        """Build first-class Findings from every proof-backed VULNERABILITY node.
+
+        Walks both on-chain and off-chain nodes. ANTI-#3: a Finding is NEVER
+        constructed from a node with empty proof_artifacts.
+        """
+        # Pre-index all edges by target_id for O(1) EXPLOITS-source lookup.
+        exploits_source: dict[str, str] = {}
+        for edge in self.graph_store.all_edges():
+            if edge.relationship == RelationshipType.EXPLOITS:
+                exploits_source[edge.target_id] = edge.source_id
+
+        findings: list[Finding] = []
+        for node in self.graph_store.all_nodes():
+            if node.type.value != "vulnerability":
+                continue
+            if not node.proof_artifacts:
+                continue  # anti-#3: unproven ≠ payable
+
+            cvss: float = 0.0
+            if isinstance(node.properties, VulnerabilityProperties):
+                cvss = node.properties.cvss_score
+
+            severity = _cvss_to_severity(cvss)
+            suffix = node.id.rsplit(":", 1)[-1]
+            title = _FINDING_TITLE_CATALOG.get(suffix, _humanize_node_id(node.id))
+            remediation = _FINDING_REMEDIATION_CATALOG.get(suffix, _FINDING_FALLBACK_REMEDIATION)
+
+            asset_id = exploits_source.get(node.id, "")
+            if not asset_id:
+                parts = node.id.split(":")
+                asset_id = parts[1] if len(parts) >= 3 else node.id
+
+            on_chain = node.id in path_node_ids
+
+            finding_evidence: list[EvidenceItem] = []
+            for artifact in node.proof_artifacts:
+                sha256 = hashlib.sha256(artifact.storage_ref.encode()).hexdigest()
+                finding_evidence.append(
+                    EvidenceItem(
+                        technique_id="",
+                        description=artifact.description,
+                        artifact_ref=artifact.storage_ref,
+                        sha256=sha256,
+                        captured_at=artifact.captured_at,
+                    )
+                )
+
+            findings.append(
+                Finding(
+                    finding_id=node.id,
+                    title=title,
+                    severity=severity,
+                    cvss_score=cvss,
+                    affected_asset=asset_id,
+                    verification=node.verification.value,
+                    evidence=tuple(finding_evidence),
+                    remediation=remediation,
+                    on_chain=on_chain,
+                )
+            )
+
+        findings.sort(
+            key=lambda f: (_SEVERITY_RANK.get(f.severity, 0), f.cvss_score),
+            reverse=True,
+        )
+        return findings
