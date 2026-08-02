@@ -166,3 +166,10 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   viability(datacenter|infra|client_side|forbidden). Evasion is EXTERNAL-vantage-specific (irrelevant
   to a future internal product). Build slice-by-slice on real obstacles, not up front. alpha-ai.web.id
   full-CF from datacenter → only viable code lever is origin-direct.
+- **12.45** Credential-result semantics (extends §12.43/§3a): a red team NEVER certifies "safe" —
+  absence of a finding ≠ absence of vuln. Credential finding = POSITIVE only (no safe/strong node
+  or report claim). Negatives carry a METHOD+LIMIT caveat, never a verdict; Omega forbidden from
+  "safe/secure/not-predictable" phrasing. Password recall scales via offline hash-crack (harvest
+  hash → hashcat/rockyou/rules, high-recall, safe, THE strong one, Gamma-adjacent) + credential
+  stuffing (breach corpus), NEVER unsafe online spray. Methodology transparency in every cred
+  section. Roadmap vectors tracked in BUGS_AND_GAPS; no code now.

@@ -924,3 +924,13 @@ that makes the refactor safe.
 | O1 | **RULE-OF-THREE version_disclosure**: version-disclosure now has wp_version, db_service server_version, and odoo. Extract a shared `version_disclosure` helper for ONE finding contract. |
 | O2 | **list_db JSON-RPC**: Reconcile with `odoo_access.py` XML-RPC `_discover_databases` (Bug #6). |
 | O3 | **Rename**: `odoo_dbmanager_probe.py` → `odoo_recon.py`. |
+
+---
+
+## Password Recall Ladder — Roadmap Vectors (ADR §12.45)
+
+| id | Vector | Description | Dependency | Priority |
+|----|--------|-------------|------------|----------|
+| R1 | **Offline hash crack** | When Alpha harvests password hashes (DB dump / backup / wp-config→DB access), crack OFFLINE with hashcat + rockyou + rules (billions of guesses, NO lockout, safe). High-recall. | Gamma-adjacent (hash-harvest chain) | High — THE strong recall vector |
+| R2 | **Credential stuffing** | Check enumerated identities against known breach corpuses (reuse across services). Needs ethical/legal breach-data source (paid). | External data source | Medium — needs legal review |
+| R3 | **OSINT-targeted wordlist** | Company/year/season/local terms → hashcat rules. Broader than 4 derived candidates but still online-lockout-bounded. | None (extends UserDerivedCredsTool) | Low — marginal recall gain online |
