@@ -10,10 +10,20 @@ phase: recon
 # deliberately NOT /web/static/, odoo.define, or /web/login (those are the broad
 # fingerprint rule, and putting them here re-introduces Bug #2 starvation).
 priority: 50
+# Markers aligned with classify_odoo_dbmanager's ODOO_DBMANAGER_ACTION_MARKERS
+# (anti-#7 single-source): DB-manager-SPECIFIC action URLs + text, present on the
+# real /web/database/manager page across Odoo versions (incl. 17) — NOT the broad
+# odoo_fingerprint markers (/web/static/, odoo.define), so no Bug #2 starvation.
 match:
   any_indicator:
     - body_contains: "master_pwd"
     - body_contains: "list_db"
+    - body_contains: "/web/database/create"
+    - body_contains: "/web/database/backup"
+    - body_contains: "/web/database/duplicate"
+    - body_contains: "/web/database/drop"
+    - body_contains: "Manage Databases"
+    - body_contains: "Master Password"
 action:
   tool: odoo_dbmanager_probe
   tier: rule
