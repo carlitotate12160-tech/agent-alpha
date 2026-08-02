@@ -146,7 +146,6 @@ def run_gap015_field_prove(
         web_target=config.entry_point,
         candidates=beta_web_applicators(http_client),  # WpLogin BEFORE HttpForm (#7, opsec)
     )
-
     # 4) Beta strike — registry ranks UserDerivedCredsTool (USER nodes present) →
     #    derive → verified access → predictable_credential node (§3a).
     beta = Beta(

@@ -209,7 +209,9 @@ def _resolve_in_scope_targets(
             # Only this host's WP asset — never append a login path for a sibling host
             # (shared-hosting / co-tenant safety, mirrors the offensive-web-target gate).
             if constants.STACK_WP in props.tech_stack and props.host == web_host:
-                http_targets.append(f"{base}/wp-login.php")
+                wp_login = f"{base}/wp-login.php"
+                if not base.endswith("wp-login.php"):
+                    http_targets.append(wp_login)
 
         return list(dict.fromkeys(http_targets))
 
