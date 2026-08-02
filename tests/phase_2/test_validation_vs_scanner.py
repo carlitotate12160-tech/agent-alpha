@@ -34,6 +34,7 @@ def _proven_chain_result() -> OdooChainResult:
         edge_from_harvested_cred=True,
         db_enumerated=True,
         leak_suspected=False,
+        cross_verified=True,
     )
 
 
@@ -45,6 +46,7 @@ def _failed_chain_result() -> OdooChainResult:
         edge_from_harvested_cred=False,
         db_enumerated=False,
         leak_suspected=False,
+        cross_verified=False,
     )
 
 
@@ -56,6 +58,7 @@ def _cdn_blocked_chain_result() -> OdooChainResult:
         edge_from_harvested_cred=False,
         db_enumerated=False,
         leak_suspected=False,
+        cross_verified=False,
     )
 
 
@@ -217,6 +220,7 @@ class TestNoOverclaim:
             edge_from_harvested_cred=True,
             db_enumerated=True,
             leak_suspected=False,
+            cross_verified=False,
         )
         assert chain.chain_proven is False
 
@@ -231,6 +235,7 @@ class TestNoOverclaim:
             edge_from_harvested_cred=True,
             db_enumerated=True,
             leak_suspected=True,  # suspected = not proven
+            cross_verified=False,
         )
         assert chain.chain_proven is False
 

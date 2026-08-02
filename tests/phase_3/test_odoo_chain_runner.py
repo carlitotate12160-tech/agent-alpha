@@ -24,6 +24,7 @@ def _result(**over: object) -> OdooChainResult:
         "edge_from_harvested_cred": True,
         "db_enumerated": True,
         "leak_suspected": False,
+        "cross_verified": True,
     }
     base.update(over)
     return OdooChainResult(**base)  # type: ignore[arg-type]
@@ -81,6 +82,13 @@ def test_db_enumerated_false_when_guessed() -> None:
 def test_db_enumerated_false_when_no_authenticate_proof() -> None:
     es = _ES([_E({"proof_request": {"method": "list"}}), _E("not-a-dict")])
     assert _db_enumerated(es, "e") is False
+
+
+def test_cross_verified_gates_payable_not_chain_proven() -> None:
+    # §12.43: chain can be graph-proven yet NOT payable until an independent oracle confirms.
+    assert _result().payable_proven is True
+    assert _result(cross_verified=False).payable_proven is False
+    assert _result(cross_verified=False).chain_proven is True  # graph-shape unchanged
 
 
 def test_config_loader_rejects_missing_key(tmp_path: object) -> None:

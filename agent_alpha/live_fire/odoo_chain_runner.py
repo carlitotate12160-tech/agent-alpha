@@ -33,9 +33,10 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega, Report
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.conductor.verification import verify_access_nodes
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import NodeType, RelationshipType
+from agent_alpha.graph.nodes import NodeType, RelationshipType, VerificationTier
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider, _scan_leak
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.recon.wp_config_probe import verify_wp_config_leak
@@ -60,6 +61,7 @@ class OdooChainResult:
     edge_from_harvested_cred: bool  # ENABLES edge source = Alpha's vaulted cred (=reused)
     db_enumerated: bool  # odoo_access proof shows db.list() enumeration, not a guess
     leak_suspected: bool
+    cross_verified: bool  # §12.43: independent oracle (CredReuseAttestor) promoted the access node
 
     @property
     def chain_proven(self) -> bool:
@@ -70,6 +72,12 @@ class OdooChainResult:
             and self.db_enumerated
             and not self.leak_suspected
         )
+
+    @property
+    def payable_proven(self) -> bool:
+        """§12.43: a payable 'proven' claim requires the graph-shape chain AND an
+        independent-oracle confirmation. chain_proven alone = self-verified only."""
+        return self.chain_proven and self.cross_verified
 
 
 def load_odoo_chain_config(path: str | pathlib.Path) -> OdooChainConfig:
@@ -119,6 +127,15 @@ def _edge_from_harvested_cred(graph_store: Any, secrets_manager: Any) -> bool:
         except Exception:
             continue
     return False
+
+
+def _web_cross_verified(graph_store: Any) -> bool:
+    """True iff an ACCESS_LEVEL node reached CROSS_VERIFIED (independent oracle,
+    §12.43) — the tier a payable 'proven' claim requires."""
+    return any(
+        getattr(n, "verification", None) == VerificationTier.CROSS_VERIFIED
+        for n in graph_store.nodes_by_type(NodeType.ACCESS_LEVEL)
+    )
 
 
 def _db_enumerated(event_store: Any, engagement_id: str) -> bool:
@@ -192,12 +209,19 @@ def run_odoo_chain_live_fire(
         secrets_manager=secrets_manager,
     ).run_strike(rec.engagement_id, config.entry_point)
 
+    # 5) CROSS-VERIFY (§12.43) — the SAME independent attestor pass the autonomous
+    #    Conductor path runs (conductor/main.py run_beta on COMPLETE). This is the
+    #    canonical verify_access_nodes (single promotion source), NOT a duplicate:
+    #    the field-prove reports the tier an autonomous engagement would reach.
+    verify_access_nodes(graph_store, event_store, rec.engagement_id)
+
     return OdooChainResult(
         leak_creds_added=creds_added,
         web_access_level=_web_access_level(graph_store),
         edge_from_harvested_cred=_edge_from_harvested_cred(graph_store, secrets_manager),
         db_enumerated=_db_enumerated(event_store, rec.engagement_id),
         leak_suspected=_scan_leak(event_store, rec.engagement_id),
+        cross_verified=_web_cross_verified(graph_store),
     )
 
 
@@ -251,6 +275,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Leak suspected          : {result.leak_suspected}")
     print("-" * 64)
     print(f"  CHAIN PROVEN: {result.chain_proven}")
+    print(f"  CROSS_VERIFIED (independent oracle): {result.cross_verified}")
+    print(f"  PAYABLE PROVEN (chain + oracle): {result.payable_proven}")
     print("=" * 64)
 
     report = report_odoo_chain(graph_store)

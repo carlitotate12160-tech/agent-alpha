@@ -54,6 +54,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "GovernedApplicator": (
         "conductor/applicator_factory.py",
     ),  # §12.22 D2: lockout seam wraps every applicator in the factory
+    "verify_access_nodes": (
+        "conductor/main.py",
+    ),  # §12.43: CROSS_VERIFIED on the autonomous Conductor path (canonical run_verification_pass wrapper)
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
@@ -67,10 +70,6 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
     "IntelligenceBase": (
         ("tools/registry.py", "llm/orchestrator.py"),
         "GAP-003 / ADR §12.11 (cross-engagement learning)",
-    ),
-    "run_verification_pass": (
-        ("conductor/main.py", "conductor/execute_agent.py"),
-        "WIRING-DEBT (close in slice-1): CROSS_VERIFIED must be reachable on the autonomous Conductor path",
     ),
     "check_technique": (
         ("conductor/execute_agent.py",),
