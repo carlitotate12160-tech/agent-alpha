@@ -46,6 +46,7 @@ from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
+from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
 from agent_alpha.recon.plugin_cve_catalog import lookup as cve_lookup
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach, is_cloudflare_ip
 from agent_alpha.recon.reach_transport import (
@@ -165,6 +166,7 @@ class Alpha:
         self._work_queue: list[str] = []
         self._probed: set[str] = set()
         self._findings: int = 0
+        self._seo_analyzed_hosts: set[str] = set()
         self._analyzable_probes: int = 0
         self._ran_campaigns: set[str] = set()
         self._body_hashes: set[str] = set()
@@ -213,6 +215,7 @@ class Alpha:
         self._work_queue = [target_url]
         self._probed = set()
         self._findings = 0
+        self._seo_analyzed_hosts = set()
         self._analyzable_probes = 0
         self._ran_campaigns = set()
         self._body_hashes = set()
@@ -524,6 +527,7 @@ class Alpha:
         # not a surface to crawl (its nav links are noise, and crawling them would
         # re-inflate the very probing F2 trims).
         if verdict is Verdict.OK:
+            nodes_added += self._handle_content_analysis(resp, url)
             for href in self._extract_hrefs(resp.text, url):
                 if self._frontier_expansion_allowed(href) and self.enqueue_discovered_url(href):
                     h = urlparse(href).hostname or urlparse(href).netloc
@@ -1846,6 +1850,57 @@ class Alpha:
             return True
         path = parsed.path.lower()
         return any(path.startswith(p) for p in constants.WP_CRAWL_ALLOW_PATH_PREFIXES)
+
+    def _handle_content_analysis(self, resp: Any, url: str) -> int:
+        """§12.40: scan an OK HTML body for compromise indicators (injected SEO/gambling
+        spam) — the "looks fine outside, already owned inside" case. Deterministic, no LLM
+        (anti-#3). Mints ONE finding per host (run-once). A NEGATIVE is NOT a clean bill of
+        health (§12.45) — only a positive is a proven indicator."""
+        host = urlparse(url).hostname
+        if not host or host in self._seo_analyzed_hosts:
+            return 0
+        result = detect_seo_injection(resp.text or "")
+        if result is None:
+            return 0
+        self._seo_analyzed_hosts.add(host)  # mint once per host
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        artifact_id = str(uuid.uuid4())
+        evidence = (
+            f"Compromise indicator at {url}: injected SEO/gambling spam — "
+            f"{result.spam_anchor_count} spam anchor(s)"
+            + (", cloaked hidden block" if result.hidden_block else "")
+            + f"; terms: {', '.join(result.matched_terms[:8])}. "
+            "Site appears ALREADY COMPROMISED (parasite hosting / injection)."
+        )
+        vuln_node = AttackNode(
+            id=f"vuln:{host}:{SEO_INJECTION_SPEC.vuln_id_suffix}",
+            type=NodeType.VULNERABILITY,
+            properties=VulnerabilityProperties(
+                affected_service="web",
+                cvss_score=SEO_INJECTION_SPEC.cvss,
+                exploit_available=False,
+            ),
+            confidence=0.9,
+            agent="alpha",
+            timestamp_utc=now_utc,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=artifact_id,
+                    type="http_response",
+                    storage_ref=f"engagements/{self._engagement_id}/proofs/{artifact_id}",
+                    description=evidence,
+                    captured_at=now_utc,
+                    agent="alpha",
+                    target=url,
+                )
+            ],
+            verification=VerificationTier.SELF_VERIFIED,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, vuln_node, agent="alpha"
+        )
+        self._findings += 1
+        return 1
 
     def _extract_hrefs(self, html: str, base_url: str) -> list[str]:
         """Extract absolute same-origin hrefs from *html*.
