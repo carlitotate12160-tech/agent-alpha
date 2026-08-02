@@ -23,9 +23,28 @@ from dataclasses import dataclass
 # Gambling / SEO-spam lexicon (Indonesian + generic). Data-tier — expand as observed.
 _SPAM_TERMS: frozenset[str] = frozenset(
     {
-        "judi", "slot", "togel", "casino", "poker", "gacor", "bandar", "sbobet",
-        "maxwin", "rtp", "pragmatic", "toto", "bola", "taruhan", "jackpot", "pokerv",
-        "domino", "qq", "situs judi", "slot online", "judi online", "slot gacor",
+        "judi",
+        "slot",
+        "togel",
+        "casino",
+        "poker",
+        "gacor",
+        "bandar",
+        "sbobet",
+        "maxwin",
+        "rtp",
+        "pragmatic",
+        "toto",
+        "bola",
+        "taruhan",
+        "jackpot",
+        "pokerv",
+        "domino",
+        "qq",
+        "situs judi",
+        "slot online",
+        "judi online",
+        "slot gacor",
     }
 )
 

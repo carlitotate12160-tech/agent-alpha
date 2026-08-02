@@ -23,10 +23,14 @@ def test_legit_prose_mentioning_gambling_is_not_flagged() -> None:
 
 def test_injected_gambling_link_farm_is_flagged() -> None:
     """An injected spam link farm (many gambling anchors) is a proven compromise indicator."""
-    html = "<html><body>" + "".join(
-        f"<a href='https://slot{i}.xyz/gacor'>Situs Judi Slot Gacor Maxwin {i}</a>"
-        for i in range(8)
-    ) + "</body></html>"
+    html = (
+        "<html><body>"
+        + "".join(
+            f"<a href='https://slot{i}.xyz/gacor'>Situs Judi Slot Gacor Maxwin {i}</a>"
+            for i in range(8)
+        )
+        + "</body></html>"
+    )
     result = detect_seo_injection(html)
     assert result is not None
     assert result.spam_anchor_count >= 5
