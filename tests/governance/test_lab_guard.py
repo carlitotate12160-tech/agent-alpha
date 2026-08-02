@@ -96,9 +96,9 @@ class TestAssertLabOnlyTarget:
                 allowlist=allowlist_with_expired,
             )
 
-    def test_quantum_carries_verifiable_proof_or_is_absent(self) -> None:
-        """quantum-laboratories.com is absent (no verifiable proof attached)."""
-        assert "quantum-laboratories.com" not in LAB_TARGET_ALLOWLIST
+    def test_quantum_is_client_approved(self) -> None:
+        """quantum-laboratories.com is client-approved (dns-txt proof attached)."""
+        assert "quantum-laboratories.com" in LAB_TARGET_ALLOWLIST
 
     def test_rejects_empty_target(self) -> None:
         """An empty or invalid target must raise LabOnlyViolation."""
