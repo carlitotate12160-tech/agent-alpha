@@ -832,15 +832,14 @@ def authorize_engagement_endpoint(
         except GuardrailError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    # Auto-fill consent items if not provided (dev/cooperative mode).
-    if not body.consent_items:
-        body.consent_items = ["recon_only", "subdomain_enum", "origin_discovery", "evasion"]
-
-    # Auto-fill signed_by/signed_at if empty.
-    if not body.signed_by:
-        body.signed_by = "operator"
-    if not body.signed_at:
-        body.signed_at = datetime.now(timezone.utc).isoformat()  # noqa: UP017
+    # Auto-fill consent + signer when domain verification is skipped (dev/cooperative).
+    if skip_verification:
+        if not body.consent_items:
+            body.consent_items = ["recon_only", "subdomain_enum", "origin_discovery", "evasion"]
+        if not body.signed_by:
+            body.signed_by = "operator"
+        if not body.signed_at:
+            body.signed_at = datetime.now(timezone.utc).isoformat()  # noqa: UP017
 
     # Origin IPs: manual override (dev/cooperative) or auto-resolve via DNS.
     authorized_origins: frozenset[str] | None
