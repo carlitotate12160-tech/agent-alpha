@@ -5,6 +5,7 @@
 # in background. Phase 0: Celery task is a no-op placeholder (real agent logic
 # Phase 2+). All Phase 0 components wired here as singletons.
 
+import base64
 import hashlib
 import ipaddress
 import json
@@ -155,12 +156,124 @@ def _crtsh_subdomains(domain: str) -> list[str]:
     return sorted(names)
 
 
+def _alienvault_otx_subdomains(domain: str) -> list[str]:
+    """Query AlienVault OTX (free, no API key) for passive subdomain DNS."""
+    names: set[str] = set()
+    url = f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Agent-Alpha/0.1"})
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to OTX
+            data = json.loads(resp.read())
+        for record in data.get("passive_dns", []):
+            hostname = str(record.get("hostname", "")).strip().lower()
+            if hostname and hostname.endswith(domain):
+                names.add(hostname)
+    except Exception:
+        pass  # OTX is best-effort
+    return sorted(names)
+
+
+def _censys_subdomains(domain: str) -> list[str]:
+    """Query Censys certificates API (requires CENSYS_API_ID + CENSYS_API_SECRET)."""
+    api_id = os.environ.get("CENSYS_API_ID", "")
+    api_secret = os.environ.get("CENSYS_API_SECRET", "")
+    if not api_id or not api_secret:
+        return []
+
+    names: set[str] = set()
+    url = "https://search.censys.io/api/v2/certificates/search"
+    payload = json.dumps(
+        {
+            "q": f"names: {domain}",
+            "per_page": 100,
+        }
+    ).encode()
+    try:
+        req = urllib.request.Request(
+            url,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Agent-Alpha/0.1",
+            },
+            method="POST",
+        )
+        auth = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()
+        req.add_header("Authorization", f"Basic {auth}")
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to Censys
+            data = json.loads(resp.read())
+        for hit in data.get("result", {}).get("hits", []):
+            for name in hit.get("names", []):
+                n = name.strip().lower()
+                if n and "*" not in n and n.endswith(domain):
+                    names.add(n)
+    except Exception:
+        pass  # Censys is best-effort
+    return sorted(names)
+
+
+def _virustotal_subdomains(domain: str) -> list[str]:
+    """Query VirusTotal v3 subdomains API (requires VIRUSTOTAL_API_KEY)."""
+    api_key = os.environ.get("VIRUSTOTAL_API_KEY", "")
+    if not api_key:
+        return []
+
+    names: set[str] = set()
+    url = f"https://www.virustotal.com/api/v3/domains/{domain}/subdomains?limit=100"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "x-apikey": api_key,
+                "User-Agent": "Agent-Alpha/0.1",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to VirusTotal
+            data = json.loads(resp.read())
+        for item in data.get("data", []):
+            n = str(item.get("id", "")).strip().lower()
+            if n and n.endswith(domain):
+                names.add(n)
+    except Exception:
+        pass  # VirusTotal is best-effort
+    return sorted(names)
+
+
+def _discover_subdomains(domain: str) -> list[str]:
+    """Multi-source subdomain discovery: crt.sh, hackertarget, OTX, Censys, VirusTotal."""
+    all_names: set[str] = set()
+
+    # Source 1+2: crt.sh + hackertarget
+    all_names.update(_crtsh_subdomains(domain))
+
+    # Source 3: AlienVault OTX (free, no API key)
+    otx_names = _alienvault_otx_subdomains(domain)
+    if otx_names:
+        _log.info("OTX found %d subdomains for %s", len(otx_names), sanitize_for_log(domain))
+    all_names.update(otx_names)
+
+    # Source 4: Censys (requires API key)
+    censys_names = _censys_subdomains(domain)
+    if censys_names:
+        _log.info("Censys found %d subdomains for %s", len(censys_names), sanitize_for_log(domain))
+    all_names.update(censys_names)
+
+    # Source 5: VirusTotal (requires API key)
+    vt_names = _virustotal_subdomains(domain)
+    if vt_names:
+        _log.info("VirusTotal found %d subdomains for %s", len(vt_names), sanitize_for_log(domain))
+    all_names.update(vt_names)
+
+    return sorted(all_names)
+
+
 def _resolve_origin_ips(domains: list[str]) -> list[str]:
-    """Auto-discover origin IPs for domains via CT logs + DNS.
+    """Auto-discover origin IPs for domains via multi-source CT logs + DNS.
 
     Strategy:
     1. Resolve DNS A records for the domain itself (cooperative/non-CF targets).
-    2. Query crt.sh CT logs for subdomain certificates.
+    2. Multi-source subdomain discovery: crt.sh, hackertarget, AlienVault OTX,
+       Censys (if API key), VirusTotal (if API key).
     3. Resolve each subdomain's DNS A records.
     4. Filter out Cloudflare edge IPs and private/loopback IPs.
     5. Return unique, globally routable origin IPs.
@@ -185,12 +298,10 @@ def _resolve_origin_ips(domains: list[str]) -> list[str]:
         except socket.gaierror:
             _log.warning("DNS resolution failed for %s — skipping", sanitize_for_log(domain))
 
-        # 2. CT log discovery via crt.sh
-        subdomains = _crtsh_subdomains(domain)
+        # 2. Multi-source subdomain discovery
+        subdomains = _discover_subdomains(domain)
         if subdomains:
-            _log.info(
-                "crt.sh found %d subdomains for %s", len(subdomains), sanitize_for_log(domain)
-            )
+            _log.info("Discovered %d subdomains for %s", len(subdomains), sanitize_for_log(domain))
 
         for sub in subdomains:
             try:
