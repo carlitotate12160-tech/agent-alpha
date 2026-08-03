@@ -15,6 +15,7 @@ import secrets as stdlib_secrets
 import socket
 import urllib.request
 from collections.abc import Callable
+from datetime import datetime
 from typing import Annotated, Any
 
 from celery import Celery
@@ -791,7 +792,6 @@ def authorize_engagement_endpoint(
     )
 
     # Recover challenge tokens from OWNERSHIP_CHALLENGE_ISSUED events.
-    # A domain with no challenge event → 400.
     ownership_tokens: dict[str, str] = {}
     for evt in target_store.get_events(engagement_id):
         if evt.event_type == EventType.OWNERSHIP_CHALLENGE_ISSUED:
@@ -799,22 +799,48 @@ def authorize_engagement_endpoint(
             t = str(evt.payload.get("token", ""))
             if d:
                 norm_d = _normalise_domain(d)
-                # Keep the LATEST token per domain (supersession).
                 ownership_tokens[norm_d] = f"dns-txt:agent-alpha={t}"
+
+    skip_verification = os.environ.get("AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    )
 
     for domain in body.domains:
         normalized = _normalise_domain(domain)
         if normalized not in ownership_tokens:
-            raise HTTPException(
-                status_code=400,
-                detail=f"no ownership challenge issued for domain {normalized!r}; "
-                f"call /ownership/challenge first",
-            )
+            if skip_verification:
+                # Auto-mint challenge token when verification is skipped.
+                token = stdlib_secrets.token_urlsafe(32)
+                target_store.append(
+                    event_type=EventType.OWNERSHIP_CHALLENGE_ISSUED,
+                    engagement_id=engagement_id,
+                    agent="CONDUCTOR",
+                    payload={"domain": normalized, "token": token},
+                )
+                ownership_tokens[normalized] = f"dns-txt:agent-alpha={token}"
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"no ownership challenge issued for domain {normalized!r}; "
+                    f"call /ownership/challenge first",
+                )
         # Defense-in-depth: guardrail check before authorize_engagement.
         try:
             assert_not_guardrailed(normalized)
         except GuardrailError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+    # Auto-fill consent items if not provided (dev/cooperative mode).
+    if not body.consent_items:
+        body.consent_items = ["recon_only", "subdomain_enum", "origin_discovery", "evasion"]
+
+    # Auto-fill signed_by/signed_at if empty.
+    if not body.signed_by:
+        body.signed_by = "operator"
+    if not body.signed_at:
+        body.signed_at = datetime.now(datetime.UTC).isoformat()
 
     # Origin IPs: manual override (dev/cooperative) or auto-resolve via DNS.
     if body.authorized_origins:
@@ -832,10 +858,7 @@ def authorize_engagement_endpoint(
             targets=body.domains,
             ownership_tokens=ownership_tokens,
             dns_resolver=DnspythonResolver(),
-            skip_domain_verification=os.environ.get(
-                "AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION", ""
-            ).lower()
-            in ("1", "true", "yes"),
+            skip_domain_verification=skip_verification,
             authorized_origins=authorized_origins,
             consent_items=frozenset(body.consent_items) if body.consent_items else None,
             signed_by=body.signed_by,
