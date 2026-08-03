@@ -201,6 +201,9 @@ class EngagementProfile:
     client_id: str
     targets: frozenset[str] = frozenset()
     authorized_origins: frozenset[str] = frozenset()  # origin IPs client consented to hit direct
+    ownership_tokens: frozenset[tuple[str, str]] = (
+        frozenset()
+    )  # §12.46: (host, token) pairs for origin-binding
     allow_evasion: bool = False  # §12.36: client consented to browser_solve / evasion techniques
 
     # ── §12.36 production authorization fields ────────────────
@@ -225,6 +228,7 @@ class EngagementProfile:
             "client_id": self.client_id,
             "targets": sorted(self.targets),
             "authorized_origins": sorted(self.authorized_origins),
+            "ownership_tokens": sorted([list(pair) for pair in self.ownership_tokens]),
             "allow_evasion": self.allow_evasion,
             "scope_targets": sorted(self.scope_targets),
             "scope_mode": self.scope_mode,
@@ -254,6 +258,7 @@ def dump_signed_profile(profile: EngagementProfile, *, key: bytes) -> dict[str, 
             "client_id": profile.client_id,
             "targets": sorted(profile.targets),
             "authorized_origins": sorted(profile.authorized_origins),
+            "ownership_tokens": sorted([list(pair) for pair in profile.ownership_tokens]),
             "allow_evasion": profile.allow_evasion,
             "scope_targets": sorted(profile.scope_targets),
             "scope_mode": profile.scope_mode,
@@ -289,6 +294,9 @@ def load_signed_profile_from_dict(data: dict[str, Any], *, key: bytes) -> Engage
         client_id=profile_data["client_id"],
         targets=frozenset(profile_data.get("targets", [])),
         authorized_origins=frozenset(profile_data.get("authorized_origins", [])),
+        ownership_tokens=frozenset(
+            tuple(pair) for pair in profile_data.get("ownership_tokens", [])
+        ),
         allow_evasion=bool(profile_data.get("allow_evasion", False)),
         scope_targets=frozenset(profile_data.get("scope_targets", [])),
         scope_mode=profile_data.get("scope_mode", "single"),
@@ -325,6 +333,21 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
         data = json.load(f)
 
     return load_signed_profile_from_dict(data, key=key)
+
+
+# ── Token reader ──────────────────────────────────────────────
+
+
+def token_for(profile: EngagementProfile, fronted_host: str) -> str | None:
+    """Return the ownership token for *fronted_host*, or None.
+
+    The token lives on the signed profile (immutable, minted at creation).
+    Single reader — callers never iterate ownership_tokens directly.
+    """
+    for h, t in profile.ownership_tokens:
+        if h == fronted_host:
+            return t
+    return None
 
 
 # ── Origin-authorization gate (fail-closed) ───────────────────

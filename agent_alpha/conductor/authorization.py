@@ -617,6 +617,7 @@ def authorize_engagement(
         client_id=client_id,
         targets=frozenset(verified_targets),
         authorized_origins=authorized_origins or frozenset(),
+        ownership_tokens=frozenset(ownership_tokens.items()),
         allow_evasion=allow_evasion,
         allow_origin_discovery=allow_origin_discovery,
         scope_targets=frozenset(verified_targets),

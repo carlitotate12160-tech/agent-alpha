@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.reach_transport import origin_direct_fetch
 
@@ -52,3 +54,63 @@ def verify_origin_binding(
         return False
 
     return ownership_token in (result.body or "")
+
+
+# ── §12.46 slice-2: delegated orchestrator ────────────────────────────────────
+
+
+def resolve_and_bind_origin(
+    *,
+    fronted_host: str,
+    profile: Any,
+    event_store: Any,
+    engagement_id: str,
+    discovery: Any,
+    governor: Any | None = None,
+) -> str | None:
+    """§12.46: discover candidate origins, prove per-host binding, authorize
+    the first bound IP.
+
+    Returns the proven origin IP (and emits ORIGIN_BINDING_PROVEN), or None
+    (honest — no reach).
+
+    Pure orchestration + fail-closed; NO sleeping (opsec backoff is applied by
+    the slice-3 caller).
+    """
+    from agent_alpha.conductor.engagement_profile import token_for
+    from agent_alpha.events.event_types import EventType
+    from agent_alpha.recon.reach_strategy import is_cloudflare_ip
+
+    if not getattr(profile, "allow_origin_discovery", False):
+        return None  # capability gate (§12.36)
+
+    token = token_for(profile, fronted_host)
+    if not token:
+        return None  # no P2 artifact → cannot bind (fail-closed)
+
+    for ip in discovery.candidates(fronted_host):
+        if is_cloudflare_ip(ip):
+            continue  # CF edge is not an origin
+
+        if governor is not None and governor.is_locked_out(fronted_host):
+            break  # per-host opsec budget exhausted
+
+        if governor is not None:
+            governor.record_escalation(fronted_host)
+
+        # verify_origin_binding already rejects internal/metadata IPs (SSRF)
+        # + token-mismatch (co-tenant)
+        if verify_origin_binding(origin_ip=ip, fronted_host=fronted_host, ownership_token=token):
+            event_store.append(
+                EventType.ORIGIN_BINDING_PROVEN,
+                engagement_id,
+                "alpha",
+                {
+                    "fronted_host": fronted_host,
+                    "origin_ip": ip,
+                    "proof_type": "well_known_token",
+                },
+            )
+            return str(ip)
+
+    return None
