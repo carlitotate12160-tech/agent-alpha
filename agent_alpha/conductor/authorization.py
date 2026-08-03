@@ -589,8 +589,13 @@ def authorize_engagement(
     # Step 2 — DNS-TXT ownership verification for every target.
     # Skipped when skip_domain_verification=True (lab/field-prove mode).
     verified_targets: list[str] = []
+    token_pairs: list[tuple[str, str]] = []
     if skip_domain_verification:
         verified_targets = list(normalised_targets)
+        for target in normalised_targets:
+            tok = ownership_tokens.get(target)
+            if tok:
+                token_pairs.append((target, tok))
     else:
         for target in normalised_targets:
             token = ownership_tokens.get(target)
@@ -604,6 +609,7 @@ def authorize_engagement(
                     f"(expected token: {token!r}). Target NOT added to scope."
                 )
             verified_targets.append(target)
+            token_pairs.append((target, token))
 
     # Step 3 — construct EngagementProfile.
     consent = ConsentRecord(
@@ -617,6 +623,7 @@ def authorize_engagement(
         client_id=client_id,
         targets=frozenset(verified_targets),
         authorized_origins=authorized_origins or frozenset(),
+        ownership_tokens=frozenset(token_pairs),
         allow_evasion=allow_evasion,
         allow_origin_discovery=allow_origin_discovery,
         scope_targets=frozenset(verified_targets),

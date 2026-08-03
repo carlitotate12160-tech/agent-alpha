@@ -91,6 +91,10 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
         ("agents/alpha/scout.py",),
         "§12.46 slice-2: wire origin-binding into _attempt_reach",
     ),
+    "resolve_and_bind_origin": (
+        ("agents/alpha/scout.py",),
+        "§12.46 slice-3: delegate origin binding from _attempt_reach",
+    ),
 }
 
 
