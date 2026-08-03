@@ -389,17 +389,22 @@ def assert_origin_authorized(
         )
 
 
-def proven_origins(event_store: Any, engagement_id: str) -> frozenset[str]:
+def proven_origins(event_store: Any, engagement_id: str, fronted_host: str) -> frozenset[str]:
     """Fold ORIGIN_BINDING_PROVEN events → the set of origin IPs proven-bound
-    this engagement. Single source of truth (event-sourced); never a mutable
-    side-set."""
+    FOR THIS fronted_host this engagement. Single source of truth (event-sourced);
+    never a mutable side-set.
+
+    Scoped by fronted_host: a proof for host A must never authorize host B in a
+    multi-domain engagement (per-host binding is the cardinal safety invariant)."""
     from agent_alpha.events.event_types import EventType
 
     events = event_store.get_events(engagement_id)
     return frozenset(
         e.payload["origin_ip"]
         for e in events
-        if e.event_type == EventType.ORIGIN_BINDING_PROVEN and "origin_ip" in e.payload
+        if e.event_type == EventType.ORIGIN_BINDING_PROVEN
+        and e.payload.get("fronted_host") == fronted_host
+        and "origin_ip" in e.payload
     )
 
 
@@ -431,12 +436,14 @@ def assert_origin_authorized_or_bound(
         return
 
     # Discovery path: capability on + IP proven-bound via events.
-    if profile.allow_origin_discovery and origin_ip in proven_origins(event_store, engagement_id):
+    if profile.allow_origin_discovery and origin_ip in proven_origins(
+        event_store, engagement_id, fronted_host
+    ):
         return
 
     raise OriginNotAuthorizedError(
         f"origin {origin_ip!r} not in signed authorized_origins and not proven-bound "
-        f"(allow_origin_discovery={profile.allow_origin_discovery})"
+        f"for {fronted_host!r} (allow_origin_discovery={profile.allow_origin_discovery})"
     )
 
 

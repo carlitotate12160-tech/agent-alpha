@@ -12,7 +12,6 @@ and the live-fire FP<20% gate are C6b.
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import os
 import pathlib
@@ -32,16 +31,11 @@ from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
+from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.passive_discovery import PassiveDiscovery
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
-
-# Canonical org-specific exclusions (single source of truth, anti-Lyndon #7); the
-# structural non-routable classes (loopback / RFC1918 / link-local incl. cloud
-# metadata 169.254.169.254 / multicast / reserved / IPv6 ULA + link-local) are
-# covered by Python's ``ipaddress`` properties below, not a hand-rolled denylist.
-_EXCLUDED_NETWORKS = [ipaddress.ip_network(c) for c in constants.SCOPE_ALWAYS_EXCLUDED]
 
 
 class BlockedTargetError(ValueError):
@@ -73,23 +67,10 @@ def _screen_host(host: str) -> None:
     if not ip_strs:
         raise BlockedTargetError(f"{host!r} resolved to no addresses (fail-closed)")
     for ip_str in ip_strs:
-        ip = ipaddress.ip_address(ip_str)
-        if (
-            ip.is_loopback
-            or ip.is_private
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
+        if is_internal_ip(ip_str):
             raise BlockedTargetError(
-                f"{host!r} resolves to non-routable {ip} — SSRF blocked (CWE-918)"
+                f"{host!r} resolves to non-routable/excluded {ip_str} — SSRF blocked (CWE-918)"
             )
-        for net in _EXCLUDED_NETWORKS:
-            if ip in net:
-                raise BlockedTargetError(
-                    f"{host!r} resolves to excluded network member {ip} ({net})"
-                )
 
 
 class NoTargetsError(ValueError):

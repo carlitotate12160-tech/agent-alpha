@@ -2807,10 +2807,10 @@ lever (origin-direct) finally reachable from a domain-only external engagement.
 
 #### Anti-Lyndon
 
-#2: wires the `discover_origin_ips` island into the live path with real teeth. #3:
-`OriginBindingProven` is the anti-false-authorization — a "we reached the origin" claim requires
+Anti-Lyndon #2 — wires the `discover_origin_ips` island into the live path with real teeth.
+Anti-Lyndon #3 — `OriginBindingProven` is the anti-false-authorization — a "we reached the origin" claim requires
 the binding artifact, never inferred. Auth gate NOT softened — proof is REQUIRED, only
-runtime-derived and consent-gated. #6: reuses `origin_direct_fetch` + `domain_verification`
+runtime-derived and consent-gated. Anti-Lyndon #6 — reuses `origin_direct_fetch` + `domain_verification`
 DNS-TXT + `is_cloudflare_ip`, no duplicate checker.
 
 #### Phase discipline (build order — NOT part of this lock)

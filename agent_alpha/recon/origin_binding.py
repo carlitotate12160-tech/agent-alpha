@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.reach_transport import origin_direct_fetch
 
 WELL_KNOWN_TOKEN_PATH = "/.well-known/agent-alpha-{token}.txt"
@@ -30,9 +31,15 @@ def verify_origin_binding(
     token body echoes.  Token-only (no cert read); cert-SAN corroboration
     is a later slice.
 
+    Rejects internal/metadata IPs BEFORE connecting (SSRF guard, CWE-918) —
+    candidates come from DNS and are untrusted.
+
     Fail-closed: any error / mismatch → False.
     """
     if not origin_ip or not fronted_host or not ownership_token:
+        return False
+
+    if is_internal_ip(origin_ip):
         return False
 
     path = WELL_KNOWN_TOKEN_PATH.format(token=ownership_token)
