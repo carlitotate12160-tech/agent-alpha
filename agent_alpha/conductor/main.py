@@ -128,7 +128,7 @@ def _crtsh_subdomains(domain: str) -> list[str]:
     url = f"https://crt.sh/?q=%25.{domain}&output=json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to crt.sh
             data = json.loads(resp.read())
         for entry in data:
             for n in entry.get("name_value", "").split("\n"):
@@ -144,7 +144,7 @@ def _crtsh_subdomains(domain: str) -> list[str]:
     url2 = f"https://api.hackertarget.com/hostsearch/?q={domain}"
     try:
         req2 = urllib.request.Request(url2, headers={"User-Agent": "Agent-Alpha/0.1"})
-        with urllib.request.urlopen(req2, timeout=10) as resp2:
+        with urllib.request.urlopen(req2, timeout=10) as resp2:  # nosec B310 — hardcoded HTTPS URL to hackertarget
             for line in resp2.read().decode(errors="replace").splitlines():
                 parts = line.split(",")
                 if parts and parts[0].strip().lower().endswith(domain):
