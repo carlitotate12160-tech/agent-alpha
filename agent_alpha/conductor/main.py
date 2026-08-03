@@ -15,7 +15,7 @@ import secrets as stdlib_secrets
 import socket
 import urllib.request
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Annotated, Any
 
 from celery import Celery
@@ -840,9 +840,10 @@ def authorize_engagement_endpoint(
     if not body.signed_by:
         body.signed_by = "operator"
     if not body.signed_at:
-        body.signed_at = datetime.now(datetime.UTC).isoformat()
+        body.signed_at = datetime.now(timezone.utc).isoformat()  # noqa: UP017
 
     # Origin IPs: manual override (dev/cooperative) or auto-resolve via DNS.
+    authorized_origins: frozenset[str] | None
     if body.authorized_origins:
         authorized_origins = frozenset(body.authorized_origins)
     else:
