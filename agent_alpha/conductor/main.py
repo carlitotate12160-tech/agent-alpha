@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import pathlib
-import re
 import secrets as stdlib_secrets
 import socket
 import urllib.request
