@@ -343,9 +343,12 @@ def token_for(profile: EngagementProfile, fronted_host: str) -> str | None:
 
     The token lives on the signed profile (immutable, minted at creation).
     Single reader — callers never iterate ownership_tokens directly.
+    Normalizes the input host to match the normalized keys persisted on the
+    profile (anti-silent-no-reach on case/trailing-dot mismatch).
     """
+    host = _normalise_target(fronted_host)
     for h, t in profile.ownership_tokens:
-        if h == fronted_host:
+        if h == host:
             return t
     return None
 

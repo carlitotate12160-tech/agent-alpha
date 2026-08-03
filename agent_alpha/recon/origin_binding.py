@@ -11,10 +11,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.reach_transport import origin_direct_fetch
+
+logger = logging.getLogger(__name__)
 
 WELL_KNOWN_TOKEN_PATH = "/.well-known/agent-alpha-{token}.txt"
 
@@ -88,7 +91,13 @@ def resolve_and_bind_origin(
     if not token:
         return None  # no P2 artifact → cannot bind (fail-closed)
 
-    for ip in discovery.candidates(fronted_host):
+    try:
+        candidate_ips = discovery.candidates(fronted_host)
+    except Exception:  # noqa: BLE001 — boundary to DNS/network; fail-closed = no reach
+        logger.debug("origin discovery raised for %s — fail-closed (no reach)", fronted_host)
+        return None
+
+    for ip in candidate_ips:
         if is_cloudflare_ip(ip):
             continue  # CF edge is not an origin
 

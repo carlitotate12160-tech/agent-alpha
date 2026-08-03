@@ -260,3 +260,49 @@ def test_token_for_returns_token_when_match() -> None:
     """token_for returns the token when the host matches."""
     profile = _profile(token=_TOKEN, host=_HOST)
     assert token_for(profile, _HOST) == _TOKEN
+
+
+# ── 7. FAIL-CLOSED: discovery.candidates() raising → None (no crash) ──
+
+
+def test_discovery_error_is_fail_closed() -> None:
+    """discovery.candidates() raising (DNS/network error) → returns None,
+    no crash, no event (fail-closed contract, CodeRabbit FIX 1)."""
+
+    class _Boom:
+        def candidates(self, host: str) -> list[str]:
+            raise ConnectionError("DNS down")
+
+    result = resolve_and_bind_origin(
+        fronted_host=_HOST,
+        profile=_profile(allow_origin_discovery=True, token=_TOKEN),
+        event_store=InMemoryEventStore(),
+        engagement_id=_ENG,
+        discovery=_Boom(),
+    )
+    assert result is None  # no crash, no event
+
+
+# ── 8. NORMALIZATION: token_for is case/trailing-dot insensitive ──
+
+
+def test_token_lookup_is_normalization_insensitive() -> None:
+    """authorize_engagement with mixed-case/trailing-dot target → token_for
+    must still resolve by bare lowercase host (FIX 2: silent-no-reach hazard)."""
+    from agent_alpha.conductor.authorization import authorize_engagement
+
+    profile = authorize_engagement(
+        engagement_id="eng-norm-001",
+        client_id="client-42",
+        targets={"Example.COM."},
+        allow_origin_discovery=True,
+        ownership_tokens={"example.com": "tok-123"},
+        consent_items=frozenset({"scope"}),
+        signed_by="signer",
+        signed_at="2026-01-01T00:00:00Z",
+        skip_domain_verification=True,
+        key=_KEY,
+    )
+    assert token_for(profile, "example.com") == "tok-123"
+    assert token_for(profile, "EXAMPLE.COM") == "tok-123"
+    assert token_for(profile, "example.com.") == "tok-123"
