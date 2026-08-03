@@ -5,7 +5,6 @@
 # in background. Phase 0: Celery task is a no-op placeholder (real agent logic
 # Phase 2+). All Phase 0 components wired here as singletons.
 
-import base64
 import hashlib
 import ipaddress
 import json
@@ -173,45 +172,6 @@ def _alienvault_otx_subdomains(domain: str) -> list[str]:
     return sorted(names)
 
 
-def _censys_subdomains(domain: str) -> list[str]:
-    """Query Censys certificates API (requires CENSYS_API_ID + CENSYS_API_SECRET)."""
-    api_id = os.environ.get("CENSYS_API_ID", "")
-    api_secret = os.environ.get("CENSYS_API_SECRET", "")
-    if not api_id or not api_secret:
-        return []
-
-    names: set[str] = set()
-    url = "https://search.censys.io/api/v2/certificates/search"
-    payload = json.dumps(
-        {
-            "q": f"names: {domain}",
-            "per_page": 100,
-        }
-    ).encode()
-    try:
-        req = urllib.request.Request(
-            url,
-            data=payload,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "Agent-Alpha/0.1",
-            },
-            method="POST",
-        )
-        auth = base64.b64encode(f"{api_id}:{api_secret}".encode()).decode()
-        req.add_header("Authorization", f"Basic {auth}")
-        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to Censys
-            data = json.loads(resp.read())
-        for hit in data.get("result", {}).get("hits", []):
-            for name in hit.get("names", []):
-                n = name.strip().lower()
-                if n and "*" not in n and n.endswith(domain):
-                    names.add(n)
-    except Exception:
-        pass  # Censys is best-effort
-    return sorted(names)
-
-
 def _virustotal_subdomains(domain: str) -> list[str]:
     """Query VirusTotal v3 subdomains API (requires VIRUSTOTAL_API_KEY)."""
     api_key = os.environ.get("VIRUSTOTAL_API_KEY", "")
@@ -219,7 +179,7 @@ def _virustotal_subdomains(domain: str) -> list[str]:
         return []
 
     names: set[str] = set()
-    url = f"https://www.virustotal.com/api/v3/domains/{domain}/subdomains?limit=100"
+    url = f"https://www.virustotal.com/api/v3/domains/{domain}/subdomains?limit=10"
     try:
         req = urllib.request.Request(
             url,
@@ -240,7 +200,7 @@ def _virustotal_subdomains(domain: str) -> list[str]:
 
 
 def _discover_subdomains(domain: str) -> list[str]:
-    """Multi-source subdomain discovery: crt.sh, hackertarget, OTX, Censys, VirusTotal."""
+    """Multi-source subdomain discovery: crt.sh, hackertarget, OTX, VirusTotal."""
     all_names: set[str] = set()
 
     # Source 1+2: crt.sh + hackertarget
@@ -252,13 +212,7 @@ def _discover_subdomains(domain: str) -> list[str]:
         _log.info("OTX found %d subdomains for %s", len(otx_names), sanitize_for_log(domain))
     all_names.update(otx_names)
 
-    # Source 4: Censys (requires API key)
-    censys_names = _censys_subdomains(domain)
-    if censys_names:
-        _log.info("Censys found %d subdomains for %s", len(censys_names), sanitize_for_log(domain))
-    all_names.update(censys_names)
-
-    # Source 5: VirusTotal (requires API key)
+    # Source 4: VirusTotal (requires API key)
     vt_names = _virustotal_subdomains(domain)
     if vt_names:
         _log.info("VirusTotal found %d subdomains for %s", len(vt_names), sanitize_for_log(domain))
