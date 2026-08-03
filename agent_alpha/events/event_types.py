@@ -119,3 +119,10 @@ class EventType(enum.StrEnum):
     # WAF fingerprint block (403/503). Audit-sensitive because it actively
     # evades a WAF control — requires signed allow_evasion consent (§12.36).
     # Carries {host, technique, authorized}.
+
+    # ── Phase 2.5 (origin-binding proof — §12.46) ────────────────────
+    ORIGIN_BINDING_PROVEN = "OriginBindingProven"
+    # ^ An origin IP was proven to serve the fronted_host's ownership token
+    # via a well-known token fetch (IP-direct with Host header). The event is
+    # the ONLY way an IP enters proven_origins (provenance). Carries
+    # {engagement_id, fronted_host, origin_ip, proof_type}.

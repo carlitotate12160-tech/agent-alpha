@@ -503,6 +503,7 @@ def authorize_engagement(
     allow_subdomain_enum: bool = False,
     opsec_stealth: bool = False,
     allow_evasion: bool = False,
+    allow_origin_discovery: bool = False,
     include_root: bool = False,
     authorization_level: str = "RECON_ONLY",
     consent_items: frozenset[str] | None = None,
@@ -562,6 +563,7 @@ def authorize_engagement(
         authorization_level in {"ACTIVE_APPROVED", "OFFENSIVE_APPROVED"}
         or allow_evasion
         or opsec_stealth
+        or allow_origin_discovery
     ):
         if not consent_items or not signed_by or not signed_at:
             raise ConsentRequiredError(
@@ -616,6 +618,7 @@ def authorize_engagement(
         targets=frozenset(verified_targets),
         authorized_origins=authorized_origins or frozenset(),
         allow_evasion=allow_evasion,
+        allow_origin_discovery=allow_origin_discovery,
         scope_targets=frozenset(verified_targets),
         scope_mode=scope_mode,
         allow_subdomain_enum=allow_subdomain_enum,
@@ -643,6 +646,7 @@ def authorize_engagement(
                     "allow_subdomain_enum": allow_subdomain_enum,
                     "opsec_stealth": opsec_stealth,
                     "allow_evasion": allow_evasion,
+                    "allow_origin_discovery": allow_origin_discovery,
                     "include_root": include_root,
                 },
                 "scope_mode": scope_mode,

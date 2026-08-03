@@ -87,6 +87,10 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
         ("tools/internal/access/odoo_access.py",),
         "§12.22 D2: odoo submits creds via its own http path (off-roster) — must route through the lockout governor",
     ),
+    "verify_origin_binding": (
+        ("agents/alpha/scout.py",),
+        "§12.46 slice-2: wire origin-binding into _attempt_reach",
+    ),
 }
 
 
