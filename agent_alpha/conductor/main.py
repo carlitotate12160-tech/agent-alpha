@@ -7,11 +7,14 @@
 
 import hashlib
 import ipaddress
+import json
 import logging
 import os
 import pathlib
+import re
 import secrets as stdlib_secrets
 import socket
+import urllib.request
 from collections.abc import Callable
 from typing import Annotated, Any
 
@@ -87,28 +90,111 @@ from agent_alpha.tools.playbook import PlaybookEngine
 _log = logging.getLogger(__name__)
 
 
+_CF_RANGES = [
+    ipaddress.ip_network(n) for n in [
+        "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22",
+        "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+        "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22",
+        "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+        "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    ]
+]
+
+
+def _is_cloudflare_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return any(ip in net for net in _CF_RANGES)
+    except ValueError:
+        return False
+
+
+def _crtsh_subdomains(domain: str) -> list[str]:
+    """Query CT logs for subdomain names of *domain* via crt.sh + hackertarget fallback."""
+    names: set[str] = set()
+
+    # Primary: crt.sh JSON API
+    url = f"https://crt.sh/?q=%25.{domain}&output=json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+        for entry in data:
+            for n in entry.get("name_value", "").split("\n"):
+                n = n.strip().lower()
+                if n and "*" not in n and n.endswith(domain):
+                    names.add(n)
+        if names:
+            return sorted(names)
+    except Exception:
+        pass  # fall through to hackertarget
+
+    # Fallback: hackertarget host search API
+    url2 = f"https://api.hackertarget.com/hostsearch/?q={domain}"
+    try:
+        req2 = urllib.request.Request(url2, headers={"User-Agent": "Agent-Alpha/0.1"})
+        with urllib.request.urlopen(req2, timeout=10) as resp2:
+            for line in resp2.read().decode(errors="replace").splitlines():
+                parts = line.split(",")
+                if parts and parts[0].strip().lower().endswith(domain):
+                    names.add(parts[0].strip().lower())
+    except Exception as exc:
+        _log.warning("CT log discovery failed for %s: %s", sanitize_for_log(domain), exc)
+
+    return sorted(names)
+
+
 def _resolve_origin_ips(domains: list[str]) -> list[str]:
-    """Resolve DNS A records for domains → globally routable origin IPs.
+    """Auto-discover origin IPs for domains via CT logs + DNS.
+
+    Strategy:
+    1. Resolve DNS A records for the domain itself (cooperative/non-CF targets).
+    2. Query crt.sh CT logs for subdomain certificates.
+    3. Resolve each subdomain's DNS A records.
+    4. Filter out Cloudflare edge IPs and private/loopback IPs.
+    5. Return unique, globally routable origin IPs.
 
     Used to auto-populate authorized_origins so origin-direct reach can fire
-    without manual IP entry (Strix-like UX). Skips private/loopback IPs.
+    without manual IP entry (Strix-like UX).
     """
     ips: list[str] = []
+
     for domain in domains:
+        # 1. Direct DNS resolution
         try:
             info = socket.getaddrinfo(domain, None, socket.AF_INET)
             for _family, _type, _proto, _canon, sockaddr in info:
                 ip = str(sockaddr[0])
                 try:
                     parsed = ipaddress.ip_address(ip)
-                    if parsed.is_global:
+                    if parsed.is_global and not _is_cloudflare_ip(ip):
                         ips.append(ip)
                 except ValueError:
                     continue
         except socket.gaierror:
             _log.warning(
-                "DNS resolution failed for %s — skipping origin discovery", sanitize_for_log(domain)
+                "DNS resolution failed for %s — skipping", sanitize_for_log(domain)
             )
+
+        # 2. CT log discovery via crt.sh
+        subdomains = _crtsh_subdomains(domain)
+        if subdomains:
+            _log.info("crt.sh found %d subdomains for %s", len(subdomains), sanitize_for_log(domain))
+
+        for sub in subdomains:
+            try:
+                info = socket.getaddrinfo(sub, None, socket.AF_INET)
+                for _family, _type, _proto, _canon, sockaddr in info:
+                    ip = str(sockaddr[0])
+                    try:
+                        parsed = ipaddress.ip_address(ip)
+                        if parsed.is_global and not _is_cloudflare_ip(ip):
+                            ips.append(ip)
+                    except ValueError:
+                        continue
+            except socket.gaierror:
+                continue
+
     return list(dict.fromkeys(ips))  # dedup, preserve order
 
 
@@ -170,6 +256,7 @@ class AuthorizeBody(BaseModel):
     authorization_level: str = "RECON_ONLY"
     allow_evasion: bool = False
     opsec_stealth: bool = False
+    authorized_origins: list[str] | None = None  # manual override (dev/cooperative)
 
 
 class EnableReconBody(BaseModel):
@@ -719,9 +806,12 @@ def authorize_engagement_endpoint(
         except GuardrailError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
-    # Auto-resolve origin IPs for origin-direct reach (Strix-like UX).
-    origin_ips = _resolve_origin_ips(body.domains)
-    authorized_origins = frozenset(origin_ips) if origin_ips else None
+    # Origin IPs: manual override (dev/cooperative) or auto-resolve via DNS.
+    if body.authorized_origins:
+        authorized_origins = frozenset(body.authorized_origins)
+    else:
+        origin_ips = _resolve_origin_ips(body.domains)
+        authorized_origins = frozenset(origin_ips) if origin_ips else None
 
     signing_key = get_profile_signing_key()
 
