@@ -173,3 +173,21 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   hash → hashcat/rockyou/rules, high-recall, safe, THE strong one, Gamma-adjacent) + credential
   stuffing (breach corpus), NEVER unsafe online spray. Methodology transparency in every cred
   section. Roadmap vectors tracked in BUGS_AND_GAPS; no code now.
+- **12.46** Origin-binding runtime authorization (extends §12.36/§12.38/§12.42/§12.44): signed
+  profile grants a CAPABILITY (`allow_origin_discovery: bool`), not a pre-signed IP list. Per-IP
+  authorization DERIVED at runtime from two proofs: P1 = domain ownership (DNS-TXT or well-known HTTP
+  token file, already built), P2 = origin binding (NEW: TLS cert SAN match OR ownership canary +
+  content-identity corroboration). Canary = PRIMARY, reuses P1 token at
+  `/.well-known/agent-alpha-<token>.txt` (one artifact, two fetches: CF-fronted + IP-direct).
+  Authorize iff P1∧P2. Wildcard/shared cert without canary ⇒ REJECT (fail-closed, anti-co-tenant).
+  Event-sourced: `OriginBindingProven` event carries binding artifact for audit; signature integrity
+  preserved (never mutate signed profile). `assert_origin_authorized` extended: signed-list OR
+  (capability on + binding event exists). Wires `discover_origin_ips` island into live path.
+  Datacenter-viable, no infra. First slice: `verify_origin_binding` + consent + event + wire
+  existing subdomain→IP pivot (bernofarm: 94 CT subdomains). Discovery-source breadth (DNS-history,
+  Shodan, MX/SPF, SSRF) = later slices. RESOLVED (2026-08-03): (1) friction = hybrid — passive recon
+  URL-only, origin-direct/offensive needs one-time per-domain ownership verification cached per
+  account; IP optional (provided = shortcut, absent = discover+bind); (2) canary = reuse ownership
+  token at well-known HTTP path, no separate marker, cert-SAN corroborating only; (3) candidate
+  budget = 3 probes/host, backoff 5s→15s→60s with ±20% jitter via LockoutGovernor. Staging:
+  user-facing friction low early, NEVER relax safety proofs (P1 for intrusive, P2 for every origin).

@@ -2710,3 +2710,151 @@ PROVEN; methodology transparency covers the rest.
 "safe/strong" credential phrasing path; the offline-hash-crack + credential-stuffing vectors are
 tracked roadmap (register in docs/BUGS_AND_GAPS.md), built as gated slices when the hash-harvest
 chain (Gamma-adjacent) lands.
+
+---
+
+### 12.46 Origin-binding runtime authorization — external-vantage origin-direct without pre-signed IPs — PROPOSED (lock on confirm)
+
+**Status:** PROPOSED → LOCK on confirm. **Extends** §12.36 (signed EngagementProfile), §12.38
+(two-proof origin ownership), §12.42 (external vantage), §12.44 (evasion catalog — origin-direct =
+highest-ROI, the sellable proposition). Does NOT re-decide the auth gate; it adds a SECOND, runtime
+authorization path that is strictly proof-gated.
+
+#### Positioning (why this is the product's spine)
+
+Agent-Alpha is EXTERNAL red team: input is a URL/domain, nothing else. The client will NOT hand over
+the origin IP or lower their WAF — if they did, this would be an INTERNAL / assumed-breach product
+(NodeZero-class, different name). The job is to MAP every path an APT would use to get in — origin
+discovery included — so the client can close them. Therefore origin-direct MUST work from the domain
+alone. This ADR makes that possible without softening the gate.
+
+#### Context / the chicken-and-egg gap
+
+Today `assert_origin_authorized` (engagement_profile.py:329) authorizes an origin hit ONLY when the
+origin IP is in the HMAC-signed `authorized_origins` (immutable — embedded in the signature, §12.36).
+But a CF/Akamai-fronted origin IP is HIDDEN at signing time — that is the whole point of the
+engagement. The client cannot pre-list what the CDN conceals. So the signed-list path can NEVER
+authorize a discovered origin, and `discover_origin_ips` (origin_resolver.py — the built
+subdomain→IP pivot) is a permanent island: even if called, its candidates are rejected. Result:
+external origin-direct is impossible today.
+
+#### Decision — the signed profile grants a CAPABILITY, not an IP; per-IP authorization is DERIVED at runtime from proof
+
+Add `allow_origin_discovery: bool` to the signed EngagementProfile (mirrors `allow_evasion` /
+`allow_subdomain_enum`; §12.36 consent-gated: requires consent_items + signed_by/at). When
+consented, the agent MAY discover candidate origins and authorize a hit on any candidate that
+passes TWO proofs, event-sourced and audited. The invariant is UNCHANGED and in fact STRENGTHENED:
+*never hit an IP we cannot prove is the client's* — the proof simply moves from a human-typed list
+to a runtime cryptographic/identity binding (stronger than a person typing an IP into a form).
+
+#### The two proofs (§12.38 made concrete)
+
+- **P1 — Domain ownership (already built).** `fronted_host` ∈ signed `scope_targets` AND DNS-TXT
+  ownership (conductor/domain_verification.py, `dns-txt:token=value`). Establishes the client owns
+  the DOMAIN. Reused as-is (anti-#6).
+- **P2 — Origin-binding (NEW — the thing to build).** The candidate IP demonstrably serves the OWNED
+  domain. Evaluated by `verify_origin_binding(candidate_ip, fronted_host, profile, http_client)`,
+  which reuses `origin_direct_fetch` (hit IP:443 with `Host: fronted_host`) then checks, in order:
+  1. **TLS cert SAN match** — the cert the origin presents for that Host includes `fronted_host` in
+     its SubjectAltName. Cheap, strong. *Caveat:* a wildcard / shared / CF-Universal-SSL cert can
+     match without proving single-tenancy → cert-SAN ALONE is insufficient when the cert is
+     wildcard/shared.
+  2. **Ownership canary (PRIMARY — reuses the P1 token, anti-#6).** The client places ONE token file
+     at `/.well-known/agent-alpha-<token>.txt`. P1 = fetch it through the fronted domain (via CF) →
+     the user controls the site. P2 = fetch the SAME path via `IP:443` + `Host: fronted_host` → the
+     origin serves the token → proven to be the client's origin. One artifact, two fetches, no new
+     mechanism. A co-tenant cannot reproduce the token → this is the anti-cohost-collateral teeth.
+     DNS-TXT remains an ALTERNATIVE P1 method for users who prefer DNS / don't control the web root.
+  3. **Content-identity corroboration** — the IP+Host response matches the CF-fronted response on a
+     unique fingerprint (title + a per-engagement body marker + favicon hash). Corroborating, never
+     sole.
+  **Authorize iff P1 AND P2**, where P2 = (exact-SAN, non-wildcard) OR (canary) — corroborated by
+  content-identity. Wildcard/shared cert without canary or content-identity ⇒ REJECT (fail-closed).
+
+#### State model (event-sourced, signature-integrity preserved)
+
+Never mutate the signed profile.
+- New event `OriginBindingProven { engagement_id, fronted_host, origin_ip, proof_type, evidence_ref }`
+  emitted only when P1∧P2 hold; carries the binding artifact for audit.
+- `assert_origin_authorized` extended: authorized iff
+  `origin_ip ∈ signed authorized_origins`  **OR**
+  `profile.allow_origin_discovery AND an OriginBindingProven event exists for (engagement, origin_ip, fronted_host)`.
+- Nothing else changes; the fronted-host scope check (scope_targets/lab) stays as the outer gate.
+
+#### Executor + integration (wires the island)
+
+`discover_origin_ips` → drop `is_cloudflare_ip` candidates → `verify_origin_binding` per candidate
+(bounded by the reach LockoutGovernor, §12.33) → on proof emit `OriginBindingProven` →
+`origin_direct_fetch`. Wire into the autonomous recon origin path so `_attempt_reach`'s
+authorized-origin set is populated by PROVEN-bound origins, not only the static signed list. The
+`StaticOriginDiscovery` lab stand-in remains for field-prove harnesses.
+
+#### Viability
+
+Datacenter-viable, no infra: cert read + canary/content checks are free. This is the §12.44 Level-1
+lever (origin-direct) finally reachable from a domain-only external engagement.
+
+#### Fail-closed matrix
+
+| Situation | Result |
+|-----------|--------|
+| `allow_origin_discovery` not consented | runtime path OFF — signed-list only |
+| candidate is a CF/Akamai edge IP | rejected pre-binding (`is_cloudflare_ip`) |
+| cert SAN ≠ owned domain, no canary | REJECT (co-tenant) — no event, no hit |
+| wildcard/shared cert, no canary/content match | REJECT (cannot prove single-tenancy) |
+| P1 fails (domain not owned / not in scope) | REJECT (outer gate) |
+| P1 ∧ P2 hold | `OriginBindingProven` → origin-direct authorized + audited |
+
+#### Anti-Lyndon
+
+Anti-Lyndon #2 — wires the `discover_origin_ips` island into the live path with real teeth.
+Anti-Lyndon #3 — `OriginBindingProven` is the anti-false-authorization — a "we reached the origin" claim requires
+the binding artifact, never inferred. Auth gate NOT softened — proof is REQUIRED, only
+runtime-derived and consent-gated. Anti-Lyndon #6 — reuses `origin_direct_fetch` + `domain_verification`
+DNS-TXT + `is_cloudflare_ip`, no duplicate checker.
+
+#### Phase discipline (build order — NOT part of this lock)
+
+FIRST slice = `verify_origin_binding` + `allow_origin_discovery` consent + `OriginBindingProven`
+event + wire the EXISTING subdomain→IP pivot through it (bernofarm: 94 CT subdomains → real test).
+Discovery-source BREADTH — DNS-history (#1), Shodan/Censys favicon+cert (#3), MX/SPF (#5),
+SSRF-callback (#7) — are LATER slices, each a commodity-wrap that FEEDS this authorizer (never the
+moat itself, anti-#6). Do NOT build the source catalog up front (anti #1/#5); add one source per
+real obstacle.
+
+#### Design-level test contract (must hold before "done")
+
+- Co-tenant IP (serves a different domain's cert, no canary) ⇒ REJECTED; no `OriginBindingProven`;
+  no origin-direct fetch. (The cardinal safety test — must be able to FAIL. )
+- Proven origin (exact SAN = owned domain, or canary echoed) ⇒ `OriginBindingProven` emitted ⇒
+  origin-direct authorized.
+- `allow_origin_discovery=False` ⇒ `verify_origin_binding` never authorizes (capability off).
+- Signature integrity: authorizing a runtime origin does NOT mutate or re-sign the profile.
+
+#### Resolved decisions (2026-08-03)
+
+1. **Friction model — HYBRID, scaled by action tier (invite-only ≠ domain ownership).** The platform
+   is invite-only: sign-in proves the USER is a vetted customer — it does NOT prove the typed domain
+   is theirs (a logged-in user can still type a domain they don't own = CFAA + collateral risk). So:
+   - **Passive recon** (DNS/CT/OSINT, fingerprint through the front): URL only, runs immediately.
+   - **Origin-direct / active / offensive**: require a ONE-TIME per-domain ownership verification
+     (well-known-HTTP token file OR DNS-TXT — user's choice), CACHED per account (verify once per
+     domain, not per engagement).
+   - **IP is optional** — provided = cooperative shortcut; absent = discover + bind. (IP-optional is
+     what keeps this EXTERNAL; requiring it would make it internal / NodeZero-class.)
+   Invite-only lowers friction elsewhere (no per-engagement user re-vetting); it never replaces P1.
+
+2. **Canary = reuse the ownership token at a well-known HTTP path** (see P2.2 above). No separate
+   marker. Cert-SAN is corroborating, not primary. Wildcard/shared cert without the token ⇒ REJECT.
+
+3. **Candidate budget = 3 probes per host, backoff 5s → 15s → 60s with ±20% jitter, PER-HOST**
+   (reuse the reach LockoutGovernor, §12.33). Cap at 3 for opsec (quiet); jitter avoids bot-like
+   periodicity (§12.44 behavioral realism).
+
+#### Staging (product-reputation first, per Natanael 2026-08-03)
+
+Early on, keep USER-FACING friction low to land real proofs and build the name; tighten UX rules
+later. The LINE: relax friction, NEVER the two safety proofs (P1 for intrusive actions, P2 for
+every origin hit). A single wrong-target / collateral incident destroys the reputation faster than
+any friction — and the proofs are cheap (P2 automatic, P1 once-per-domain), so they PROTECT the name,
+they don't slow it.

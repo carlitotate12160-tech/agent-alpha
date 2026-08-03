@@ -1,0 +1,394 @@
+# tests/phase_2_5/test_origin_binding.py
+# §12.46 — Origin-binding authorization mechanism tests (Slice 1).
+#
+# Test contract:
+#   1. CARDINAL SAFETY: co-tenant IP is never authorized (body without token)
+#   2. POSITIVE: proven origin authorizes with capability on
+#   3. CAPABILITY OFF: allow_origin_discovery=False blocks proven origin
+#   4. SIGNED PATH UNCHANGED: IP in signed authorized_origins still authorizes
+#   5. SIGNATURE INTEGRITY: proving an origin does not change profile bytes
+#   6. CONSENT ENFORCEMENT: allow_origin_discovery=True without consent is REJECTED
+
+from __future__ import annotations
+
+from unittest.mock import patch
+
+import pytest
+
+from agent_alpha.conductor.authorization import (
+    ConsentRequiredError,
+    authorize_engagement,
+)
+from agent_alpha.conductor.engagement_profile import (
+    EngagementProfile,
+    OriginNotAuthorizedError,
+    assert_origin_authorized_or_bound,
+    proven_origins,
+)
+from agent_alpha.events.event_types import EventType
+from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.recon.origin_binding import (
+    WELL_KNOWN_TOKEN_PATH,
+    verify_origin_binding,
+)
+from agent_alpha.recon.reach_transport import OriginDirectResult
+
+# ── Fixtures ──────────────────────────────────────────────────
+
+_TEST_ALLOWLIST: frozenset[str] = frozenset({"lab.example.com"})
+
+_VALID_DOMAIN = "client-target.com"
+_ORIGIN_IP = "203.0.113.10"
+_COTENANT_IP = "203.0.113.99"
+_ENGAGEMENT_ID = "eng-bind-001"
+_TOKEN = "engagement-abc123"
+_KEY = b"12345678901234567890123456789012"
+
+
+def _make_profile(
+    *,
+    allow_origin_discovery: bool = False,
+    authorized_origins: frozenset[str] = frozenset(),
+    scope_targets: frozenset[str] | None = None,
+) -> EngagementProfile:
+    return EngagementProfile(
+        engagement_id=_ENGAGEMENT_ID,
+        client_id="client-42",
+        scope_targets=scope_targets or frozenset({_VALID_DOMAIN}),
+        authorized_origins=authorized_origins,
+        allow_origin_discovery=allow_origin_discovery,
+    )
+
+
+def _emit_proven_event(
+    event_store: InMemoryEventStore,
+    origin_ip: str,
+    fronted_host: str = _VALID_DOMAIN,
+) -> None:
+    """Manually inject an ORIGIN_BINDING_PROVEN event (slice-1: mechanism test,
+    the caller that emits this is slice-2)."""
+    event_store.append(
+        event_type=EventType.ORIGIN_BINDING_PROVEN,
+        engagement_id=_ENGAGEMENT_ID,
+        agent="CONDUCTOR",
+        payload={
+            "engagement_id": _ENGAGEMENT_ID,
+            "fronted_host": fronted_host,
+            "origin_ip": origin_ip,
+            "proof_type": "well_known_token",
+        },
+    )
+
+
+# ── 1. CARDINAL SAFETY: co-tenant IP is never authorized ──────
+
+
+def test_cotenant_ip_is_never_authorized() -> None:
+    """A candidate IP whose origin_direct_fetch returns 200 but body WITHOUT
+    the token ⇒ verify_origin_binding == False; no ORIGIN_BINDING_PROVEN event;
+    assert_origin_authorized_or_bound RAISES for that IP.
+    (Co-tenant collateral protection — the whole point.)"""
+
+    # Simulate co-tenant: 200 OK but body is a different site's content.
+    cotenant_result = OriginDirectResult(
+        status_code=200,
+        body="<html>Welcome to co-tenant site!</html>",
+        headers={},
+    )
+
+    with (
+        patch("agent_alpha.recon.origin_binding.is_internal_ip", return_value=False),
+        patch(
+            "agent_alpha.recon.origin_binding.origin_direct_fetch",
+            return_value=cotenant_result,
+        ),
+    ):
+        # verify_origin_binding must be False — token not in body.
+        assert (
+            verify_origin_binding(
+                origin_ip=_COTENANT_IP,
+                fronted_host=_VALID_DOMAIN,
+                ownership_token=_TOKEN,
+            )
+            is False
+        )
+
+    # No event emitted (slice-1: verify is False, caller would not emit).
+    event_store = InMemoryEventStore()
+    # Do NOT emit any event — the verify was False.
+
+    # The composed gate must RAISE.
+    profile = _make_profile(allow_origin_discovery=True)
+    with pytest.raises(OriginNotAuthorizedError, match="not proven-bound"):
+        assert_origin_authorized_or_bound(
+            origin_ip=_COTENANT_IP,
+            fronted_host=_VALID_DOMAIN,
+            profile=profile,
+            event_store=event_store,
+            engagement_id=_ENGAGEMENT_ID,
+            lab_allowlist=_TEST_ALLOWLIST,
+        )
+
+
+# ── 2. POSITIVE: proven origin authorizes with capability on ──
+
+
+def test_proven_origin_authorizes_with_capability() -> None:
+    """Body echoes token ⇒ verify True ⇒ event emitted ⇒
+    assert_origin_authorized_or_bound passes (allow_origin_discovery=True
+    + host in scope)."""
+
+    # Simulate origin serving the token.
+    token_result = OriginDirectResult(
+        status_code=200,
+        body=_TOKEN,
+        headers={},
+    )
+
+    with (
+        patch("agent_alpha.recon.origin_binding.is_internal_ip", return_value=False),
+        patch(
+            "agent_alpha.recon.origin_binding.origin_direct_fetch",
+            return_value=token_result,
+        ) as mock_fetch,
+    ):
+        assert (
+            verify_origin_binding(
+                origin_ip=_ORIGIN_IP,
+                fronted_host=_VALID_DOMAIN,
+                ownership_token=_TOKEN,
+            )
+            is True
+        )
+
+        # Verify the correct path was requested.
+        expected_path = WELL_KNOWN_TOKEN_PATH.format(token=_TOKEN)
+        mock_fetch.assert_called_once_with(_VALID_DOMAIN, _ORIGIN_IP, expected_path)
+
+    # Caller would emit the event on True (slice-2); we inject it manually.
+    event_store = InMemoryEventStore()
+    _emit_proven_event(event_store, _ORIGIN_IP)
+
+    # The composed gate must PASS.
+    profile = _make_profile(allow_origin_discovery=True)
+    assert_origin_authorized_or_bound(
+        origin_ip=_ORIGIN_IP,
+        fronted_host=_VALID_DOMAIN,
+        profile=profile,
+        event_store=event_store,
+        engagement_id=_ENGAGEMENT_ID,
+        lab_allowlist=_TEST_ALLOWLIST,
+    )  # no raise
+
+
+# ── 3. CAPABILITY OFF: allow_origin_discovery=False blocks ────
+
+
+def test_capability_off_blocks_proven_origin() -> None:
+    """allow_origin_discovery=False + a proven event present ⇒
+    assert_origin_authorized_or_bound RAISES (capability gate)."""
+
+    event_store = InMemoryEventStore()
+    _emit_proven_event(event_store, _ORIGIN_IP)
+
+    # Verify the event is there.
+    assert _ORIGIN_IP in proven_origins(event_store, _ENGAGEMENT_ID, _VALID_DOMAIN)
+
+    # But the profile has the capability OFF.
+    profile = _make_profile(allow_origin_discovery=False)
+    with pytest.raises(OriginNotAuthorizedError, match="allow_origin_discovery=False"):
+        assert_origin_authorized_or_bound(
+            origin_ip=_ORIGIN_IP,
+            fronted_host=_VALID_DOMAIN,
+            profile=profile,
+            event_store=event_store,
+            engagement_id=_ENGAGEMENT_ID,
+            lab_allowlist=_TEST_ALLOWLIST,
+        )
+
+
+# ── 4. SIGNED PATH UNCHANGED: signed authorized_origins still works ──
+
+
+def test_signed_authorized_origins_still_works() -> None:
+    """An IP in signed authorized_origins ⇒ assert_origin_authorized_or_bound
+    passes (no events needed) — regression guard for the existing path."""
+
+    event_store = InMemoryEventStore()  # empty — no proven events
+
+    profile = _make_profile(
+        authorized_origins=frozenset({_ORIGIN_IP}),
+        allow_origin_discovery=False,
+    )
+    # Must pass via the signed/cooperative path.
+    assert_origin_authorized_or_bound(
+        origin_ip=_ORIGIN_IP,
+        fronted_host=_VALID_DOMAIN,
+        profile=profile,
+        event_store=event_store,
+        engagement_id=_ENGAGEMENT_ID,
+        lab_allowlist=_TEST_ALLOWLIST,
+    )  # no raise
+
+
+# ── 5. SIGNATURE INTEGRITY: proving doesn't change profile ────
+
+
+def test_proving_origin_does_not_change_profile_signature() -> None:
+    """Before/after proving, profile.sign(key) is identical — profile bytes
+    are immutable (frozen dataclass). Proving lives in events, not the profile."""
+
+    profile = _make_profile(allow_origin_discovery=True)
+    sig_before = profile.sign(_KEY)
+
+    # Simulate a proof cycle: emit the event.
+    event_store = InMemoryEventStore()
+    _emit_proven_event(event_store, _ORIGIN_IP)
+
+    # The profile signature MUST NOT change (profile is frozen).
+    sig_after = profile.sign(_KEY)
+    assert sig_before == sig_after
+
+    # The proven_origins reflect the event, but the profile is untouched.
+    assert _ORIGIN_IP in proven_origins(event_store, _ENGAGEMENT_ID, _VALID_DOMAIN)
+
+
+# ── 6. CONSENT ENFORCEMENT: allow_origin_discovery requires consent ──
+
+
+class _StubDNS:
+    def resolve_txt(self, domain: str) -> list[str]:
+        return ["agent-alpha=verify-abc"]
+
+
+def test_origin_discovery_requires_signed_consent() -> None:
+    """§12.36: allow_origin_discovery=True without consent_items/signed_by/
+    signed_at is REJECTED by authorize_engagement."""
+    with pytest.raises(ConsentRequiredError):
+        authorize_engagement(
+            engagement_id="eng-consent-test",
+            client_id="client-1",
+            targets=["consent-test.com"],
+            allow_origin_discovery=True,
+            consent_items=None,
+            signed_by="",
+            signed_at="",
+            ownership_tokens={"consent-test.com": "dns-txt:agent-alpha=verify-abc"},
+            dns_resolver=_StubDNS(),
+            skip_domain_verification=True,
+            key=_KEY,
+        )
+
+
+# ── Edge cases: verify_origin_binding error paths ─────────────
+
+
+def test_verify_origin_binding_empty_inputs() -> None:
+    """Empty origin_ip / fronted_host / ownership_token ⇒ False (fail-closed)."""
+    assert verify_origin_binding(origin_ip="", fronted_host="x", ownership_token="t") is False
+    assert verify_origin_binding(origin_ip="1.2.3.4", fronted_host="", ownership_token="t") is False
+    assert verify_origin_binding(origin_ip="1.2.3.4", fronted_host="x", ownership_token="") is False
+
+
+# ── 7. PER-HOST BINDING: proof for one host does not authorize another ──
+
+
+def test_proof_for_one_host_does_not_authorize_another() -> None:
+    """A proof for host A must NOT authorize host B in the same engagement
+    (per-host binding is the cardinal safety invariant, FIX 1)."""
+    store = InMemoryEventStore()
+    eng = "eng-multi"
+    profile = _make_profile(
+        scope_targets=frozenset({"a.example", "b.example"}),
+        allow_origin_discovery=True,
+        authorized_origins=frozenset(),
+    )
+    store.append(
+        event_type=EventType.ORIGIN_BINDING_PROVEN,
+        engagement_id=eng,
+        agent="CONDUCTOR",
+        payload={
+            "fronted_host": "a.example",
+            "origin_ip": "203.0.113.9",
+            "proof_type": "well_known_token",
+        },
+    )
+    # proof holds for A
+    assert_origin_authorized_or_bound(
+        "203.0.113.9",
+        "a.example",
+        profile,
+        store,
+        eng,
+        lab_allowlist=frozenset(),
+    )
+    # …but must NOT leak to B
+    with pytest.raises(OriginNotAuthorizedError, match="not proven-bound"):
+        assert_origin_authorized_or_bound(
+            "203.0.113.9",
+            "b.example",
+            profile,
+            store,
+            eng,
+            lab_allowlist=frozenset(),
+        )
+
+
+# ── 8. SSRF GUARD: internal/metadata IPs rejected before connecting ──
+
+
+@pytest.mark.parametrize(
+    "ip",
+    ["127.0.0.1", "169.254.169.254", "10.0.0.5", "192.168.1.1", "::1", "0.0.0.0"],
+)
+def test_internal_ip_is_rejected_without_connecting(ip: str) -> None:
+    """Internal/metadata IPs are rejected BEFORE origin_direct_fetch is called
+    (SSRF guard, CWE-918 — FIX 2)."""
+
+    def _must_not_call(*a: object, **k: object) -> object:
+        raise AssertionError("origin_direct_fetch called for internal IP — SSRF guard breached")
+
+    with patch("agent_alpha.recon.origin_binding.origin_direct_fetch", side_effect=_must_not_call):
+        assert (
+            verify_origin_binding(origin_ip=ip, fronted_host="x.example", ownership_token="tok")
+            is False
+        )
+
+
+def test_verify_origin_binding_runtime_error() -> None:
+    """origin_direct_fetch raising RuntimeError ⇒ False (fail-closed)."""
+    with (
+        patch("agent_alpha.recon.origin_binding.is_internal_ip", return_value=False),
+        patch(
+            "agent_alpha.recon.origin_binding.origin_direct_fetch",
+            side_effect=RuntimeError("connection refused"),
+        ),
+    ):
+        assert (
+            verify_origin_binding(
+                origin_ip=_ORIGIN_IP,
+                fronted_host=_VALID_DOMAIN,
+                ownership_token=_TOKEN,
+            )
+            is False
+        )
+
+
+def test_verify_origin_binding_non_200() -> None:
+    """origin_direct_fetch returning non-200 ⇒ False."""
+    result_403 = OriginDirectResult(status_code=403, body="Forbidden", headers={})
+    with (
+        patch("agent_alpha.recon.origin_binding.is_internal_ip", return_value=False),
+        patch(
+            "agent_alpha.recon.origin_binding.origin_direct_fetch",
+            return_value=result_403,
+        ),
+    ):
+        assert (
+            verify_origin_binding(
+                origin_ip=_ORIGIN_IP,
+                fronted_host=_VALID_DOMAIN,
+                ownership_token=_TOKEN,
+            )
+            is False
+        )

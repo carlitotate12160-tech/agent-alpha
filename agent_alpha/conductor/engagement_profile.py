@@ -207,6 +207,7 @@ class EngagementProfile:
     scope_targets: frozenset[str] = frozenset()  # authorized domains/IPs for this engagement
     scope_mode: str = "single"  # "single" | "multi"
     allow_subdomain_enum: bool = False
+    allow_origin_discovery: bool = False  # §12.46: client consented to runtime origin-binding
     opsec_stealth: bool = False
     include_root: bool = False
     authorization_level: str = "RECON_ONLY"  # RECON_ONLY | ACTIVE_APPROVED | OFFENSIVE_APPROVED
@@ -228,6 +229,7 @@ class EngagementProfile:
             "scope_targets": sorted(self.scope_targets),
             "scope_mode": self.scope_mode,
             "allow_subdomain_enum": self.allow_subdomain_enum,
+            "allow_origin_discovery": self.allow_origin_discovery,
             "opsec_stealth": self.opsec_stealth,
             "include_root": self.include_root,
             "authorization_level": self.authorization_level,
@@ -256,6 +258,7 @@ def dump_signed_profile(profile: EngagementProfile, *, key: bytes) -> dict[str, 
             "scope_targets": sorted(profile.scope_targets),
             "scope_mode": profile.scope_mode,
             "allow_subdomain_enum": profile.allow_subdomain_enum,
+            "allow_origin_discovery": profile.allow_origin_discovery,
             "opsec_stealth": profile.opsec_stealth,
             "include_root": profile.include_root,
             "authorization_level": profile.authorization_level,
@@ -290,6 +293,7 @@ def load_signed_profile_from_dict(data: dict[str, Any], *, key: bytes) -> Engage
         scope_targets=frozenset(profile_data.get("scope_targets", [])),
         scope_mode=profile_data.get("scope_mode", "single"),
         allow_subdomain_enum=bool(profile_data.get("allow_subdomain_enum", False)),
+        allow_origin_discovery=bool(profile_data.get("allow_origin_discovery", False)),
         opsec_stealth=bool(profile_data.get("opsec_stealth", False)),
         include_root=bool(profile_data.get("include_root", False)),
         authorization_level=profile_data.get("authorization_level", "RECON_ONLY"),
@@ -326,6 +330,32 @@ def load_signed_profile(path: str, *, key: bytes) -> EngagementProfile:
 # ── Origin-authorization gate (fail-closed) ───────────────────
 
 
+def _assert_fronted_host_owned(
+    fronted_host: str,
+    profile: EngagementProfile,
+    lab_allowlist: frozenset[str],
+) -> None:
+    """Shared scope/guardrail gate: host must be guardrail-clear AND a
+    proven-owned target (lab allowlist OR signed scope_targets).
+    Single source (anti-#6) — called by both ``assert_origin_authorized``
+    and ``assert_origin_authorized_or_bound``.
+
+    Raises
+    ------
+    OriginNotAuthorizedError
+        When the fronted host is not in the lab allowlist AND not in signed
+        scope_targets.
+    GuardrailError
+        When the fronted host is blocked by the hard guardrail.
+    """
+    assert_not_guardrailed(fronted_host)
+    if fronted_host not in lab_allowlist and fronted_host not in profile.scope_targets:
+        raise OriginNotAuthorizedError(
+            f"fronted host {fronted_host!r} not a proven-owned target "
+            f"(not in lab allowlist and not in signed scope_targets)"
+        )
+
+
 def assert_origin_authorized(
     origin_ip: str,
     fronted_host: str,
@@ -351,21 +381,70 @@ def assert_origin_authorized(
     GuardrailError
         When the fronted host is blocked by the hard guardrail.
     """
-    assert_not_guardrailed(fronted_host)
-
-    in_lab = fronted_host in lab_allowlist
-    in_scope = fronted_host in profile.scope_targets
-
-    if not in_lab and not in_scope:
-        raise OriginNotAuthorizedError(
-            f"fronted host {fronted_host!r} not a proven-owned target "
-            f"(not in lab allowlist and not in signed scope_targets)"
-        )
+    _assert_fronted_host_owned(fronted_host, profile, lab_allowlist)
     if origin_ip not in profile.authorized_origins:
         raise OriginNotAuthorizedError(
             f"origin {origin_ip!r} not in signed authorized_origins — hitting a client "
             f"origin bypasses their WAF; requires front-loaded consent (§12.36)."
         )
+
+
+def proven_origins(event_store: Any, engagement_id: str, fronted_host: str) -> frozenset[str]:
+    """Fold ORIGIN_BINDING_PROVEN events → the set of origin IPs proven-bound
+    FOR THIS fronted_host this engagement. Single source of truth (event-sourced);
+    never a mutable side-set.
+
+    Scoped by fronted_host: a proof for host A must never authorize host B in a
+    multi-domain engagement (per-host binding is the cardinal safety invariant)."""
+    from agent_alpha.events.event_types import EventType
+
+    events = event_store.get_events(engagement_id)
+    return frozenset(
+        e.payload["origin_ip"]
+        for e in events
+        if e.event_type == EventType.ORIGIN_BINDING_PROVEN
+        and e.payload.get("fronted_host") == fronted_host
+        and "origin_ip" in e.payload
+    )
+
+
+def assert_origin_authorized_or_bound(
+    origin_ip: str,
+    fronted_host: str,
+    profile: EngagementProfile,
+    event_store: Any,
+    engagement_id: str,
+    lab_allowlist: frozenset[str] = LAB_TARGET_ALLOWLIST,
+) -> None:
+    """§12.46 composed gate. Authorized iff the fronted host is in scope AND
+      (origin_ip ∈ signed authorized_origins)                       # static/cooperative path
+      OR (profile.allow_origin_discovery AND origin_ip ∈ proven_origins(...))  # discovery path
+    Fail-closed otherwise. Reuses _assert_fronted_host_owned for the
+    scope/guardrail checks (anti-#6: single source).
+
+    Raises
+    ------
+    OriginNotAuthorizedError
+        When neither the signed nor the proven-bound path authorizes the IP.
+    GuardrailError
+        When the fronted host is blocked by the hard guardrail.
+    """
+    _assert_fronted_host_owned(fronted_host, profile, lab_allowlist)
+
+    # Static/cooperative path: IP in signed authorized_origins.
+    if origin_ip in profile.authorized_origins:
+        return
+
+    # Discovery path: capability on + IP proven-bound via events.
+    if profile.allow_origin_discovery and origin_ip in proven_origins(
+        event_store, engagement_id, fronted_host
+    ):
+        return
+
+    raise OriginNotAuthorizedError(
+        f"origin {origin_ip!r} not in signed authorized_origins and not proven-bound "
+        f"for {fronted_host!r} (allow_origin_discovery={profile.allow_origin_discovery})"
+    )
 
 
 # ── Enforcement gates (§12.36 — fail-closed) ──────────────────
@@ -393,6 +472,7 @@ _CAPABILITY_FIELDS: dict[str, str] = {
     "evasion": "allow_evasion",
     "origin_direct": "allow_evasion",  # origin-direct requires evasion consent
     "subdomain_enum": "allow_subdomain_enum",
+    "origin_discovery": "allow_origin_discovery",  # §12.46: runtime origin-binding discovery
     "stealth": "opsec_stealth",
     "include_root": "include_root",
 }
