@@ -229,9 +229,21 @@ class Alpha:
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
-        for path in getattr(constants, "WELL_KNOWN_LEAK_PATHS", ()):  # seed known leak paths
+        # Stack-gated initial seed (was: raw WELL_KNOWN_LEAK_PATHS union fired
+        # unconditionally at every host — 9 WP-config + 2 actuator paths that
+        # can only ever match one stack each, sent to 100% of targets before
+        # a single fingerprint response comes back; this is what tripped
+        # WAF/CF breadth-anomaly detection even at a throttled rps).
+        # labels=[] because nothing is fingerprinted yet at run start — this
+        # correctly resolves to the same universal + DEFAULT_LEAK_PATHS
+        # fallback try_harder already used for unknown hosts (§ Planner
+        # .select_leak_paths). Stack-specific paths (WP-config, actuator)
+        # arrive later via CapabilitySpec.frontier_seeds the moment
+        # _handle_capability_fingerprint confirms that stack — see
+        # capability_probe.py patch.
+        for path in self._planner.select_leak_paths(labels=[]):
             self.enqueue_discovered_url(f"{root}{path}")
-        for path in getattr(constants, "SURFACE_DISCOVERY_PATHS", ()):  # seed API-spec paths
+        for path in getattr(constants, "SURFACE_DISCOVERY_PATHS", ()):  # unchanged: universal, cheap (ADR §12.26)
             self.enqueue_discovered_url(f"{root}{path}")
 
         # ── Drive through the cognitive loop ────────────────────

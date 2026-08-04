@@ -48,7 +48,12 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
     CapabilitySpec(
         tool="tomcat_fingerprint",
         label="tomcat",
-        frontier_seeds=("/manager/html", "/host-manager/html"),
+        # ACTUATOR_PATHS moved here from the unconditional run_recon seed
+        # (was fired at every host regardless of stack). Gated behind Tomcat
+        # header detection since that's the cheapest existing Spring-adjacent
+        # signal — tradeoff: a target that suppresses its Server header will
+        # not get an Actuator check this way.
+        frontier_seeds=("/manager/html", "/host-manager/html", *constants.ACTUATOR_PATHS),
     ),
     CapabilitySpec(
         tool="http_basic_auth_fingerprint",
@@ -76,7 +81,11 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
     CapabilitySpec(
         tool="wp_fingerprint",
         label=constants.STACK_WP,
-        frontier_seeds=("/wp-json/", "/readme.html"),
+        # WP_CONFIG_BACKUP_PATHS (9 paths) moved here from the unconditional
+        # run_recon seed / BACKUP_FILE_PATHS union — previously fired at every
+        # non-WP host too (pure noise, guaranteed 404). Now fires the instant
+        # WP is confirmed, same as /wp-json/ + /readme.html already did.
+        frontier_seeds=("/wp-json/", "/readme.html", *constants.WP_CONFIG_BACKUP_PATHS),
         follow_up_tools=("wp_plugins",),
     ),
     # WordPress recon-depth battery (STACK_WP). Each is keyed on the stack

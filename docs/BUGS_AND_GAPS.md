@@ -38,7 +38,8 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 22 | Beta FAILED → chain halts (noop), Omega never dispatched | **RESOLVED** | Low | Report never generated on failed access |
 | 23 | Beta next_recommended always GAMMA even on FAILED | **RESOLVED** | Low | Advance logic receives GAMMA but status=FAILED → noop |
 | 24 | response_classifier `challenge-platform` false positive on CF-proxied sites | High | Low | All CF-proxied sites misclassified as CHALLENGE | **FIXED** |
-| 25 | DefaultCredsTool ignores harvested USER nodes — only tries hardcoded creds | High | Medium | Beta can't spray discovered usernames | **OPEN** |
+| 25 | DefaultCredsTool ignores harvested USER nodes — only tries hardcoded creds | **RESOLVED** | Medium | Beta can't spray discovered usernames |
+| 26 | Generic blind probing causes excessive 404s → WAF/CF block | **High** | Medium | Agent blocked before finding anything |
 
 ## Recommended Fix Order
 
@@ -280,8 +281,8 @@ Removed `challenge-platform` from `CHALLENGE_STRONG_MARKERS`. Added body-size gu
 
 ## Bug #25: DefaultCredsTool Ignores Harvested USER Nodes — Only Tries Hardcoded Creds
 
-- **Status**: OPEN
-- **Priority**: High
+- **Status**: RESOLVED — Fixed by GAP-015 (`UserDerivedCredsTool`, derive-not-spray)
+- **Priority**: Medium (downgraded from High — resolved)
 - **Effort**: Medium
 - **Blocks**: Beta can't credential-spray discovered usernames from Alpha recon
 
@@ -335,6 +336,84 @@ See **GAP-015** below for the detailed design (Opsi A: `cred_spray` tool baru).
 - GAP-015 (cred_spray tool) — the fix for this bug
 - GAP-013 (Credential pattern mutation, ADR §12.34) — related: pattern mutation from harvested creds, but requires cred_spray as prerequisite for username harvesting
 - Bug #22 (Beta FAILED → chain halts) — Bug #25 is a root cause of Beta FAILED status
+
+---
+
+## Bug #26: Generic Blind Probing Causes Excessive 404s → WAF/CF Block
+
+- **Status**: OPEN
+- **Priority**: High
+- **Effort**: Medium
+- **Blocks**: Agent blocked by WAF/CF before finding anything
+
+### Root Cause
+
+Agent-Alpha's `run_recon` seeds `WELL_KNOWN_LEAK_PATHS` (27+ paths) blindly against every target regardless of tech stack. For a WordPress target behind Cloudflare, this means 27 sequential 404 requests to paths like `/.env`, `/.git/config`, `/composer.json`, `/server-status` — most irrelevant to WP. Cloudflare's rate-based protection triggers after ~10-15 rapid 404s from the same IP, blocking all subsequent requests including the ones that would have succeeded.
+
+### Evidence
+
+Lab test against `wp.alpha-ai.web.id` (WordPress behind Cloudflare):
+
+| Metric | Value |
+|--------|-------|
+| Total paths probed (generic) | 27 |
+| 404 responses | ~22 |
+| 403/WAF block after | ~15th request |
+| WP-relevant paths in generic list | ~9 (WP_CONFIG_BACKUP_PATHS) |
+| Non-WP paths wasted | ~18 |
+
+Tiered backup path test reduced WP backup probes from 9 → 3 (67% reduction), but the remaining 18 non-WP generic paths still generate 404 noise.
+
+### Impact
+
+- **WAF/CF block**: Agent gets blocked before reaching high-value paths
+- **Wasted requests**: 18+ irrelevant 404s per target for single-stack sites
+- **False negatives**: Paths that would return 200 are never reached because WAF blocks first
+- **OPSEC failure**: 27 rapid 404s from datacenter IP = obvious scanner pattern
+
+### Affected Files
+
+- `agent_alpha/agents/alpha/scout.py:224-242` — `run_recon` seeds all `WELL_KNOWN_LEAK_PATHS` generically
+- `agent_alpha/config/constants.py:275-304` — `WELL_KNOWN_LEAK_PATHS` is a flat list with no stack filtering
+- `agent_alpha/agents/alpha/scout.py:1240-1254` — `_handle_capability_fingerprint` seeds stack-specific paths only AFTER fingerprint (too late — generic paths already seeded)
+
+### Proposed Fix (multi-layer)
+
+**Layer 1 — Pre-intel (0 request to target)**:
+- Query Wayback CDX for archived URLs → only probe paths that historically returned 200
+- Query crt.sh + HackerTarget for subdomains → expand scope passively
+- See GAP-016 (Wayback pre-intel)
+
+**Layer 2 — Soft-404 baseline calibration**:
+- Before probing real paths, send 1-2 requests to random non-existent paths (e.g. `/{random_uuid}`)
+- Record response: status code, body size, body hash
+- Any subsequent response matching this baseline = soft-404, skip (even if status 200)
+- References: OpenDoor auto-calibration, Capsaicin smart calibration, fck403 baseline fingerprinting
+
+**Layer 3 — Stack-aware tiered probing**:
+- Phase 1: Universal paths only (3-5 paths: `/.env`, `/.git/HEAD`, `/robots.txt`)
+- Phase 2: After fingerprint detected → stack-specific TIER1 (3 paths)
+- Phase 3: Only if TIER1 all 404 → TIER2 (6 paths)
+- Already tested in lab: 67% WP 404 reduction
+
+**Layer 4 — Request pacing (anti-rate-limit)**:
+- Interleave probe requests with legitimate requests (homepage, API index, readme)
+- Add stochastic jitter (Gaussian distribution, 100-300ms)
+- Max 5 requests per burst, 30s pause between bursts
+- References: Capsaicin jitter engine, rootea stealth Burp config, APT low-and-slow tradecraft
+
+**Layer 5 — WAF detection + circuit breaker**:
+- If 3 consecutive 403s or 429s from same host → pause probing
+- Switch to origin-direct (if authorized) or back off
+- References: OpenDoor WAF guard stop condition, Capsaicin circuit breaker
+
+### Cross-reference
+
+- GAP-016 (Wayback pre-intel) — Layer 1 fix
+- GAP-007 (OSINT / external context) — related passive intel
+- GAP-012 (Adaptive evasion) — Layer 4/5 fix
+- Bug #18/#24 (CF challenge classification) — WAF detection already improved
+- ADR §12.33 (IP reputation doctrine) — datacenter ASN limitations
 
 ---
 
@@ -746,19 +825,51 @@ for url in targets:
 
 ## GAP-015: Credential Spray Tool — Harvested Usernames × Common Passwords
 
-- **Status**: OPEN
+- **Status**: CLOSED — Implemented as `UserDerivedCredsTool` (derive-not-spray, not `cred_spray` with static password list)
 - **Severity**: High — Beta can't use USER nodes from Alpha recon for credential spray
-- **Related Bug**: Bug #25 (DefaultCredsTool ignores harvested USER nodes)
-- **MITRE Technique**: T1110.003 (Password Spraying) — distinct from T1078.001 (Default Accounts)
+- **Related Bug**: Bug #25 (DefaultCredsTool ignores harvested USER nodes) — RESOLVED by this GAP
+- **MITRE Technique**: T1110.001 (Password Guessing — bounded, derived) — NOT T1110.003 (Spraying)
+- **Resolved in**: `agent_alpha/tools/internal/access/user_derived_creds.py` (243 lines)
+- **Wired in**: `agent_alpha/agents/beta/strike.py:55,332-335` — imported + instantiated in Beta tool roster
+- **Verified by**: `tests/phase_4/test_user_derived_creds.py` (13 tests, all pass), `agent_alpha/live_fire/gap015_field_prove.py` (field-prove runner)
+- **Field-proven**: wp.alpha-ai.web.id lab engagement — Alpha enumerated `wpvuln` user, Beta derived candidates, `predictable_credential` vuln node minted
 
-### Context
+### Implementation (Actual — Derive-Not-Spray, NOT Opsi A)
 
-Alpha's `wp_rest_user_disclosure` handler harvests usernames from `/wp-json/wp/v2/users` and persists them as USER nodes in the graph. On solusibersama.co.id, 9 users were discovered. However, no Beta tool reads USER nodes for credential attempts:
+The implemented approach differs from the original Opsi A proposal. Instead of a `cred_spray` tool with a static password list, the team built `UserDerivedCredsTool` with a **derive-not-spray** design contract:
 
-- `DefaultCredsTool` — hardcoded dictionary, doesn't read graph_store
-- `CredReuseTool` — requires CREDENTIAL nodes (with `secret_ref` from vault), not USER nodes
+- **NO static passwords** — candidates derived ONLY from username + registrable domain stem (via Public Suffix List)
+- **Bounded** — max `USER_DERIVED_MAX_CANDIDATES_PER_USER` per account (no combinatorial blow-up)
+- **Lockout-gated** — every submission passes through `CredentialLockoutGovernor` (§12.22 D2)
+- **#6 compliance** — no duplication of `default_creds`' well-known defaults
 
-### Design: Opsi A (Recommended) — New `cred_spray` Tool
+**Candidate derivation** (`derive_login_candidates`):
+```
+username → [username, username+"123", domain_stem, domain_stem+"123"]
+```
+Example: `editor` on `bernofarm.com` → `["editor", "editor123", "bernofarm", "bernofarm123"]`
+
+### Why Derive-Not-Spray (vs Opsi A)
+
+| Criteria | Opsi A (cred_spray) | Actual (user_derived_creds) |
+|----------|--------------------|-----------------------------|
+| Static passwords | Yes (`admin`, `password`, `admin123`) | **NO** — anti-#3 (hardcoded guess ≠ credible finding) |
+| #3 (no false positive) | Risk: static password hit = not a credible finding | ✅ Derived = context-specific, payable |
+| #4 (derive-not-spray) | Spray (wordlist) | ✅ Derive (bounded, context-derived) |
+| #6 (no duplication) | Overlaps with `default_creds` | ✅ Clean separation |
+| MITRE technique | T1110.003 (Spraying) | T1110.001 (Password Guessing — bounded) |
+| Lockout safety | Built-in | ✅ Built-in (GovernedApplicator) |
+| Budget control | Max 3 pwd/user | ✅ `USER_DERIVED_MAX_CANDIDATES_PER_USER` |
+
+### Files
+
+- `agent_alpha/tools/internal/access/user_derived_creds.py` — tool implementation (243 lines)
+- `agent_alpha/agents/beta/strike.py:55,332-335` — wired into Beta tool roster
+- `tests/phase_4/test_user_derived_creds.py` — 13 tests (domain stem, derive logic, bounds, no static password, lockout gating, applies_to ranking, fallback roster, budget enforcement)
+- `agent_alpha/live_fire/gap015_field_prove.py` — field-prove runner (end-to-end chain)
+- `agent_alpha/tools/internal/access/cred_finding_catalog.py` — `CredFindingClass.PREDICTABLE_CREDENTIAL` finding class
+
+### Original Design Proposals (Historical — Superseded by Implementation)
 
 **Konsep**: Tool terpisah, MITRE T1110.003 (Password Spraying) — distinct dari T1078.001 (Default Accounts).
 
@@ -859,6 +970,100 @@ Hanya tambah password list di `_DEFAULT_CREDENTIALS[STACK_WP]`, tetap hanya untu
 
 ---
 
+## GAP-016: Wayback Machine Pre-Intel — Archive-Driven Probe Selection
+
+- **Status**: OPEN
+- **Severity**: Medium — Agent probes blind paths, causing 404 noise and WAF/CF blocks (Bug #26)
+- **Effort**: Low-Medium (single module + CDX API query, no target interaction)
+
+### Context
+
+Agent-Alpha currently seeds `WELL_KNOWN_LEAK_PATHS` (27+ paths) blindly against every target. For single-stack targets (e.g. WordPress), 18+ paths are irrelevant and generate 404 noise that triggers WAF/CF rate-based blocking.
+
+Wayback Machine CDX API provides archived URL history for any domain — **zero requests to target**. By querying the archive first, Agent-Alpha can:
+1. Discover paths that historically returned 200 → probe only those
+2. Detect plugins/themes from archived `/wp-content/plugins/*` paths → CVE lookup without crawling
+3. Skip paths never seen in archive → reduce 404 noise
+4. Fingerprint tech stack from archived content (WordPress, Laravel, etc.)
+
+### Lab Evidence
+
+Wayback CDX query for `bernofarm.com` (from Oracle server, 0 requests to target):
+
+| Metric | Value |
+|--------|-------|
+| Total 200 URLs archived | ~1000+ |
+| Plugins detected from archive | 7 (woocommerce, elementor-pro, elementor, forminator, wpforms-lite, akismet, advanced-product-labels-for-woocommerce) |
+| Themes detected from archive | 1 (astra) |
+| Sensitive paths found | `/wp-admin/admin-ajax.php` |
+| `.env` / `.git` / `wp-config` in archive | 0 (skip these probes) |
+
+For `wp.alpha-ai.web.id`: no archive exists (domain too new). Wayback is most effective for established domains.
+
+### Industry Precedent
+
+Wayback/archive recon is **standard tradecraft** in bug bounty and pentest, not APT-only:
+
+| Tool | Wayback Integration | Type |
+|------|---------------------|------|
+| Burp Suite | `Wayback-Recon` extension | Commercial pentest |
+| OWASP ZAP | `deja-vu` extension | Open source pentest |
+| gau (GetAllURLs) | Wayback + CommonCrawl + OTX + URLScan | Bug bounty recon |
+| waymore | Wayback + CommonCrawl + URLScan + VT + IntelligenceX | Bug bounty recon |
+| TheTimeMachine | Wayback + backup detection + attack patterns | Bug bounty recon |
+| chronos | Wayback OSINT framework (regex, jsluice, HTML, XML) | OSINT framework |
+| Nuclei | ❌ No built-in (uses gau as input) | Scanner |
+| Strix | ❌ None | AI pentest agent |
+| CyberStrikeAI | ❌ None | AI pentest agent |
+| Agent-Alpha | ❌ **Not yet** | AI pentest agent |
+
+Agent-Alpha is behind Burp Suite and ZAP here. But with graph store + CVE catalog integration, it can go beyond: archive path → plugin detection → CVE lookup → graph node → Beta cred-reuse chain.
+
+### Proposed Implementation
+
+```python
+# recon/wayback_discovery.py (proposed)
+
+class WaybackDiscovery:
+    """Query Wayback CDX API for archived URLs. Zero requests to target."""
+    
+    def query(self, domain: str) -> WaybackResult:
+        """Query CDX API for domain, return archived paths + plugins + themes."""
+        # GET https://web.archive.org/cdx/search/cdx?url={domain}&output=json
+        #   &limit=2000&fl=original,statuscode&collapse=urlkey
+        #   &matchType=domain&filter=statuscode:200
+        # Parse → extract unique paths, detect plugins/themes from /wp-content/
+        
+    def priority_paths(self, domain: str) -> list[str]:
+        """Return paths that historically returned 200 — probe only these."""
+        
+    def detected_plugins(self, domain: str) -> set[str]:
+        """Return plugin slugs from archived /wp-content/plugins/ paths."""
+```
+
+Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before seeding `WELL_KNOWN_LEAK_PATHS`. If archive returns paths, use those instead of generic list. If archive is empty (new domain), fall back to tiered probing.
+
+### Limitations
+
+- New domains have no archive (e.g. `wp.alpha-ai.web.id`)
+- CDX API can be slow (10-60s for large domains)
+- Archive may not include sensitive paths that were briefly exposed
+- Some sites block Wayback crawler (no archive at all)
+- Does not replace active probing — only informs which paths to probe
+
+### Prerequisites
+
+- None blocking — standalone module, no dependency on other GAPs
+- Complements Bug #26 Layer 1 fix and GAP-007 (OSINT)
+
+### Cross-reference
+
+- Bug #26 (Generic blind probing → WAF/CF block) — Layer 1 fix
+- GAP-007 (OSINT / external context) — Wayback is one OSINT source within this GAP
+- Existing: `passive_discovery.py` (crt.sh), `origin_discovery.py`, `_discover_subdomains` (HackerTarget, OTX, VirusTotal) — Wayback extends this passive intel layer
+
+---
+
 ## GAP Priority & Build Order
 
 Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
@@ -878,7 +1083,8 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 | 11 | GAP-012 (Adaptive evasion) | Medium | GAP-005 (PolicyEnforcer untuk dynamic OPSEC) | Agent mengubah teknik saat terdeteksi, bukan catat dan lanjut |
 | 12 | GAP-011 (Authenticated crawl) | High | GAP-004 (planner untuk post-access objective), GAP-010 (goal-completion untuk next objective) | Re-discovery dengan sesi aktif: IDOR, broken access control, priv esc |
 | 13 | GAP-014 (Fan-out parallel worker wiring) | Low | — | N-target engagement latency: sequential → parallel (alpha=10, beta=4, gamma=2). Interface built, pure wiring debt |
-| 14 | GAP-015 (Credential spray tool) | Medium | None blocking — applicator roster built (merged 296), USER nodes persisted by wp_rest_user_disclosure | Beta can spray harvested usernames × common passwords. Fixes Bug #25. Prerequisite for GAP-013 (pattern mutation) |
+| 14 | ~~GAP-015 (Credential spray tool)~~ | Medium | None blocking — applicator roster built (merged 296), USER nodes persisted by wp_rest_user_disclosure | **CLOSED** — Implemented as `UserDerivedCredsTool` (derive-not-spray). Fixes Bug #25. Prerequisite for GAP-013 (pattern mutation) |
+| 15 | GAP-016 (Wayback pre-intel) | Low-Medium | None blocking — standalone module | Archive-driven probe selection, reduce 404 noise (Bug #26 Layer 1), plugin detection without crawling |
 
 > ToolComposer (review GAP 8) sengaja tidak dimasukkan — akan di-build nantinya sebagai bagian dari Gamma phase.
 > GAP 7 (4 agents missing: Gamma/Delta/Epsilon) sengaja tidak dimasukkan — sedang dalam proses.

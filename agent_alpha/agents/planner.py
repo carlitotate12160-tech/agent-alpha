@@ -84,34 +84,14 @@ class Planner:
         seen: dict[str, None] = {}
         for host, labels in host_stacks.items():
             lower_labels = [lb.lower() for lb in labels]
-            non_universal_matched = False
+            for path in self.select_leak_paths(labels):
+                url = f"https://{host}{path}"
+                if url not in probed and url not in seen:
+                    seen[url] = None
 
-            for spec in PATH_PROBE_CATALOG:
-                if not spec.applies_to_stacks:
-                    # UNIVERSAL — always seed.
-                    for path in spec.paths:
-                        url = f"https://{host}{path}"
-                        if url not in probed and url not in seen:
-                            seen[url] = None
-                else:
-                    # Stack-specific — substring match.
-                    if any(
-                        marker in lb for marker in spec.applies_to_stacks for lb in lower_labels
-                    ):
-                        non_universal_matched = True
-                        for path in spec.paths:
-                            url = f"https://{host}{path}"
-                            if url not in probed and url not in seen:
-                                seen[url] = None
-
-            # Unknown host fallback: no non-universal spec matched.
-            if not non_universal_matched:
-                for path in constants.DEFAULT_LEAK_PATHS:
-                    url = f"https://{host}{path}"
-                    if url not in probed and url not in seen:
-                        seen[url] = None
-
-            # Surface discovery gated by SURFACE_APPLIES_TO.
+            # Surface discovery gated by SURFACE_APPLIES_TO — kept OUTSIDE
+            # select_leak_paths (that helper is leak-paths only; see its
+            # docstring). Unchanged from the pre-refactor behavior.
             if any(marker in lb for marker in constants.SURFACE_APPLIES_TO for lb in lower_labels):
                 for path in constants.SURFACE_DISCOVERY_PATHS:
                     url = f"https://{host}{path}"
@@ -119,6 +99,46 @@ class Planner:
                         seen[url] = None
 
         return list(seen)
+
+    def select_leak_paths(self, labels: list[str]) -> list[str]:
+        """Resolve which leak/discovery paths apply to a host given its known
+        tech_stack *labels* (pass ``[]`` for an unfingerprinted host).
+
+        SINGLE selection algorithm (anti-#7) — shared by ``try_harder`` (labels
+        = whatever has been fingerprinted so far) and ``Alpha.run_recon``'s
+        initial seed (labels = ``[]``, since nothing is fingerprinted yet).
+
+        Rules (unchanged from the try_harder logic this was extracted from):
+        * UNIVERSAL specs (``applies_to_stacks == frozenset()``) → always.
+        * Stack-specific specs → only on a substring match against *labels*.
+        * ``constants.DEFAULT_LEAK_PATHS`` → only when NO stack-specific spec
+          matched (the unfingerprinted / unknown-stack case).
+
+        Does NOT include ``SURFACE_DISCOVERY_PATHS`` — that stays run_recon's
+        own unconditional seed (ADR §12.26: surface-discovery is not a leak,
+        deliberately universal at initial-seed time) and try_harder's own
+        SURFACE_APPLIES_TO-gated top-up; neither changes here.
+
+        PURE: no I/O, no mutation, no LLM. Stable insertion order.
+        """
+        lower_labels = [lb.lower() for lb in labels]
+        non_universal_matched = False
+        paths: dict[str, None] = {}
+
+        for spec in PATH_PROBE_CATALOG:
+            if not spec.applies_to_stacks:
+                for path in spec.paths:
+                    paths.setdefault(path, None)
+            elif any(marker in lb for marker in spec.applies_to_stacks for lb in lower_labels):
+                non_universal_matched = True
+                for path in spec.paths:
+                    paths.setdefault(path, None)
+
+        if not non_universal_matched:
+            for path in constants.DEFAULT_LEAK_PATHS:
+                paths.setdefault(path, None)
+
+        return list(paths)
 
     def score(self, url: str, world_model: WorldModel, objective: Any) -> int:
         """Deterministic, NO-LLM frontier score = f(graph, objective).

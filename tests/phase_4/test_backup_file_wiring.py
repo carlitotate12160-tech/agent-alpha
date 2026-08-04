@@ -33,6 +33,7 @@ from dataclasses import dataclass
 
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.config import constants
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
@@ -152,3 +153,66 @@ def test_w4_leaked_secret_is_the_one_vaulted() -> None:
     ref = getattr(creds[0].properties, "secret_ref", "")
     assert ref.startswith("secret_")
     assert alpha._secrets_manager.retrieve(ref) == _LEAKED_PASSWORD
+
+
+# ── Stack-gated seed tests (Bug #26 Layer 3) ───────────────────────────────
+
+
+def test_run_recon_does_not_seed_wp_paths_for_non_wp_host() -> None:
+    """A non-WP host (generic HTML, no wp-content/wp-includes markers) must
+    NEVER receive wp-config.php.bak or any WP_CONFIG_BACKUP_PATHS entry during
+    run_recon. Those paths are now gated behind wp_fingerprint detection
+    (capability_probe.py frontier_seeds), not fired blindly in the initial seed.
+    """
+    store = InMemoryEventStore()
+    graph = NetworkXGraphStore()
+    http = FakeHttpClient(
+        {
+            _ROOT: FakeResponse(200, "<html><body>plain site, no WP markers</body></html>"),
+        }
+    )
+    alpha, eid = _alpha(graph, store, http)
+
+    alpha.run_recon(eid, _ROOT)
+
+    wp_paths = [u for u in http.get_calls if "wp-config" in u]
+    assert not wp_paths, (
+        f"Non-WP host received WP-config probe paths: {wp_paths} — "
+        "WP_CONFIG_BACKUP_PATHS should only seed via wp_fingerprint.frontier_seeds"
+    )
+    actuator_paths = [u for u in http.get_calls if "/actuator" in u or u.endswith("/env")]
+    assert not actuator_paths, (
+        f"Non-Tomcat host received actuator probe paths: {actuator_paths} — "
+        "ACTUATOR_PATHS should only seed via tomcat_fingerprint.frontier_seeds"
+    )
+
+
+def test_run_recon_initial_seed_count_bounded() -> None:
+    """First-wave request count to a new host must be <=
+    len(select_leak_paths([])) + len(SURFACE_DISCOVERY_PATHS), NOT the full
+    WELL_KNOWN_LEAK_PATHS union (which included 9 WP-config + 2 actuator paths).
+    """
+    from agent_alpha.agents.planner import Planner
+
+    store = InMemoryEventStore()
+    graph = NetworkXGraphStore()
+    http = FakeHttpClient(
+        {
+            _ROOT: FakeResponse(200, "<html><body>generic</body></html>"),
+        }
+    )
+    alpha, eid = _alpha(graph, store, http)
+
+    alpha.run_recon(eid, _ROOT)
+
+    max_expected = len(Planner().select_leak_paths(labels=[])) + len(
+        constants.SURFACE_DISCOVERY_PATHS
+    )
+    # Subtract 1 for the seed URL itself (not a leak/surface path).
+    actual_probe_count = len(http.get_calls) - 1  # -1 for _ROOT seed
+    assert actual_probe_count <= max_expected, (
+        f"Initial seed sent {actual_probe_count} probe paths, expected <= {max_expected} "
+        f"(select_leak_paths([]) + SURFACE_DISCOVERY_PATHS). "
+        f"WELL_KNOWN_LEAK_PATHS would have sent {len(constants.WELL_KNOWN_LEAK_PATHS)}. "
+        f"calls={http.get_calls}"
+    )
