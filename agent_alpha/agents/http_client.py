@@ -176,14 +176,13 @@ class HttpClient:
         # Per-call verify override: None → fall back to instance default (self._verify).
         effective_verify = self._verify if verify is None else verify
         try:
-            with (
-                httpx.Client(
-                    timeout=self.timeout,
-                    transport=self._transport,
-                    verify=effective_verify,  # codeql[py/request-without-cert-validation] — intentional for lab origin-direct (ADR §12.33)
-                    follow_redirects=allow_redirects,
-                ) as client
-            ):
+            with httpx.Client(
+                timeout=self.timeout,
+                transport=self._transport,
+                # codeql[py/request-without-cert-validation] — intentional for lab origin-direct (ADR §12.33)
+                verify=effective_verify,
+                follow_redirects=allow_redirects,
+            ) as client:
                 response = client.request(
                     method,
                     url,

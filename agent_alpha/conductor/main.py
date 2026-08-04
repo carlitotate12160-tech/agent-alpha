@@ -146,6 +146,7 @@ def _crtsh_subdomains(domain: str) -> list[str]:
         return []
 
     # Primary: crt.sh JSON API
+    # codeql[py/partial-ssrf] — domain validated by _validate_domain above
     url = f"https://crt.sh/?q=%25.{domain}&output=json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
@@ -162,6 +163,7 @@ def _crtsh_subdomains(domain: str) -> list[str]:
         pass  # fall through to hackertarget
 
     # Fallback: hackertarget host search API
+    # codeql[py/partial-ssrf] — domain validated by _validate_domain above
     url2 = f"https://api.hackertarget.com/hostsearch/?q={domain}"
     try:
         req2 = urllib.request.Request(url2, headers={"User-Agent": "Agent-Alpha/0.1"})
@@ -183,6 +185,7 @@ def _alienvault_otx_subdomains(domain: str) -> list[str]:
         domain = _validate_domain(domain)
     except ValueError:
         return []
+    # codeql[py/partial-ssrf] — domain validated by _validate_domain above
     url = f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Agent-Alpha/0.1"})
@@ -209,6 +212,7 @@ def _virustotal_subdomains(domain: str) -> list[str]:
         return []
 
     names: set[str] = set()
+    # codeql[py/partial-ssrf] — domain validated by _validate_domain above
     url = f"https://www.virustotal.com/api/v3/domains/{domain}/subdomains?limit=10"
     try:
         req = urllib.request.Request(
