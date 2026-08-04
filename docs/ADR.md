@@ -3265,11 +3265,14 @@ Extend Phase 0 (Passive Recon) with two high-value, low-noise OSINT sources:
 3. **Real-time Threat Intelligence:** To execute 1-days effectively, the agent's `IntelligenceBase` must integrate or query real-time vulnerability databases (NVD/CVE/VulnCheck/ExploitDB) to map detected tech stack versions to known exploits.
 4. **ToolComposer Constraint:** The ExploitSynthesizer (Gamma) does not invent exploits from scratch. It takes a known CVE PoC or template and *adapts* it to the target's specific context (adjusting payload encoding, evading WAF signatures).
 
-### 12.56 Passive Supply Chain Recon (DEFERRED)
+### 12.56 Passive Supply Chain Recon & Assume Breach (ACCEPTED)
 
 **Date:** 2026-08-05
 **Context:** APTs like Cozy Bear frequently use supply chain attacks (compromising 3rd-party vendors) rather than attacking hardened targets directly.
 **Decisions:**
-1. **No Active 3rd-Party Attacks:** Agent-Alpha is strictly forbidden from attacking or brute-forcing 3rd-party vendors, SaaS providers, or open-source maintainers. Such actions fall outside any commercial Statement of Work (SOW) and are illegal.
-2. **Passive Dependency OSINT (Deferred):** Identifying neglected 3rd-party assets on the target (e.g., Subdomain Takeovers, hijacked CDNs like `polyfill.io`, or vulnerable JS dependencies) is ethical and highly effective. However, it is **DEFERRED** to future slices (Phase E) until core evasion (curl_cffi) and primary perimeter recon are stabilized.
+Agent-Alpha is strictly forbidden from actively hacking 3rd-party vendors, as this is illegal and outside commercial SOWs. However, Agent-Alpha MUST simulate supply chain threats ethically through three approved vectors (to be built in future Phase 0 slices):
+1. **Passive Dependency & Asset Hijacking:** Detect client negligence in managing vendor assets. This includes *Subdomain Takeovers* (e.g., forgotten Zendesk CNAMEs) and *Poisoned CDNs* (detecting HTML/JS loading deprecated/compromised 3rd-party scripts like `polyfill.io`).
+2. **Dependency OSINT (Software Composition Analysis):** Parse exposed `package.json`, `pom.xml`, or HTTP headers to identify vulnerable 3rd-party libraries (e.g., outdated jQuery or Log4j) without touching the vendor's servers.
+3. **Assume Breach Mode (Future Phase):** For internal or authorized scenarios, Agent-Alpha will support starting from an artificially compromised state (low-level credentials) to simulate a vendor breach and attempt lateral movement/privilege escalation.
+**Constraint:** These vectors are officially part of the Phase 0 (Recon) and Epsilon (Lateral) doctrines, but their code implementation is queued *after* the core foundation (Slices 1-6) is complete.
 
