@@ -82,10 +82,10 @@ def is_tls_impersonate_available() -> bool:
 def tls_impersonate_fetch(
     url: str,
     *,
-    impersonate: str = "chrome",
+    impersonate: str = "chrome131",
     verify_tls: bool = True,
 ) -> OriginDirectResult:
-    """Front-door fetch with a real browser TLS/JA3 fingerprint (curl_cffi)
+    """Front-door fetch with a real browser TLS/JA4 fingerprint (curl_cffi)
     so a CF/WAF FINGERPRINT block (403/503) is bypassed WITHOUT the origin
     IP and WITHOUT a browser — datacenter-viable (unlike browser_solve).
     Reuses OriginDirectResult (anti-#6).

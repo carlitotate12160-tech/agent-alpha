@@ -37,7 +37,7 @@ class ReachStrategy(enum.StrEnum):
     DIRECT = "direct"  # normal front-door
     EVASION = "evasion"  # transport_resilience (9a/9b/9c) — residential only
     ORIGIN_DIRECT = "origin_direct"  # scoping: hit authorized origin, bypass CDN
-    TLS_IMPERSONATE = "tls_impersonate"  # curl_cffi front-door with browser JA3
+    TLS_IMPERSONATE = "tls_impersonate"  # curl_cffi front-door with browser JA4
 
 
 def choose_reach(
