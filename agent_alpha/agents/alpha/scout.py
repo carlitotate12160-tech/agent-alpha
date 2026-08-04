@@ -243,7 +243,9 @@ class Alpha:
         # capability_probe.py patch.
         for path in self._planner.select_leak_paths(labels=[]):
             self.enqueue_discovered_url(f"{root}{path}")
-        for path in getattr(constants, "SURFACE_DISCOVERY_PATHS", ()):  # unchanged: universal, cheap (ADR §12.26)
+        for path in getattr(
+            constants, "SURFACE_DISCOVERY_PATHS", ()
+        ):  # unchanged: universal, cheap (ADR §12.26)
             self.enqueue_discovered_url(f"{root}{path}")
 
         # ── Drive through the cognitive loop ────────────────────
