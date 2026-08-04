@@ -72,8 +72,8 @@ class TestTlsImpersonateFetchVerify:
         assert captured["kwargs"]["verify"] is True
         # timeout from constants — anti-#7 single source
         assert captured["kwargs"]["timeout"] == constants.REACH_TIMEOUT_S
-        # impersonate default
-        assert captured["kwargs"]["impersonate"] == "chrome"
+        # impersonate default — chrome131 for JA4+HTTP2 fingerprint
+        assert captured["kwargs"]["impersonate"] == "chrome131"
 
         # Result shape
         assert isinstance(result, OriginDirectResult)

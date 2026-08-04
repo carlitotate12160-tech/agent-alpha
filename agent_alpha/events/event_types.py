@@ -115,7 +115,7 @@ class EventType(enum.StrEnum):
     # ── Phase 2.5 (TLS-impersonation reach — §12.33) ─────────────────
     TLS_IMPERSONATE_ATTEMPT = "TlsImpersonateAttempt"
     # ^ A TLS-impersonation fetch was attempted: agent re-fetched the front-door
-    # URL with a real browser TLS/JA3 fingerprint (curl_cffi) to bypass a
+    # URL with a real browser TLS/JA4 fingerprint (curl_cffi, chrome131) to bypass a
     # WAF fingerprint block (403/503). Audit-sensitive because it actively
     # evades a WAF control — requires signed allow_evasion consent (§12.36).
     # Carries {host, technique, authorized}.
