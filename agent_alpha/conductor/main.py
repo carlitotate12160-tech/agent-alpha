@@ -120,9 +120,30 @@ def _is_cloudflare_ip(ip_str: str) -> bool:
         return False
 
 
+def _validate_domain(domain: str) -> str:
+    """Sanitize domain for safe URL interpolation — reject IPs, path traversal, special chars."""
+    domain = domain.strip().lower().rstrip(".")
+    if not domain or len(domain) > 253:
+        raise ValueError("invalid domain length")
+    if "/" in domain or "\\" in domain or "?" in domain or "#" in domain:
+        raise ValueError("invalid characters in domain")
+    if any(c.isspace() for c in domain):
+        raise ValueError("whitespace in domain")
+    try:
+        ipaddress.ip_address(domain)
+        raise ValueError("domain must not be an IP address")
+    except ValueError:
+        pass  # not an IP — good
+    return domain
+
+
 def _crtsh_subdomains(domain: str) -> list[str]:
     """Query CT logs for subdomain names of *domain* via crt.sh + hackertarget fallback."""
     names: set[str] = set()
+    try:
+        domain = _validate_domain(domain)
+    except ValueError:
+        return []
 
     # Primary: crt.sh JSON API
     url = f"https://crt.sh/?q=%25.{domain}&output=json"
@@ -158,6 +179,10 @@ def _crtsh_subdomains(domain: str) -> list[str]:
 def _alienvault_otx_subdomains(domain: str) -> list[str]:
     """Query AlienVault OTX (free, no API key) for passive subdomain DNS."""
     names: set[str] = set()
+    try:
+        domain = _validate_domain(domain)
+    except ValueError:
+        return []
     url = f"https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Agent-Alpha/0.1"})
@@ -176,6 +201,11 @@ def _virustotal_subdomains(domain: str) -> list[str]:
     """Query VirusTotal v3 subdomains API (requires VIRUSTOTAL_API_KEY)."""
     api_key = os.environ.get("VIRUSTOTAL_API_KEY", "")
     if not api_key:
+        return []
+
+    try:
+        domain = _validate_domain(domain)
+    except ValueError:
         return []
 
     names: set[str] = set()
