@@ -2858,3 +2858,72 @@ later. The LINE: relax friction, NEVER the two safety proofs (P1 for intrusive a
 every origin hit). A single wrong-target / collateral incident destroys the reputation faster than
 any friction — and the proofs are cheap (P2 automatic, P1 once-per-domain), so they PROTECT the name,
 they don't slow it.
+
+### 12.47 Recon-phase tool unification — Tool/ToolRegistry as the SINGLE home for stack-specific capability — PROPOSED (lock on confirm)
+
+**Extends** §12.16 (Template/Tool contracts), §12.22 (tool strategy: wrap commodity, build the moat,
+gate the dangerous), §12.26 (DETECT=recon / ACT=Gamma). Does NOT re-decide the `Tool`/`Template`
+shapes themselves (§12.16 locked those); it decides WHERE new stack-specific recon capability is
+allowed to live going forward, and freezes growth of the pattern that produced the gap below.
+
+**Context / gap (measured, not estimated).** `agent_alpha/agents/alpha/scout.py`'s WordPress
+"recon-depth battery" (fingerprint-keyed handlers: REST-route escalation, WooCommerce, version
+disclosure, plugin danger-list, dedicated credential maps, WP-specific crawl-budget gating) spans
+**551 of the file's 2084 lines (~26%)**. 5 of the 9 `CapabilitySpec` entries in `capability_probe.py`
+are WP-labeled. By contrast: Laravel has exactly ONE handler (`_handle_laravel_debug`, a single
+`APP_DEBUG` leak check) and no `CapabilitySpec` of its own; Spring/Tomcat has only Actuator
+disclosure; every other stack (Node, .NET, generic PHP, …) gets universal git/env checks only. Odoo
+is the one exception with its own dedicated module (`odoo_dbmanager_probe.py`, Phase 4) — smaller
+than WP's battery but at least separated from `scout.py`'s dispatch registry.
+
+**Root cause.** WP was Phase 3's field-proving reference target (project-status: "WP + JS-secret
+recon vectors field-proven"). Its battery grew organically through `Alpha._dispatch_registry` — a
+hardcoded `dict[str, handler_method]` in `scout.py`. That pattern does not scale: every new stack
+means another hand-written ~500-line section with the same shape. Left alone this is a slow-motion
+version of Lyndon #8 (god object), distributed across handler methods instead of one function.
+
+**What already exists and was never finished.** `tools/contracts.py` (§12.16) already defines the
+right shape: `Tool.phase: str  # recon | access | exploit | post | lateral` and
+`Tool.applies_to(ctx) -> float` (relevance-scored selection, not an if-ladder — K11), ranked by the
+already-built `ToolRegistry.ranked`. Today `ToolRegistry` is wired ONLY for access-phase capability
+(`tools/internal/access/*` — Odoo access, default creds, cred-reuse). The one recon-adjacent seam,
+`tools/templates/cms/laravel_finding.py`, is a `Template` (narrower: `build()`/`verify()` only, no
+`phase`/`applies_to`/`run`) whose body deliberately `raise NotImplementedError` — a RED skeleton
+never picked back up. WP was never ported to either shape. The two systems have not converged.
+
+**Decision.**
+
+1. **`Tool` (phase="recon") is the ONLY sanctioned home for new stack-specific recon capability,
+   effective immediately.** No new entries are added to `Alpha._dispatch_registry` /
+   `CAPABILITY_CATALOG` for a stack that isn't already there. A new stack (Laravel-complete, Spring,
+   Node, .NET, …) is added as a `Tool` implementation registered in `ToolRegistry`, ranked by
+   `applies_to(ctx)` against `TargetContext.tech_stack` — the same mechanism access-phase tools
+   already use, not a second parallel pattern (anti-#6).
+2. **`Alpha.run_recon` gains a second dispatch path, additive.** It keeps calling its existing
+   `_dispatch_registry` for everything already wired (WP, Odoo, Tomcat, git/backup/js-secret/
+   db-service probes — untouched, not a rewrite) AND separately calls
+   `ToolRegistry.ranked(ctx)` filtered to `phase="recon"` for anything registered there. Two
+   sources feeding the same frontier queue / graph, not two competing engines.
+3. **Existing scout.py batteries are frozen, not ripped out.** WP's 551 lines keep running exactly
+   as-is. Migrating it into a `Tool` is a SEPARATE future decision (a real behavior-preserving
+   refactor, its own slice) — not authorized by this entry. This entry only stops the gap from
+   growing wider today.
+4. **Recon-phase `Tool`s inherit the same non-negotiables as everything else Alpha does**
+   (§12.26): DETECT only, read-only, never mutate, never mint a finding without a proof artifact
+   (`ToolResult.__post_init__` already enforces this structurally — anti-#3). A `Tool` with
+   `phase="recon"` that reaches into access/exploit behavior is a contract violation, not a
+   recon capability.
+
+**Phase discipline (build order — NOT part of this lock).** This entry decides the MECHANISM, not
+which stack gets built next or whether/when WP migrates. Per §12.44's own precedent: do not build
+speculatively. The next slice (Laravel-as-first-real-Tool, or WP-migration-as-reference-Tool) is a
+separate decision, made when there is a real driving need (anti-#1/#5) — tracked as an open
+follow-up to this entry, not decided here.
+
+**Anti-Lyndon.** #1/#5: this locks the model, not a build-it-all-now plan — no stack gets built
+speculatively off this entry alone. #6: ONE canonical way to add stack-specific recon capability
+going forward, not two (`_dispatch_registry` growth is frozen, `Tool`/`ToolRegistry` is canonical).
+#7: `applies_to`/tech_stack matching stays single-source in `TargetContext`/`ToolRegistry` — this
+does not fork a second relevance-scoring scheme alongside `capability_probe.py`'s label matching.
+#8: this is the direct fix for scout.py's slow drift toward a god object — growth stops here, it
+does not get undone in one shot.

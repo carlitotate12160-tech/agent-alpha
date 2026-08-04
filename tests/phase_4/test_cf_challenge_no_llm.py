@@ -19,6 +19,7 @@ import pathlib
 from typing import Any
 
 from agent_alpha.agents.alpha.scout import Alpha
+from agent_alpha.agents.planner import Planner
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
@@ -36,11 +37,11 @@ _HOST = "target.example"
 _SEED = f"https://{_HOST}/"
 _CF_HEADERS = {"Server": "cloudflare", "CF-Ray": "0000000000000000-TEST"}
 
-# Expected URL set: seed + well-known leak paths + surface discovery paths.
+# Expected URL set: seed + stack-gated leak paths + surface discovery paths.
 # These are seeded by run_recon() itself, NOT by frontier expansion.
 _ROOT = _SEED.rstrip("/")
 _EXPECTED_SEeded_URLS: set[str] = {_SEED}
-for _p in getattr(constants, "WELL_KNOWN_LEAK_PATHS", ()):
+for _p in Planner().select_leak_paths(labels=[]):
     _EXPECTED_SEeded_URLS.add(f"{_ROOT}{_p}")
 for _p in getattr(constants, "SURFACE_DISCOVERY_PATHS", ()):
     _EXPECTED_SEeded_URLS.add(f"{_ROOT}{_p}")

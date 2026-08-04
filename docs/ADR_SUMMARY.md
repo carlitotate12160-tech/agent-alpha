@@ -191,3 +191,14 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   token at well-known HTTP path, no separate marker, cert-SAN corroborating only; (3) candidate
   budget = 3 probes/host, backoff 5s→15s→60s with ±20% jitter via LockoutGovernor. Staging:
   user-facing friction low early, NEVER relax safety proofs (P1 for intrusive, P2 for every origin).
+- **12.47** Recon-phase tool unification (PROPOSED): `Tool` (phase="recon") is the ONLY sanctioned
+  home for new stack-specific recon capability — no new entries to `Alpha._dispatch_registry` /
+  `CAPABILITY_CATALOG` for stacks not already there. New stacks (Laravel-complete, Spring, Node,
+  .NET, …) added as `Tool` implementations in `ToolRegistry`, ranked by `applies_to(ctx)` against
+  `TargetContext.tech_stack` — same mechanism access-phase tools already use (anti-#6). `run_recon`
+  gains an ADDITIVE second dispatch path: existing `_dispatch_registry` (WP/Odoo/Tomcat/git/backup/
+  js-secret — frozen, not rewritten) PLUS `ToolRegistry.ranked(ctx)` filtered `phase="recon"`.
+  Existing WP battery (551 lines, ~26% of scout.py) frozen as-is; migration = separate future
+  decision. Recon `Tool`s = DETECT only, read-only, proof artifact mandatory (§12.26). Closes
+  scout.py slow drift toward god object (anti-#8). Build slice-by-slice on real need, not up front
+  (anti-#1/#5).
