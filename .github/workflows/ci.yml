@@ -129,7 +129,7 @@ jobs:
               json.dump(sarif, f)
           print(f"Converted {len(results)} Bandit findings to SARIF")
           PYEOF
-          if [ -n "$BANDIT_FAIL" ]; then
+          if [ "$BANDIT_FAIL" -ne 0 ]; then
             echo "::error::Bandit found security issues (exit code $BANDIT_FAIL)"
             exit 1
           fi
