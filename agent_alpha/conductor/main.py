@@ -233,8 +233,111 @@ def _virustotal_subdomains(domain: str) -> list[str]:
     return sorted(names)
 
 
+def _rapiddns_subdomains(domain: str) -> list[str]:
+    """Query RapidDNS.io for subdomains (free, no API key)."""
+    names: set[str] = set()
+    try:
+        domain = _validate_domain(domain)
+    except ValueError:
+        return []
+    # codeql[py/partial-ssrf] — domain validated by _validate_domain above
+    url = f"https://rapiddns.io/subdomain/{domain}?full=1"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to RapidDNS
+            html = resp.read().decode(errors="replace")
+        import re
+        for match in re.finditer(r"[a-zA-Z0-9._-]+\." + re.escape(domain), html):
+            host = match.group(0).strip().lower()
+            if host.endswith(domain):
+                names.add(host)
+    except Exception:
+        pass  # RapidDNS is best-effort
+    return sorted(names)
+
+
+def _dnsdumpster_subdomains(domain: str) -> list[str]:
+    """Query DNSDumpster API for subdomains (free tier, requires DNSDUMPSTER_API_KEY)."""
+    api_key = os.environ.get("DNSDUMPSTER_API_KEY", "")
+    if not api_key:
+        return []
+
+    try:
+        domain = _validate_domain(domain)
+    except ValueError:
+        return []
+
+    names: set[str] = set()
+    # codeql[py/partial-ssrf] — domain validated by _validate_domain above
+    url = f"https://api.dnsdumpster.com/domain/{domain}"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "X-API-Key": api_key,
+                "User-Agent": "Mozilla/5.0",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to DNSDumpster
+            data = json.loads(resp.read())
+        for record in data.get("a", []):
+            host = str(record.get("host", "")).strip().lower()
+            if host and host.endswith(domain):
+                names.add(host)
+    except Exception:
+        pass  # DNSDumpster is best-effort
+    return sorted(names)
+
+
+def _spf_record_ips(domain: str) -> list[str]:
+    """Extract IP addresses from SPF TXT records (free, no API key).
+
+    Parses ``v=spf1`` TXT records for ``ip4:`` and ``ip6:`` mechanisms.
+    These IPs are mail/infrastructure servers that may also serve web content
+    (common for small/medium hosting setups).
+    """
+    ips: list[str] = []
+    try:
+        domain = _validate_domain(domain)
+    except ValueError:
+        return ips
+
+    try:
+        import dns.resolver
+        resolver = dns.resolver.Resolver()
+        resolver.timeout = 5
+        resolver.lifetime = 10
+        txt_records = resolver.resolve(domain, "TXT")
+        for txt in txt_records:
+            txt_str = str(txt).strip('"')
+            if not txt_str.startswith("v=spf1"):
+                continue
+            # Extract ip4: and ip6: mechanisms
+            import re
+            for match in re.finditer(r"ip4:([0-9.]+)", txt_str):
+                ip = match.group(1)
+                try:
+                    parsed = ipaddress.ip_address(ip)
+                    if parsed.is_global and not _is_cloudflare_ip(ip):
+                        ips.append(ip)
+                except ValueError:
+                    continue
+            for match in re.finditer(r"ip6:([0-9a-fA-F:]+)", txt_str):
+                ip = match.group(1)
+                try:
+                    parsed = ipaddress.ip_address(ip)
+                    if parsed.is_global and not _is_cloudflare_ip(ip):
+                        ips.append(ip)
+                except ValueError:
+                    continue
+    except Exception:
+        pass  # SPF extraction is best-effort
+    return ips
+
+
 def _discover_subdomains(domain: str) -> list[str]:
-    """Multi-source subdomain discovery: crt.sh, hackertarget, OTX, VirusTotal."""
+    """Multi-source subdomain discovery: crt.sh, hackertarget, OTX, VirusTotal,
+    RapidDNS, DNSDumpster."""
     all_names: set[str] = set()
 
     # Source 1+2: crt.sh + hackertarget
@@ -252,6 +355,18 @@ def _discover_subdomains(domain: str) -> list[str]:
         _log.info("VirusTotal found %d subdomains for %s", len(vt_names), sanitize_for_log(domain))
     all_names.update(vt_names)
 
+    # Source 5: RapidDNS (free, no API key)
+    rd_names = _rapiddns_subdomains(domain)
+    if rd_names:
+        _log.info("RapidDNS found %d subdomains for %s", len(rd_names), sanitize_for_log(domain))
+    all_names.update(rd_names)
+
+    # Source 6: DNSDumpster (free tier, requires API key)
+    dd_names = _dnsdumpster_subdomains(domain)
+    if dd_names:
+        _log.info("DNSDumpster found %d subdomains for %s", len(dd_names), sanitize_for_log(domain))
+    all_names.update(dd_names)
+
     return sorted(all_names)
 
 
@@ -260,11 +375,12 @@ def _resolve_origin_ips(domains: list[str]) -> list[str]:
 
     Strategy:
     1. Resolve DNS A records for the domain itself (cooperative/non-CF targets).
-    2. Multi-source subdomain discovery: crt.sh, hackertarget, AlienVault OTX,
-       Censys (if API key), VirusTotal (if API key).
-    3. Resolve each subdomain's DNS A records.
-    4. Filter out Cloudflare edge IPs and private/loopback IPs.
-    5. Return unique, globally routable origin IPs.
+    2. SPF record IP extraction (free, no API key).
+    3. Multi-source subdomain discovery: crt.sh, hackertarget, AlienVault OTX,
+       VirusTotal, RapidDNS, DNSDumpster.
+    4. Resolve each subdomain's DNS A records.
+    5. Filter out Cloudflare edge IPs and private/loopback IPs.
+    6. Return unique, globally routable origin IPs.
 
     Used to auto-populate authorized_origins so origin-direct reach can fire
     without manual IP entry (Strix-like UX).
@@ -286,7 +402,13 @@ def _resolve_origin_ips(domains: list[str]) -> list[str]:
         except socket.gaierror:
             _log.warning("DNS resolution failed for %s — skipping", sanitize_for_log(domain))
 
-        # 2. Multi-source subdomain discovery
+        # 2. SPF record IP extraction (free, no API key)
+        spf_ips = _spf_record_ips(domain)
+        if spf_ips:
+            _log.info("SPF records revealed %d IPs for %s", len(spf_ips), sanitize_for_log(domain))
+        ips.extend(spf_ips)
+
+        # 3. Multi-source subdomain discovery
         subdomains = _discover_subdomains(domain)
         if subdomains:
             _log.info("Discovered %d subdomains for %s", len(subdomains), sanitize_for_log(domain))
