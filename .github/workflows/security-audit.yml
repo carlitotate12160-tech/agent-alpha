@@ -102,14 +102,14 @@ jobs:
 
       - name: Upload Trivy SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy-pgvector
 
       - name: Upload Trivy Redis SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: trivy-redis.sarif
           category: trivy-redis
@@ -205,7 +205,7 @@ jobs:
 
       - name: Upload Nuclei SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: nuclei-results.sarif
           category: nuclei-dast

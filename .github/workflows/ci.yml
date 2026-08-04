@@ -93,12 +93,17 @@ jobs:
         # config — legitimate patterns in offensive tooling: assert in guards,
         # try/except/pass in cleanup, try/except/continue in brute-force loops).
         # Output JSON then convert to SARIF (bandit has no native sarif format).
+        # Always generate SARIF (even on bandit failure) so the upload step succeeds.
         run: |
+          BANDIT_FAIL=0
           .venv/bin/bandit -r agent_alpha/ -l -ii -c .bandit -f json -o bandit-results.json || BANDIT_FAIL=$?
           python3 - <<'PYEOF'
           import json
-          with open("bandit-results.json") as f:
-              data = json.load(f)
+          try:
+              with open("bandit-results.json") as f:
+                  data = json.load(f)
+          except (FileNotFoundError, json.JSONDecodeError):
+              data = {"results": []}
           sev_map = {"HIGH": "error", "MEDIUM": "warning", "LOW": "note"}
           results = []
           for r in data.get("results", []):
@@ -131,7 +136,7 @@ jobs:
 
       - name: Upload Bandit SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: bandit-results.sarif
           category: bandit-sast

@@ -247,6 +247,7 @@ def _rapiddns_subdomains(domain: str) -> list[str]:
         with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 — hardcoded HTTPS URL to RapidDNS
             html = resp.read().decode(errors="replace")
         import re
+
         for match in re.finditer(r"[a-zA-Z0-9._-]+\." + re.escape(domain), html):
             host = match.group(0).strip().lower()
             if host.endswith(domain):
@@ -304,6 +305,7 @@ def _spf_record_ips(domain: str) -> list[str]:
 
     try:
         import dns.resolver
+
         resolver = dns.resolver.Resolver()
         resolver.timeout = 5
         resolver.lifetime = 10
@@ -314,6 +316,7 @@ def _spf_record_ips(domain: str) -> list[str]:
                 continue
             # Extract ip4: and ip6: mechanisms
             import re
+
             for match in re.finditer(r"ip4:([0-9.]+)", txt_str):
                 ip = match.group(1)
                 try:
