@@ -86,7 +86,7 @@ def test_field_prove_routes_through_run_recon() -> None:
     store = InMemoryEventStore()
     http = FakeHttpClient(
         {
-            _ROOT: FakeResponse(200, "<html>root</html>"),
+            _ROOT: FakeResponse(200, "<html>root</html>", {"Server": "Apache-Coyote/1.1"}),
             _ENV_URL: FakeResponse(200, _ENV_BODY),
         }
     )
