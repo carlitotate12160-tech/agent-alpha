@@ -39,7 +39,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 23 | Beta next_recommended always GAMMA even on FAILED | **RESOLVED** | Low | Advance logic receives GAMMA but status=FAILED → noop |
 | 24 | response_classifier `challenge-platform` false positive on CF-proxied sites | High | Low | All CF-proxied sites misclassified as CHALLENGE | **FIXED** |
 | 25 | DefaultCredsTool ignores harvested USER nodes — only tries hardcoded creds | **RESOLVED** | Medium | Beta can't spray discovered usernames |
-| 26 | Generic blind probing causes excessive 404s → WAF/CF block | **High** | Medium | Agent blocked before finding anything |
+| 26 | Generic blind probing causes excessive 404s → WAF/CF block | **High** | Medium | Agent blocked before finding anything | **IN PROGRESS (Phase 4 Recon/Evasion Overhaul, Slices 1-6)** |
 
 ## Recommended Fix Order
 

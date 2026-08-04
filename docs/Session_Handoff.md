@@ -2,11 +2,7 @@
 
 # Agent-Alpha — Session Handoff (2026-08-02)
 
-Resume with: "lanjut Agent-Alpha — MILESTONE: proven cred-reuse chain on a self-owned real-world
-target (alpha-ai full-CF). Origin-exposure bypass → wp-config.php.bak leak → DB password → reused on
-Odoo XML-RPC → uid=2 = PROVEN admin (SELF_VERIFIED). NEXT = (1) merge PR #331 with CodeRabbit
-revisions, (2) CROSS_VERIFIED via run_verification_pass + CredReuseAttestor on the chain, (3) dedup
-backup_file_leak vs wp_config_leak. Do NOT build Gamma. One slice at a time."
+Resume with: "lanjut Agent-Alpha — MILESTONE: Phase 4 Recon & Evasion Overhaul. We have locked the architecture for Passive-First Recon (§12.48) and Proactive Evasion (§12.49) in ADR.md. NEXT = Execute Implementation Plan Slice 1 to 6 (PassiveIntelMap, crt.sh, Stealth Default, StealthPacer, Deep Evasion, and Deep Recon). Do NOT build Gamma. Execute one slice at a time and verify against WAF."
 
 ---
 
@@ -142,12 +138,11 @@ it feeds a VERIFIED CHAIN.
 
 ### Phasing (do NOT parallelize; findings drive order)
 
-- **Now / next:** finish PR #331; CROSS_VERIFIED on the proven chain; post-access re-recon on
-  alpha-ai (we are already admin — cheapest depth win). These extend a PROVEN base.
+- **Now / next:** Execute Phase 4 Recon & Evasion Overhaul (Slices 1 to 6). Build `PassiveIntelMap`, integrate `curl_cffi` as stealth default, implement `StealthPacer`, and integrate Deep Recon (Wayback, Dehashed). This solves Bug #26 (Generic blind probing blocked by WAF).
 - **Soon:** IntelligenceBase (frustration #3) once findings accumulate across ≥3 engagements; Omega
   narrative (frustration #4) since we now have real chains to narrate.
 - **Later (Gamma-gated):** prove-RCE exploitation, business-logic outcome-oracle, ToolComposer +
-  blast-radius gate. STOP-gated until reach + initial-access proof is solid across real targets.
+  blast-radius gate. STOP-gated until Phase 4 (Recon + Reach) is fully stabilized and fielded. (Remember §12.55: we are a 1-day weaponizer, not a 0-day hunter).
 
 Litmus for every depth build: does it PROVE / CHAIN / LEARN, or is it another surface detector?
 Surface detector → skip (Strix-parity FP). Prove/chain/learn → moat.

@@ -61,6 +61,12 @@ Target market: authorized red team SaaS, Indonesia/SE Asia.
 9. Windows test results accepted as valid
 10. Tambah sulam — fix cascades without interface redesign
 
+### Core Phase 4 Doctrines (Added Aug 2026):
+1. **Passive-First Recon (§12.48):** Zero touch before OSINT complete (crt.sh, VirusTotal, Wayback, Dehashed).
+2. **Proactive Evasion (§12.49):** Stealth by default from the 1st request (`curl_cffi`, Header ordering, Pacing).
+3. **1-Day Weaponizer (§12.55):** Agent-Alpha is NOT a 0-day hunter. It strictly weaponizes 1-days and misconfigs. Never hallucinate 0-day exploits.
+4. **ToolRegistry Enforcement (§12.47):** Prevent god objects. New recon modules must be distinct `Tool` implementations, not appended to `scout.py`.
+
 ---
 
 ## How to Respond
