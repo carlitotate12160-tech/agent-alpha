@@ -2927,3 +2927,341 @@ going forward, not two (`_dispatch_registry` growth is frozen, `Tool`/`ToolRegis
 does not fork a second relevance-scoring scheme alongside `capability_probe.py`'s label matching.
 #8: this is the direct fix for scout.py's slow drift toward a god object — growth stops here, it
 does not get undone in one shot.
+
+### 12.48 Passive-First Recon Doctrine — OSINT-before-touch as mandatory Phase 0 — ACCEPTED (2026-08-04)
+
+**Extends** §12.25 (well-known paths), §12.26 (recon vector strategy), §12.42 (vantage = external),
+§12.44 (evasion technique catalog), §12.46 (origin-binding). **Supersedes** the implicit
+"probe-first" assumption throughout the existing recon flow.
+
+**Problem (field-observed, not theoretical).** Agent Alpha is deployed on Oracle Cloud ARM64
+(datacenter IP, §2). Every HTTP request from this vantage carries an ASN reputation that
+WAF/CDN providers (Cloudflare, Akamai, Sucuri, Imperva) score as high-risk by default.
+The current `run_recon` flow immediately fires active HTTP probes — `WELL_KNOWN_LEAK_PATHS`,
+`SURFACE_DISCOVERY_PATHS`, capability fingerprint seeds — before gathering ANY intelligence
+about the target. Even at 2 rps (`DEFAULT_RATE_LIMIT_RPS`), this produces a burst of 15–30
+requests to distinct paths from a datacenter IP with a Python TLS fingerprint and
+`Agent-Alpha-Recon/{id}` User-Agent. Result: WAF blocks the agent within the first few seconds
+(403/503), and the engagement produces zero usable findings. This has been reproduced on multiple
+real SOW-authorized client targets.
+
+**Root cause.** The agent lacks INTELLIGENCE before first touch. A professional red team operator
+(or APT) NEVER touches a target blind — they build a complete surface map from passive sources
+first. Agent Alpha currently behaves like a vulnerability scanner, not an intelligent agent.
+
+**Decision.**
+
+1. **Mandatory Phase 0: Passive Intelligence Gathering (zero target contact).**
+   `Alpha.run_recon()` gains a new first stage BEFORE the cognitive loop and BEFORE any HTTP
+   request to the target. This stage queries external OSINT sources to build a `PassiveIntelMap`
+   (surface map + tech stack hints + protection posture + origin IP candidates). NO HTTP request
+   to ANY in-scope target is made during Phase 0.
+
+2. **OSINT sources (tiered, graceful degradation).**
+   Three OSINT sources integrated in build order:
+
+   | Source | Data Provided | API Key Required | Tier |
+   |--------|---------------|------------------|------|
+   | **crt.sh** | Subdomain map via Certificate Transparency logs | No | 1 (mandatory) |
+   | **VirusTotal** | Historical DNS, passive DNS, subdomain list, URL scan history | Yes | 2 (recommended) |
+   | **DNSDumpster / HackerTarget** | Passive DNS map, MX/TXT records, reverse DNS | No (free tier) | 2 (recommended) |
+
+   Module: `recon/passive_intel.py` — single orchestrator that calls each source, merges results
+   into a unified `PassiveIntelMap`. Each source is a separate function, independently testable.
+   Missing API keys → source silently skipped (graceful degradation, not failure). crt.sh reuses
+   the existing `passive_discovery.py` parser (§ existing code, anti-#6).
+
+3. **Intel-driven active recon (Phase 1 replaces blind probing).**
+   After Phase 0 completes, `run_recon` uses the `PassiveIntelMap` to:
+   - **Prioritize targets**: subdomain without CF proxy > origin IP > CF-fronted domain.
+   - **Select relevant paths**: only probe paths matching the tech stack HINTED by passive intel
+     (e.g., only probe WP paths if VirusTotal or crt.sh subdomains suggest WordPress).
+   - **Route reach strategy**: if passive intel reveals origin IP candidates, route via
+     origin-direct (§12.33/§12.46) BEFORE attempting the CF front-door.
+   - **Detect protection posture**: if passive DNS shows CF nameservers, agent KNOWS WAF is present
+     and applies evasion from the FIRST request (see §12.49).
+
+4. **`PassiveIntelMap` shape (data contract).**
+
+   ```python
+   @dataclass(frozen=True)
+   class PassiveIntelMap:
+       domain: str
+       subdomains: tuple[str, ...]           # All discovered subdomains
+       in_scope_subdomains: tuple[str, ...]   # Filtered through is_in_scope
+       origin_ip_candidates: tuple[str, ...]  # Potential origin IPs (from DNS history)
+       mx_records: tuple[str, ...]            # Mail servers (can reveal origin)
+       txt_records: tuple[str, ...]           # SPF/DKIM/DMARC records
+       tech_stack_hints: tuple[str, ...]      # Technology hints from passive sources
+       protection_detected: str | None        # "cloudflare" | "akamai" | "sucuri" | None
+       nameservers: tuple[str, ...]           # NS records (CF NS = CF-proxied)
+       historical_paths: tuple[str, ...]      # From Wayback/VT URL scans
+   ```
+
+5. **API key management (hybrid model).**
+   API keys stored in `.env` (system-level, same pattern as existing secrets).
+   Per-engagement toggle in `EngagementProfile` (§12.36) determines which sources are
+   ENABLED for a given engagement (default: all available sources ON). Keys = infrastructure,
+   config = per-engagement. New `.env` entries: `VIRUSTOTAL_API_KEY`, `HACKERTARGET_API_KEY`.
+
+6. **Existing §12.25 (well-known paths) amendment.**
+   `WELL_KNOWN_LEAK_PATHS` seeding is now GATED by Phase 0 output. When passive intel provides
+   tech stack hints, only stack-relevant paths are seeded (reuses `Planner.select_leak_paths(labels)`
+   with labels from `PassiveIntelMap.tech_stack_hints`). When no hints available (all OSINT
+   sources failed/empty), falls back to current behavior (universal + DEFAULT_LEAK_PATHS) —
+   no regression on air-gapped or OSINT-unreachable targets.
+
+7. **Exhaustive surface strategy (§12.42 amendment).**
+   The agent must NOT give up after front-door blocking. After Phase 0 passive intel:
+   - Priority 1: Origin IP direct (if found from passive intel)
+   - Priority 2: Subdomains without CF/WAF protection
+   - Priority 3: MX/Mail server infrastructure (often reveals origin)
+   - Priority 4: TLS impersonation to front-door (curl_cffi, §12.33)
+   - Priority 5: Non-HTTP services discovered via passive intel (deferred to §8g)
+   - Priority 6: Associated domains / related infrastructure
+   - LAST RESORT: report honest result + suggest client whitelist agent IP in WAF
+   Only after ALL viable paths are attempted does the agent report "target unreachable from
+   datacenter vantage" — and even then, the passive intel surface map IS a deliverable.
+
+8. **Client whitelist fallback.**
+   When ALL reach strategies fail from datacenter vantage, the agent MAY include in its handoff
+   payload a structured recommendation for the client to whitelist the agent's egress IP(s) in
+   their WAF. This is standard pentest practice. The recommendation is informational only — never
+   automated, never presumptuous. Format: `ReachRecommendation` in the handoff message.
+
+**Event-sourced**: `PASSIVE_INTEL_GATHERED` event type with the full `PassiveIntelMap` payload,
+appended BEFORE any active recon event.
+
+**Anti-Lyndon.** #1/#5: build slice-by-slice (crt.sh first since parser exists, VT second,
+DNSDumpster third) — not all-at-once. #3: if all OSINT sources fail, fall back to existing
+behavior — never silently produce zero intel. #6: crt.sh parser reused from existing
+`passive_discovery.py`, not re-implemented. #7: `PassiveIntelMap` is the single shape consumed
+by all downstream logic (active recon, reach strategy, planner). #11: Phase 0 output DRIVES
+Phase 1 target selection — not a static/linear step list (§12.0 compliance).
+
+### 12.49 Proactive Evasion Posture — evasion-by-default, not evasion-after-block — ACCEPTED (2026-08-04)
+
+**Extends** §12.33 (adaptive evasion), §12.44 (evasion technique catalog), §12.48 (passive-first).
+**Supersedes** the reactive evasion trigger in `transport_resilience.py`'s `EvasionPlanner` which
+only proposes evasion AFTER N consecutive BLOCKED verdicts.
+
+**Problem.** The current evasion model is REACTIVE: Agent sends a request with Python's default
+TLS fingerprint and `Agent-Alpha-Recon/{id}` User-Agent → WAF blocks it → `classify_mitigation()`
+identifies the block class → `EvasionPlanner.evaluate()` proposes a technique → agent retries
+with evasion. This is fundamentally broken for datacenter deployment because:
+
+1. **First-request blocking.** CF/Akamai/Sucuri can block on the FIRST request based on IP
+   reputation (ASN) + TLS fingerprint (JA3/JA4). There is no "N consecutive blocks" — block is
+   immediate. The existing `EVASION_CONSECUTIVE_BLOCKED_N` threshold means the agent wastes N
+   requests getting blocked before even TRYING evasion.
+2. **Fingerprint exposure.** The first request with Python httpx TLS fingerprint and
+   `Agent-Alpha-Recon` UA has already IDENTIFIED the agent to the WAF. Even if subsequent requests
+   use evasion, the WAF has already logged the suspicious source IP. Some WAFs escalate blocking
+   after seeing a scanner-like first impression.
+3. **APT doctrine mismatch.** No professional red team operator sends a "naked" request as their
+   first touch. Evasion is the DEFAULT posture from the first request — not a fallback.
+
+**Decision.**
+
+1. **curl_cffi as DEFAULT transport for all active target requests.**
+   `HttpClient` gains a `transport_mode` parameter: `"stealth"` (curl_cffi, default for
+   production) | `"raw"` (httpx, for lab/unit tests only). When `transport_mode="stealth"`:
+   - TLS fingerprint = Chrome 131 (via curl_cffi `impersonate="chrome131"`)
+   - This is already implemented in `reach_transport.py` as `tls_impersonate_fetch()` but
+     currently used ONLY as a fallback after FINGERPRINT block. Now it becomes the DEFAULT
+     transport for EVERY active request to a target.
+   - Lab/test environments keep `"raw"` (httpx) for determinism and speed.
+
+2. **Realistic browser headers as DEFAULT.**
+   `HttpClient` default headers change from:
+   ```
+   BEFORE: User-Agent: Agent-Alpha-Recon/{engagement_id}
+   AFTER:  User-Agent: <random real browser UA from a curated rotation pool>
+           Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+           Accept-Language: en-US,en;q=0.9
+           Accept-Encoding: gzip, deflate, br
+           Connection: keep-alive
+           Sec-Fetch-Dest: document
+           Sec-Fetch-Mode: navigate
+           Sec-Fetch-Site: none
+           Sec-Fetch-User: ?1
+           Upgrade-Insecure-Requests: 1
+   ```
+   UA rotation pool: 5-10 current Chrome/Firefox/Safari UAs on Windows/Mac, refreshed
+   quarterly. Pool stored in `constants.py` (`BROWSER_UA_POOL`), selected per-engagement
+   (not per-request — same browser identity throughout engagement for session consistency).
+
+3. **Protection-aware first request (§12.48 integration).**
+   When Phase 0 passive intel detects CF/Akamai/Sucuri (e.g., CF nameservers in DNS), the agent
+   applies MAXIMUM evasion from the first request:
+   - Origin-direct if origin IP candidates are available (§12.46)
+   - curl_cffi with TLS impersonation if no origin available
+   - NEVER raw httpx to a known-protected target
+   When no protection is detected, curl_cffi stealth is still the default (defense in depth —
+   absence of evidence ≠ evidence of absence).
+
+4. **Reactive evasion RETAINED as escalation layer.**
+   `EvasionPlanner` and `LockoutGovernor` (§12.33) are NOT removed. They become the SECOND layer:
+   - Layer 1 (proactive, §12.49): stealth transport + realistic headers from first request.
+   - Layer 2 (reactive, §12.33): if stealth still gets blocked → classify_mitigation →
+     escalate to browser_solve/origin-direct/client-whitelist-recommendation.
+   The reactive layer now has a LOWER threshold (`EVASION_CONSECUTIVE_BLOCKED_N` reduced from
+   current value) since the agent is already using stealth transport — if stealth + TLS
+   impersonation still triggers blocks, the mitigation class is likely CHALLENGE or RULE_DENY,
+   not FINGERPRINT.
+
+5. **OPSEC profile integration.**
+   `DEFAULT_OPSEC_PROFILE` changes from `"announced"` to `"stealth"`. The `"announced"` profile
+   (honest identifying UA) remains available for engagements where the client explicitly requests
+   identified scanning (common in compliance/audit engagements). Profile selection via
+   `EngagementProfile.opsec_profile` (§12.36).
+
+   | Profile | UA | Transport | Pacing | Use Case |
+   |---------|-----|-----------|--------|----------|
+   | `stealth` | Browser rotation | curl_cffi | Human-like (§12.50) | Default, red team |
+   | `announced` | `Agent-Alpha/{ver}` | httpx | Rate-limited | Compliance scan, client request |
+
+**Event-sourced**: `EVASION_POSTURE_SELECTED` event at engagement start, recording which transport
+mode, UA, and OPSEC profile are active — audit trail for "how did the agent present itself."
+
+**Anti-Lyndon.** #3: default stealth is HONEST (a red team that looks like a scanner is
+dysfunctional, not honest). #6: curl_cffi reuses existing `reach_transport.py` implementation,
+not a second TLS transport. #7: UA pool is single-source in `constants.py`. #11: evasion posture
+is driven by passive intel (§12.48 protection_detected), not a static flag.
+
+### 12.50 Human-Like Behavioral Fingerprint — pacing, jitter, burst patterns — ACCEPTED (2026-08-04)
+
+**Extends** §12.49 (proactive evasion), §12.33 (adaptive evasion). Refines the existing
+`rate_limiter.py` which enforces a fixed `1/rps` interval.
+
+**Problem.** The current `RateLimiter` guarantees `>= 1/rps` seconds between successive requests.
+At `DEFAULT_RATE_LIMIT_RPS = 2.0`, this produces requests at exactly 0.5-second intervals — a
+PERFECTLY PERIODIC signal that is trivially distinguishable from human browsing behavior by any
+modern WAF behavioral analysis. Real browsers exhibit:
+- **Burst patterns**: page load fetches 3-8 resources in rapid succession (< 100ms apart)
+- **Read pauses**: 2-15 seconds between page navigations (user reading content)
+- **Think pauses**: occasional 15-60 second gaps (user thinking, typing, switching tabs)
+- **Session shape**: activity concentrated in bursts with long idle periods
+
+The fixed-interval rate limiter produces a signature that correlates with automated scanning,
+not human browsing.
+
+**Decision.**
+
+1. **Replace fixed-interval with burst-and-pause pacing.**
+   New `StealthPacer` (replaces `RateLimiter` for stealth OPSEC profile):
+
+   ```
+   Pattern: [BURST] → [READ PAUSE] → [BURST] → [THINK PAUSE] → ...
+
+   BURST:       3-5 requests with 50-200ms intervals (page + assets)
+   READ PAUSE:  2-8 seconds (±20% jitter) — user reading the page
+   THINK PAUSE: 10-30 seconds (±20% jitter) — occasional, every 3-5 bursts
+   IDLE:        60-120 seconds — rare (every 10-15 bursts), simulates tab switch
+   ```
+
+   Each interval has ±20% random jitter (uniform distribution). Jitter is cryptographically
+   seeded per-engagement (deterministic replay in tests, unpredictable in production).
+
+2. **Burst size adapts to page context.**
+   - Homepage / new host: single request (browser navigating to new site)
+   - Same-host follow-up: burst of 3-5 (browser loading page + fetching linked assets)
+   - This is not a cosmetic detail — WAFs correlate request count per navigation event
+
+3. **RateLimiter retained as FLOOR.**
+   `StealthPacer` wraps `RateLimiter` — the min-interval guarantee is preserved as a safety
+   floor (never exceed `rps` sustained over any 10-second window). The pacer adds variability
+   ON TOP of the floor, never below it. `"announced"` OPSEC profile keeps using plain
+   `RateLimiter` (fixed interval is appropriate for identified scanning).
+
+4. **Implementation location.**
+   `agents/stealth_pacer.py` — new module. `HttpClient` accepts either `RateLimiter` or
+   `StealthPacer` via the existing `rate_limiter` constructor parameter (duck typing: both
+   expose `acquire()`). Production runner injects `StealthPacer` for stealth profile,
+   `RateLimiter` for announced profile.
+
+5. **Constants (single source, `constants.py`).**
+   ```python
+   STEALTH_BURST_MIN = 3
+   STEALTH_BURST_MAX = 5
+   STEALTH_BURST_INTERVAL_MS = (50, 200)    # min, max ms between burst requests
+   STEALTH_READ_PAUSE_S = (2.0, 8.0)        # min, max seconds
+   STEALTH_THINK_PAUSE_S = (10.0, 30.0)     # min, max seconds
+   STEALTH_IDLE_PAUSE_S = (60.0, 120.0)     # min, max seconds
+   STEALTH_THINK_EVERY_N_BURSTS = (3, 5)    # think pause frequency
+   STEALTH_IDLE_EVERY_N_BURSTS = (10, 15)   # idle pause frequency
+   STEALTH_JITTER_FACTOR = 0.20             # ±20%
+   ```
+
+**Anti-Lyndon.** #3: variable pacing is HONEST behavioral realism, not deception — a red team
+agent that produces scanner-like traffic is a bug, not a feature. #7: all timing constants are
+single-source in `constants.py`. #11: pacing is not a static pattern — burst size adapts to
+navigation context (new host vs same-host follow-up).
+
+### 12.51 Gamma Exploit Generation — 3-Layer Hybrid Dual-Engine (PROPOSED)
+
+**Date:** 2026-08-04
+**Context:** Agent-Alpha's current architecture (Alpha/Beta) operates at the web-layer with known paths and deterministic responses. Phase Gamma (ANCHOR - Exploitation) introduces significant risk: hallucinated payloads, EDR/AV triggers, and production collateral damage. We need a safe, reliable way to synthesize novel exploits that cannot be predefined in a static playbook.
+
+**Decisions:**
+1. **Hybrid Dual-Engine Architecture:**
+   - **Curated Tool Library:** For known vulnerability patterns (SQLi, SSRF, File Upload, Default Creds), use deterministic, engineered `Tool` implementations.
+   - **LLM ExploitSynthesizer:** For novel/creative attacks (business logic, complex chains), use LLM-driven generation.
+
+2. **3-Layer Exploit Synthesis (LLM Lane):**
+   - **Layer 1: Constraint-Guided Generation.** The LLM is NOT given a free-form coding task. It receives a rigid constraint template containing the target context, CVE, method, and safety/EDR constraints (e.g., "NO base64, NO eval, cleanup required").
+   - **Layer 2: Sandbox Verification.** Before execution, the generated payload is validated structurally (HTTP well-formed) and behaviorally (blast-radius < threshold, AV pattern check, scope bounds). Fails result in bounded LLM regeneration (max 3 cycles).
+   - **Layer 3: Graduated Execution.** The payload is executed via a Dry Run (logging) -> Proof Attempt (send to target) -> Mandatory Cleanup (revert changes) -> Proof Recording (CROSS_VERIFIED).
+
+**Anti-Lyndon:** #3 (false success): The 3-layer synthesis ensures that an exploit is structural and safe before transmission; a failure in outcome is a failed run, never a hallucinated "success". #1 (no speculative build): Gamma remains STOP-gated behind ToolComposer and blast-radius gates; this doctrine locks the design, not the code.
+
+### 12.52 Governance Simplification & Friction Reduction (ACCEPTED)
+
+**Date:** 2026-08-04
+**Context:** Agent-Alpha's governance architecture (Celery queues, LLM Consensus, Reactive Evasion) was designed with an "enterprise scale" mindset. However, for a targeted red team agent, these layers introduce severe latency, token cost overhead, and operational friction. A nimble APT operator executes basic recon and initial access instantly, without bureaucratic "committee" decisions or excessive queue overhead.
+
+**Decisions:**
+1. **Restrict LLM Consensus (§12.1 Amendment):**
+   - The `CONSENSUS_LLM` gate is now STRICTLY RESTRICTED to Phase Gamma (ANCHOR) or any action with a high blast radius (destructive/mutative actions).
+   - Phase Alpha (SCOUT) and Beta (STRIKE) MUST use `RULE` (static deterministic logic) or `SINGLE_LLM` (DeepSeek V4) to eliminate latency and token overhead.
+
+2. **Restrict Celery Fan-Out Overhead (§12.13 Amendment):**
+   - Dispatching individual HTTP GET requests as separate Celery tasks is PROHIBITED due to Redis/queue round-trip latency.
+   - Targeted web application recon and active probing must be executed in-process using native concurrency (`asyncio` in Python, or goroutines in Go).
+   - Celery is reserved ONLY for massive-scale horizontal operations (e.g., scanning 50,000 IPs, offline hash cracking, or massive subdomain enumeration) and long-running isolated jobs.
+
+3. **Reactive Evasion Relegation:**
+   - Formalizes the decision in §12.49: The bureaucratic "wait for 5 blocks before evading" is eliminated. Stealth is the default physical reality of the agent's transport layer. The EvasionPlanner only handles high-level tactical blocks (JS Challenges, Origin Bypass).
+
+**Anti-Lyndon:** #8 (Complexity for complexity's sake): Removing Celery overhead for simple HTTP requests and dropping LLM consensus for read-only actions makes the agent dramatically faster, cheaper, and closer to actual red team tradecraft.
+
+### 12.53 Deep Evasion Stack (Layer 2 Evasion) (ACCEPTED)
+
+**Date:** 2026-08-04
+**Context:** While §12.49 (Proactive Evasion via `curl_cffi`) defeats basic commercial WAFs, advanced NG-WAFs and SOC analysts inspect traffic deeper: header ordering, session continuity, and IP reputation (datacenter vs residential). To mimic a legitimate user journey, the agent requires a "Deep Evasion" layer.
+
+**Decisions:**
+1. **Session Persistence (Stateful Agent):** The agent must maintain state (`http.cookiejar`, CSRF tokens) throughout a session. Humans do not drop cookies between requests; the agent must mirror this to avoid stateless bot detection.
+2. **Strict Header Ordering & HTTP/2 ALPN:** HTTP headers must be sorted in the exact sequence expected by the specific browser claimed in the `BROWSER_UA_POOL` (e.g., Firefox and Chrome have different `Accept-Language` / `Accept-Encoding` orders). 
+3. **Residential Proxy Hook:** The network layer must support routing configurations to exit through residential proxy pools or clean exit nodes, mitigating the inherent IP reputation penalty of attacking from Oracle/AWS datacenter IPs.
+
+### 12.54 Deep Recon Quick Wins (Phase 0 Expansion) (ACCEPTED)
+
+**Date:** 2026-08-04
+**Context:** Standard OSINT (crt.sh, VirusTotal) maps the perimeter, but leaves high-ROI ("cheat code") vectors untouched. APT operators prioritize asymmetric intelligence gathering before touching the target.
+**Decisions:**
+Extend Phase 0 (Passive Recon) with two high-value, low-noise OSINT sources:
+1. **Wayback Machine (Historical Endpoints):** Query `web.archive.org` to find forgotten APIs or legacy endpoints (e.g., `/api/v1/old_login.php`) that might bypass modern WAF rules or lack authentication. Zero touch to the target.
+2. **Credential Breach OSINT (Dehashed/HIBP):** Query breach databases for the target's domain. Gaining valid or historical credentials bypasses all WAF complexities. If credentials are found, the agent transitions to Phase Beta (STRIKE) for credential validation.
+**Constraint:** Cloud storage enumeration (S3/Azure) is deferred to a future slice. GitHub/Source Code OSINT is explicitly rejected for this phase due to high noise (false positives) and compute overhead.
+
+### 12.55 Doctrine of Realistic Exploitation (The 1-Day Standard) (ACCEPTED)
+
+**Date:** 2026-08-04
+**Context:** Can the agent find 0-days? Autonomous 0-day hunting in a blackbox web environment is an over-engineered hallucination trap. LLMs struggle to find novel 0-days without whitebox access (source code/fuzzer logs) and burn massive token budgets.
+**Decisions:**
+1. **No Blackbox 0-Day Hunting:** Agent-Alpha is explicitly prohibited from attempting to "discover" novel 0-day vulnerabilities via blind blackbox guessing.
+2. **1-Day & Misconfiguration Focus:** The agent operates strictly as an ultimate weaponizer of known patterns. It focuses on 1-day exploits (unpatched known CVEs) and configuration flaws (exposed `.bak` files, default credentials).
+3. **Real-time Threat Intelligence:** To execute 1-days effectively, the agent's `IntelligenceBase` must integrate or query real-time vulnerability databases (NVD/CVE/VulnCheck/ExploitDB) to map detected tech stack versions to known exploits.
+4. **ToolComposer Constraint:** The ExploitSynthesizer (Gamma) does not invent exploits from scratch. It takes a known CVE PoC or template and *adapts* it to the target's specific context (adjusting payload encoding, evading WAF signatures).
+

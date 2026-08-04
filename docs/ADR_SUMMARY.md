@@ -104,7 +104,7 @@ self-host · runaway cost → stop conditions + budget cap · over-engineering l
 All threshold numbers live in `config/constants.py` (single source of truth, §8o-4).
 
 - **12.0** 2-layer hybrid (deterministic + adaptive). HARD PROHIBITION: no static/linear step list in agent code; `next_action = f(graph + playbook)`.
-- **12.1** Two-phase LLM gate: `RULE` / `SINGLE_LLM` / `CONSENSUS_LLM`.
+- **12.1** Two-phase LLM gate: `RULE` / `SINGLE_LLM` / `CONSENSUS_LLM`. (AMENDED 2026-08-04: `CONSENSUS_LLM` restricted to Phase Gamma/Destructive. Recon & Beta MUST use `RULE` or `SINGLE_LLM` to reduce latency bottleneck).
 - **12.2** Differential test (Phase 2 exit): different fingerprint → different path, else TEST FAIL.
 - **12.3** Real-target gate: GCP free-tier isolated labs, firewall to agent IP only, 3 fingerprints, FP < 20%.
 - **12.4** RAG timing: Phase 2 = static YAML playbook; full RAG = Phase 6.
@@ -116,7 +116,7 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
 - **12.10** Dev workflow: platform code → Claude; payload bodies in `templates/*` → any model (TEMPORARY testing phase), NEVER Claude.
 - **12.11** Durability/resume: durable append-only event log = source of truth; graph/Redis volatile (rebuilt via replay). Staged resume (engagement-level P1, step-level P3). Interrupted offensive action = RE-VERIFY, never re-execute.
 - **12.12** GraphStore abstraction: swappable graph engine (NetworkX P0-3, Memgraph/Neo4j P4+), always a projection of the event log.
-- **12.13** Agent scaling model: hybrid orchestrated fan-out. Agents = ROLES (not singletons); Conductor partitions work into bounded units for N stateless workers via Celery+Redis. No agent-to-agent dispatch; only Conductor dispatches. Two patterns: data-parallel (partitioned target) and functional-parallel (different techniques). Invariants: gate never dilutes, bounded autonomy, deterministic aggregation, no direct A2A dispatch. Phase 0-2 = single worker; Phase 3 = fan-out-aware interface.
+- **12.13** Agent scaling model: hybrid orchestrated fan-out. Agents = ROLES (not singletons); Conductor partitions work into bounded units for N stateless workers via Celery+Redis. No agent-to-agent dispatch; only Conductor dispatches. Two patterns: data-parallel (partitioned target) and functional-parallel (different techniques). Invariants: gate never dilutes, bounded autonomy, deterministic aggregation, no direct A2A dispatch. Phase 0-2 = single worker; Phase 3 = fan-out-aware interface. (AMENDED 2026-08-04: Celery fan-out RESTRICTED to massive-scale tasks only. Targeted web recon & Beta must run in-process via asyncio/goroutines to eliminate latency overhead).
 - **12.14** Front-door 2a: authenticated tenant binding. JWT authN, tenant from verified claim only, ownership 404 on all engagement routes, per-tenant store routing. Resolves P2 auth gap.
 - **12.15** LLM role→provider routing: roles canonical (REASONING vs PAYLOAD), providers configurable. Reasoning = direct or gateway (zero-retention public router OK); Payload = direct provider ONLY (never aggregator, never Claude). Data-governance invariant: sensitive data never egresses to public router without zero-retention contract.
 - **12.16** Tool layer: agents=kill-chain roles; payload/proxy/browser=capabilities not agents (browser=Camoufox, shared Alpha+Beta; proxy needs health check). Tool/Template/Registry/Composer contracts: compose()=plan-not-execute, Template.verify() mandatory (proof not assumption), reliability-ranked not hardcoded, offensive bodies=DeepSeek. Build per-phase, not up front.
@@ -202,3 +202,45 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   decision. Recon `Tool`s = DETECT only, read-only, proof artifact mandatory (§12.26). Closes
   scout.py slow drift toward god object (anti-#8). Build slice-by-slice on real need, not up front
   (anti-#1/#5).
+- **12.48** [🔥 PRIORITAS UTAMA CLAUDE COWORK: SLICE 1] Passive-First Recon Doctrine (ACCEPTED 2026-08-04): mandatory Phase 0 = OSINT gathering
+  (crt.sh + VirusTotal + DNSDumpster) BEFORE any HTTP request to target. `PassiveIntelMap` data
+  contract holds subdomains, origin IP candidates, MX/TXT records, tech stack hints, protection
+  posture (CF/Akamai/Sucuri detection from NS records), historical paths. Intel DRIVES active
+  recon: stack-relevant paths only, origin-direct prioritized over front-door, unprotected subdomains
+  before CF-fronted. Exhaustive surface strategy: try origin-direct → unprotected subdomains →
+  MX/mail infra → TLS impersonation → LAST RESORT report + client whitelist recommendation.
+  API keys in `.env`, per-engagement source toggle in EngagementProfile. Graceful degradation:
+  missing API keys → source skipped, all fail → fall back to existing blind-probe behavior.
+  Amends §12.25 (paths gated by intel), §12.42 (exhaustive surface, never give up after front-door
+  block). Event: `PASSIVE_INTEL_GATHERED`.
+- **12.49** [🔥 PRIORITAS UTAMA CLAUDE COWORK: SLICE 2] Proactive Evasion Posture (ACCEPTED 2026-08-04): evasion-by-default from FIRST request,
+  not after N blocks. curl_cffi (`impersonate="chrome131"`) as DEFAULT transport (not fallback).
+  `HttpClient.transport_mode`: `"stealth"` (curl_cffi, production default) | `"raw"` (httpx, lab
+  only). Realistic browser headers: random UA from `BROWSER_UA_POOL` (5-10 current Chrome/Firefox/
+  Safari, selected per-engagement for session consistency), full Sec-Fetch-* header set.
+  Protection-aware: Phase 0 CF detection → origin-direct first, NEVER raw httpx to known-protected.
+  Reactive evasion (§12.33 `EvasionPlanner`) RETAINED as Layer 2 escalation. `DEFAULT_OPSEC_PROFILE`
+  changes `"announced"` → `"stealth"`. Two profiles: `stealth` (browser UA, curl_cffi, human pacing)
+  = red team default; `announced` (identifying UA, httpx, rate-limited) = compliance/audit.
+  Event: `EVASION_POSTURE_SELECTED`.
+- **12.50** [🔥 PRIORITAS UTAMA CLAUDE COWORK: SLICE 3] Human-Like Behavioral Fingerprint (ACCEPTED 2026-08-04): replace fixed-interval
+  `RateLimiter` (0.5s periodic = scanner signature) with `StealthPacer` burst-and-pause pattern.
+  BURST (3-5 reqs, 50-200ms intervals) → READ PAUSE (2-8s ±20% jitter) → BURST → THINK PAUSE
+  (10-30s, every 3-5 bursts) → occasional IDLE (60-120s, every 10-15 bursts). Burst size adapts:
+  single req for new host, 3-5 for same-host follow-up. `RateLimiter` retained as floor (safety
+  bound). `StealthPacer` in `agents/stealth_pacer.py`, duck-typed with `RateLimiter` via `acquire()`.
+  All timing constants in `constants.py` (`STEALTH_BURST_*`, `STEALTH_*_PAUSE_S`, `STEALTH_JITTER_FACTOR`).
+  `"announced"` profile keeps plain `RateLimiter`. Extends §12.49/§12.33.
+- **12.51** [⏸️ STATUS: FUTURE SLICE (DEFERRED)] Gamma Exploit Generation (PROPOSED): 3-Layer Hybrid Dual-Engine. Uses Curated Tools for
+  known patterns, LLM ExploitSynthesizer for novel attacks. Synthesis bounded by 3 layers:
+  Constraint-Guided Generation (no free-form coding) → Sandbox Verification (structural+safety checks)
+  → Graduated Execution (Dry Run, Proof, Cleanup). EDR evasion scope restricted to Web-Layer
+  (Living-off-the-Land) until Phase Gamma/Delta proper. Gamma remains STOP-gated behind blast-radius.
+- **12.52** [🔥 PRIORITAS UTAMA CLAUDE COWORK: SLICE 4] Governance Simplification (ACCEPTED 2026-08-04): Reduce friction for red team agility.
+  (1) LLM Consensus restricted to Phase Gamma/high-blast actions; Alpha/Beta must use Rule/Single_LLM.
+  (2) Celery fan-out restricted to massive horizontal scale; targeted web recon uses in-process asyncio/goroutines.
+  (3) Formalizes Reactive Evasion relegation to Layer 2 (per §12.49).
+- **12.53** [🔥 PRIORITAS UTAMA CLAUDE COWORK: SLICE 5] Deep Evasion Stack (ACCEPTED 2026-08-04): Mimic legitimate user journeys.
+  Requires Session Persistence (Cookie Governor), Strict Header Ordering (matching UA pool), and Residential Proxy routing hooks.
+- **12.54** [🔥 PRIORITAS UTAMA CLAUDE COWORK: SLICE 6] Deep Recon Quick Wins (ACCEPTED 2026-08-04): Expand Phase 0 with Wayback Machine (historical endpoints) and Credential Breach OSINT (Dehashed/HIBP) for high-ROI intelligence.
+- **12.55** Doctrine of Realistic Exploitation (ACCEPTED 2026-08-04): Agent is a 1-day/misconfig weaponizer, NOT a 0-day hunter. Requires real-time CVE/NVD integration. Gamma ToolComposer adapts known PoCs rather than hallucinating novel exploits.
