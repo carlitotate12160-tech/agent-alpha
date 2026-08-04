@@ -386,7 +386,20 @@ SURFACE_DISCOVERY_PATHS: tuple[str, ...] = (
 # MUST include .env.bak so a boring generic host like late.recon.lab still
 # gets coverage (field-prove guard). Seeded by try_harder when NO catalog spec
 # (beyond universal) matches the host's tech_stack.
-DEFAULT_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, "/.env.bak", "/.env")
+#
+# Cross-stack backup paths (wp-config.php.bak, config/database.yml.bak) are
+# included here because backup files can be left on ANY server regardless of
+# stack — field-proven on alpha-ai.web.id (Odoo) which had a real wp-config.php.bak
+# with DB credentials. The remaining WP_CONFIG_BACKUP_PATHS (~, .save, .orig,
+# .swp, .old, .dist, .txt) stay stack-gated behind wp_fingerprint frontier_seeds
+# since they are lower-signal and WP-specific patterns.
+DEFAULT_LEAK_PATHS: tuple[str, ...] = (
+    *GIT_LEAK_PATHS,
+    "/.env.bak",
+    "/.env",
+    "/wp-config.php.bak",
+    "/config/database.yml.bak",
+)
 
 # Tech-stack markers that gate SURFACE_DISCOVERY_PATHS in try_harder.
 # If a host has a tech_stack label whose substring matches one of these,

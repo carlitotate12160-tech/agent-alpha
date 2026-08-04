@@ -160,9 +160,14 @@ def test_w4_leaked_secret_is_the_one_vaulted() -> None:
 
 def test_run_recon_does_not_seed_wp_paths_for_non_wp_host() -> None:
     """A non-WP host (generic HTML, no wp-content/wp-includes markers) must
-    NEVER receive wp-config.php.bak or any WP_CONFIG_BACKUP_PATHS entry during
-    run_recon. Those paths are now gated behind wp_fingerprint detection
-    (capability_probe.py frontier_seeds), not fired blindly in the initial seed.
+    NEVER receive WP-specific backup paths (wp-config.php~, .save, .orig, .swp,
+    .old, .dist, .txt) during run_recon. Those paths are gated behind
+    wp_fingerprint detection (capability_probe.py frontier_seeds).
+
+    Note: wp-config.php.bak IS seeded as a cross-stack backup path
+    (DEFAULT_LEAK_PATHS) — backup files can be left on any server regardless
+    of stack (field-proven on alpha-ai.web.id, an Odoo site with a real
+    wp-config.php.bak containing DB credentials).
     """
     store = InMemoryEventStore()
     graph = NetworkXGraphStore()
@@ -175,10 +180,16 @@ def test_run_recon_does_not_seed_wp_paths_for_non_wp_host() -> None:
 
     alpha.run_recon(eid, _ROOT)
 
-    wp_paths = [u for u in http.get_calls if "wp-config" in u]
-    assert not wp_paths, (
-        f"Non-WP host received WP-config probe paths: {wp_paths} — "
-        "WP_CONFIG_BACKUP_PATHS should only seed via wp_fingerprint.frontier_seeds"
+    # WP-specific suffix variants — these should NOT be seeded for non-WP hosts.
+    wp_specific_suffixes = ("~", ".save", ".orig", ".swp", ".old", ".dist", ".txt")
+    wp_specific_paths = [
+        u
+        for u in http.get_calls
+        if "wp-config" in u and any(u.endswith(s) for s in wp_specific_suffixes)
+    ]
+    assert not wp_specific_paths, (
+        f"Non-WP host received WP-specific backup paths: {wp_specific_paths} — "
+        "these should only seed via wp_fingerprint.frontier_seeds"
     )
     actuator_paths = [u for u in http.get_calls if "/actuator" in u or u.endswith("/env")]
     assert not actuator_paths, (
