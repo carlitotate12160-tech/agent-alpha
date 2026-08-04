@@ -3265,3 +3265,11 @@ Extend Phase 0 (Passive Recon) with two high-value, low-noise OSINT sources:
 3. **Real-time Threat Intelligence:** To execute 1-days effectively, the agent's `IntelligenceBase` must integrate or query real-time vulnerability databases (NVD/CVE/VulnCheck/ExploitDB) to map detected tech stack versions to known exploits.
 4. **ToolComposer Constraint:** The ExploitSynthesizer (Gamma) does not invent exploits from scratch. It takes a known CVE PoC or template and *adapts* it to the target's specific context (adjusting payload encoding, evading WAF signatures).
 
+### 12.56 Passive Supply Chain Recon (DEFERRED)
+
+**Date:** 2026-08-05
+**Context:** APTs like Cozy Bear frequently use supply chain attacks (compromising 3rd-party vendors) rather than attacking hardened targets directly.
+**Decisions:**
+1. **No Active 3rd-Party Attacks:** Agent-Alpha is strictly forbidden from attacking or brute-forcing 3rd-party vendors, SaaS providers, or open-source maintainers. Such actions fall outside any commercial Statement of Work (SOW) and are illegal.
+2. **Passive Dependency OSINT (Deferred):** Identifying neglected 3rd-party assets on the target (e.g., Subdomain Takeovers, hijacked CDNs like `polyfill.io`, or vulnerable JS dependencies) is ethical and highly effective. However, it is **DEFERRED** to future slices (Phase E) until core evasion (curl_cffi) and primary perimeter recon are stabilized.
+

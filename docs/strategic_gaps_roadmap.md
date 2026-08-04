@@ -40,6 +40,7 @@ crawl-depth (= Lyndon #5).**
 - G16. Go execution engine (throughput/stealth) not built; all Python.
 - G17. Discipline's shadow: perfecting easy recon foundations = sophisticated avoidance of hard exploitation work.
 - G18. Fan-out interface built but not wired to runtime — multi-target engagements run sequential (Shape B), not parallel (Shape A). ADR §12.13 LOCKED but wiring debt fell through cracks (PROGRESS_TRACKER marked DONE, docs/Session_Handoff.md doesn't track).
+- G19. Passive Supply Chain Attack (Subdomain takeover, poisoned CDNs, dependency hijacking) is deferred. Agent is restricted to direct target vectors.
 
 ### Cross-reference: G-items → BUGS_AND_GAPS.md ledger ids
 
@@ -63,6 +64,7 @@ crawl-depth (= Lyndon #5).**
 | G16 | — (Go engine = Phase 7) | DEFERRED |
 | G17 | — (meta-pattern, no single GAP) | ONGOING — curator rule enforces |
 | G18 | GAP-014 (§12.13) | OPEN — interface built, runtime wiring debt |
+| G19 | — (§12.56 Passive Supply Chain) | DEFERRED to Phase E |
 
 ## Strengths (keep — do not regress)
 Event-sourced + auth-gated + auditable governance (real edge for LEGAL red-team SaaS);
@@ -97,6 +99,7 @@ already beyond a scanner; data-driven catalogs (learnable seed for the moat); ri
 - **E1.** §12.33 adaptive evasion (bounded, evasion-gated) + GAP-005 slice-2b/2c. Closes G6.
 - **E2.** Passive OSINT external (DNS/ASN WAF-hint, Shodan/CT) → TargetProfile enrichment (GAP-007). Closes G4.
 - **E3.** Adversary/threat-actor emulation profiles (MITRE actor TTPs). Closes G5.
+- **E4.** Passive Supply Chain Attack (Subdomain takeover, dependency OSINT, poisoned CDN detection). Closes G19.
 
 ### Background wiring (low-effort, no prerequisites, do anytime)
 - **W1.** GAP-014 fan-out parallel worker wiring — `FanOutDispatcher` interface built + tested but not wired to Celery `.delay()`. Replace sequential `for url in targets:` loop in `recon_runner.py` with `FanOutDispatcher.dispatch()`. Effort: Low (3 files, pattern already proven in `run_engagement_task`). Closes G18.
