@@ -2640,6 +2640,17 @@ incrementally). Each technique declares: (a) the `MitigationClass` it defeats, (
 selects by observed obstacle class AND viability — it must NEVER propose an `infra`/`forbidden`
 technique as if it were code-solvable (that is the honesty the current 3-technique map lacks).
 
+**Clarification (2026-08-05): `evasion/` EXTENDS `transport_resilience.EvasionTechnique`, does
+not redefine it.** The existing `EvasionTechnique` enum (`recon/transport_resilience.py:49`) with
+members `RATE_THROTTLE`, `BROWSER_SOLVE`, `TLS_IMPERSONATE`, `NONE` is the canonical type. The
+`evasion/` package must EXTEND this type (add members, add a `viability` field via a wrapper
+dataclass or a separate descriptor registry keyed by the enum value) — it must NOT create a
+second parallel `EvasionTechnique` type (anti-Lyndon #6). If extension of the `StrEnum` proves
+infeasible (e.g., because `viability` requires a per-member data field that `StrEnum` cannot
+carry), the new descriptor type MUST be renamed (e.g., `EvasionCatalogEntry`,
+`EvasionTechniqueDescriptor`) to avoid naming collision with the existing enum. The
+`TECHNIQUE_FOR_MITIGATION_CLASS` mapping in `constants.py` stays single-source (anti-#7).
+
 **Phase discipline (build order — NOT part of this lock).** Do NOT build the catalog up front.
 §12.33 itself defers by need ("9b deferred — no FINGERPRINT vector in the A1 lab"). Build slice by
 slice, each driven by a REAL obstacle hit on a real target (anti Lyndon #1/#5). Current milestone is
@@ -3121,11 +3132,40 @@ with evasion. This is fundamentally broken for datacenter deployment because:
    | `stealth` | Browser rotation | curl_cffi | Human-like (§12.50) | Default, red team |
    | `announced` | `Agent-Alpha/{ver}` | httpx | Rate-limited | Compliance scan, client request |
 
+**Clarification (2026-08-05): "stealth" default sits INSIDE the existing front-loaded consent
+envelope (§12.36). "default" ≠ "authorized".** The existing `policy.yaml` defines an
+`announced`/`blend` authorization pair where `blend` has `evasion: true` and
+`resolve_opsec_profile()` (`conductor/policy.py:109`) already fail-closes to `announced` when
+`evasion_authorized=False`. The `"stealth"` profile MUST follow the same gate — it is NOT a
+third ungated path. Two options:
+
+- **(a) Map `stealth` == `blend` semantics (PREFERRED).** `"stealth"` is the renamed/evolved
+  `"blend"` profile. `policy.yaml` entry for `stealth` carries `evasion: true`. The existing
+  `resolve_opsec_profile(requested, evasion_authorized=)` gate applies unchanged: `stealth`
+  without `evasion_authorized=True` (i.e., `allow_evasion=False` or `opsec_stealth=False` in the
+  signed EngagementProfile) → fail-closed to `announced`. The `opsec_stealth` consent flag in
+  `EngagementProfile` (already wired in `authorization.py:562-573` with `ConsentRequiredError`)
+  is the signed capability that authorizes the `stealth` profile. `test_opsec_profile.py` /
+  `test_policy_yaml.py` expectations MUST assert: default `stealth` + no consent → `announced`
+  (fail-closed), never silent authorization.
+
+- **(b) Rename if semantics differ.** If `"stealth"` is intentionally different from `"blend"`
+  (e.g., stealth = curl_cffi transport only without UA spoofing, blend = full UA+header
+  spoofing), then `"stealth"` MUST be renamed to avoid conflating with the existing
+  `announced`/`blend` authorization pair. A profile name that implies evasion-like behavior but
+  bypasses the `evasion_authorized` gate is a silent authorization path = anti-Lyndon #3.
+
+**The invariant:** `DEFAULT_OPSEC_PROFILE = "stealth"` means stealth is the *requested* profile,
+not the *authorized* one. Without signed consent (`opsec_stealth=True` or `allow_evasion=True`
+in the EngagementProfile), `resolve_opsec_profile` must fall back to `announced`. The agent never
+silently operates in stealth mode without front-loaded consent.
+
 **Event-sourced**: `EVASION_POSTURE_SELECTED` event at engagement start, recording which transport
 mode, UA, and OPSEC profile are active — audit trail for "how did the agent present itself."
 
 **Anti-Lyndon.** #3: default stealth is HONEST (a red team that looks like a scanner is
-dysfunctional, not honest). #6: curl_cffi reuses existing `reach_transport.py` implementation,
+dysfunctional, not honest) — BUT "default" never means "authorized without consent" (this
+clarification). #6: curl_cffi reuses existing `reach_transport.py` implementation,
 not a second TLS transport. #7: UA pool is single-source in `constants.py`. #11: evasion posture
 is driven by passive intel (§12.48 protection_detected), not a static flag.
 

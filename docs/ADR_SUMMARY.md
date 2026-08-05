@@ -166,6 +166,10 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   viability(datacenter|infra|client_side|forbidden). Evasion is EXTERNAL-vantage-specific (irrelevant
   to a future internal product). Build slice-by-slice on real obstacles, not up front. alpha-ai.web.id
   full-CF from datacenter → only viable code lever is origin-direct.
+  **Clarification (2026-08-05):** `evasion/` EXTENDS `transport_resilience.EvasionTechnique` (existing
+  enum, 4 members), does NOT redefine it (anti-#6). If `StrEnum` extension is infeasible for
+  `viability` field, rename the new descriptor type (e.g., `EvasionCatalogEntry`).
+  `TECHNIQUE_FOR_MITIGATION_CLASS` stays single-source in `constants.py` (anti-#7).
 - **12.45** Credential-result semantics (extends §12.43/§3a): a red team NEVER certifies "safe" —
   absence of a finding ≠ absence of vuln. Credential finding = POSITIVE only (no safe/strong node
   or report claim). Negatives carry a METHOD+LIMIT caveat, never a verdict; Omega forbidden from
@@ -223,6 +227,13 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   changes `"announced"` → `"stealth"`. Two profiles: `stealth` (browser UA, curl_cffi, human pacing)
   = red team default; `announced` (identifying UA, httpx, rate-limited) = compliance/audit.
   Event: `EVASION_POSTURE_SELECTED`.
+  **Clarification (2026-08-05):** "stealth" default sits INSIDE existing §12.36 consent envelope —
+  "default" ≠ "authorized". `stealth` maps to `blend` semantics (`evasion: true` in `policy.yaml`).
+  `resolve_opsec_profile()` fail-closes to `announced` when `evasion_authorized=False` (i.e.,
+  `opsec_stealth=False` / `allow_evasion=False` in signed EngagementProfile). Without signed consent
+  → `announced`, never silent stealth. `test_opsec_profile.py` / `test_policy_yaml.py` MUST assert
+  this fail-closed behavior. If `stealth` ≠ `blend` semantics, rename to avoid conflating with
+  existing `announced`/`blend` authorization pair (anti-#3).
 - **12.50** [🔥 PRIORITAS UTAMA CLAUDE COWORK: SLICE 3] Human-Like Behavioral Fingerprint (ACCEPTED 2026-08-04): replace fixed-interval
   `RateLimiter` (0.5s periodic = scanner signature) with `StealthPacer` burst-and-pause pattern.
   BURST (3-5 reqs, 50-200ms intervals) → READ PAUSE (2-8s ±20% jitter) → BURST → THINK PAUSE
