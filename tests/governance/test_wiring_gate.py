@@ -63,6 +63,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "hackertarget_fallback": (
         "conductor/recon_runner.py",
     ),  # §12.48 slice-2: keyless crt.sh fallback wired into the live passive stage
+    "resolve_and_bind_origin": (
+        "agents/alpha/scout.py",
+    ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
@@ -92,14 +95,6 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
     "CredentialLockoutGovernor": (
         ("tools/internal/access/odoo_access.py",),
         "§12.22 D2: odoo submits creds via its own http path (off-roster) — must route through the lockout governor",
-    ),
-    "verify_origin_binding": (
-        ("agents/alpha/scout.py",),
-        "§12.46 slice-2: wire origin-binding into _attempt_reach",
-    ),
-    "resolve_and_bind_origin": (
-        ("agents/alpha/scout.py",),
-        "§12.46 slice-3: delegate origin binding from _attempt_reach",
     ),
 }
 
