@@ -79,6 +79,21 @@ def test_consent_gate_requires_consent_for_evasion() -> None:
         )
 
 
+def test_subdomain_enum_requires_signed_consent() -> None:
+    """allow_subdomain_enum expands active-touch scope and requires explicit consent."""
+    with pytest.raises(ConsentRequiredError, match="strictly requires explicit consent"):
+        authorize_engagement(
+            engagement_id="eng-1",
+            client_id="client-1",
+            targets=[_VALID_DOMAIN],
+            authorization_level="RECON_ONLY",
+            allow_subdomain_enum=True,
+            ownership_tokens={_VALID_DOMAIN: _VALID_TOKEN},
+            dns_resolver=_VALID_DNS,
+            key=_TEST_KEY,
+        )
+
+
 def test_consent_gate_passes_with_consent() -> None:
     """With valid consent, elevated capabilities are authorized."""
     os.environ["PROFILE_SIGNING_KEY"] = (

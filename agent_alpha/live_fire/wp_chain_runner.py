@@ -233,7 +233,7 @@ def main(argv: list[str] | None = None) -> int:
         "--opsec-profile",
         type=str,
         default=None,
-        help="OPSEC profile name (e.g. 'blend' for covert UA). Evasion gate: falls back to 'announced' without SOW authorization.",
+        help="OPSEC profile name (e.g. 'blend' for covert UA). Evasion gate: falls back to the configured baseline profile without SOW authorization.",
     )
     args = parser.parse_args(argv)
 
@@ -247,9 +247,10 @@ def main(argv: list[str] | None = None) -> int:
 
     # ── Resolve OPSEC profile (evasion gate: fail-closed without SOW authorization) ──
     from agent_alpha.conductor.policy import PolicyEnforcer
+    from agent_alpha.config import constants
 
     policy_enforcer = PolicyEnforcer()
-    profile_name = args.opsec_profile or "announced"
+    profile_name = args.opsec_profile or constants.DEFAULT_OPSEC_PROFILE
     opsec = policy_enforcer.resolve_opsec_profile(
         profile_name, evasion_authorized=config.evasion_authorized
     )

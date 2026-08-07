@@ -11,9 +11,7 @@ import typing
 
 import yaml
 
-from agent_alpha.config.constants import (
-    SCOPE_ALWAYS_EXCLUDED,
-)
+from agent_alpha.config.constants import DEFAULT_OPSEC_PROFILE, SCOPE_ALWAYS_EXCLUDED
 
 
 class PolicyError(Exception):
@@ -112,12 +110,12 @@ class PolicyEnforcer:
         """Resolve an OPSEC profile with an evasion authorization gate.
 
         If the requested profile has ``evasion: true`` but
-        ``evasion_authorized`` is ``False``, fall back to the ``announced``
-        profile (fail-closed — no spoofing without SOW authorization).
+        ``evasion_authorized`` is ``False``, fall back to the default
+        baseline profile.
         """
         profile = self.get_opsec_profile(requested)
         if typing.cast(bool, profile.get("evasion", False)) and not evasion_authorized:
-            return self.get_opsec_profile("announced")
+            return self.get_opsec_profile(DEFAULT_OPSEC_PROFILE)
         return profile
 
     def is_provider_allowed_for_payload(self, provider: str) -> bool:

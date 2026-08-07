@@ -490,6 +490,8 @@ class AuthorizeBody(BaseModel):
     signed_at: str = ""
     authorization_level: str = "RECON_ONLY"
     allow_evasion: bool = False
+    allow_origin_discovery: bool = False
+    allow_subdomain_enum: bool = False
     opsec_stealth: bool = False
     authorized_origins: list[str] | None = None  # manual override (dev/cooperative)
 
@@ -1089,6 +1091,8 @@ def authorize_engagement_endpoint(
             signed_at=body.signed_at,
             authorization_level=body.authorization_level,
             allow_evasion=body.allow_evasion,
+            allow_origin_discovery=body.allow_origin_discovery,
+            allow_subdomain_enum=body.allow_subdomain_enum,
             opsec_stealth=body.opsec_stealth,
             event_store=target_store,
             key=signing_key,
