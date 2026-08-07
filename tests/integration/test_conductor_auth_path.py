@@ -27,6 +27,7 @@ from agent_alpha.conductor.engagement_profile import (
     dump_signed_profile,
     load_signed_profile_from_dict,
 )
+from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.security.secrets import get_profile_signing_key
 
@@ -388,3 +389,27 @@ def test_origin_discovery_still_none_on_conductor_path(
     # This assertion SHOULD fail (origin_discovery is None) — xfail makes
     # the test green while the debt is tracked.
     assert captured[0] is not None, "origin_discovery is still None (wiring debt)"
+
+
+def test_authorize_without_ips_does_not_auto_authorize_origins(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """§12.38 quick-win: with NO client-supplied origin IPs, the signed profile's
+    authorized_origins stays EMPTY. A discovered IP is never auto-authorized
+    (collateral risk) — origin-direct is fail-closed until a runtime binding proof
+    (§12.46) authorizes a specific IP."""
+    eid = _create_engagement(client, auth_headers)
+    token = _challenge_domain(client, auth_headers, eid)
+    resp = _authorize_with_stub(client, auth_headers, eid, _DOMAIN, token)
+    assert resp.status_code == 200, resp.json()
+
+    # JWT carries tenant_id="test-tenant" → the endpoint routes to the tenant store.
+    store = m.store_provider.for_tenant("test-tenant")
+    signed = [
+        e for e in store.get_events(eid) if e.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED
+    ]
+    assert signed, "no signed profile persisted"
+    profile = load_signed_profile_from_dict(signed[-1].payload, key=get_profile_signing_key())
+    assert profile.authorized_origins == frozenset(), (
+        f"origins auto-authorized without client input: {profile.authorized_origins!r}"
+    )
