@@ -141,3 +141,47 @@ def test_distraction_fires_on_low_random() -> None:
     pacer.acquire()  # first request + distraction pause
     distract_mid = sum(constants.STEALTH_DISTRACTION_PAUSE_S) / 2
     assert any(d == pytest.approx(distract_mid) for d in rec.sleeps), "distraction never fired"
+
+
+# ── §12.50 slice-2: context-adaptive burst (host-aware) ─────────────
+
+
+def test_new_host_triggers_a_navigation_pause() -> None:
+    """A request to a NEW host is a navigation → preceded by a read/think/idle
+    pause, not a fast asset-burst gap (ADR §12.50 point 2)."""
+    rec = _Rec()
+    pacer = StealthPacer(rng=_FakeRng(), sleep=rec)
+    gap = sum(constants.STEALTH_BURST_INTERVAL_MS) / 2 / 1000.0
+    read = sum(constants.STEALTH_READ_PAUSE_S) / 2
+
+    pacer.acquire("https://a.example/")  # first navigation — immediate
+    pacer.acquire("https://a.example/style.css")  # same host → asset burst gap
+    pacer.acquire("https://b.example/")  # NEW host → navigation pause
+    assert rec.sleeps == [pytest.approx(gap), pytest.approx(read)]
+
+
+def test_same_host_followups_are_a_fast_asset_burst() -> None:
+    """Follow-up requests to the SAME host are page assets — short burst gaps,
+    no long pause until the burst budget is spent."""
+    rec = _Rec()
+    pacer = StealthPacer(rng=_FakeRng(), sleep=rec)
+    gap = sum(constants.STEALTH_BURST_INTERVAL_MS) / 2 / 1000.0
+
+    host = "https://same.example/"
+    for i in range(constants.STEALTH_BURST_MIN):
+        pacer.acquire(f"{host}{i}")
+    assert rec.sleeps == [pytest.approx(gap)] * (constants.STEALTH_BURST_MIN - 1)
+    assert all(d < 1.0 for d in rec.sleeps), "an asset burst must not incur a long pause"
+
+
+def test_acquire_without_url_is_backward_compatible() -> None:
+    """url=None (context-less caller) → fixed burst-and-pause (slice-1 behaviour)."""
+    rec = _Rec()
+    pacer = StealthPacer(rng=_FakeRng(), sleep=rec)
+    for _ in range(constants.STEALTH_BURST_MIN + 1):
+        pacer.acquire()  # no url
+    gap = sum(constants.STEALTH_BURST_INTERVAL_MS) / 2 / 1000.0
+    read = sum(constants.STEALTH_READ_PAUSE_S) / 2
+    # burst of short gaps, then the read pause once the burst budget is spent
+    assert rec.sleeps[-1] == pytest.approx(read)
+    assert rec.sleeps[:-1] == [pytest.approx(gap)] * (constants.STEALTH_BURST_MIN - 1)

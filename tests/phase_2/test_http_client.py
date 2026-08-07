@@ -204,7 +204,7 @@ def test_rate_limiter_gates_every_request() -> None:
     calls: list[str] = []
 
     class _FakeRateLimiter:
-        def acquire(self) -> None:
+        def acquire(self, url: str | None = None) -> None:  # noqa: ARG002
             calls.append("acquire")
 
     def fetcher(
@@ -266,7 +266,7 @@ def test_pacer_notify_receives_response_status() -> None:
             self.acquired = 0
             self.notified: list[int] = []
 
-        def acquire(self) -> None:
+        def acquire(self, url: str | None = None) -> None:  # noqa: ARG002
             self.acquired += 1
 
         def notify(self, status_code: int) -> None:

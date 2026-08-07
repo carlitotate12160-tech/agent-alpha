@@ -86,7 +86,7 @@ class _RecordingLimiter:
     def __init__(self) -> None:
         self.calls = 0
 
-    def acquire(self) -> None:
+    def acquire(self, url: str | None = None) -> None:  # noqa: ARG002
         self.calls += 1
 
 
@@ -101,7 +101,7 @@ def test_httpclient_acquires_a_slot_before_each_request() -> None:
     # wrap acquire to record ordering vs the request
     orig = limiter.acquire
 
-    def tracking_acquire() -> None:
+    def tracking_acquire(url=None):
         order.append("acquire")
         orig()
 
