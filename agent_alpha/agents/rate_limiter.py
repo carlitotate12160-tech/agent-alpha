@@ -20,6 +20,16 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable
+from typing import Protocol
+
+
+class Pacer(Protocol):
+    """Egress pacing seam — anything HttpClient can call before each request.
+    RateLimiter (fixed interval) and StealthPacer (§12.50 human burst-and-pause)
+    both satisfy this. An optional ``notify(status_code)`` hook (checked via
+    getattr) lets a pacer adapt to responses (e.g. 429/503 backoff)."""
+
+    def acquire(self) -> None: ...
 
 
 class RateLimiter:

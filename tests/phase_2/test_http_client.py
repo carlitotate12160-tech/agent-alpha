@@ -250,3 +250,31 @@ def test_get_verify_override_false_reaches_httpx():
         client.post("https://example.com/login", data={"user": "x"}, verify=False)
         _, kwargs = mock_cls.call_args
         assert kwargs["verify"] is False
+
+
+def test_pacer_notify_receives_response_status() -> None:
+    """§12.50: HttpClient feeds each response status back to the pacer via the
+    optional notify() hook (StealthPacer uses it for 429/503 backoff)."""
+    import httpx
+
+    from agent_alpha.agents.http_client import HttpClient
+
+    transport = httpx.MockTransport(lambda req: httpx.Response(429, text="rate limited"))
+
+    class _StubPacer:
+        def __init__(self) -> None:
+            self.acquired = 0
+            self.notified: list[int] = []
+
+        def acquire(self) -> None:
+            self.acquired += 1
+
+        def notify(self, status_code: int) -> None:
+            self.notified.append(status_code)
+
+    pacer = _StubPacer()
+    client = HttpClient(engagement_id="eng-notify", transport=transport, rate_limiter=pacer)
+    client.get("https://example.test/")
+
+    assert pacer.acquired == 1, "pacer.acquire() not called at the egress chokepoint"
+    assert pacer.notified == [429], "response status not fed back to the pacer (backoff hook)"

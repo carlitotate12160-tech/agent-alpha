@@ -90,6 +90,18 @@ __all__ = [
     "REACH_TIMEOUT_S",
     "MAX_ORGANIC_CRAWL_PER_HOST",
     "ODOO_DBMANAGER_EXPOSURE_CVSS",
+    "STEALTH_BURST_MIN",
+    "STEALTH_BURST_MAX",
+    "STEALTH_BURST_INTERVAL_MS",
+    "STEALTH_READ_PAUSE_S",
+    "STEALTH_THINK_PAUSE_S",
+    "STEALTH_IDLE_PAUSE_S",
+    "STEALTH_THINK_EVERY_N_BURSTS",
+    "STEALTH_IDLE_EVERY_N_BURSTS",
+    "STEALTH_DISTRACTION_CHANCE",
+    "STEALTH_DISTRACTION_PAUSE_S",
+    "STEALTH_BACKOFF_FACTOR",
+    "STEALTH_BACKOFF_CAP",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -178,6 +190,23 @@ DEFAULT_RATE_LIMIT_RPS = 2.0
 # (slice-2b) will override this via the ctor; until then all recon paths use
 # this profile. Single source for the profile name (anti-Lyndon #7).
 DEFAULT_OPSEC_PROFILE: str = "stealth"
+
+# ── §12.50 StealthPacer — human burst-and-pause timing (single source, #7) ──
+# ADR §12.50 AMENDED: intra-phase noise is GAUSSIAN (centred on range midpoint),
+# not uniform ±20% — uniform is itself a bot tell. STEALTH_JITTER_FACTOR is
+# therefore retired (superseded by the Gaussian std = (hi-lo)/4).
+STEALTH_BURST_MIN: int = 3
+STEALTH_BURST_MAX: int = 5
+STEALTH_BURST_INTERVAL_MS: tuple[float, float] = (50.0, 200.0)  # intra-burst gap
+STEALTH_READ_PAUSE_S: tuple[float, float] = (2.0, 8.0)  # user reading a page
+STEALTH_THINK_PAUSE_S: tuple[float, float] = (10.0, 30.0)  # occasional think gap
+STEALTH_IDLE_PAUSE_S: tuple[float, float] = (60.0, 120.0)  # rare tab-switch/away
+STEALTH_THINK_EVERY_N_BURSTS: tuple[int, int] = (3, 5)
+STEALTH_IDLE_EVERY_N_BURSTS: tuple[int, int] = (10, 15)
+STEALTH_DISTRACTION_CHANCE: float = 0.10  # per-request chance of a long pause
+STEALTH_DISTRACTION_PAUSE_S: tuple[float, float] = (8.0, 30.0)
+STEALTH_BACKOFF_FACTOR: float = 2.0  # 429/503 → double the next pause
+STEALTH_BACKOFF_CAP: float = 8.0  # runaway guard
 SOW_MAX_FILE_SIZE_MB = 50
 SOW_HASH_ALGORITHM = "sha256"
 
