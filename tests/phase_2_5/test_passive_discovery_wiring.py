@@ -136,6 +136,12 @@ def _wire_common(
     # raising=False: the seam does not exist yet (RED) — set it so the assertions,
     # not an AttributeError at setattr time, are what fail.
     monkeypatch.setattr(recon_runner, "build_passive_discovery", _build_pd, raising=False)
+    # §12.48 slice-2: fallback fires on crt.sh-empty/down and would otherwise reach
+    # the network. Stub the OSINT client with the no-op scan client (empty body ->
+    # HackerTarget parses to []) so this wiring test stays hermetic.
+    monkeypatch.setattr(
+        recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient(), raising=False
+    )
     return called
 
 

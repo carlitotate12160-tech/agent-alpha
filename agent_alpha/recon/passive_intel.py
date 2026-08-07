@@ -23,11 +23,14 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from agent_alpha.a2a import a2a_pb2
 from agent_alpha.events.event_types import EventType
+from agent_alpha.recon.osint_sources import fetch_hackertarget_subdomains
+from agent_alpha.recon.passive_discovery import PassiveDiscoveryResult
 
 if TYPE_CHECKING:
+    from agent_alpha.conductor.authorization import AuthorizationStateMachine
     from agent_alpha.events.store import EventStore
-    from agent_alpha.recon.passive_discovery import PassiveDiscoveryResult
 
 
 # ── Data contract (§12.48 point 4 — the single downstream shape, anti-#7) ──────
@@ -90,6 +93,8 @@ def record_passive_intel(
     event_store: EventStore,
     engagement_id: str,
     intel: PassiveIntelMap,
+    *,
+    sources_used: tuple[str, ...] = ("crtsh",),
 ) -> None:
     """Append the ``PASSIVE_INTEL_GATHERED`` event for *intel*.
 
@@ -112,5 +117,53 @@ def record_passive_intel(
             "protection_detected": intel.protection_detected,
             "nameservers": list(intel.nameservers),
             "historical_paths": list(intel.historical_paths),
+            "sources_used": list(sources_used),
         },
+    )
+
+
+# ── §12.48 slice-2: keyless crt.sh fallback (HackerTarget) ─────────────────────
+
+
+def hackertarget_fallback(
+    engagement_id: str,
+    domain: str,
+    *,
+    http_client: object,
+    authorization: AuthorizationStateMachine,
+) -> PassiveDiscoveryResult:
+    """Fail-closed HackerTarget fallback used when crt.sh yields no names.
+
+    Mirrors ``PassiveDiscovery.discover``'s contract so the caller can treat the
+    two crt.sh/HackerTarget results identically (same canonical type, anti-#6):
+
+      STEP 1 — fail-closed RECON gate BEFORE any network I/O.
+      STEP 2 — single stealth GET to HackerTarget (no key, no self-ID UA).
+      STEP 3 — parse + domain-filter.
+      STEP 4 — partition via ``is_in_scope`` (sole scope authority).
+
+    Never raises for a transport/parse failure (fetch is fail-open); returns an
+    empty result. Emits NO event — the caller records the merged PassiveIntelMap.
+    """
+    # STEP 1 — fail-closed auth gate (BEFORE any network I/O)
+    if not authorization.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
+        return PassiveDiscoveryResult(domain, (), (), ())
+
+    # STEP 2+3 — fetch (fail-open) + parse
+    names = fetch_hackertarget_subdomains(domain, http_client=http_client)
+
+    # STEP 4 — partition through the auth gate
+    in_scope: list[str] = []
+    enumerated: list[str] = []
+    for host in names:
+        if authorization.is_in_scope(engagement_id, host):
+            in_scope.append(host)
+        else:
+            enumerated.append(host)
+
+    return PassiveDiscoveryResult(
+        domain=domain,
+        discovered=tuple(names),
+        in_scope=tuple(in_scope),
+        enumerated=tuple(enumerated),
     )
