@@ -95,6 +95,8 @@ def test_env_leak_still_backup_file() -> None:
     vuln_nodes = list(graph.nodes_by_type(NodeType.VULNERABILITY))
     assert len(vuln_nodes) == 1
     assert vuln_nodes[0].id == f"vuln:{host}:backup_file_leak"
+    # BUG1: a recovered-secret backup leak is HIGH, never the 0.0 dataclass default.
+    assert vuln_nodes[0].properties.cvss_score == 7.5
 
 
 def test_actuator_spec_suffix_preserved() -> None:
