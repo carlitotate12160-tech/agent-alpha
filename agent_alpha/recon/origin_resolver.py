@@ -168,3 +168,42 @@ def discover_origin_ips(
                 break  # one confirming Host is enough for this IP
 
     return confirmed
+
+
+class LiveOriginDiscovery:
+    """§12.46 Slice B — production ``OriginDiscovery``: real CT/DNS origin
+    resolution via :func:`discover_origin_ips`.
+
+    Constructed on the Conductor path when the signed profile consents to
+    ``allow_origin_discovery`` (the alternative to the cooperative
+    ``StaticOriginDiscovery`` fed from pre-signed ``authorized_origins``).
+
+    ``candidates()`` delegates to :func:`discover_origin_ips`, which has its OWN
+    fail-closed auth gate (``can_agent_proceed`` + ``is_in_scope``) BEFORE any
+    network I/O — and a returned candidate is still only ACTED on after the
+    §12.46 binding proof + composed gate. The HTTP client is the stealth
+    ``HttpClient`` (built lazily so construction stays import-cheap); an explicit
+    client may be injected for hermetic tests.
+    """
+
+    def __init__(
+        self,
+        engagement_id: str,
+        authorization: Any,
+        *,
+        http_client: Any = None,
+    ) -> None:
+        self._engagement_id = engagement_id
+        self._authorization = authorization
+        self._http_client = http_client
+
+    def candidates(self, fronted_host: str) -> list[str]:
+        http = self._http_client
+        if http is None:
+            from agent_alpha.agents.http_client import HttpClient
+
+            http = HttpClient(engagement_id=self._engagement_id)
+            # Cache so the same client + its RateLimiter (pacing state) is reused
+            # across candidates() calls within this engagement (CodeRabbit #351-B).
+            self._http_client = http
+        return discover_origin_ips(self._engagement_id, fronted_host, http, self._authorization)

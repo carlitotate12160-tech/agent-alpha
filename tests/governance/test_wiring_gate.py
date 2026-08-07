@@ -66,6 +66,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "resolve_and_bind_origin": (
         "agents/alpha/scout.py",
     ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)
+    "LiveOriginDiscovery": (
+        "conductor/main.py",
+    ),  # §12.46 Slice B: real CT/DNS origin discovery injected on the live Conductor path (discover_origin_ips transitively via this)
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
