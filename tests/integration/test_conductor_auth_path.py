@@ -116,6 +116,7 @@ def _authorize_with_stub(
     signed_at: str = "2026-07-26T00:00:00Z",
     allow_evasion: bool = False,
     opsec_stealth: bool = False,
+    allow_origin_discovery: bool = False,
     stub_resolver: _StubDNSResolver | None = None,
 ) -> Any:
     """Call /authorize with a stub DNS resolver returning the given token."""
@@ -129,6 +130,7 @@ def _authorize_with_stub(
         "authorization_level": authorization_level,
         "allow_evasion": allow_evasion,
         "opsec_stealth": opsec_stealth,
+        "allow_origin_discovery": allow_origin_discovery,
     }
     if consent_items is not None:
         body["consent_items"] = consent_items
@@ -345,21 +347,26 @@ def test_challenge_token_not_derivable_from_signing_key(
     assert not is_hex, "token looks HMAC-derived (64-char hex); must be random"
 
 
-# ── origin_discovery wiring debt ────────────────────────────────────────
+# ── origin_discovery wiring (§12.46 Slice B — closed) ───────────────────
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="WIRING-DEBT (§12.38): origin_discovery is injected None on the live "
-    "Conductor path — deferred to the CDN-target reach slice (D5).",
-)
-def test_origin_discovery_still_none_on_conductor_path(
+def test_origin_discovery_wired_on_conductor_path(
     client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """origin_discovery wiring debt: the parameter is None on the live path."""
+    """§12.46 Slice B: origin_discovery is a REAL (non-None) LiveOriginDiscovery on
+    the live Conductor path when the signed profile consents to
+    allow_origin_discovery. Closes the §12.38/§12.46 wiring debt (was None)."""
     eid = _create_engagement(client, auth_headers)
     token = _challenge_domain(client, auth_headers, eid)
-    _authorize_with_stub(client, auth_headers, eid, _DOMAIN, token)
+    _authorize_with_stub(
+        client,
+        auth_headers,
+        eid,
+        _DOMAIN,
+        token,
+        allow_origin_discovery=True,
+        consent_items=["recon_only", "origin_discovery"],
+    )
     client.post(f"/engagements/{eid}/recon", headers=auth_headers)
 
     captured: list[Any] = []
@@ -386,9 +393,12 @@ def test_origin_discovery_still_none_on_conductor_path(
     m.run_engagement_task(eid, "test-tenant")
 
     assert len(captured) >= 1
-    # This assertion SHOULD fail (origin_discovery is None) — xfail makes
-    # the test green while the debt is tracked.
-    assert captured[0] is not None, "origin_discovery is still None (wiring debt)"
+    from agent_alpha.recon.origin_resolver import LiveOriginDiscovery
+
+    assert isinstance(captured[0], LiveOriginDiscovery), (
+        f"origin_discovery not wired as a real LiveOriginDiscovery on the live "
+        f"Conductor path (got {captured[0]!r}) — §12.46 Slice B debt not closed"
+    )
 
 
 def test_authorize_without_ips_does_not_auto_authorize_origins(

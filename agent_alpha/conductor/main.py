@@ -73,7 +73,8 @@ from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
-from agent_alpha.recon.origin_discovery import StaticOriginDiscovery
+from agent_alpha.recon.origin_discovery import OriginDiscovery, StaticOriginDiscovery
+from agent_alpha.recon.origin_resolver import LiveOriginDiscovery
 from agent_alpha.security.secrets import (
     LogScrubber,
     SecretsManager,
@@ -356,11 +357,19 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         # Build origin_discovery from authorized_origins in the signed profile.
         # This wires origin-direct reach: when a probe hits WAF/CF, Alpha can
         # bypass to the origin IP (authorized in the profile).
-        task_origin_discovery = None
+        task_origin_discovery: OriginDiscovery | None = None
         if engagement_profile is not None:
             profile_origins = getattr(engagement_profile, "authorized_origins", None)
             if profile_origins:
+                # Cooperative path: client pre-signed origin IPs (StaticOriginDiscovery).
                 task_origin_discovery = StaticOriginDiscovery(list(profile_origins))
+            elif getattr(engagement_profile, "allow_origin_discovery", False):
+                # §12.46 Slice B external-vantage path: no pre-signed IPs but the
+                # signed profile consented to origin discovery → real CT/DNS
+                # resolution. Consent-gated here; candidates() only ACTS inside
+                # resolve_and_bind_origin (re-checks the capability) + the binding
+                # proof + composed gate. Fail-closed if nothing binds.
+                task_origin_discovery = LiveOriginDiscovery(engagement_id, worker_auth)
 
         # ── §12.41: wire browser_solve when the signed profile consents to evasion ──
         task_browser_solve = None
