@@ -203,4 +203,7 @@ class LiveOriginDiscovery:
             from agent_alpha.agents.http_client import HttpClient
 
             http = HttpClient(engagement_id=self._engagement_id)
+            # Cache so the same client + its RateLimiter (pacing state) is reused
+            # across candidates() calls within this engagement (CodeRabbit #351-B).
+            self._http_client = http
         return discover_origin_ips(self._engagement_id, fronted_host, http, self._authorization)

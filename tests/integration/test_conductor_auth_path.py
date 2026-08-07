@@ -400,6 +400,31 @@ def test_origin_discovery_wired_on_conductor_path(
         f"Conductor path (got {captured[0]!r}) — §12.46 Slice B debt not closed"
     )
 
+    # CodeRabbit #2: isolate origin discovery from the real network — stub
+    # discover_origin_ips so candidates() never hits crt.sh in CI, and record the
+    # HttpClient it receives to prove client reuse (CodeRabbit #1).
+    from agent_alpha.recon import origin_resolver
+
+    seen_clients: list[Any] = []
+
+    def _fake_discover_origin_ips(
+        eid_: str, host: str, http_client: Any, auth: Any, **_: Any
+    ) -> list[str]:
+        seen_clients.append(http_client)
+        return []
+
+    monkeypatch.setattr(origin_resolver, "discover_origin_ips", _fake_discover_origin_ips)
+
+    # candidates() is network-isolated AND reuses ONE HttpClient across calls.
+    disc = captured[0]
+    disc.candidates(_DOMAIN)
+    disc.candidates(_DOMAIN)
+    assert seen_clients, "discover_origin_ips never invoked via candidates()"
+    assert all(c is not None for c in seen_clients), "candidates() passed a None http_client"
+    assert len({id(c) for c in seen_clients}) == 1, (
+        "HttpClient not reused across candidates() calls — RateLimiter/pacing state lost"
+    )
+
 
 def test_authorize_without_ips_does_not_auto_authorize_origins(
     client: TestClient, auth_headers: dict[str, str]
