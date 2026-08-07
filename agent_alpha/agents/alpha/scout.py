@@ -46,6 +46,7 @@ from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
+from agent_alpha.recon.origin_binding import resolve_and_bind_origin
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.plugin_cve_catalog import lookup as cve_lookup
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach, is_cloudflare_ip
@@ -625,12 +626,14 @@ class Alpha:
             if is_reload_shell(resp.text) or verdict in (Verdict.BLOCKED, Verdict.CHALLENGE):
                 # Origin-direct can still bypass CF even when browser_solve failed.
                 # Fall through to _attempt_reach if we have authorized origins.
-                has_authorized_origins = (
-                    self._origin_discovery is not None
-                    and self._engagement_profile is not None
-                    and getattr(self._engagement_profile, "authorized_origins", None)
+                # §12.46: fall through to _attempt_reach when EITHER pre-signed
+                # origins exist OR origin discovery is consented (the binding path
+                # can prove-and-hit a discovered origin, bypassing the WAF).
+                has_reach_path = self._engagement_profile is not None and (
+                    getattr(self._engagement_profile, "authorized_origins", None)
+                    or getattr(self._engagement_profile, "allow_origin_discovery", False)
                 )
-                if has_authorized_origins:
+                if self._origin_discovery is not None and has_reach_path:
                     return None  # fall through to _attempt_reach
                 return {
                     "discovered_nodes": 0,
@@ -765,7 +768,10 @@ class Alpha:
         #    AND filter out Cloudflare edge IPs — hitting CF edge with Host header
         #    is NOT origin-direct (it still hits CF WAF).
         authorized_origins_list: list[str] = []
-        if self._origin_discovery is not None:
+        if self._origin_discovery is not None and getattr(
+            self._engagement_profile, "authorized_origins", None
+        ):
+            # Static/cooperative path: client pre-signed the origin IPs.
             candidates = self._origin_discovery.candidates(host)
             authorized_origins_list = [
                 ip
@@ -773,6 +779,26 @@ class Alpha:
                 if ip in self._engagement_profile.authorized_origins
                 and not is_cloudflare_ip(ip)  # CF edge IPs are not valid origins
             ]
+
+        # §12.46 discovery path: no pre-signed origin, but the signed profile
+        # consented to allow_origin_discovery → discover candidates and PROVE-bind
+        # one (ownership-token canary). resolve_and_bind_origin emits
+        # ORIGIN_BINDING_PROVEN for the proven IP; the composed gate below then
+        # authorizes it. Fail-closed: None (no reach) when nothing binds.
+        if (
+            not authorized_origins_list
+            and self._origin_discovery is not None
+            and getattr(self._engagement_profile, "allow_origin_discovery", False)
+        ):
+            bound_ip = resolve_and_bind_origin(
+                fronted_host=host,
+                profile=self._engagement_profile,
+                event_store=self.event_store,
+                engagement_id=self._engagement_id,
+                discovery=self._origin_discovery,
+            )
+            if bound_ip is not None:
+                authorized_origins_list = [bound_ip]
 
         authorized_origin = authorized_origins_list[0] if authorized_origins_list else None
 
@@ -801,12 +827,22 @@ class Alpha:
 
         # 5. Dispatch
         if strategy is ReachStrategy.ORIGIN_DIRECT and authorized_origin is not None:
-            from agent_alpha.conductor.engagement_profile import assert_origin_authorized
+            from agent_alpha.conductor.engagement_profile import (
+                assert_origin_authorized_or_bound,
+            )
 
             last_response: _ReachResponse | None = None
             for origin_ip in authorized_origins_list:
-                # C8: fail-closed — raises OriginNotAuthorizedError if not authorized
-                assert_origin_authorized(origin_ip, host, self._engagement_profile)
+                # §12.46 composed gate — fail-closed. Authorizes iff the IP is in
+                # the signed authorized_origins OR (allow_origin_discovery AND an
+                # ORIGIN_BINDING_PROVEN event exists for this IP + fronted host).
+                assert_origin_authorized_or_bound(
+                    origin_ip,
+                    host,
+                    self._engagement_profile,
+                    self.event_store,
+                    self._engagement_id,
+                )
 
                 self._emit(
                     "OBSERVE",

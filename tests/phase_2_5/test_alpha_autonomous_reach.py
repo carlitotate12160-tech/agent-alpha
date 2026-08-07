@@ -574,3 +574,105 @@ def test_fingerprint_403_consent_gate_blocks_tls_impersonate(
     assert alpha._analyzable_probes == 0, (
         "Alpha recorded analyzable probes despite consent gate — reach was fabricated"
     )
+
+
+# ---------------------------------------------------------------------------
+# §12.46 Slice A: ORIGIN_DIRECT via runtime origin-binding (no pre-signed IPs)
+# ---------------------------------------------------------------------------
+
+_BIND_TOKEN = "verify-slice-a-token"
+_BOUND_IP = "45.79.100.10"  # public (passes the SSRF/internal guard)
+
+
+def _make_discovery_profile() -> EngagementProfile:
+    """Profile with the origin-discovery CAPABILITY + an ownership token, but NO
+    pre-signed authorized_origins — the §12.46 external-vantage case."""
+    return EngagementProfile(
+        engagement_id=_ENGAGEMENT,
+        client_id="lab",
+        targets=frozenset({_LAB_HOST}),
+        authorized_origins=frozenset(),  # nothing pre-signed
+        allow_origin_discovery=True,
+        ownership_tokens=frozenset({(_LAB_HOST, _BIND_TOKEN)}),
+    )
+
+
+def test_alpha_reach_origin_direct_via_runtime_binding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§12.46 Slice A (WIRED-PROOF): allow_origin_discovery + ownership token but
+    NO pre-signed origins → Alpha discovers a candidate, PROVES it via the token
+    canary, emits ORIGIN_BINDING_PROVEN, and origin-directs to the proven IP — all
+    on the autonomous path. Exercises the REAL chain scout → resolve_and_bind_origin
+    → verify_origin_binding → composed gate → origin_direct_fetch (non-island)."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    from agent_alpha.agents.alpha import scout
+    from agent_alpha.recon import origin_binding
+
+    # P2 canary fetch: the real origin echoes the ownership token; anything else does not.
+    def _canary_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        body = _BIND_TOKEN if origin_ip == _BOUND_IP else "cohost-no-token"
+        return _StubOriginDirectResult(body=body)
+
+    # Reach fetch (scout path): the proven origin serves the real content.
+    def _reach_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        return _StubOriginDirectResult(body=_OK_BODY)
+
+    monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
+    monkeypatch.setattr(scout, "origin_direct_fetch", _reach_fetch)
+
+    alpha = _make_alpha(
+        event_store=store,
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+        engagement_profile=_make_discovery_profile(),
+        challenge_urls={front_door},
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.ORIGIN_BINDING_PROVEN in types, "binding proof not emitted — chain not wired"
+    assert EventType.ORIGIN_DIRECT_ATTEMPT in types, "origin-direct not attempted on the bound IP"
+    proven = [
+        e for e in store.get_events(_ENGAGEMENT) if e.event_type == EventType.ORIGIN_BINDING_PROVEN
+    ]
+    assert proven[0].payload["origin_ip"] == _BOUND_IP
+    assert alpha._analyzable_probes > 0, "content not reached via the proven origin"
+
+
+def test_alpha_reach_refused_when_candidate_not_bound(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§12.46 Slice A anti-collateral: allow_origin_discovery ON but the candidate
+    does NOT serve the ownership token (co-tenant / not the client's origin) →
+    no ORIGIN_BINDING_PROVEN, no ORIGIN_DIRECT_ATTEMPT (fail-closed, anti-#3)."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    from agent_alpha.agents.alpha import scout
+    from agent_alpha.recon import origin_binding
+
+    monkeypatch.setattr(
+        origin_binding,
+        "origin_direct_fetch",
+        lambda *a, **k: _StubOriginDirectResult(body="cohost-neighbor-no-token"),
+    )
+    # Track the reach-transport boundary: it must NEVER be hit when nothing binds.
+    reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
+    monkeypatch.setattr(scout, "origin_direct_fetch", reach_fetch)
+
+    alpha = _make_alpha(
+        event_store=store,
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+        engagement_profile=_make_discovery_profile(),
+        challenge_urls={front_door},
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.ORIGIN_BINDING_PROVEN not in types, "unbound co-tenant IP was falsely proven"
+    assert EventType.ORIGIN_DIRECT_ATTEMPT not in types, (
+        "origin-direct fired without a binding proof (collateral risk)"
+    )
+    reach_fetch.assert_not_called()  # fail-closed transport boundary — never fetched
