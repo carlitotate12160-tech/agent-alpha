@@ -23,6 +23,7 @@ from urllib.parse import urlparse
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Report
+from agent_alpha.agents.rate_limiter import Pacer
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.reporting import build_engagement_report
@@ -133,7 +134,16 @@ def build_recon_pipeline(
         opsec = policy.resolve_opsec_profile(
             constants.DEFAULT_OPSEC_PROFILE, evasion_authorized=False
         )
-    http_client = HttpClient(engagement_id=engagement_id, opsec=opsec)
+    # §12.50: human burst-and-pause pacing when the signed profile consents to
+    # opsec_stealth (a §12.36 signed capability). Seeded per-engagement →
+    # deterministic replay, unpredictable in production. Otherwise the fixed-
+    # interval RateLimiter (built inside HttpClient) is used.
+    stealth_pacer: Pacer | None = None
+    if engagement_profile is not None and getattr(engagement_profile, "opsec_stealth", False):
+        from agent_alpha.agents.stealth_pacer import StealthPacer
+
+        stealth_pacer = StealthPacer(seed=engagement_id)
+    http_client = HttpClient(engagement_id=engagement_id, opsec=opsec, rate_limiter=stealth_pacer)
     provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
     # Bug #14 root cause: Alpha is RECON_ONLY (§K9/§5) and must never even be
     # ABLE to load an access-phase rule (e.g. default_credentials_login,

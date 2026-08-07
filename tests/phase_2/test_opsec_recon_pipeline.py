@@ -93,3 +93,48 @@ def test_pipeline_without_policy_uses_stealth_defaults(
 
     hc: HttpClient = pipeline.alpha.http_client
     assert hc._headers["User-Agent"] == constants.STEALTH_BROWSER["user_agent"]
+
+
+@pytest.mark.usefixtures("_stub_provider")
+def test_pipeline_injects_stealth_pacer_when_opsec_stealth_consented(
+    policy: PolicyEnforcer,
+    auth: AuthorizationStateMachine,
+    store: InMemoryEventStore,
+) -> None:
+    """§12.50 WIRED-PROOF: a signed profile with opsec_stealth=True → the live
+    recon HttpClient is paced by a StealthPacer (human burst-and-pause), not the
+    fixed-interval RateLimiter."""
+    from agent_alpha.agents.stealth_pacer import StealthPacer
+
+    profile = type("P", (), {"opsec_stealth": True})()
+    pipeline = recon_runner.build_recon_pipeline(
+        engagement_id="eng_stealth",
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        policy=policy,
+        engagement_profile=profile,
+    )
+    assert isinstance(pipeline.alpha.http_client._rate_limiter, StealthPacer)
+
+
+@pytest.mark.usefixtures("_stub_provider")
+def test_pipeline_uses_fixed_limiter_without_opsec_stealth(
+    policy: PolicyEnforcer,
+    auth: AuthorizationStateMachine,
+    store: InMemoryEventStore,
+) -> None:
+    """No opsec_stealth consent → the plain fixed-interval RateLimiter (anti
+    behaviour-change without consent)."""
+    from agent_alpha.agents.rate_limiter import RateLimiter
+
+    profile = type("P", (), {"opsec_stealth": False})()
+    pipeline = recon_runner.build_recon_pipeline(
+        engagement_id="eng_plain",
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        policy=policy,
+        engagement_profile=profile,
+    )
+    assert isinstance(pipeline.alpha.http_client._rate_limiter, RateLimiter)

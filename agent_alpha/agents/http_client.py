@@ -15,7 +15,7 @@ from typing import Any, Protocol, cast, runtime_checkable
 
 import httpx
 
-from agent_alpha.agents.rate_limiter import RateLimiter
+from agent_alpha.agents.rate_limiter import Pacer, RateLimiter
 from agent_alpha.config import constants
 from agent_alpha.recon.reach_transport import cffi_requests, is_tls_impersonate_available
 
@@ -99,7 +99,7 @@ class HttpClient:
         timeout: float = constants.HTTP_REQUEST_TIMEOUT_SEC,
         transport: httpx.BaseTransport | None = None,
         rate_limit_rps: float = constants.DEFAULT_RATE_LIMIT_RPS,
-        rate_limiter: RateLimiter | None = None,
+        rate_limiter: Pacer | None = None,
         opsec: dict[str, Any] | None = None,
         verify: bool = True,
         fetcher: HttpFetcher | None = None,
@@ -291,7 +291,7 @@ class HttpClient:
         merged_headers = {**self._headers, **(headers or {})}
         # Per-call verify override: None → fall back to instance default (self._verify).
         effective_verify = self._verify if verify is None else verify
-        return self._fetcher(
+        response = self._fetcher(
             method,
             url,
             headers=merged_headers,
@@ -301,3 +301,9 @@ class HttpClient:
             allow_redirects=allow_redirects,
             verify=effective_verify,
         )
+        # §12.50 adaptive backoff: feed the response status back to the pacer if
+        # it supports it (StealthPacer does; RateLimiter does not). Duck-typed.
+        notify = getattr(self._rate_limiter, "notify", None)
+        if notify is not None:
+            notify(response.status_code)
+        return response
