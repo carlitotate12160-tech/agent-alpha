@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Report
@@ -330,10 +331,17 @@ def run_recon_for_engagement(
             # fallback) result and record PASSIVE_INTEL_GATHERED BEFORE any active
             # recon runs. sources_used records which OSINT source produced it.
             intel = build_passive_intel_map(result)
-            # §12.48 slice-3: enrich with keyless DNS (MX/NS/TXT) + protection posture
-            # BEFORE recording, so PASSIVE_INTEL_GATHERED carries the full signal.
-            intel = enrich_with_dns(intel, dns)
-            record_passive_intel(store, engagement_id, intel, sources_used=(*sources_used, "dns"))
+            # §12.48 slice-3: DNS enrichment is external network I/O. Gate it
+            # fail-closed behind the SAME RECON check crt.sh/HackerTarget use — a
+            # refused engagement performs ZERO network, incl. DNS (CodeRabbit #357-1,
+            # defense-in-depth). Refused → record the un-enriched crt.sh map (DNS
+            # fields stay empty), never query DNS.
+            if auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
+                intel = enrich_with_dns(intel, dns)
+                intel_sources = (*sources_used, "dns")
+            else:
+                intel_sources = sources_used
+            record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)
 
     # §12.41: extend targets with in-scope passive-discovered subdomains that
     # are not already targeted.  run_recon enforces auth/scope per-target, and

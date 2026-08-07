@@ -51,7 +51,8 @@ class PassiveIntelMap:
         mx_records:           Mail servers (can reveal origin).  [slice-3 DNSd.]
         txt_records:          SPF/DKIM/DMARC records.            [slice-3 DNSd.]
         tech_stack_hints:     Technology hints from passive sources.  [slice-2]
-        protection_detected:  "cloudflare"|"akamai"|"sucuri"|None.     [slice-3]
+        protection_detected:  NS-derived vendor HINT (not confirmed proxy):
+                              "cloudflare"|"akamai"|"sucuri"|"imperva"|None. [slice-3]
         nameservers:          NS records (CF NS ⇒ CF-proxied).         [slice-3]
         historical_paths:     Paths from Wayback / VT URL scans.       [slice-2]
     """
@@ -126,10 +127,19 @@ _NS_PROTECTION_SIGNATURES: tuple[tuple[str, str], ...] = (
 
 
 def classify_protection(nameservers: tuple[str, ...]) -> str | None:
-    """Map authoritative nameservers → protection vendor, or None if self-hosted.
+    """Map authoritative nameservers → protection vendor HINT, or None.
 
     Pure. Matches a nameserver exactly or as a subdomain of a known vendor apex
     (e.g. ``dana.ns.cloudflare.com`` ⇒ ``cloudflare``). First match wins.
+
+    HINT, NOT CONFIRMED PROXY (CodeRabbit #357-2). Vendor NS delegation does NOT
+    prove the target is proxied/WAF'd: e.g. Cloudflare "DNS-only" (grey-cloud)
+    serves the origin A-record directly with NO edge protection, yet still uses
+    cloudflare.com nameservers. So this is a first-pass signal only. A downstream
+    consumer (Bug #26 probe-suppression) MUST corroborate with an HTTP signal
+    (``cf-ray`` / ``server: cloudflare`` response header) BEFORE acting on it —
+    never skip a valid probe on the NS hint alone (that would be a false-negative).
+    Corroboration is the consumer slice's job; this producer only emits the hint.
     """
     for ns in nameservers:
         n = ns.strip().lower().rstrip(".")

@@ -1,4 +1,4 @@
-﻿# tests/phase_4/test_passive_intel.py
+# tests/phase_4/test_passive_intel.py
 """Contract: §12.48 slice-1 — PassiveIntelMap (OSINT-before-touch, crt.sh only).
 
 Two layers:
@@ -130,6 +130,24 @@ class _ScanHttpClient:
         return _Resp(404, "", {}, url)
 
 
+class _NullDNS:
+    """No-op DNS resolver for slice-1/2 WIRED tests that don't exercise slice-3.
+    Prevents the default DnspythonResolver from making real lab-target.invalid
+    lookups (test isolation, CodeRabbit #357-6). resolve_* all fail-open to []."""
+
+    def resolve_mx(self, domain: str) -> list[str]:
+        return []
+
+    def resolve_ns(self, domain: str) -> list[str]:
+        return []
+
+    def resolve_txt(self, domain: str) -> list[str]:
+        return []
+
+
+_NULL_DNS = _NullDNS()
+
+
 class _CrtShClient:
     def __init__(self) -> None:
         self.calls: list[str] = []
@@ -185,7 +203,12 @@ def test_passive_intel_gathered_on_live_path_single_crtsh_call(
     )
 
     recon_runner.run_recon_for_engagement(
-        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
     )
 
     intel_evs = [
@@ -336,7 +359,12 @@ def test_fallback_fires_on_live_path_when_crtsh_empty(monkeypatch: pytest.Monkey
     _wire(monkeypatch, auth, store, crt, ht_http)
 
     recon_runner.run_recon_for_engagement(
-        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
     )
 
     assert len(crt.calls) == 1, "crt.sh should be tried once"
@@ -361,7 +389,12 @@ def test_no_fallback_when_crtsh_has_results(monkeypatch: pytest.MonkeyPatch) -> 
     _wire(monkeypatch, auth, store, crt, ht_http)
 
     recon_runner.run_recon_for_engagement(
-        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
     )
 
     assert ht_http.calls == [], "HackerTarget must NOT be called when crt.sh already has names"
@@ -392,7 +425,12 @@ def test_fallback_fires_when_crtsh_down(monkeypatch: pytest.MonkeyPatch) -> None
     _wire(monkeypatch, auth, store, _DownCrtSh(), ht_http)
 
     recon_runner.run_recon_for_engagement(
-        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
     )
 
     assert len(ht_http.calls) == 1, "HackerTarget must fire when crt.sh is DOWN (exception)"
@@ -418,7 +456,12 @@ def test_fallback_down_both_fail_is_non_fatal(monkeypatch: pytest.MonkeyPatch) -
     _wire(monkeypatch, auth, store, _DownCrtSh(), _HtHttp(""))  # HT returns empty body
 
     result = recon_runner.run_recon_for_engagement(
-        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
     )
     assert result is not None and result.report is not None
     assert tuple(result.enumerated_hosts) == ()
@@ -515,8 +558,9 @@ def test_enrich_fills_dns_and_preserves_slice1() -> None:
 
 def test_enrich_fail_open_empty_resolver() -> None:
     base = build_passive_intel_map(
-        PassiveDiscoveryResult(domain="ex.com", discovered=("ex.com",), in_scope=("ex.com",),
-                               enumerated=())
+        PassiveDiscoveryResult(
+            domain="ex.com", discovered=("ex.com",), in_scope=("ex.com",), enumerated=()
+        )
     )
     out = enrich_with_dns(base, _StubDNS())  # all lookups return []
     assert out.mx_records == ()
