@@ -1,6 +1,6 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-07)
+# Agent-Alpha — Session Handoff (2026-08-07, cont.)
 
 Resume with: "lanjut Agent-Alpha — PR #346 stealth-by-default MERGED. bernofarm apex WafBlocked 25→12 (reproducible 3x on Oracle ARM64). DOCTRINE BANKED: stop beating full-CF apex from datacenter IP — residual 12 blocks = IP-rep + managed-challenge = INFRA ceiling, NOT code. NEXT = §12.48 PassiveIntelMap as SEPARATE component (anti-#8, starts §12.47 decomposition): crt.sh/Wayback/VirusTotal zero-touch → surface CT subdomains → resolve → non-CF/grey-cloud + origin candidates → verify_origin_binding (slice-1 sealed) → reach THOSE, avoid apex. Then origin-binding slice-3 (wire resolve_and_bind_origin into _attempt_reach). Then §12.50 pacing. Do NOT build Gamma."
 
@@ -49,11 +49,19 @@ Strix cannot assemble.
 
 ---
 
+## MERGED SINCE (2026-08-07 cont. — recon + reach + pacing arc LANDED)
+
+- **§12.48 PassiveIntelMap** — slice-1 crt.sh (PR #347) + slice-2 keyless HackerTarget fallback (PR #349, incl. CodeRabbit first-line parser fix). SEPARATE component `recon/passive_intel.py` (starts §12.47 decomposition). Fills subdomains/in_scope; VT/DNS slots still empty (→ NEXT #2).
+- **§12.46 origin-binding — WIRED end-to-end** — Slice A (PR #351): `_attempt_reach` calls `resolve_and_bind_origin` behind the composed gate `assert_origin_authorized_or_bound` (token-canary P2 + capability + proven-event). Slice B: real `LiveOriginDiscovery` (CT/DNS) injected on the Conductor path. §12.38 quick-win: `/authorize` no longer auto-authorizes discovered origins (collateral hole closed) + crude 6-source main.py island removed (#6/#2/self-ID-UA gone).
+- **§12.50 StealthPacer** — slice-1 (PR #353): human burst-and-pause + Gaussian jitter + distraction + 429/503 backoff, injected via signed `opsec_stealth`. slice-2: context-adaptive burst (host-aware — new host = navigation pause, same host = asset burst). §12.50 AMENDED: uniform → Gaussian jitter.
+- **CROSS_VERIFIED — DONE** (was mislabelled PENDING; see PENDING #3).
+
 ## NEXT (foundation, in order — one slice at a time)
 
-1. **§12.48 PassiveIntelMap** — SEPARATE component (anti-#8, starts §12.47 decomposition of scout.py 2085 lines). NOT more methods on scout. Flow: crt.sh/Wayback/VirusTotal/etc zero-touch → surface CT subdomains → resolve → non-CF/grey-cloud + origin candidates → feed verify_origin_binding (slice-1 sealed). Build as `agent_alpha/recon/passive_intel.py` + `agent_alpha/tools/passive_*` per §12.47 ToolRegistry.
-2. **Origin-binding slice-3** — wire `resolve_and_bind_origin` into `_attempt_reach` (WIRING_DEBT from slice-1 #337 + slice-2 #338). resolve_and_bind_origin exists, just needs the autonomous reach path to call it.
-3. **§12.50 pacing** — StealthPacer (recon-arc DEPTH, after reach proven).
+1. **Dedup** `backup_file_leak` vs `wp_config_leak` (double-report on the same wp-config.php.bak) + Omega narrative to prefer `wp_config_leak` as chain entry. Last Phase-4-exit cleanup.
+2. **§12.48 slice-3 DNS enrichment** — fill PassiveIntelMap MX/TXT/NS + `protection_detected` (NS→CF). KEYLESS. Double-value: feeds §12.46 origin candidates (MX often reveals origin) AND is the OPEN **Bug #26** fix (protection-detect before blind probe; closes part of GAP-007/GAP-016).
+3. **Subdomain takeover** (dangling CNAME → expired service) — highest-value payable finding scanners miss; chains to full subdomain control.
+4. **Wayback** (GAP-016, keyless) → **VirusTotal** (key-gated enrichment). AXFR DEMOTED (rare + scanner-covered). robots/sitemap low. Dehashed = paid, feeds Beta.
 
 ## DOCTRINE BANKED (2026-08-07)
 
@@ -65,7 +73,7 @@ Strix cannot assemble.
 
 ## SEALED but NOT WIRED (WIRING_DEBT)
 
-- origin-binding slice-1 (#337) + slice-2 (#338): `resolve_and_bind_origin` exists in `agent_alpha/recon/origin_binding.py`, but `_attempt_reach` does NOT call it yet. Slice-3 = wire it.
+- (none open for origin-binding) — RESOLVED by §12.46 Slice A (PR #351): `_attempt_reach` now calls `resolve_and_bind_origin` (composed gate `assert_origin_authorized_or_bound`), Slice B injects a real `LiveOriginDiscovery`. Both proven by non-island W-tests (test_alpha_autonomous_reach + test_conductor_auth_path); `resolve_and_bind_origin` + `LiveOriginDiscovery` are now WIRED_REQUIRED in the wiring gate.
 
 ## PENDING (finish before / early next session)
 
@@ -73,8 +81,12 @@ Strix cannot assemble.
    [real safety fix], docstring, helper extract, module imports, tests). Apply + merge.
 2. Patches produced this session, seal on Oracle + merge: odoo17-dbmanager-marker-fix, slice-2
    (compromise detector + structural hidden-links).
-3. **CROSS_VERIFIED**: wire `run_verification_pass` + `CredReuseAttestor` into the Alpha→Beta chain so
-   access goes SELF_VERIFIED → CROSS_VERIFIED (§12.43). Attestor exists; just needs the pass invoked.
+3. ~~**CROSS_VERIFIED**~~ — **DONE (verified 2026-08-07 via READ-BEFORE).** `verify_access_nodes` 
+   (running `CredReuseAttestor` through `run_verification_pass`) is called on the AUTONOMOUS path in
+   `run_agent_task → run_beta()` at Beta COMPLETE (`conductor/main.py`). Proven end-to-end by
+   `test_autonomous_wp_chain_e2e::test_autonomous_conductor_chain_produces_cross_verified_wp_finding` 
+   (asserts an ACCESS_LEVEL node reaches CROSS_VERIFIED on the live chain) + the unit differential in
+   `test_conductor_verification`. NOT a gap — do not rebuild.
 4. **Dedup** `backup_file_leak` vs `wp_config_leak` (same wp-config.php.bak, double-reported) + Omega
    narrative to prefer the specific wp_config_leak as chain entry.
 
