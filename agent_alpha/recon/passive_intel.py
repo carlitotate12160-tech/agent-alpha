@@ -20,8 +20,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from dataclasses import dataclass, field, replace
+from typing import TYPE_CHECKING, Protocol
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.events.event_types import EventType
@@ -83,6 +83,78 @@ def build_passive_intel_map(result: PassiveDiscoveryResult) -> PassiveIntelMap:
         domain=result.domain,
         subdomains=result.discovered,
         in_scope_subdomains=result.in_scope,
+    )
+
+
+# ── §12.48 slice-3: DNS enrichment (MX/NS/TXT → protection posture) ────────────
+#
+# ADDITIVE over the sealed slice-1 map: enrich_with_dns takes an already-built
+# PassiveIntelMap and returns a NEW one with the DNS-derived fields filled. The
+# crt.sh fields (subdomains/in_scope) are copied verbatim via dataclasses.replace
+# — slice-1 is never rewritten (anti-#10). Keyless, zero contact to the target
+# (queries the domain's authoritative DNS, not the target's HTTP surface).
+#
+# PRODUCER ONLY: this fills the signal. Consuming protection_detected to skip
+# blind path-probing (Bug #26 Layer 1/5) and MX → origin_ip_candidates (§12.46)
+# are SEPARATE downstream slices — deliberately NOT scaffolded here (anti-#2).
+
+
+class PassiveDNSResolver(Protocol):
+    """Narrow read-only DNS seam for passive enrichment (fail-open).
+
+    Structurally satisfied by the production ``DnspythonResolver``. Distinct from
+    the ownership ``DNSResolver`` Protocol (TXT-only, fail-closed) on purpose: a
+    missing record here degrades gracefully, it does NOT gate authorization.
+    """
+
+    def resolve_mx(self, domain: str) -> list[str]: ...  # pragma: no cover
+    def resolve_ns(self, domain: str) -> list[str]: ...  # pragma: no cover
+    def resolve_txt(self, domain: str) -> list[str]: ...  # pragma: no cover
+
+
+# NS-suffix → protection vendor. SINGLE source of truth (anti-#7). A domain whose
+# authoritative nameservers are the vendor's ⇒ the vendor proxies/fronts it. This
+# is the keyless, deterministic, LLM-free protection signal (no HTTP fingerprint).
+_NS_PROTECTION_SIGNATURES: tuple[tuple[str, str], ...] = (
+    ("cloudflare.com", "cloudflare"),
+    ("akam.net", "akamai"),
+    ("akamaiedge.net", "akamai"),
+    ("sucuri.net", "sucuri"),
+    ("incapdns.net", "imperva"),
+    ("impervadns.net", "imperva"),
+)
+
+
+def classify_protection(nameservers: tuple[str, ...]) -> str | None:
+    """Map authoritative nameservers → protection vendor, or None if self-hosted.
+
+    Pure. Matches a nameserver exactly or as a subdomain of a known vendor apex
+    (e.g. ``dana.ns.cloudflare.com`` ⇒ ``cloudflare``). First match wins.
+    """
+    for ns in nameservers:
+        n = ns.strip().lower().rstrip(".")
+        for suffix, vendor in _NS_PROTECTION_SIGNATURES:
+            if n == suffix or n.endswith("." + suffix):
+                return vendor
+    return None
+
+
+def enrich_with_dns(intel: PassiveIntelMap, resolver: PassiveDNSResolver) -> PassiveIntelMap:
+    """Return *intel* enriched with MX/NS/TXT records + protection posture.
+
+    ADDITIVE (anti-#10): returns a NEW frozen map via ``replace`` — the slice-1
+    crt.sh fields are preserved untouched. Fail-open per record type: the resolver
+    returns ``[]`` on any DNS error, so a domain with no MX (etc.) yields empty
+    records and ``protection_detected`` follows only from the NS records actually
+    resolved. Never raises.
+    """
+    nameservers = tuple(resolver.resolve_ns(intel.domain))
+    return replace(
+        intel,
+        mx_records=tuple(resolver.resolve_mx(intel.domain)),
+        nameservers=nameservers,
+        txt_records=tuple(resolver.resolve_txt(intel.domain)),
+        protection_detected=classify_protection(nameservers),
     )
 
 

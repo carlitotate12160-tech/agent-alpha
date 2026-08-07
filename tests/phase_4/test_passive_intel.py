@@ -345,7 +345,7 @@ def test_fallback_fires_on_live_path_when_crtsh_empty(monkeypatch: pytest.Monkey
         e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
     ]
     assert len(intel_evs) == 1
-    assert intel_evs[0].payload["sources_used"] == ["hackertarget"]
+    assert intel_evs[0].payload["sources_used"] == ["hackertarget", "dns"]
     assert intel_evs[0].payload["in_scope_subdomains"] == [_ROOT]
 
 
@@ -368,7 +368,7 @@ def test_no_fallback_when_crtsh_has_results(monkeypatch: pytest.MonkeyPatch) -> 
     intel_evs = [
         e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
     ]
-    assert intel_evs[0].payload["sources_used"] == ["crtsh"]
+    assert intel_evs[0].payload["sources_used"] == ["crtsh", "dns"]
 
 
 class _DownCrtSh:
@@ -400,7 +400,7 @@ def test_fallback_fires_when_crtsh_down(monkeypatch: pytest.MonkeyPatch) -> None
         e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
     ]
     assert len(intel_evs) == 1
-    assert intel_evs[0].payload["sources_used"] == ["hackertarget"]
+    assert intel_evs[0].payload["sources_used"] == ["hackertarget", "dns"]
     assert intel_evs[0].payload["in_scope_subdomains"] == [_ROOT]
     # crt.sh raised BEFORE emitting its own event → no PASSIVE_DISCOVERY, only intel.
     assert [e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_DISCOVERY] == []
@@ -422,3 +422,158 @@ def test_fallback_down_both_fail_is_non_fatal(monkeypatch: pytest.MonkeyPatch) -
     )
     assert result is not None and result.report is not None
     assert tuple(result.enumerated_hosts) == ()
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §12.48 slice-3 — DNS enrichment (MX/NS/TXT → protection posture)
+# ══════════════════════════════════════════════════════════════════════
+
+from agent_alpha.recon.passive_intel import (  # noqa: E402
+    classify_protection,
+    enrich_with_dns,
+)
+
+
+class _StubDNS:
+    """Injectable PassiveDNSResolver stub returning canned, DISTINCTIVE records.
+
+    Distinctive values (not just non-empty) so a passing WIRED assertion can ONLY
+    be satisfied by enrich_with_dns actually running on the live path — closes the
+    #3 hole where 'is not None' would pass from any source.
+    """
+
+    def __init__(
+        self,
+        mx: list[str] | None = None,
+        ns: list[str] | None = None,
+        txt: list[str] | None = None,
+    ) -> None:
+        self._mx = mx or []
+        self._ns = ns or []
+        self._txt = txt or []
+
+    def resolve_mx(self, domain: str) -> list[str]:
+        return list(self._mx)
+
+    def resolve_ns(self, domain: str) -> list[str]:
+        return list(self._ns)
+
+    def resolve_txt(self, domain: str) -> list[str]:
+        return list(self._txt)
+
+
+# ── UNIT: protection classifier (keyless, deterministic, LLM-free) ────
+
+
+def test_classify_protection_cloudflare_ns_subdomain() -> None:
+    assert classify_protection(("dana.ns.cloudflare.com", "kip.ns.cloudflare.com")) == "cloudflare"
+
+
+def test_classify_protection_akamai_and_sucuri() -> None:
+    assert classify_protection(("a1-2.akam.net",)) == "akamai"
+    assert classify_protection(("ns1.sucuri.net",)) == "sucuri"
+
+
+def test_classify_protection_self_hosted_is_none() -> None:
+    assert classify_protection(("ns1.self-hosted.example", "ns2.self-hosted.example")) is None
+    assert classify_protection(()) is None
+
+
+# ── UNIT: enrich fills DNS fields, preserves slice-1, frozen ──────────
+
+
+def test_enrich_fills_dns_and_preserves_slice1() -> None:
+    base = build_passive_intel_map(
+        PassiveDiscoveryResult(
+            domain="ex.com",
+            discovered=("ex.com", "a.ex.com"),
+            in_scope=("ex.com",),
+            enumerated=("a.ex.com",),
+        )
+    )
+    out = enrich_with_dns(
+        base,
+        _StubDNS(
+            mx=["mail.ex.com"],
+            ns=["dana.ns.cloudflare.com"],
+            txt=["v=spf1 -all"],
+        ),
+    )
+    # DNS fields filled
+    assert out.mx_records == ("mail.ex.com",)
+    assert out.nameservers == ("dana.ns.cloudflare.com",)
+    assert out.txt_records == ("v=spf1 -all",)
+    assert out.protection_detected == "cloudflare"
+    # slice-1 fields preserved verbatim (additive, anti-#10)
+    assert out.subdomains == ("ex.com", "a.ex.com")
+    assert out.in_scope_subdomains == ("ex.com",)
+    # returned a NEW frozen object (replace, not mutate)
+    assert out is not base
+    with pytest.raises((AttributeError, TypeError)):
+        out.protection_detected = "akamai"  # type: ignore[misc]
+
+
+def test_enrich_fail_open_empty_resolver() -> None:
+    base = build_passive_intel_map(
+        PassiveDiscoveryResult(domain="ex.com", discovered=("ex.com",), in_scope=("ex.com",),
+                               enumerated=())
+    )
+    out = enrich_with_dns(base, _StubDNS())  # all lookups return []
+    assert out.mx_records == ()
+    assert out.nameservers == ()
+    assert out.txt_records == ()
+    assert out.protection_detected is None  # no raise, honest empty signal
+
+
+# ── WIRED-PROOF (§12.35 Rule 2 — non-island): DNS signal on the live path ──
+
+
+def test_dns_signal_on_live_path_via_injected_resolver(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """run_recon_for_engagement, given an injected stub resolver, records the DNS
+    signal in the PASSIVE_INTEL_GATHERED payload — proving enrich_with_dns runs on
+    the AUTONOMOUS Conductor path, not as an island (#2). Distinctive stub values
+    make the assertion unforgeable (#3); crt.sh-once guards double-recon (no
+    slice-1/2 regression)."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    graph = NetworkXGraphStore()
+    crt = _CrtShClient()
+    monkeypatch.setattr(
+        recon_runner, "build_recon_pipeline", lambda *a, **k: _fake_pipeline(auth, graph, store)
+    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
+    )
+
+    stub = _StubDNS(
+        mx=["mail.lab-target.invalid"],
+        ns=["dana.ns.cloudflare.com", "kip.ns.cloudflare.com"],
+        txt=["v=spf1 -all"],
+    )
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec, dns_resolver=stub
+    )
+
+    intel_evs = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ]
+    assert len(intel_evs) == 1, "PASSIVE_INTEL_GATHERED not on the live stream — island (#2)"
+    payload = intel_evs[0].payload
+    # DNS signal reached the live event via the injected resolver (unforgeable values)
+    assert payload["nameservers"] == ["dana.ns.cloudflare.com", "kip.ns.cloudflare.com"]
+    assert payload["protection_detected"] == "cloudflare"
+    assert payload["mx_records"] == ["mail.lab-target.invalid"]
+    assert payload["txt_records"] == ["v=spf1 -all"]
+    assert "dns" in payload["sources_used"]
+    # anti double-recon: crt.sh still exactly once (slice-1/2 not regressed)
+    assert len(crt.calls) == 1, f"crt.sh called {len(crt.calls)}x — double-recon regression"
+    assert payload["in_scope_subdomains"] == [_ROOT]

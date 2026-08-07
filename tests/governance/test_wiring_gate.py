@@ -63,6 +63,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "hackertarget_fallback": (
         "conductor/recon_runner.py",
     ),  # §12.48 slice-2: keyless crt.sh fallback wired into the live passive stage
+    "enrich_with_dns": (
+        "conductor/recon_runner.py",
+    ),  # §12.48 slice-3: DNS enrichment (MX/NS/TXT + protection_detected) wired into the live passive stage
     "resolve_and_bind_origin": (
         "agents/alpha/scout.py",
     ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)

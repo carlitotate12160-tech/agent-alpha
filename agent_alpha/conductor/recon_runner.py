@@ -25,6 +25,7 @@ from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Report
 from agent_alpha.agents.rate_limiter import Pacer
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
+from agent_alpha.conductor.domain_verification import DnspythonResolver
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.config import constants
@@ -35,7 +36,9 @@ from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscoveryResult
 from agent_alpha.recon.passive_intel import (
+    PassiveDNSResolver,
     build_passive_intel_map,
+    enrich_with_dns,
     hackertarget_fallback,
     record_passive_intel,
 )
@@ -246,6 +249,7 @@ def run_recon_for_engagement(
     browser_solve: Any = None,
     engagement_profile: Any = None,
     browser_solve_viable: bool = False,
+    dns_resolver: PassiveDNSResolver | None = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -268,6 +272,9 @@ def run_recon_for_engagement(
         browser_solve_viable=browser_solve_viable,
     )
     targets = resolve_recon_targets(record)
+    # §12.48 slice-3: fail-open DNS resolver (default = production DnspythonResolver;
+    # tests inject a stub). Reuses the ONE production resolver, no second type (anti-#6).
+    dns = dns_resolver if dns_resolver is not None else DnspythonResolver()
 
     # ── Passive crt.sh discovery (fail-open: crt.sh down must NOT break the engagement) ──
     enumerated: set[str] = set()
@@ -323,7 +330,12 @@ def run_recon_for_engagement(
             # fallback) result and record PASSIVE_INTEL_GATHERED BEFORE any active
             # recon runs. sources_used records which OSINT source produced it.
             intel = build_passive_intel_map(result)
-            record_passive_intel(store, engagement_id, intel, sources_used=sources_used)
+            # §12.48 slice-3: enrich with keyless DNS (MX/NS/TXT) + protection posture
+            # BEFORE recording, so PASSIVE_INTEL_GATHERED carries the full signal.
+            intel = enrich_with_dns(intel, dns)
+            record_passive_intel(
+                store, engagement_id, intel, sources_used=(*sources_used, "dns")
+            )
 
     # §12.41: extend targets with in-scope passive-discovered subdomains that
     # are not already targeted.  run_recon enforces auth/scope per-target, and
