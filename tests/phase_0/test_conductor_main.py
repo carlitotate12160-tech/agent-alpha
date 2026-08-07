@@ -214,3 +214,46 @@ def test_emergency_stop_then_state_returns_emergency_stop() -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["state"] == "EMERGENCY_STOP"
+
+
+def test_authorize_forwards_discovery_flags(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = TestClient(app)
+    create_resp = client.post(
+        "/engagements",
+        json={"client_id": "client_a", "target": "10.0.0.0/24"},
+        headers=_auth(),
+    )
+    engagement_id = create_resp.json()["engagement_id"]
+    captured: dict[str, object] = {}
+
+    class _FakeProfile:
+        def sign(self, key: object) -> str:
+            return "profile-hash"
+
+    def _fake_authorize_engagement(**kwargs: object) -> _FakeProfile:
+        captured.update(kwargs)
+        return _FakeProfile()
+
+    monkeypatch.setenv("AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION", "1")
+    monkeypatch.setattr(
+        "agent_alpha.conductor.main.authorize_engagement", _fake_authorize_engagement
+    )
+    monkeypatch.setattr("agent_alpha.conductor.main.get_profile_signing_key", lambda: "k" * 64)
+    monkeypatch.setattr(
+        "agent_alpha.conductor.main.dump_signed_profile", lambda profile, key: {"ok": True}
+    )
+
+    response = client.post(
+        f"/engagements/{engagement_id}/authorize",
+        json={
+            "domains": ["example.com"],
+            "authorized_origins": ["93.184.216.34"],
+            "allow_origin_discovery": True,
+            "allow_subdomain_enum": True,
+        },
+        headers=_auth(),
+    )
+
+    assert response.status_code == 200
+    assert captured["allow_origin_discovery"] is True
+    assert captured["allow_subdomain_enum"] is True

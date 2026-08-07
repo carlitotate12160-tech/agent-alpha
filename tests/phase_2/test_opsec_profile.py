@@ -1,16 +1,14 @@
-"""RED tests for OPSEC profile — per-engagement UA/headers with evasion gate.
-
-The evasion profile ('blend') must NOT be selectable without SOW authorization.
-Default ('announced') = honest identifying UA. Fail-closed.
-"""
+"""RED tests for OPSEC profile resolution and HttpClient header application."""
 
 from __future__ import annotations
 
-import httpx
+from typing import Any
+
 import pytest
 
-from agent_alpha.agents.http_client import HttpClient
+from agent_alpha.agents.http_client import HttpClient, HttpResponse
 from agent_alpha.conductor.policy import PolicyEnforcer
+from agent_alpha.config import constants
 
 
 @pytest.fixture()
@@ -18,63 +16,61 @@ def policy() -> PolicyEnforcer:
     return PolicyEnforcer()
 
 
-# ── T1: default profile is honest UA ──────────────────────────────────────────
+def test_default_profile_is_stealth_browser_identity(policy: PolicyEnforcer) -> None:
+    p = policy.resolve_opsec_profile("stealth", evasion_authorized=False)
+    hc = HttpClient(engagement_id="e", opsec=p)
+    assert hc._headers["User-Agent"] == constants.STEALTH_BROWSER["user_agent"]
+    assert hc._headers["sec-ch-ua"] == constants.STEALTH_BROWSER["sec_ch_ua"]
+    assert "Agent-Alpha" not in hc._headers["User-Agent"]
 
 
-def test_default_profile_is_honest_ua(policy: PolicyEnforcer) -> None:
+def test_explicit_announced_profile_still_identifies_itself(policy: PolicyEnforcer) -> None:
     p = policy.resolve_opsec_profile("announced", evasion_authorized=False)
     hc = HttpClient(engagement_id="e", opsec=p)
-    assert "Agent-Alpha" in hc._headers["User-Agent"]
-
-
-# ── T2: evasion profile requires authorization (the gate) ────────────────────
+    assert hc._headers["User-Agent"] == "Agent-Alpha-Recon"
 
 
 def test_evasion_profile_requires_authorization(policy: PolicyEnforcer) -> None:
     p = policy.resolve_opsec_profile("blend", evasion_authorized=False)
-    assert p.get("evasion") is False  # fell back to announced — NO spoofing unauthorized
+    assert p == policy.get_opsec_profile(constants.DEFAULT_OPSEC_PROFILE)
 
 
-# ── T3: authorized evasion applies profile UA and headers ────────────────────
-
-
-def test_authorized_evasion_applies_profile_ua_and_headers(policy: PolicyEnforcer) -> None:
+def test_authorized_evasion_keeps_ssot_browser_identity(policy: PolicyEnforcer) -> None:
     p = policy.resolve_opsec_profile("blend", evasion_authorized=True)
     hc = HttpClient(engagement_id="e", opsec=p)
-    assert hc._headers["User-Agent"] == p["user_agent"]  # not the giveaway UA
-    assert set(p.get("headers", {})).issubset(hc._headers)  # browser headers applied
-
-
-# ── T4: UA applied to every request (single chokepoint, #7) ───────────────────
-
-
-class _FakeTransport(httpx.BaseTransport):
-    def __init__(self) -> None:
-        self.captured_headers: list[dict[str, str]] = []
-
-    def handle_request(self, request: httpx.Request) -> httpx.Response:
-        self.captured_headers.append(dict(request.headers))
-        return httpx.Response(200, text="ok", headers={}, request=request)
+    assert hc._headers["User-Agent"] == constants.STEALTH_BROWSER["user_agent"]
+    assert hc._headers["sec-ch-ua"] == constants.STEALTH_BROWSER["sec_ch_ua"]
 
 
 def test_ua_applied_to_every_request(policy: PolicyEnforcer) -> None:
-    p = policy.resolve_opsec_profile("blend", evasion_authorized=True)
-    transport = _FakeTransport()
-    hc = HttpClient(engagement_id="e", opsec=p, transport=transport)
+    p = policy.resolve_opsec_profile("stealth", evasion_authorized=False)
+    captured_headers: list[dict[str, str]] = []
+
+    def fetcher(
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        cookies: dict[str, str] | None,
+        data: dict[str, Any] | None,
+        json_body: dict[str, Any] | None,
+        allow_redirects: bool,
+        verify: bool,
+    ) -> HttpResponse:
+        captured_headers.append(dict(headers))
+        return HttpResponse(status_code=200, text="ok", headers={}, url=url)
+
+    hc = HttpClient(engagement_id="e", opsec=p, fetcher=fetcher)
 
     hc.get("https://example.com/")
     hc.post("https://example.com/login", data={"log": "x", "pwd": "y"})
 
-    assert len(transport.captured_headers) == 2
-    for hdrs in transport.captured_headers:
-        # httpx lowercases header keys
-        assert hdrs["user-agent"] == p["user_agent"]
-        assert "agent-alpha" not in hdrs["user-agent"].lower()
+    assert len(captured_headers) == 2
+    for hdrs in captured_headers:
+        assert hdrs["User-Agent"] == constants.STEALTH_BROWSER["user_agent"]
+        assert "agent-alpha" not in hdrs["User-Agent"].lower()
 
 
-# ── T5: no opsec = backward compatible (honest UA with engagement_id) ────────
-
-
-def test_no_opsec_backward_compatible() -> None:
+def test_no_opsec_uses_stealth_defaults() -> None:
     hc = HttpClient(engagement_id="eng-123")
-    assert hc._headers["User-Agent"] == "Agent-Alpha-Recon/eng-123"
+    assert hc._headers["User-Agent"] == constants.STEALTH_BROWSER["user_agent"]

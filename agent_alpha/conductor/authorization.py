@@ -564,6 +564,7 @@ def authorize_engagement(
         or allow_evasion
         or opsec_stealth
         or allow_origin_discovery
+        or allow_subdomain_enum
     ):
         if not consent_items or not signed_by or not signed_at:
             raise ConsentRequiredError(

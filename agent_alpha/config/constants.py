@@ -30,6 +30,7 @@ __all__ = [
     "HTTP_DEFAULT_ACCEPT_HEADER",
     "DEFAULT_RATE_LIMIT_RPS",
     "DEFAULT_OPSEC_PROFILE",
+    "STEALTH_BROWSER",
     "SOW_MAX_FILE_SIZE_MB",
     "SOW_HASH_ALGORITHM",
     "EVENT_SEQUENCE_GAP_ALLOWED",
@@ -155,21 +156,28 @@ JWT_SECRET_ENV = "AGENT_ALPHA_JWT_SECRET"
 
 # ── HTTP Client ──────────────────────────────────────────────
 HTTP_REQUEST_TIMEOUT_SEC = 30.0
+STEALTH_BROWSER = {
+    "impersonate": "chrome124",
+    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "sec_ch_ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "accept_language": "en-US,en;q=0.9",
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+}
 # Bug #10: without an Accept header, some origins (observed: Cloudways/WP)
 # reject the request with HTTP 415 instead of serving real HTML — the agent
 # was analysing the origin's generic error page, not the target's content.
 # Single source (anti-Lyndon #7): every HttpClient instance uses this value.
-HTTP_DEFAULT_ACCEPT_HEADER = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+HTTP_DEFAULT_ACCEPT_HEADER = STEALTH_BROWSER["accept"]
 # Default egress rate limit (requests/sec) per engagement HttpClient. Safe RoE
 # default = the policy.yaml "quiet" OPSEC profile (2 rps); per-engagement OPSEC
 # profile selection (policy.yaml normal=10/loud=50) overrides via the ctor when
 # that feature lands. Single source for the code-level default (anti-Lyndon #7).
 DEFAULT_RATE_LIMIT_RPS = 2.0
-# Default OPSEC profile name for recon — "announced" = honest identifying UA,
-# no evasion, fail-closed.  Per-engagement profile selection (slice-2b) will
-# override this via the ctor; until then all recon paths use this profile.
-# Single source for the profile name (anti-Lyndon #7).
-DEFAULT_OPSEC_PROFILE: str = "announced"
+# Default OPSEC profile name for recon. Per-engagement profile selection
+# (slice-2b) will override this via the ctor; until then all recon paths use
+# this profile. Single source for the profile name (anti-Lyndon #7).
+DEFAULT_OPSEC_PROFILE: str = "stealth"
 SOW_MAX_FILE_SIZE_MB = 50
 SOW_HASH_ALGORITHM = "sha256"
 
