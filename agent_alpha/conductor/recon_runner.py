@@ -32,9 +32,10 @@ from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.recon.net_guard import is_internal_ip
-from agent_alpha.recon.passive_discovery import PassiveDiscovery
+from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscoveryResult
 from agent_alpha.recon.passive_intel import (
     build_passive_intel_map,
+    hackertarget_fallback,
     record_passive_intel,
 )
 from agent_alpha.tools.playbook import PlaybookEngine
@@ -208,6 +209,16 @@ def build_passive_discovery(
     )
 
 
+def build_osint_http_client(engagement_id: str) -> Any:
+    """Module seam (monkeypatchable) for the OSINT-source HTTP client used by
+    the §12.48 slice-2 keyless fallback. Same stealth ``HttpClient`` as recon
+    (curl_cffi impersonate + stealth UA) — anti self-identifying User-Agent.
+    """
+    from agent_alpha.agents.http_client import HttpClient
+
+    return HttpClient(engagement_id=engagement_id)
+
+
 _log = logging.getLogger(__name__)
 
 
@@ -259,21 +270,50 @@ def run_recon_for_engagement(
         seen_hosts.add(host)
         try:
             pd = build_passive_discovery(engagement_id, auth, store)
-            result = pd.discover(engagement_id, host)
-            enumerated.update(result.enumerated)
-            discovered_in_scope.update(result.in_scope)
-            # §12.48 slice-1: build the unified PassiveIntelMap from the SAME
-            # crt.sh result (no second call, anti double-recon) and record the
-            # PASSIVE_INTEL_GATHERED audit event BEFORE any active recon runs.
-            intel = build_passive_intel_map(result)
-            record_passive_intel(store, engagement_id, intel)
+            result: PassiveDiscoveryResult | None = pd.discover(engagement_id, host)
         except Exception:
+            result = None
             _log.warning(
-                "Passive discovery failed for %s (engagement %s) — continuing (fail-open)",
+                "Passive crt.sh discovery failed for %s (engagement %s) — continuing (fail-open)",
                 host,
                 engagement_id,
                 exc_info=True,
             )
+
+        # §12.48 slice-2: keyless fallback. Fire when crt.sh yielded NOTHING —
+        # either reachable-but-empty (rate-limit / 503 → parse yields nothing) OR
+        # unreachable (exception above → result is None). Both are "crt.sh gave us
+        # no surface". Fall back to the HackerTarget host-search (no API key),
+        # routed through the SAME stealth HttpClient (anti self-identifying UA) and
+        # the SAME fail-closed auth gate. Never a second call when crt.sh had hits.
+        sources_used: tuple[str, ...] = ("crtsh",)
+        if result is None or not result.discovered:
+            try:
+                fb = hackertarget_fallback(
+                    engagement_id,
+                    host,
+                    http_client=build_osint_http_client(engagement_id),
+                    authorization=auth,
+                )
+                if fb.discovered:
+                    result = fb
+                    sources_used = ("hackertarget",)
+            except Exception:
+                _log.warning(
+                    "HackerTarget fallback failed for %s (engagement %s) — continuing (fail-open)",
+                    host,
+                    engagement_id,
+                    exc_info=True,
+                )
+
+        if result is not None:
+            enumerated.update(result.enumerated)
+            discovered_in_scope.update(result.in_scope)
+            # §12.48: build the unified PassiveIntelMap from the (crt.sh or
+            # fallback) result and record PASSIVE_INTEL_GATHERED BEFORE any active
+            # recon runs. sources_used records which OSINT source produced it.
+            intel = build_passive_intel_map(result)
+            record_passive_intel(store, engagement_id, intel, sources_used=sources_used)
 
     # §12.41: extend targets with in-scope passive-discovered subdomains that
     # are not already targeted.  run_recon enforces auth/scope per-target, and

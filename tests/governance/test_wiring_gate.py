@@ -60,6 +60,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "build_passive_intel_map": (
         "conductor/recon_runner.py",
     ),  # §12.48 slice-1: PassiveIntelMap built + PASSIVE_INTEL_GATHERED emitted on the live passive stage
+    "hackertarget_fallback": (
+        "conductor/recon_runner.py",
+    ),  # §12.48 slice-2: keyless crt.sh fallback wired into the live passive stage
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
