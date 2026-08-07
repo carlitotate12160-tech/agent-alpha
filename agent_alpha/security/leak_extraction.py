@@ -137,3 +137,27 @@ def canonical_leak_vuln_suffix(logical_path: str, *, default: str) -> str:
     if "/.git/" in p or p.rstrip("/").endswith("/.git/config"):
         return "git_exposure"
     return default
+
+
+# SINGLE source of truth (#7) for the CVSS a leaked-file vuln carries, keyed by the
+# SAME canonical suffix canonical_leak_vuln_suffix() mints — so every probe that
+# converges on one canonical node (wp_config_probe, path_probe) reports one
+# consistent severity, not a per-probe literal that can drift. All three are
+# credential-bearing info-disclosure (CWE-200): a recovered secret is the payable
+# entry point of a proven chain, hence HIGH, not the 0.0 the dataclass defaults to.
+LEAK_VULN_CVSS: dict[str, float] = {
+    "wp_config_leak": 7.5,
+    "git_exposure": 7.5,
+    "backup_file_leak": 7.5,
+    "actuator_exposure": 7.5,
+}
+
+# Conservative floor for a recovered-secret leak whose class is not individually
+# scored above (path_probe only mints a node once extract_secrets is non-empty, so
+# the artifact IS a real disclosure — never 0.0).
+LEAK_VULN_CVSS_DEFAULT: float = 5.3
+
+
+def cvss_for_leak_suffix(suffix: str) -> float:
+    """CVSS for a leak vuln node, keyed by its canonical suffix (single source)."""
+    return LEAK_VULN_CVSS.get(suffix, LEAK_VULN_CVSS_DEFAULT)

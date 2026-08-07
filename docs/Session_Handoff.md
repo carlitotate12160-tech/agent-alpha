@@ -66,7 +66,7 @@ Strix cannot assemble.
   `test_leak_extraction::test_canonical_leak_vuln_suffix` (+ `.env`→backup_file differential). Omega
   chain-entry preference is moot (one node). **Phase 4 is closeable.**
 
-1. **§12.48 slice-3 DNS enrichment** — fill PassiveIntelMap MX/TXT/NS + `protection_detected` (NS→CF). KEYLESS. Double-value: feeds §12.46 origin candidates (MX often reveals origin) AND is the OPEN **Bug #26** fix (protection-detect before blind probe; closes part of GAP-007/GAP-016). **← recommended next slice.**
+1. **§12.48 slice-3 DNS enrichment** — fill PassiveIntelMap MX/TXT/NS + `protection_detected` (NS→CF). KEYLESS. Double-value: feeds §12.46 origin candidates (MX often reveals origin) AND produces the DNS signal (MX/NS/TXT/protection) that a LATER slice consumes for **Bug #26** Layer 1/5 (protection-detect before blind probe). Consumer wiring for Bug #26 + MX→origin (§12.46) = next slice; this slice is PRODUCER-ONLY (Bug #26 stays OPEN). **← IN REVIEW (PR #357), producer-only; pending Oracle seal + merge. NEXT after merge = item 2.**
 2. **Subdomain takeover** (dangling CNAME → expired service) — highest-value payable finding scanners miss; chains to full subdomain control.
 3. **Wayback** (GAP-016, keyless) → **VirusTotal** (key-gated enrichment). AXFR DEMOTED (rare + scanner-covered). robots/sitemap low. Dehashed = paid, feeds Beta.
 

@@ -41,7 +41,10 @@ from agent_alpha.graph.nodes import (
 )
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
-from agent_alpha.security.leak_extraction import canonical_leak_vuln_suffix
+from agent_alpha.security.leak_extraction import (
+    canonical_leak_vuln_suffix,
+    cvss_for_leak_suffix,
+)
 
 # Regex for define('DB_KEY', 'value') — case-insensitive, whitespace-tolerant.
 _WP_DEFINE_RE = re.compile(
@@ -147,9 +150,8 @@ def verify_wp_config_leak(
             # ── Assemble credential nodes via shared seam (anti-#6) ────────
             now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
-            vuln_node_id = (
-                f"vuln:{host}:{canonical_leak_vuln_suffix(path, default='wp_config_leak')}"
-            )
+            leak_suffix = canonical_leak_vuln_suffix(path, default="wp_config_leak")
+            vuln_node_id = f"vuln:{host}:{leak_suffix}"
 
             # Persist the vulnerability node first.
             vuln_node = AttackNode(
@@ -158,6 +160,7 @@ def verify_wp_config_leak(
                 properties=VulnerabilityProperties(
                     affected_service="web",
                     exploit_available=False,
+                    cvss_score=cvss_for_leak_suffix(leak_suffix),  # BUG1: was defaulting 0.0
                 ),
                 confidence=0.85,
                 agent="alpha",

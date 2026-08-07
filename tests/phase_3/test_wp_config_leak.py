@@ -175,6 +175,20 @@ def test_leak_at_in_scope_backup_path_assembles_paired_login(wp_ctx: WpCtx):
     assert _db_login(wp_ctx.graph, wp_ctx.secrets) == ("wpuser", "s3cret")
 
 
+def test_wp_config_leak_vuln_carries_high_cvss(wp_ctx: WpCtx):
+    """BUG1: the wp_config_leak entry-point vuln must report cvss 7.5, not the 0.0
+    the dataclass defaults to — Omega otherwise misrepresents a proven chain's entry."""
+    url = f"https://{_HOST}/wp-config.php.bak"
+    wp_ctx.http._responses[url] = FakeResponse(status_code=200, text=_WP_CONFIG_BODY)
+    verify_wp_config_leak(**wp_ctx.args)
+    vulns = [
+        n for n in wp_ctx.graph.nodes_by_type(NodeType.VULNERABILITY)
+        if n.id == f"vuln:{_HOST}:wp_config_leak"
+    ]
+    assert len(vulns) == 1
+    assert vulns[0].properties.cvss_score == 7.5
+
+
 # ── T4: HTTP 200 but unparseable → no credential (anti-#3) ──────────────────
 
 

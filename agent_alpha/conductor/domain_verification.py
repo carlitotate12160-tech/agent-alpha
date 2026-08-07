@@ -73,6 +73,31 @@ class DnspythonResolver:
         except Exception:  # noqa: BLE001 — any DNS error = no records
             return []
 
+    # §12.48 slice-3: passive DNS enrichment records. Fail-open ([] on any DNS
+    # error) — enrichment is recon signal, NEVER a security gate, so a missing
+    # record must degrade gracefully, not block the engagement (unlike ownership
+    # TXT which is fail-closed at the caller). These live on the ONE production
+    # resolver (anti-#6: no second DNS resolver type); the ownership DNSResolver
+    # Protocol stays TXT-only so its fail-closed stubs are untouched.
+
+    def resolve_mx(self, domain: str) -> list[str]:
+        import dns.resolver
+
+        try:
+            answers = dns.resolver.resolve(domain, "MX", lifetime=5.0)
+            return sorted(str(r.exchange).rstrip(".").lower() for r in answers)
+        except Exception:  # noqa: BLE001 — any DNS error = no records (fail-open)
+            return []
+
+    def resolve_ns(self, domain: str) -> list[str]:
+        import dns.resolver
+
+        try:
+            answers = dns.resolver.resolve(domain, "NS", lifetime=5.0)
+            return sorted(str(r.target).rstrip(".").lower() for r in answers)
+        except Exception:  # noqa: BLE001 — any DNS error = no records (fail-open)
+            return []
+
 
 def _parse_expected_token(expected_token: str) -> str:
     """Parse a DNS-TXT ownership token string.
