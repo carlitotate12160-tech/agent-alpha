@@ -658,9 +658,9 @@ def test_alpha_reach_refused_when_candidate_not_bound(monkeypatch: pytest.Monkey
         "origin_direct_fetch",
         lambda *a, **k: _StubOriginDirectResult(body="cohost-neighbor-no-token"),
     )
-    monkeypatch.setattr(
-        scout, "origin_direct_fetch", lambda *a, **k: _StubOriginDirectResult(body=_OK_BODY)
-    )
+    # Track the reach-transport boundary: it must NEVER be hit when nothing binds.
+    reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
+    monkeypatch.setattr(scout, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_alpha(
         event_store=store,
@@ -675,3 +675,4 @@ def test_alpha_reach_refused_when_candidate_not_bound(monkeypatch: pytest.Monkey
     assert EventType.ORIGIN_DIRECT_ATTEMPT not in types, (
         "origin-direct fired without a binding proof (collateral risk)"
     )
+    reach_fetch.assert_not_called()  # fail-closed transport boundary — never fetched
