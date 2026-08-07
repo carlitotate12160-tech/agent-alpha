@@ -57,6 +57,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "verify_access_nodes": (
         "conductor/main.py",
     ),  # §12.43: CROSS_VERIFIED on the autonomous Conductor path (canonical run_verification_pass wrapper)
+    "build_passive_intel_map": (
+        "conductor/recon_runner.py",
+    ),  # §12.48 slice-1: PassiveIntelMap built + PASSIVE_INTEL_GATHERED emitted on the live passive stage
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a

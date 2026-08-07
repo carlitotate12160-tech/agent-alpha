@@ -80,6 +80,12 @@ class EventType(enum.StrEnum):
     # ^ PassiveDiscovery.discover(): one event per passive crt.sh run.
     # Carries {discovered: [...], in_scope: [...], enumerated: [...]}.
 
+    # ── Phase 4 (§12.48 passive-first recon — OSINT before touch) ─
+    PASSIVE_INTEL_GATHERED = "PassiveIntelGathered"
+    # ^ record_passive_intel(): unified PassiveIntelMap for one domain, appended
+    # BEFORE any active recon event (§12.48). Slice-1 carries the crt.sh-derived
+    # surface; later slices add VT/DNS fields. Payload = the full map.
+
     # ── Phase 3 (recon evidence — WAF discriminator §12.23) ──────
     WAF_BLOCKED = "WafBlocked"
     # ^ A recon probe received a 403 / challenge / block response. Recorded as

@@ -33,6 +33,10 @@ from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.passive_discovery import PassiveDiscovery
+from agent_alpha.recon.passive_intel import (
+    build_passive_intel_map,
+    record_passive_intel,
+)
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
@@ -258,6 +262,11 @@ def run_recon_for_engagement(
             result = pd.discover(engagement_id, host)
             enumerated.update(result.enumerated)
             discovered_in_scope.update(result.in_scope)
+            # §12.48 slice-1: build the unified PassiveIntelMap from the SAME
+            # crt.sh result (no second call, anti double-recon) and record the
+            # PASSIVE_INTEL_GATHERED audit event BEFORE any active recon runs.
+            intel = build_passive_intel_map(result)
+            record_passive_intel(store, engagement_id, intel)
         except Exception:
             _log.warning(
                 "Passive discovery failed for %s (engagement %s) — continuing (fail-open)",
