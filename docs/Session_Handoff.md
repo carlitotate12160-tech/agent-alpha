@@ -58,10 +58,17 @@ Strix cannot assemble.
 
 ## NEXT (foundation, in order — one slice at a time)
 
-1. **Dedup** `backup_file_leak` vs `wp_config_leak` (double-report on the same wp-config.php.bak) + Omega narrative to prefer `wp_config_leak` as chain entry. Last Phase-4-exit cleanup.
-2. **§12.48 slice-3 DNS enrichment** — fill PassiveIntelMap MX/TXT/NS + `protection_detected` (NS→CF). KEYLESS. Double-value: feeds §12.46 origin candidates (MX often reveals origin) AND is the OPEN **Bug #26** fix (protection-detect before blind probe; closes part of GAP-007/GAP-016).
-3. **Subdomain takeover** (dangling CNAME → expired service) — highest-value payable finding scanners miss; chains to full subdomain control.
-4. **Wayback** (GAP-016, keyless) → **VirusTotal** (key-gated enrichment). AXFR DEMOTED (rare + scanner-covered). robots/sitemap low. Dehashed = paid, feeds Beta.
+**PHASE-4 EXIT CRITERIA — BOTH MET (verified 2026-08-07 via READ-BEFORE):**
+- CROSS_VERIFIED — DONE (see PENDING #3).
+- Dedup backup_file/wp_config — DONE: `canonical_leak_vuln_suffix` converges BOTH probes to one
+  `vuln:{host}:wp_config_leak` node (add_node upsert → single node); proven by
+  `test_path_probe::test_wp_config_backup_dedups_to_single_canonical_vuln` +
+  `test_leak_extraction::test_canonical_leak_vuln_suffix` (+ `.env`→backup_file differential). Omega
+  chain-entry preference is moot (one node). **Phase 4 is closeable.**
+
+1. **§12.48 slice-3 DNS enrichment** — fill PassiveIntelMap MX/TXT/NS + `protection_detected` (NS→CF). KEYLESS. Double-value: feeds §12.46 origin candidates (MX often reveals origin) AND is the OPEN **Bug #26** fix (protection-detect before blind probe; closes part of GAP-007/GAP-016). **← recommended next slice.**
+2. **Subdomain takeover** (dangling CNAME → expired service) — highest-value payable finding scanners miss; chains to full subdomain control.
+3. **Wayback** (GAP-016, keyless) → **VirusTotal** (key-gated enrichment). AXFR DEMOTED (rare + scanner-covered). robots/sitemap low. Dehashed = paid, feeds Beta.
 
 ## DOCTRINE BANKED (2026-08-07)
 
@@ -87,8 +94,11 @@ Strix cannot assemble.
    `test_autonomous_wp_chain_e2e::test_autonomous_conductor_chain_produces_cross_verified_wp_finding` 
    (asserts an ACCESS_LEVEL node reaches CROSS_VERIFIED on the live chain) + the unit differential in
    `test_conductor_verification`. NOT a gap — do not rebuild.
-4. **Dedup** `backup_file_leak` vs `wp_config_leak` (same wp-config.php.bak, double-reported) + Omega
-   narrative to prefer the specific wp_config_leak as chain entry.
+4. ~~**Dedup** `backup_file_leak` vs `wp_config_leak`~~ — **DONE (verified 2026-08-07 via READ-BEFORE).**
+   `canonical_leak_vuln_suffix` (single source, anti-#6/#7) maps `wp-config.php.bak` → `wp_config_leak` 
+   for BOTH probes → one `vuln:{host}:wp_config_leak` node (graph upsert). Proven by
+   `test_path_probe::test_wp_config_backup_dedups_to_single_canonical_vuln`. Omega chain-entry
+   preference moot (single node). NOT a gap — do not rebuild.
 
 ---
 
