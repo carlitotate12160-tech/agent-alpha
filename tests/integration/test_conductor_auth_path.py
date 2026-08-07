@@ -186,20 +186,16 @@ def test_cardinal_profile_reaches_recon_pipeline(
     )
 
     # Monkeypatch build_passive_discovery to avoid live network I/O
-    from dataclasses import dataclass
+    from agent_alpha.recon.passive_discovery import PassiveDiscoveryResult
 
-    @dataclass
-    class _FakePD:
-        enumerated: set[str] = None  # type: ignore[assignment]
+    def _fake_discover(eid: str, host: str) -> PassiveDiscoveryResult:
+        return PassiveDiscoveryResult(domain=host, discovered=(), in_scope=(), enumerated=())
 
-        def __post_init__(self) -> None:
-            if self.enumerated is None:
-                self.enumerated = set()
-
-        def discover(self, eid: str, host: str) -> Any:
-            return self
-
-    monkeypatch.setattr(recon_runner, "build_passive_discovery", lambda *a, **kw: _FakePD())
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **kw: type("PD", (), {"discover": _fake_discover})(),
+    )
 
     # Run the engagement task
     result = m.run_engagement_task(eid, "test-tenant")
@@ -374,12 +370,16 @@ def test_origin_discovery_still_none_on_conductor_path(
 
     monkeypatch.setattr(recon_runner, "build_recon_pipeline", _spy)
     monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda r: [f"https://{_DOMAIN}"])
+
+    from agent_alpha.recon.passive_discovery import PassiveDiscoveryResult
+
+    def _fake_discover(eid: str, host: str) -> PassiveDiscoveryResult:
+        return PassiveDiscoveryResult(domain=host, discovered=(), in_scope=(), enumerated=())
+
     monkeypatch.setattr(
         recon_runner,
         "build_passive_discovery",
-        lambda *a, **kw: type(
-            "PD", (), {"discover": lambda s, e, h: type("R", (), {"enumerated": set()})()}
-        )(),
+        lambda *a, **kw: type("PD", (), {"discover": _fake_discover})(),
     )
 
     m.run_engagement_task(eid, "test-tenant")
