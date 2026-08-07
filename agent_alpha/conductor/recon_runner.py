@@ -333,9 +333,7 @@ def run_recon_for_engagement(
             # §12.48 slice-3: enrich with keyless DNS (MX/NS/TXT) + protection posture
             # BEFORE recording, so PASSIVE_INTEL_GATHERED carries the full signal.
             intel = enrich_with_dns(intel, dns)
-            record_passive_intel(
-                store, engagement_id, intel, sources_used=(*sources_used, "dns")
-            )
+            record_passive_intel(store, engagement_id, intel, sources_used=(*sources_used, "dns"))
 
     # §12.41: extend targets with in-scope passive-discovered subdomains that
     # are not already targeted.  run_recon enforces auth/scope per-target, and
