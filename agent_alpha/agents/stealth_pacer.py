@@ -55,7 +55,7 @@ class StealthPacer:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        self._rng = rng if rng is not None else random.Random(seed)
+        self._rng = rng if rng is not None else random.Random(seed)  # nosec B311
         self._sleep = sleep
         self._monotonic = monotonic
         self._started = False
