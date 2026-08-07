@@ -29,7 +29,7 @@ class Pacer(Protocol):
     both satisfy this. An optional ``notify(status_code)`` hook (checked via
     getattr) lets a pacer adapt to responses (e.g. 429/503 backoff)."""
 
-    def acquire(self) -> None: ...
+    def acquire(self, url: str | None = None) -> None: ...
 
 
 class RateLimiter:
@@ -50,7 +50,8 @@ class RateLimiter:
         self._next_allowed: float | None = None  # None → first request is immediate
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
+    def acquire(self, url: str | None = None) -> None:  # noqa: ARG002 — url is a
+        # pacing-context hint used by StealthPacer; the fixed-interval limiter ignores it.
         """Block until a request slot is available, then reserve the next slot."""
         with self._lock:
             now = self._monotonic()

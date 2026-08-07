@@ -38,6 +38,7 @@ from __future__ import annotations
 import random
 import time
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 from agent_alpha.config import constants
 
@@ -60,6 +61,7 @@ class StealthPacer:
         self._monotonic = monotonic
         self._started = False
         self._in_burst = 0
+        self._last_host: str | None = None
         self._burst_size = self._pick_burst_size()
         self._bursts_until_think = self._rng.randint(*constants.STEALTH_THINK_EVERY_N_BURSTS)
         self._bursts_until_idle = self._rng.randint(*constants.STEALTH_IDLE_EVERY_N_BURSTS)
@@ -80,23 +82,9 @@ class StealthPacer:
         if self._rng.random() < constants.STEALTH_DISTRACTION_CHANCE:
             self._sleep(self._gauss_in(*constants.STEALTH_DISTRACTION_PAUSE_S))
 
-    # ── Pacer contract ─────────────────────────────────────────────
-    def acquire(self) -> None:
-        """Block for a human-like interval, then reserve this request's slot."""
-        if not self._started:
-            self._started = True
-            self._in_burst = 1
-            self._maybe_distraction()
-            return
-
-        if self._in_burst < self._burst_size:
-            lo, hi = constants.STEALTH_BURST_INTERVAL_MS
-            self._sleep(self._gauss_in(lo / 1000.0, hi / 1000.0))
-            self._in_burst += 1
-            self._maybe_distraction()
-            return
-
-        # burst complete → a between-burst pause (read / think / idle)
+    def _between_page_pause(self) -> float:
+        """A read / think / idle pause (Gaussian), scaled by any active backoff.
+        Think/idle thresholds are re-randomised each time → no fixed periodicity."""
         self._bursts_until_think -= 1
         self._bursts_until_idle -= 1
         if self._bursts_until_idle <= 0:
@@ -107,13 +95,50 @@ class StealthPacer:
             self._bursts_until_think = self._rng.randint(*constants.STEALTH_THINK_EVERY_N_BURSTS)
         else:
             pause = self._gauss_in(*constants.STEALTH_READ_PAUSE_S)
-
         pause *= self._backoff
         self._backoff = 1.0  # backoff is consumed by the pause it slows
-        self._sleep(pause)
+        return pause
 
-        self._burst_size = self._pick_burst_size()
-        self._in_burst = 1
+    # ── Pacer contract ─────────────────────────────────────────────
+    def acquire(self, url: str | None = None) -> None:
+        """Block for a human-like interval, then reserve this request's slot.
+
+        §12.50 slice-2 — context-adaptive burst (ADR §12.50 point 2): a request to
+        a NEW host is a NAVIGATION (single request, preceded by a read/think/idle
+        pause — the user finished the previous page and clicked away). Follow-up
+        requests to the SAME host are the browser fetching that page's assets — a
+        fast burst. When ``url`` is None (context-less caller) the pacer falls back
+        to fixed burst-and-pause. WAFs correlate request-count-per-navigation, so
+        this is not cosmetic (anti-Lyndon #11: adapts to context, not a fixed loop).
+        """
+        host = urlparse(url).hostname if url else None
+
+        if not self._started:
+            self._started = True
+            self._in_burst = 1
+            self._last_host = host
+            self._maybe_distraction()
+            return
+
+        # NAVIGATION to a new host → a between-page pause, then a single request.
+        if host is not None and host != self._last_host:
+            self._sleep(self._between_page_pause())
+            self._last_host = host
+            self._burst_size = self._pick_burst_size()
+            self._in_burst = 1
+            self._maybe_distraction()
+            return
+
+        # SAME host (or unknown) → an asset fetch within the current page.
+        if self._in_burst < self._burst_size:
+            lo, hi = constants.STEALTH_BURST_INTERVAL_MS
+            self._sleep(self._gauss_in(lo / 1000.0, hi / 1000.0))
+            self._in_burst += 1
+        else:
+            # page's asset budget spent → a read pause, then a fresh burst.
+            self._sleep(self._between_page_pause())
+            self._burst_size = self._pick_burst_size()
+            self._in_burst = 1
         self._maybe_distraction()
 
     def notify(self, status_code: int) -> None:

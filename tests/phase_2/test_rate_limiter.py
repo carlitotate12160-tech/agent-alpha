@@ -86,24 +86,29 @@ class _RecordingLimiter:
     def __init__(self) -> None:
         self.calls = 0
 
-    def acquire(self) -> None:
+    def acquire(self, url: str | None = None) -> None:  # noqa: ARG002
         self.calls += 1
 
 
 def test_httpclient_acquires_a_slot_before_each_request() -> None:
     limiter = _RecordingLimiter()
     order: list[str] = []
+    acquired_urls: list[str | None] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         order.append("request")
         return httpx.Response(200, text="ok")
 
-    # wrap acquire to record ordering vs the request
+    # wrap acquire to record ordering vs the request AND the url forwarded to the
+    # pacer (§12.50: HttpClient passes the request URL to acquire(url) so the
+    # StealthPacer can adapt bursts to navigation context — assert it, not just
+    # that acquire fired).
     orig = limiter.acquire
 
-    def tracking_acquire() -> None:
+    def tracking_acquire(url: str | None = None) -> None:
+        acquired_urls.append(url)
         order.append("acquire")
-        orig()
+        orig(url)
 
     limiter.acquire = tracking_acquire  # type: ignore[method-assign]
 
@@ -117,6 +122,8 @@ def test_httpclient_acquires_a_slot_before_each_request() -> None:
 
     assert limiter.calls == 2
     assert order == ["acquire", "request", "acquire", "request"]  # throttle BEFORE egress
+    # correctness: HttpClient forwards each request URL to the pacer (not acquire()).
+    assert acquired_urls == ["https://lab-target.invalid", "https://lab-target.invalid"]
 
 
 def test_httpclient_default_limiter_is_single_source_rps() -> None:

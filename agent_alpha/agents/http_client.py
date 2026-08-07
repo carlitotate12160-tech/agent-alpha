@@ -287,7 +287,7 @@ class HttpClient:
     ) -> HttpResponse:
         # RoE: block to honour the engagement rate limit before egress. Delays,
         # never drops (anti-Lyndon #3). Single chokepoint for every method (#7).
-        self._rate_limiter.acquire()
+        self._rate_limiter.acquire(url)
         merged_headers = {**self._headers, **(headers or {})}
         # Per-call verify override: None → fall back to instance default (self._verify).
         effective_verify = self._verify if verify is None else verify
