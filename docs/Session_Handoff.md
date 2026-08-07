@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-02)
+# Agent-Alpha — Session Handoff (2026-08-07)
 
-Resume with: "lanjut Agent-Alpha — MILESTONE: Phase 4 Recon & Evasion Overhaul. We have locked the architecture for Passive-First Recon (§12.48) and Proactive Evasion (§12.49) in ADR.md. NEXT = Execute Implementation Plan Slice 1 to 6 (PassiveIntelMap, crt.sh, Stealth Default, StealthPacer, Deep Evasion, and Deep Recon). Do NOT build Gamma. Execute one slice at a time and verify against WAF."
+Resume with: "lanjut Agent-Alpha — PR #346 stealth-by-default MERGED. bernofarm apex WafBlocked 25→12 (reproducible 3x on Oracle ARM64). DOCTRINE BANKED: stop beating full-CF apex from datacenter IP — residual 12 blocks = IP-rep + managed-challenge = INFRA ceiling, NOT code. NEXT = §12.48 PassiveIntelMap as SEPARATE component (anti-#8, starts §12.47 decomposition): crt.sh/Wayback/VirusTotal zero-touch → surface CT subdomains → resolve → non-CF/grey-cloud + origin candidates → verify_origin_binding (slice-1 sealed) → reach THOSE, avoid apex. Then origin-binding slice-3 (wire resolve_and_bind_origin into _attempt_reach). Then §12.50 pacing. Do NOT build Gamma."
 
 ---
 
@@ -19,6 +19,7 @@ Strix cannot assemble.
 
 ## SEALED / PROVEN this arc
 
+- **PR #346 stealth-by-default** (merged 2026-08-07): curl_cffi chrome124 as DEFAULT transport from request #1 (not reactive fallback). STEALTH_BROWSER SSOT (UA + sec-ch-ua + impersonate pinned to Chrome 124, anti-#7 drift). DEFAULT_OPSEC_PROFILE: announced→stealth. /authorize forwards allow_origin_discovery + allow_subdomain_enum. Consent gate covers allow_subdomain_enum (CodeRabbit fix). httpx fallback warns STEALTH-DEGRADED. Oracle ARM64 verified: 42 passed, 2 skipped, ruff/mypy clean. bernofarm 25→12 WafBlocked.
 - **Reach**: origin-direct (bypass CF edge) sealed + robust — RC1/RC2/RC3 fixes (deterministic multi-
   vhost probe, 303 confirms, all-hostnames-per-IP), seed_hosts (in-scope targets as origin
   candidates). tls_impersonate correctly NOT chosen for CHALLENGE-class CF (§12.33, IP-reputation).
@@ -44,8 +45,27 @@ Strix cannot assemble.
 - **bernofarm.com** (real client, Cloudflare): reach-blocked (CF managed challenge from datacenter =
   infra ceiling; origin hidden, no CT sibling). Strix's 10 findings = commodity recon, later verified
   FALSE POSITIVE → validates our precision-first stance.
+- **bernofarm.com rematch (2026-08-07, post-PR#346)**: WafBlocked 25→12 (reproducible 3x on Oracle ARM64). Stealth-by-default transport (curl_cffi chrome124) confirmed effective — 52% block reduction. Residual 12 blocks = IP-reputation + managed-challenge = INFRA/forbidden ceiling (§12.44/§12.33), NOT a code slice. DOCTRINE BANKED: stop beating full-CF apex from datacenter IP. bernofarm success = find a REACHABLE non-CF surface (CT subdomains → origin candidates), not crack the apex.
 
 ---
+
+## NEXT (foundation, in order — one slice at a time)
+
+1. **§12.48 PassiveIntelMap** — SEPARATE component (anti-#8, starts §12.47 decomposition of scout.py 2085 lines). NOT more methods on scout. Flow: crt.sh/Wayback/VirusTotal/etc zero-touch → surface CT subdomains → resolve → non-CF/grey-cloud + origin candidates → feed verify_origin_binding (slice-1 sealed). Build as `agent_alpha/recon/passive_intel.py` + `agent_alpha/tools/passive_*` per §12.47 ToolRegistry.
+2. **Origin-binding slice-3** — wire `resolve_and_bind_origin` into `_attempt_reach` (WIRING_DEBT from slice-1 #337 + slice-2 #338). resolve_and_bind_origin exists, just needs the autonomous reach path to call it.
+3. **§12.50 pacing** — StealthPacer (recon-arc DEPTH, after reach proven).
+
+## DOCTRINE BANKED (2026-08-07)
+
+- **Stop beating full-CF apex from datacenter IP.** Residual WafBlocked = IP-reputation + managed-challenge = INFRA/forbidden ceiling (§12.44/§12.33), NOT a code slice. Do NOT chase residential proxy (procurement) or browser_solve (lab-only, MC-ceilinged) for real clients.
+- **bernofarm success = find a REACHABLE non-CF surface**, not crack the apex. Passive-first (§12.48) surfaces CT subdomains → origin candidates → reach THOSE.
+- **ADR discipline**: §12.48/§12.49 = active foundation. §12.50/12.53/12.54 = recon-arc DEPTH, sequenced AFTER reach proven (not parallel). §12.51 Gamma / §12.55 1-day / §12.56 supply-chain = STOP-gated.
+- **TECH-DEBT**: scout.py = 2085 lines (Lyndon #8). Build passive-first as SEPARATE component (starts §12.47 decomposition organically). Full scout decomposition = after reach proven.
+- **plugin_cve_catalog** = interim, replace w/ live NVD/ExploitDB feed per §12.55 when Gamma lands.
+
+## SEALED but NOT WIRED (WIRING_DEBT)
+
+- origin-binding slice-1 (#337) + slice-2 (#338): `resolve_and_bind_origin` exists in `agent_alpha/recon/origin_binding.py`, but `_attempt_reach` does NOT call it yet. Slice-3 = wire it.
 
 ## PENDING (finish before / early next session)
 
