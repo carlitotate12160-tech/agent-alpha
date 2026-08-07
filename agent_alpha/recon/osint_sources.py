@@ -42,8 +42,20 @@ def parse_hackertarget_hosts(body: str, domain: str) -> list[str]:
         return []
     suffix = "." + domain_lower
 
-    low = body.strip().lower()
-    if not low or any(marker in low for marker in _HACKERTARGET_ERROR_MARKERS):
+    # HackerTarget signals errors as the FIRST line (e.g. "error invalid host",
+    # "API count exceeded"), never inline in a CSV data row. Scope the marker check
+    # to the first line only — a whole-body substring scan would drop valid
+    # hostnames that merely CONTAIN a marker (e.g. "error.ex.com"). CodeRabbit #349.
+    lines = [line.strip() for line in body.splitlines() if line.strip()]
+    if not lines:
+        return []
+    first_line = lines[0].lower()
+    if any(
+        first_line == marker
+        or first_line.startswith(f"{marker} ")
+        or first_line.startswith(f"{marker}:")
+        for marker in _HACKERTARGET_ERROR_MARKERS
+    ):
         return []
 
     seen: set[str] = set()

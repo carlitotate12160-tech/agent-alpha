@@ -1,4 +1,4 @@
-# tests/phase_4/test_passive_intel.py
+﻿# tests/phase_4/test_passive_intel.py
 """Contract: §12.48 slice-1 — PassiveIntelMap (OSINT-before-touch, crt.sh only).
 
 Two layers:
@@ -236,6 +236,13 @@ def test_hackertarget_parser_error_body_is_empty() -> None:
     assert parse_hackertarget_hosts("error invalid host", "ex.com") == []
     assert parse_hackertarget_hosts("API count exceeded", "ex.com") == []
     assert parse_hackertarget_hosts("", "ex.com") == []
+
+
+def test_hackertarget_parser_error_subdomain_not_dropped() -> None:
+    # A valid hostname like error.ex.com must NOT be dropped just because the
+    # "error" marker appears as a substring — the marker check is first-line only.
+    body = "error.ex.com,1.2.3.4\napi.ex.com,1.2.3.5\n"
+    assert parse_hackertarget_hosts(body, "ex.com") == ["api.ex.com", "error.ex.com"]
 
 
 class _HtHttp:
