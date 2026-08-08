@@ -36,10 +36,14 @@ recon_url: "https://wp.alpha-ai.web.id/"
 # The origin behind Cloudflare MUST serve  /.well-known/agent-alpha-<token>.txt
 # echoing the token string. That well-known file is the ownership PROOF that lets
 # an otherwise-untrusted DISCOVERED origin IP be acted on (candidate != authz).
-# REPLACE the placeholder with the token your origin actually serves, or T4 will
-# honestly fail (fail-closed = no reach).
+#
+# T4's MOAT triggers on the APEX (alpha-ai.web.id, orange-cloud/CF-proxied) — that
+# is the host whose reach is CF-blocked, so Alpha attempts origin-binding there.
+# LiveOriginDiscovery for the apex finds grey-cloud CT siblings (wp/laravel) that
+# resolve to the origin 168.110.192.62 → binding canary proves it serves the apex.
+# The canary is served by nginx at /var/www/alpha-ai-bait/.well-known/ on the origin.
 ownership_tokens:
-  "wp.alpha-ai.web.id": "REPLACE_WITH_TOKEN_SERVED_AT_WELL_KNOWN"
+  "alpha-ai.web.id": "2bc860d964b4719a759743cdd8f46105ed9f6dbd8023e7ee5874e985e5a908ef"
 
 # §12.36 signed-consent metadata (embedded in the profile HMAC; any edit after
 # signing invalidates the signature — anti-downgrade).
