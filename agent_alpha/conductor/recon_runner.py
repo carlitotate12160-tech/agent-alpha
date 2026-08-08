@@ -21,7 +21,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from agent_alpha.a2a import a2a_pb2
-from agent_alpha.security.secrets import get_certspotter_api_key
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Report
@@ -45,6 +44,7 @@ from agent_alpha.recon.passive_intel import (
     hackertarget_fallback,
     record_passive_intel,
 )
+from agent_alpha.security.secrets import get_certspotter_api_key
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
