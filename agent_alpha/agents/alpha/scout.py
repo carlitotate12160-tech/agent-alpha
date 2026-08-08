@@ -177,6 +177,9 @@ class Alpha:
         self._reach_attempted: set[str] = set()
         self._reach_class: dict[str, str] = {}
         self._reach_body_cache: dict[str, Any] = {}
+        # Per-host resolved origin (crt.sh + binding is identical for every blocked
+        # path on a host — resolve ONCE, reuse incl. the empty negative case).
+        self._bound_origin: dict[str, list[str]] = {}
         # host -> set of tech_stack labels fingerprinted THIS run (R2 selective
         # crawl). Local to Alpha, NOT read from graph_store/world_model — keeps
         # the gate pure/synchronous and avoids a graph query on every discovered
@@ -226,6 +229,7 @@ class Alpha:
         self._reach_attempted = set()
         self._reach_class = {}
         self._reach_body_cache = {}
+        self._bound_origin = {}
         self._host_stack = {}
         self._organic_crawl_count = {}
 
@@ -781,38 +785,50 @@ class Alpha:
         #    signed authorized_origins (C9: candidate ≠ authorization)
         #    AND filter out Cloudflare edge IPs — hitting CF edge with Host header
         #    is NOT origin-direct (it still hits CF WAF).
-        authorized_origins_list: list[str] = []
-        if self._origin_discovery is not None and getattr(
-            self._engagement_profile, "authorized_origins", None
-        ):
-            # Static/cooperative path: client pre-signed the origin IPs.
-            candidates = self._origin_discovery.candidates(host)
-            authorized_origins_list = [
-                ip
-                for ip in candidates
-                if ip in self._engagement_profile.authorized_origins
-                and not is_cloudflare_ip(ip)  # CF edge IPs are not valid origins
-            ]
+        # PER-HOST cache (perf + opsec): origin discovery (crt.sh, 30s timeout when
+        # down) + token-canary binding are IDENTICAL for every blocked path on the
+        # same host. Resolve ONCE per host and reuse the result — INCLUDING the empty
+        # "tried, nothing authorized" negative case — for all subsequent paths. Was
+        # re-run per URL (~15x/host = ~15x 30s crt.sh re-fetch + a repeated-fetch
+        # fingerprint). Mirrors the per-host _reach_class cache.
+        cached_origins = self._bound_origin.get(host)
+        if cached_origins is not None:
+            authorized_origins_list = cached_origins
+        else:
+            authorized_origins_list = []
+            if self._origin_discovery is not None and getattr(
+                self._engagement_profile, "authorized_origins", None
+            ):
+                # Static/cooperative path: client pre-signed the origin IPs.
+                candidates = self._origin_discovery.candidates(host)
+                authorized_origins_list = [
+                    ip
+                    for ip in candidates
+                    if ip in self._engagement_profile.authorized_origins
+                    and not is_cloudflare_ip(ip)  # CF edge IPs are not valid origins
+                ]
 
-        # §12.46 discovery path: no pre-signed origin, but the signed profile
-        # consented to allow_origin_discovery → discover candidates and PROVE-bind
-        # one (ownership-token canary). resolve_and_bind_origin emits
-        # ORIGIN_BINDING_PROVEN for the proven IP; the composed gate below then
-        # authorizes it. Fail-closed: None (no reach) when nothing binds.
-        if (
-            not authorized_origins_list
-            and self._origin_discovery is not None
-            and getattr(self._engagement_profile, "allow_origin_discovery", False)
-        ):
-            bound_ip = resolve_and_bind_origin(
-                fronted_host=host,
-                profile=self._engagement_profile,
-                event_store=self.event_store,
-                engagement_id=self._engagement_id,
-                discovery=self._origin_discovery,
-            )
-            if bound_ip is not None:
-                authorized_origins_list = [bound_ip]
+            # §12.46 discovery path: no pre-signed origin, but the signed profile
+            # consented to allow_origin_discovery → discover candidates and PROVE-bind
+            # one (ownership-token canary). resolve_and_bind_origin emits
+            # ORIGIN_BINDING_PROVEN for the proven IP; the composed gate below then
+            # authorizes it. Fail-closed: None (no reach) when nothing binds.
+            if (
+                not authorized_origins_list
+                and self._origin_discovery is not None
+                and getattr(self._engagement_profile, "allow_origin_discovery", False)
+            ):
+                bound_ip = resolve_and_bind_origin(
+                    fronted_host=host,
+                    profile=self._engagement_profile,
+                    event_store=self.event_store,
+                    engagement_id=self._engagement_id,
+                    discovery=self._origin_discovery,
+                )
+                if bound_ip is not None:
+                    authorized_origins_list = [bound_ip]
+
+            self._bound_origin[host] = authorized_origins_list
 
         authorized_origin = authorized_origins_list[0] if authorized_origins_list else None
 

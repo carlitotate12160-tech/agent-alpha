@@ -1276,3 +1276,23 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   `SessionStore` CLASS is not referenced in `recon_runner.py`/`execute_agent.py` (only the
   lowercase `session_store` param) — gate still tracks it as debt. Doc "CLOSED" = mechanism
   built; live-path class wiring incomplete. Reconcile when the pre-Gamma Conductor refactor lands.
+
+---
+
+## GAP-018 — RESOLVED 2026-08-08 (field-prove caught it, unit tests missed it)
+
+- **Status**: FIXED (self-contained, `recon/origin_resolver.py`).
+- **Caught by**: integrated recon field-prove on alpha-ai (T4 origin-binding MOAT = bound=[]).
+  RUNNER-SEAL != AUTONOMOUS-WIRED made concrete: the gap015 ISLAND passed seed_hosts and
+  discovered 168.110.192.62; the AUTONOMOUS `LiveOriginDiscovery.candidates()` did NOT pass
+  seed_hosts → when crt.sh was down, 0 candidates → no binding.
+- **Root cause**: `candidates()` called `discover_origin_ips(...)` WITHOUT `seed_hosts`; the
+  in-scope authorized domains (an origin-candidate source independent of crt.sh, §12.44) were
+  never seeded.
+- **Fix (deviates from the registered Option A on purpose)**: NOT main.py-passes-seed_hosts.
+  `LiveOriginDiscovery` already holds `auth`+`engagement_id`, so it derives its own seeds via
+  `_scope_seed_hosts()` (reads `auth.get_record(eid).scope.domains`, fail-open to ()). 1 file,
+  better encapsulation, fix lives with the bug. `discover_origin_ips` still re-filters each seed
+  through `is_in_scope` (defense-in-depth, never a scope bypass).
+- **Guarded by**: `test_origin_resolver::test_live_origin_discovery_seeds_scope_domains`
+  (RED before / GREEN after) + wiring gate `_scope_seed_hosts` WIRED_REQUIRED in origin_resolver.

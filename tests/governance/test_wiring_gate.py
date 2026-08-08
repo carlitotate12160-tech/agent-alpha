@@ -94,6 +94,10 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "historical_paths": (
         "agents/alpha/scout.py",
     ),  # Bug #26 Layer 1: OTX historical paths seeded into the frontier in run_recon (consumer wired)
+    "_scope_seed_hosts": (
+        "recon/origin_resolver.py",
+    ),  # GAP-018: LiveOriginDiscovery.candidates() seeds in-scope domains → discover_origin_ips
+    # yields origin candidates even when crt.sh is down (T4 CF-bypass MOAT reachable)
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
@@ -123,12 +127,6 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
     "CredentialLockoutGovernor": (
         ("tools/internal/access/odoo_access.py",),
         "§12.22 D2: odoo submits creds via its own http path (off-roster) — must route through the lockout governor",
-    ),
-    "seed_hosts": (
-        ("conductor/main.py",),
-        "GAP-018 / §12.46: LiveOriginDiscovery production wiring does not pass seed_hosts "
-        "(in-scope scope domains) to discover_origin_ips — origin discovery fails when "
-        "crt.sh is down (T4 origin-binding MOAT unprovable). Field-prove 2026-08-08.",
     ),
 }
 

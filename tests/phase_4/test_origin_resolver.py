@@ -302,3 +302,51 @@ def test_probes_all_hostnames_per_ip_until_one_confirms(_r: object, _cf: object)
 
     assert ips == ["168.110.192.62"]  # confirmed via the fallback hostname
     assert "wp.alpha-ai.web.id" in tried  # did not stop at the first (odoo) host
+
+
+def test_live_origin_discovery_seeds_scope_domains(monkeypatch) -> None:
+    """GAP-018 regression: LiveOriginDiscovery.candidates() must pass the engagement's
+    in-scope domains to discover_origin_ips as seed_hosts — else origin discovery
+    yields nothing whenever crt.sh is down, and the T4 CF-bypass binding is
+    unprovable. RED before fix (seed_hosts=()), GREEN after."""
+    from types import SimpleNamespace
+
+    from agent_alpha.recon import origin_resolver as _or
+
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def _fake_discover(eid, host, http, auth, *, seed_hosts=(), **_):  # noqa: ANN001
+        captured["seed_hosts"] = tuple(seed_hosts)
+        return []
+
+    monkeypatch.setattr(_or, "discover_origin_ips", _fake_discover)
+
+    scope = SimpleNamespace(domains=["wp.ex.com", "direct.ex.com"], exclusions=[], ip_ranges=[])
+    auth = SimpleNamespace(get_record=lambda eid: SimpleNamespace(scope=scope))
+    disc = _or.LiveOriginDiscovery("eng-1", auth, http_client=object())
+
+    disc.candidates("wp.ex.com")
+    assert captured["seed_hosts"] == ("wp.ex.com", "direct.ex.com")  # was () before GAP-018 fix
+
+
+def test_live_origin_discovery_seed_read_fail_open(monkeypatch) -> None:
+    """If the scope/record is unavailable, seeding degrades to () — never crashes."""
+    from types import SimpleNamespace
+
+    from agent_alpha.recon import origin_resolver as _or
+
+    captured: dict[str, tuple[str, ...]] = {}
+
+    def _fake_discover(eid, host, http, auth, *, seed_hosts=(), **_):  # noqa: ANN001
+        captured["seed_hosts"] = tuple(seed_hosts)
+        return []
+
+    monkeypatch.setattr(_or, "discover_origin_ips", _fake_discover)
+
+    def _boom(eid):
+        raise RuntimeError("no record")
+
+    auth = SimpleNamespace(get_record=_boom)
+    disc = _or.LiveOriginDiscovery("eng-1", auth, http_client=object())
+    disc.candidates("wp.ex.com")
+    assert captured["seed_hosts"] == ()
