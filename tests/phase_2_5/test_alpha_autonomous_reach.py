@@ -676,3 +676,47 @@ def test_alpha_reach_refused_when_candidate_not_bound(monkeypatch: pytest.Monkey
         "origin-direct fired without a binding proof (collateral risk)"
     )
     reach_fetch.assert_not_called()  # fail-closed transport boundary — never fetched
+
+
+def test_origin_resolution_cached_once_per_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Perf + opsec: with MANY blocked paths on ONE host, origin discovery + binding
+    (crt.sh 30s + canary fetch) runs EXACTLY ONCE per host, not once per path. Was a
+    ~15x 30s crt.sh re-fetch/host (field-prove: 10min timeout, ~29min run) + a
+    repeated-fetch fingerprint. Guards the per-host _bound_origin cache."""
+    from agent_alpha.agents.alpha import scout
+    from agent_alpha.recon import origin_binding
+
+    monkeypatch.setattr(
+        origin_binding,
+        "origin_direct_fetch",
+        lambda host, ip, path="/", **k: _StubOriginDirectResult(
+            body=_BIND_TOKEN if ip == _BOUND_IP else "cohost-no-token"
+        ),
+    )
+    monkeypatch.setattr(
+        scout,
+        "origin_direct_fetch",
+        lambda host, ip, path="/", **k: _StubOriginDirectResult(body=_OK_BODY),
+    )
+
+    calls = {"n": 0}
+    real = scout.resolve_and_bind_origin
+
+    def _counting(**kw: Any) -> Any:
+        calls["n"] += 1
+        return real(**kw)
+
+    monkeypatch.setattr(scout, "resolve_and_bind_origin", _counting)
+
+    alpha = _make_alpha(
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+        engagement_profile=_make_discovery_profile(),
+        challenge_all=True,  # every path blocked → every path enters _attempt_reach
+    )
+    alpha.run_recon(_ENGAGEMENT, f"https://{_LAB_HOST}")
+
+    assert len(alpha._reach_attempted) > 1, "need >1 blocked URL to exercise the cache"
+    assert calls["n"] == 1, (
+        f"resolve_and_bind_origin ran {calls['n']}x across {len(alpha._reach_attempted)} "
+        f"blocked paths on one host — per-host cache regressed (was per-path)"
+    )
