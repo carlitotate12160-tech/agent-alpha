@@ -75,6 +75,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "build_otx_client": (
         "conductor/main.py",
     ),  # §12.48 slice-5: OTX source built + injected on the live Conductor path
+    "CompositeOriginDiscovery": (
+        "conductor/main.py",
+    ),  # GAP-017: OTX origin_ip_candidates unioned into the binding candidate path (consumer wired)
     "resolve_and_bind_origin": (
         "agents/alpha/scout.py",
     ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)

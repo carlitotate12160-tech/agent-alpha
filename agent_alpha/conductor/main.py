@@ -73,7 +73,11 @@ from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.llm.orchestrator import LLMOrchestrator
 from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.memory.session import InMemorySessionStore, RedisSessionStore, SessionRecord
-from agent_alpha.recon.origin_discovery import OriginDiscovery, StaticOriginDiscovery
+from agent_alpha.recon.origin_discovery import (
+    CompositeOriginDiscovery,
+    OriginDiscovery,
+    StaticOriginDiscovery,
+)
 from agent_alpha.recon.origin_resolver import LiveOriginDiscovery
 from agent_alpha.security.secrets import (
     LogScrubber,
@@ -370,6 +374,16 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
                 # resolve_and_bind_origin (re-checks the capability) + the binding
                 # proof + composed gate. Fail-closed if nothing binds.
                 task_origin_discovery = LiveOriginDiscovery(engagement_id, worker_auth)
+
+        # GAP-017 consumer: union OTX origin_ip_candidates (event-sourced, §12.48
+        # slice-5) into the binding candidate list. Only when origin discovery is
+        # already consented (task_origin_discovery is not None) — OTX IPs must NOT
+        # be probed without the origin-discovery capability. Each is still PROVEN by
+        # verify_origin_binding (candidate ≠ authorization).
+        if task_origin_discovery is not None:
+            task_origin_discovery = CompositeOriginDiscovery(
+                task_origin_discovery, target_store, engagement_id
+            )
 
         # ── §12.41: wire browser_solve when the signed profile consents to evasion ──
         task_browser_solve = None

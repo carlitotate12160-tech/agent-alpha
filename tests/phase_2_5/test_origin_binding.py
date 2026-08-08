@@ -392,3 +392,102 @@ def test_verify_origin_binding_non_200() -> None:
             )
             is False
         )
+
+
+# ══════════════════════════════════════════════════════════════════════
+# GAP-017 consumer — OTX origin_ip_candidates → CompositeOriginDiscovery → binding
+# ══════════════════════════════════════════════════════════════════════
+
+from types import SimpleNamespace  # noqa: E402
+
+import agent_alpha.recon.origin_binding as _origin_binding  # noqa: E402
+from agent_alpha.recon.origin_binding import resolve_and_bind_origin  # noqa: E402
+from agent_alpha.recon.origin_discovery import (  # noqa: E402
+    CompositeOriginDiscovery,
+    StaticOriginDiscovery,
+)
+
+_OTX_IP = "45.33.32.156"  # public, non-Cloudflare — a plausible origin
+
+
+def _record_otx_candidate(store: InMemoryEventStore, eng: str, ip: str) -> None:
+    store.append(
+        event_type=EventType.PASSIVE_INTEL_GATHERED,
+        engagement_id=eng,
+        agent="alpha",
+        payload={"domain": "ex.com", "origin_ip_candidates": [ip], "sources_used": ["otx"]},
+    )
+
+
+# ── UNIT: composite unions base + event candidates ────────────────────
+
+
+def test_composite_unions_base_and_otx_candidates() -> None:
+    store = InMemoryEventStore()
+    eng = "eng-comp-1"
+    _record_otx_candidate(store, eng, _OTX_IP)
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery(["198.51.100.5"]), store, eng)
+    cands = comp.candidates("ex.com")
+    assert cands[0] == "198.51.100.5"  # base preserved first
+    assert _OTX_IP in cands  # OTX candidate unioned
+
+
+def test_composite_dedups_and_base_only_without_events() -> None:
+    store = InMemoryEventStore()
+    eng = "eng-comp-2"
+    # OTX repeats a base IP → no duplicate
+    _record_otx_candidate(store, eng, _OTX_IP)
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery([_OTX_IP]), store, eng)
+    assert comp.candidates("ex.com").count(_OTX_IP) == 1
+    # no PASSIVE_INTEL_GATHERED events → base only
+    empty = CompositeOriginDiscovery(StaticOriginDiscovery(["1.2.3.4"]), InMemoryEventStore(), "e")
+    assert empty.candidates("ex.com") == ["1.2.3.4"]
+
+
+class _BoomStore:
+    def get_events(self, engagement_id: str) -> list[object]:
+        raise RuntimeError("event store down")
+
+
+def test_composite_fail_open_on_event_read_error() -> None:
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery(["1.2.3.4"]), _BoomStore(), "e")
+    assert comp.candidates("ex.com") == ["1.2.3.4"]  # degrades to base, no raise
+
+
+# ── CARDINAL (consumer wired): OTX IP reaches binding + is PROVEN ─────
+
+
+def test_otx_candidate_reaches_binding_and_is_proven(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An OTX-surfaced origin IP (absent from base discovery) flows through
+    CompositeOriginDiscovery into resolve_and_bind_origin, passes the
+    verify_origin_binding token canary, and is authorized (ORIGIN_BINDING_PROVEN).
+    Closes the GAP-017 dead-end: origin_ip_candidates now has a live consumer."""
+    store = InMemoryEventStore()
+    eng = "eng-otx-bind"
+    _record_otx_candidate(store, eng, _OTX_IP)
+    # base discovery finds NOTHING — the IP can only come from the OTX event.
+    discovery = CompositeOriginDiscovery(StaticOriginDiscovery([]), store, eng)
+
+    # prove the OTX IP serves the owned host (canary), without network:
+    monkeypatch.setattr(
+        _origin_binding,
+        "verify_origin_binding",
+        lambda *, origin_ip, fronted_host, ownership_token: origin_ip == _OTX_IP,
+    )
+    monkeypatch.setattr(
+        "agent_alpha.conductor.engagement_profile.token_for",
+        lambda profile, host: "TOKEN",
+    )
+    profile = SimpleNamespace(allow_origin_discovery=True)
+
+    bound = resolve_and_bind_origin(
+        fronted_host="ex.com",
+        profile=profile,
+        event_store=store,
+        engagement_id=eng,
+        discovery=discovery,
+    )
+    assert bound == _OTX_IP
+    proven = [e for e in store.get_events(eng) if e.event_type == EventType.ORIGIN_BINDING_PROVEN]
+    assert len(proven) == 1
+    assert proven[0].payload["origin_ip"] == _OTX_IP
