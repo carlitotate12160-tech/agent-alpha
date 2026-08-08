@@ -43,11 +43,15 @@ import os
 import pytest
 
 pytestmark = pytest.mark.skipif(
-    os.environ.get("AGENT_ALPHA_LIVE_FIRE") != "1" or not os.environ.get("DEEPSEEK_API_KEY"),
+    os.environ.get("AGENT_ALPHA_LIVE_FIRE") != "1"
+    or not os.environ.get("DEEPSEEK_API_KEY")
+    or not os.environ.get("PROFILE_SIGNING_KEY"),
     reason=(
-        "live-fire characterization test: requires AGENT_ALPHA_LIVE_FIRE=1 and a real "
-        "DEEPSEEK_API_KEY (real network + real LLM calls against a self-owned lab target). "
-        "Run explicitly on Oracle ARM64 — never as part of a default pytest sweep."
+        "live-fire characterization test: requires AGENT_ALPHA_LIVE_FIRE=1, a real "
+        "DEEPSEEK_API_KEY (real network + real LLM calls against a self-owned lab target), "
+        "and a PROFILE_SIGNING_KEY (EngagementProfile HMAC signing — get_profile_signing_key "
+        "raises ValueError without it). Run explicitly on Oracle ARM64 — never as part of a "
+        "default pytest sweep."
     ),
 )
 
@@ -117,7 +121,9 @@ def test_conductor_autonomous_chain_characterization(
         Scope(ip_ranges=[], domains=[_LEAK_HOST, _ENTRY_HOST], exclusions=[]),
     )
     auth.enable_active(rec.engagement_id)  # J3 (simulated) --- Beta gate = ACTIVE_APPROVED
-    m.store_provider._stores[_TENANT_ID] = store  # route the worker's tenant store
+    # Route the worker's tenant store. monkeypatch.setitem auto-restores on teardown —
+    # direct dict mutation would persist across tests (isolation correctness, not style).
+    monkeypatch.setitem(m.store_provider._stores, _TENANT_ID, store)
 
     # ── Signed EngagementProfile (§12.36) --- REQUIRED for the Conductor path to build
     #    origin-discovery and reach the origin DIRECTLY (bypassing CF). Without this,
@@ -126,23 +132,37 @@ def test_conductor_autonomous_chain_characterization(
     #    The runner (odoo_chain_runner) doesn't need this because it constructs Alpha directly;
     #    the Conductor path REQUIRES the signed profile event.
     #
-    #    authorized_origins (cooperative path) → StaticOriginDiscovery: pre-signed origin IP
-    #    168.110.192.62 (the Oracle box itself, self-owned). Faster + more reliable than
-    #    LiveOriginDiscovery (CT/DNS lookup) which timed out in the first run.
+    #    authorized_origins=frozenset() (EMPTY) — forces the §12.46 BINDING path:
+    #    run_engagement_task sees empty authorized_origins → wires LiveOriginDiscovery
+    #    (not Static). CompositeOriginDiscovery unions the seeded PASSIVE_INTEL_GATHERED
+    #    events below with LiveOriginDiscovery's candidates. resolve_and_bind_origin then
+    #    PROVES binding via the real well-known token canary on the origin. NO pre-signed
+    #    origin IP = the ONLY authorization path is ORIGIN_BINDING_PROVEN (§12.46).
+    #
     #    Lab mode: skip_domain_verification=True (ownership proven by lab_guard allowlist).
     #    opsec_stealth DISABLED for this test — StealthPacer Gaussian jitter adds ~5s between
     #    each of ~24 probes, exceeding the pytest timeout. Stealth is proven separately (PR #353).
-    lab_token = "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa"
+    #
+    #    PRECONDITION (lab setup): 168.110.192.62 MUST serve the well-known canary file:
+    #      /.well-known/agent-alpha-<token>.txt  (echoing <token> in the body)
+    #    for BOTH vhosts (wp.alpha-ai.web.id, odoo.alpha-ai.web.id). <token> is the
+    #    ownership_tokens value below. Without this, binding fail-closes (expected/honest).
+    #    Nginx: /var/www/alpha-ai-bait/.well-known/ on the origin box.
+    # Token matches the DEPLOYED canary on 168.110.192.62 (see
+    # alpha_ai_integrated.example.yaml ownership_tokens for wp.alpha-ai.web.id).
+    # Nginx on the origin serves /var/www/alpha-ai-bait/.well-known/ for all vhosts,
+    # so the same file works regardless of Host header (wp or odoo).
+    lab_token = "5fd127953896afcb6bc19b0cfc434786"
     signing_key = get_profile_signing_key()
     profile = authorize_engagement(
         engagement_id=rec.engagement_id,
         client_id="odoo-characterize",
         targets=[_LEAK_HOST, _ENTRY_HOST],
         scope_mode="multi",
-        authorized_origins=frozenset({"168.110.192.62"}),
+        authorized_origins=frozenset(),
         allow_origin_discovery=True,
         authorization_level="ACTIVE_APPROVED",
-        consent_items=frozenset({"origin_direct", "active_approved"}),
+        consent_items=frozenset({"origin_direct", "active_approved", "origin_discovery"}),
         signed_by="natanael",
         signed_at="2026-08-08T00:00:00Z",
         ownership_tokens={_LEAK_HOST: lab_token, _ENTRY_HOST: lab_token},
@@ -157,6 +177,26 @@ def test_conductor_autonomous_chain_characterization(
         agent="CONDUCTOR",
         payload=envelope,
     )
+
+    # ── Seed origin-IP candidates via PASSIVE_INTEL_GATHERED (GAP-017 consumer path).
+    #    With authorized_origins=frozenset(), run_engagement_task wires LiveOriginDiscovery
+    #    (real CT/DNS). CompositeOriginDiscovery unions these event-sourced IPs into the
+    #    candidate list — same mechanism OTX slice-5 uses. This is NOT a mock: the BINDING
+    #    verification (verify_origin_binding → real fetch to origin) is still live. We seed
+    #    the candidate to avoid dependence on crt.sh availability (which timed out before).
+    _ORIGIN_IP = "168.110.192.62"
+    for host in (_LEAK_HOST, _ENTRY_HOST):
+        store.append(
+            event_type=EventType.PASSIVE_INTEL_GATHERED,
+            engagement_id=rec.engagement_id,
+            agent="alpha",
+            payload={
+                "domain": host,
+                "origin_ip_candidates": [_ORIGIN_IP],
+                "subdomains": [],
+                "in_scope_subdomains": [],
+            },
+        )
 
     # Spy (not a mock) on the REAL applicator factory: records whether Beta actually
     # bound web cred_applicators this run, without altering their behavior. Confirms the
@@ -181,6 +221,54 @@ def test_conductor_autonomous_chain_characterization(
 
     graph = rebuild_graph_from_events(store, rec.engagement_id)
     events = store.get_events(rec.engagement_id)
+
+    # ── J0: ORIGIN_BINDING_PROVEN — the BOUND leg was exercised (§12.46) ────────
+    #    With authorized_origins=frozenset(), the ONLY way an origin IP gets
+    #    authorized is via ORIGIN_BINDING_PROVEN events (proven_origins in
+    #    assert_origin_authorized_or_bound). This is the cardinal gate: if binding
+    #    did NOT fire for _LEAK_HOST, the wp-config reach path cannot succeed (no
+    #    origin authorized → choose_reach ≠ ORIGIN_DIRECT → CF blocks everything).
+    binding_events = [
+        e for e in events
+        if e.event_type == EventType.ORIGIN_BINDING_PROVEN
+    ]
+    leak_host_bound = any(
+        isinstance(e.payload, dict) and e.payload.get("fronted_host") == _LEAK_HOST
+        for e in binding_events
+    )
+    entry_host_bound = any(
+        isinstance(e.payload, dict) and e.payload.get("fronted_host") == _ENTRY_HOST
+        for e in binding_events
+    )
+
+    # Hard gate: _LEAK_HOST binding is on the critical path. Without it, the
+    # wp-config probe cannot reach the origin and the chain dies at CF 403.
+    assert leak_host_bound, (
+        f"J0 BINDING GATE FAILED: no ORIGIN_BINDING_PROVEN event for {_LEAK_HOST!r}. "
+        f"With authorized_origins=frozenset() the bound leg is the ONLY authorization "
+        f"path. Verify the canary is deployed: the origin (168.110.192.62) must serve "
+        f"/.well-known/agent-alpha-<token>.txt echoing the ownership_token for {_LEAK_HOST}. "
+        f"Binding events found: {[(e.payload.get('fronted_host'), e.payload.get('origin_ip')) for e in binding_events if isinstance(e.payload, dict)]}"
+    )
+
+    # Soft finding: _ENTRY_HOST binding depends on Alpha probing odoo during recon.
+    # Beta's OdooAccessTool uses XML-RPC (not origin-direct reach), so binding for
+    # odoo is not on the cred-reuse critical path — it's a recon-completeness signal.
+    if not entry_host_bound:
+        findings.append(
+            f"J0b CHARACTERIZATION: no ORIGIN_BINDING_PROVEN for {_ENTRY_HOST!r}. "
+            f"Alpha did not trigger reach on this host during recon (expected if "
+            f"Alpha's cognitive loop focused on {_LEAK_HOST} and did not probe odoo "
+            f"resources behind CF). Beta reaches odoo via XML-RPC (not origin-direct)."
+        )
+
+    # Meta-assertion: profile.authorized_origins is EMPTY — proves the signed-origin
+    # cooperative path is structurally impossible. Any successful origin-direct reach
+    # (including the wp-config probe) MUST have gone through the BOUND leg.
+    assert not profile.authorized_origins, (
+        f"INTEGRITY CHECK: profile.authorized_origins should be empty but got "
+        f"{profile.authorized_origins!r} — the test is NOT exercising the binding path."
+    )
 
     # ── J1a: wp-config CREDENTIAL node vaulted (secret_ref resolves) ────────────
     edge_from_harvested_cred = ocr._edge_from_harvested_cred(
