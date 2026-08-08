@@ -1267,9 +1267,29 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 - **Producer-only, no committed consumer yet** (acceptable per GAP-017, revisit):
   `mx_records`, `nameservers` (internal input to `protection_detected`), `txt_records`.
 - **OdooAccessTool — WIRING now gate-protected** (WIRED_REQUIRED → `agents/beta/strike.py`),
-  but AUTONOMOUS-WIN PROOF still owed: no non-island test drives OdooAccessTool to WIN via
-  `run_strike`/`run_beta` (only unit-proven + odoo_chain_runner ISLAND). Proof debt — write a
-  `run_strike` W-test asserting winning_tool == odoo_access → ACCESS_LEVEL on an Odoo target.
+  AUTONOMOUS-WIN PROOF test RUN on Oracle ARM64 (2026-08-08):
+  `tests/phase_4/test_conductor_chain_characterize.py` drives the alpha-ai Odoo chain
+  through the REAL Conductor Celery path (`run_engagement_task` eager) instead of the
+  `odoo_chain_runner` ISLAND. Oracle result (live network + real DeepSeek LLM):
+  - **J1b GREEN**: Alpha autonomously selected `backup_file_probe` (NOT `wp_config_probe`
+    hand-fed by runner) on `wp-config.php.bak`, vaulted 2 CREDENTIAL nodes with
+    `secret_ref` prefixes. The autonomous loop DOES find the chain entry without
+    `verify_wp_config_leak`.
+  - **J2 GREEN**: `advance_engagement` dispatched BETA (route_next returned BETA,
+    auth tier ACTIVE_APPROVED, decide_advance=dispatch).
+  - **J4 CARDINAL RED**: `OdooAccessTool` did NOT win `ToolRegistry.ranked()` —
+    `access_level=''` (no ACCESS_LEVEL node created), `odoo_access_proof_seen=False`.
+    Beta ran with applicators bound but no tool achieved access on the autonomous path.
+  - **J1a WIRING GAP**: no ACCESS_LEVEL ENABLES-edge traced back to a vaulted CREDENTIAL
+    (consequence of J4 — no access = no edge).
+  - **J5 GUARD FAILED**: ACCESS_LEVEL node never reached CROSS_VERIFIED
+    (`verify_access_nodes` had nothing to promote).
+  Root cause hypothesis: Beta's cred_reuse/default_creds applicators target the WP
+  login form (wp.alpha-ai.web.id) but the harvested DB credentials need to be tried
+  against Odoo XML-RPC (odoo.alpha-ai.web.id) — the runner hand-routes this via
+  `verify_wp_config_leak` → `OdooAccessTool`; the autonomous path relies on
+  `ToolRegistry.ranked()` picking OdooAccessTool from the candidate set, which it
+  did NOT. Do not mark this debt closed until J4 is GREEN on Oracle.
 - **GAP-014 (fan-out)**: confirmed accurate — `conductor/fanout.py` interface EXISTS, Shape A
   not wired (pure wiring debt, not stale).
 - **SessionStore (GAP-002)**: scratchpad mechanism lives in `agents/base.py` (#192), but the
