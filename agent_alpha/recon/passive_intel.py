@@ -248,6 +248,60 @@ def enrich_with_otx(intel: PassiveIntelMap, otx: OTXSource) -> PassiveIntelMap:
     )
 
 
+# ── §12.48 slice-2 (VT): VirusTotal enrichment (origin IPs + subdomains) ──────
+#
+# ADDITIVE over slice-1/3/5 (anti-#10): fills origin_ip_candidates (union with OTX)
+# and extends subdomains with VT-discovered hosts. PRODUCER ONLY — origin IPs are
+# CANDIDATES; CompositeOriginDiscovery + verify_origin_binding confirm them before
+# any reach. VT subdomains are extra origin-candidate hosts (grey-cloud subdomains
+# that CT never logged — the quantum-laboratories.com qs.* case).
+
+
+class VirusTotalSource(Protocol):
+    """Seam for the VirusTotal v3 passive-DNS/subdomain source (fail-open, key-gated).
+
+    Structurally satisfied by ``osint_sources.VirusTotalClient``. Injected at the
+    Conductor entry (main.py) only when a VT key is configured — absent = VT off,
+    engagement unaffected (graceful degradation)."""
+
+    def origin_ips_and_subdomains(
+        self, domain: str
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]: ...  # pragma: no cover
+
+
+def enrich_with_virustotal(intel: PassiveIntelMap, vt: VirusTotalSource) -> PassiveIntelMap:
+    """Return *intel* enriched with VT origin-IP candidates + VT subdomains.
+
+    ADDITIVE: NEW frozen map via replace. Origin IPs are UNIONED with any OTX
+    candidates already present (deduped) — VT and OTX see different histories.
+    VT subdomains are appended to the crt.sh subdomains (deduped) — grey-cloud
+    subdomains that CT never logged are the #1 real origin leak (e.g.
+    qs.quantum-laboratories.com → 157.230.37.62 directly, no CF proxy).
+
+    Fail-open (the source returns empties on any error). Never raises.
+    """
+    vt_ips, vt_subs = vt.origin_ips_and_subdomains(intel.domain)
+    # Union origin IPs (OTX + VT, deduped, order preserved)
+    existing_ips = list(intel.origin_ip_candidates)
+    seen_ips = set(existing_ips)
+    for ip in vt_ips:
+        if ip not in seen_ips:
+            seen_ips.add(ip)
+            existing_ips.append(ip)
+    # Union subdomains (crt.sh + VT, deduped, order preserved)
+    existing_subs = list(intel.subdomains)
+    seen_subs = set(existing_subs)
+    for sub in vt_subs:
+        if sub not in seen_subs:
+            seen_subs.add(sub)
+            existing_subs.append(sub)
+    return replace(
+        intel,
+        origin_ip_candidates=tuple(existing_ips),
+        subdomains=tuple(existing_subs),
+    )
+
+
 # ── Event-sourced audit (§12.48: PASSIVE_INTEL_GATHERED before active recon) ───
 
 
