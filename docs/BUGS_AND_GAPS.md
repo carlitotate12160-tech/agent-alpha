@@ -1296,3 +1296,45 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   through `is_in_scope` (defense-in-depth, never a scope bypass).
 - **Guarded by**: `test_origin_resolver::test_live_origin_discovery_seeds_scope_domains`
   (RED before / GREEN after) + wiring gate `_scope_seed_hosts` WIRED_REQUIRED in origin_resolver.
+
+
+---
+
+## GAP-019 — Per-host origin-resolution cache (RESOLVED 2026-08-08)
+
+- **Status**: FIXED (`agents/alpha/scout.py`, `_bound_origin` per-host cache).
+- **Symptom**: field-prove timed out (~29 min, 10-min kill). Root cause: `_reach_attempted` is
+  keyed per-URL but origin discovery + binding (crt.sh 30 s when down) re-ran for EVERY blocked
+  path on the SAME host → ~15×/host (~50 crt.sh fetches). Also an opsec fingerprint (50× same
+  endpoint). Fix: resolve origin ONCE per host (incl. the empty negative case), reuse for all
+  paths — mirrors the `_reach_class` per-host cache. Result: crt.sh 50×→2×, run 29→~6.5 min.
+- **Guard**: `test_alpha_autonomous_reach::test_origin_resolution_cached_once_per_host`.
+
+## GAP-020 — Mid-engagement pattern-group exhaustion (OPEN, next slice)
+
+- **Status**: OPEN. ADR §12.57 point 2.
+- **What**: N consecutive 404 on a path pattern-group (`.env*`, `wp-config.php.*`) → emit
+  `PATTERN_GROUP_EXHAUSTED` → skip the remaining variants (this host; other hosts when stack
+  differs). Deterministic counter, extends `EvasionPlanner` (anti-#6). NOT LLM, NOT
+  cross-engagement (IntelligenceBase stays deferred).
+- **Why**: field log — 7× `.env*` 404 re-probed on every host = pure waste + WAF-noise (Bug #26
+  family). Highest-leverage gate-safe recon-precision fix.
+
+## GAP-021 — Fingerprint-driven path hard-filter (OPEN)
+
+- **Status**: OPEN. ADR §12.57 point 3.
+- **What**: a confirmed stack REMOVES irrelevant generic paths, not only adds stack-specific ones.
+  Currently `_handle_capability_fingerprint` ADDS `frontier_seeds`; the initial generic seed still
+  fires. Fingerprint (e.g. WP, Odoo) → filter out API/other-stack paths before probing. Static
+  filter, deterministic (no dynamic path generation).
+- **Why**: field log — API paths (`openapi.json`, `graphql`) sprayed at WP/Odoo hosts.
+
+## GAP-022 — Deterministic rule coverage + finding correlation (OPEN)
+
+- **Status**: OPEN. ADR §12.57 points 1 & 4 (recon-side).
+- **What**: (a) extend the deterministic rule-tier catalog so known exposures fire WITHOUT the LLM
+  (`install.php`/`upgrade.php` 200 = WP-setup-exposed) — the rule-tier exists, its catalog is thin;
+  (b) finding correlation — combine `wp-config.php.bak` DB creds + enumerated WP users into a
+  single prioritised CREDENTIAL/USER hand-off for Beta (findings currently persist independently).
+- **Why**: field log — `install.php` 200 skipped as "non-analyzable" when the LLM declined;
+  creds + users found but never combined.
