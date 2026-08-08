@@ -1296,6 +1296,3 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   through `is_in_scope` (defense-in-depth, never a scope bypass).
 - **Guarded by**: `test_origin_resolver::test_live_origin_discovery_seeds_scope_domains`
   (RED before / GREEN after) + wiring gate `_scope_seed_hosts` WIRED_REQUIRED in origin_resolver.
-- **T4 still needs the LAB canary**: candidates flowing is necessary but not sufficient — the
-  discovered origin must SERVE the well-known ownership token for `verify_origin_binding` to
-  bind. GAP-018 fix + canary setup together unlock T4.
