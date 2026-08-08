@@ -74,7 +74,7 @@ class _ScanHttpClient:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def get(self, url: str, timeout: float = 10.0) -> _Resp:
+    def get(self, url: str, timeout: float = 10.0, **kwargs: object) -> _Resp:
         self.calls.append(url)
         return _Resp(404, "", {}, url)
 

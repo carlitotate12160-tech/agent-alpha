@@ -171,6 +171,42 @@ def enrich_with_dns(intel: PassiveIntelMap, resolver: PassiveDNSResolver) -> Pas
     )
 
 
+# ── §12.48 slice-5: OTX enrichment (origin IP candidates + historical paths) ──
+#
+# ADDITIVE over slice-1/3 (anti-#10): fills origin_ip_candidates + historical_paths,
+# preserving every other field via replace. PRODUCER ONLY — the origin IPs are
+# CANDIDATES; a later origin-binding consumer (verify_origin_binding) confirms them
+# before any reach, and a later Bug #26 consumer uses the paths. Neither is
+# scaffolded here (anti-#2). Deliberately NOT a subdomain source: the CT chain
+# (CertSpotter/crt.sh) already covers subdomains (anti-redundancy / anti-sprawl).
+
+
+class OTXSource(Protocol):
+    """Seam for the OTX passive-DNS/URL source (fail-open, key-gated).
+
+    Structurally satisfied by ``osint_sources.OtxClient``. Injected at the
+    Conductor entry (main.py) only when an OTX key is configured — absent = OTX
+    off, engagement unaffected (graceful degradation)."""
+
+    def origin_ips_and_paths(
+        self, domain: str
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]: ...  # pragma: no cover
+
+
+def enrich_with_otx(intel: PassiveIntelMap, otx: OTXSource) -> PassiveIntelMap:
+    """Return *intel* enriched with OTX origin-IP candidates + historical paths.
+
+    ADDITIVE: NEW frozen map via replace; slice-1/3 fields untouched. Fail-open
+    (the source returns empties on any error). Never raises.
+    """
+    origin_ips, historical_paths = otx.origin_ips_and_paths(intel.domain)
+    return replace(
+        intel,
+        origin_ip_candidates=origin_ips,
+        historical_paths=historical_paths,
+    )
+
+
 # ── Event-sourced audit (§12.48: PASSIVE_INTEL_GATHERED before active recon) ───
 
 
