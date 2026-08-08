@@ -157,9 +157,7 @@ def evaluate_oracles(
 
     # T1 — PASSIVE_INTEL_GATHERED emitted from a CT source (certspotter | crtsh).
     ct_sources = {"certspotter", "crtsh"}
-    t1_hits = [
-        e for e in passive if ct_sources.intersection(e.payload.get("sources_used", []))
-    ]
+    t1_hits = [e for e in passive if ct_sources.intersection(e.payload.get("sources_used", []))]
     t1 = Oracle(
         "T1 PASSIVE_INTEL_GATHERED (CT source)",
         bool(t1_hits),
@@ -168,9 +166,7 @@ def evaluate_oracles(
 
     # T2 — CT chain surfaced real in-scope siblings.
     t2_hits = [e for e in passive if e.payload.get("in_scope_subdomains")]
-    all_in_scope = sorted(
-        {s for e in passive for s in e.payload.get("in_scope_subdomains", [])}
-    )
+    all_in_scope = sorted({s for e in passive for s in e.payload.get("in_scope_subdomains", [])})
     t2 = Oracle(
         "T2 in_scope_subdomains non-empty",
         bool(t2_hits),
@@ -279,9 +275,7 @@ def run_integrated_field_prove(config: IntegratedConfig) -> list[Oracle]:
         f"[run] engagement={engagement_id} targets_scanned={run_result.targets_scanned} "
         f"nodes={run_result.node_count} enumerated={list(run_result.enumerated_hosts)}"
     )
-    return evaluate_oracles(
-        event_store, engagement_id, config, otx_enabled=otx_client is not None
-    )
+    return evaluate_oracles(event_store, engagement_id, config, otx_enabled=otx_client is not None)
 
 
 def main(argv: list[str] | None = None) -> int:
