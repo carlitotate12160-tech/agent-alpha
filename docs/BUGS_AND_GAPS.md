@@ -1064,40 +1064,6 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 
 ---
 
-## GAP-017: PassiveIntelMap Enrichment Dead-End — Consumer Not Wired
-
-- **Status**: PARTIALLY — origin_ip_candidates consumer wired; protection_detected consumer (Slice A/B/C) still OPEN
-- **Severity**: Medium — enrichment data written to event store but read by nobody
-- **Effort**: Medium (3-slice fix: World Model ingestion, planner scoring, reach pivot)
-
-### Context
-
-§12.48 slice-3 fills `protection_detected`, `mx_records`, `nameservers` in `PassiveIntelMap`. Slice-4 adds CertSpotter subdomains. Slice-5 adds OTX origin-IP candidates + historical paths. But NO consumer reads these fields:
-
-1. **World Model** does not ingest `PassiveIntelMap` — no protection awareness
-2. **Planner** does not use `protection_detected` for scoring — Bug #26 stays OPEN
-3. **`choose_reach()`** cannot pre-emptive pivot from passive intel — reactive only
-
-### Proposed Fix (3 slices)
-
-- **Slice A — World Model ingestion**: `passive_intel_map` → `world_model.py` (protection awareness)
-- **Slice B — Planner scoring**: `protection_detected` → `planner.py` (adjust probe budget for CF-protected targets)
-- **Slice C — Reach strategy pivot**: `origin_ip_candidates` → `reach_strategy.py` (pre-emptive origin-direct pivot)
-
-### Prerequisites
-
-- §12.48 slice-3/4/5 producer wired — DONE
-- Consumer wiring = this GAP
-
-### Cross-reference
-
-- Bug #26 (Generic blind probing → WAF/CF block) — Layer 1/5 fix needs planner awareness
-- GAP-007 (OSINT / external context) — passive intel is the OSINT layer
-- §12.46 (Origin binding) — `origin_ip_candidates` feeds origin discovery
-- §12.48 slice-3 — producer wired, consumer = this GAP
-
----
-
 ## GAP-018: LiveOriginDiscovery Does Not Seed With In-Scope Siblings — Origin Discovery Fails When crt.sh Is Down
 
 - **Status**: OPEN — wiring-debt registered in `tests/governance/test_wiring_gate.py` (ratchet: test fails when `seed_hosts` appears in `conductor/main.py`, forcing move to WIRED_REQUIRED)
@@ -1170,6 +1136,40 @@ is wired, the wiring-debt test trips → move `seed_hosts` to WIRED_REQUIRED.
 - §12.46 (Origin binding) — `seed_hosts` feeds `discover_origin_ips` candidate list
 - GAP-015 — the runner that proved seed_hosts works (but production path doesn't use it)
 - `recon_integrated_field_prove.py` — the field-prove that surfaced this gap (T4 FAIL)
+
+---
+
+## GAP-017: PassiveIntelMap Enrichment Dead-End — Consumer Not Wired
+
+- **Status**: PARTIALLY — origin_ip_candidates consumer wired; protection_detected consumer (Slice A/B/C) still OPEN
+- **Severity**: Medium — enrichment data written to event store but read by nobody
+- **Effort**: Medium (3-slice fix: World Model ingestion, planner scoring, reach pivot)
+
+### Context
+
+§12.48 slice-3 fills `protection_detected`, `mx_records`, `nameservers` in `PassiveIntelMap`. Slice-4 adds CertSpotter subdomains. Slice-5 adds OTX origin-IP candidates + historical paths. But NO consumer reads these fields:
+
+1. **World Model** does not ingest `PassiveIntelMap` — no protection awareness
+2. **Planner** does not use `protection_detected` for scoring — Bug #26 stays OPEN
+3. **`choose_reach()`** cannot pre-emptive pivot from passive intel — reactive only
+
+### Proposed Fix (3 slices)
+
+- **Slice A — World Model ingestion**: `passive_intel_map` → `world_model.py` (protection awareness)
+- **Slice B — Planner scoring**: `protection_detected` → `planner.py` (adjust probe budget for CF-protected targets)
+- **Slice C — Reach strategy pivot**: `origin_ip_candidates` → `reach_strategy.py` (pre-emptive origin-direct pivot)
+
+### Prerequisites
+
+- §12.48 slice-3/4/5 producer wired — DONE
+- Consumer wiring = this GAP
+
+### Cross-reference
+
+- Bug #26 (Generic blind probing → WAF/CF block) — Layer 1/5 fix needs planner awareness
+- GAP-007 (OSINT / external context) — passive intel is the OSINT layer
+- §12.46 (Origin binding) — `origin_ip_candidates` feeds origin discovery
+- §12.48 slice-3 — producer wired, consumer = this GAP
 
 ---
 
