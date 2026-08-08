@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import os
 import pathlib
 from typing import Any
 from urllib.parse import urlparse
