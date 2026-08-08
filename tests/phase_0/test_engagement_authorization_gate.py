@@ -531,3 +531,78 @@ def test_dump_load_roundtrip_with_new_fields(tmp_path) -> None:
     assert loaded.allow_evasion is True
     assert loaded.authorization_level == "ACTIVE_APPROVED"
     assert loaded.consent.signed_by == "admin"
+
+
+# ── 9. Cooperative verification mode (Opso C — SOW-based, no DNS-TXT) ────────
+
+
+def test_cooperative_mode_skips_dns_txt_and_records_mode() -> None:
+    """authorize_engagement with verification_mode='cooperative' skips DNS-TXT
+    ownership proof (no resolver needed) AND records the mode in the signed
+    profile + event payload (audit trail — operator chose SOW-based verification)."""
+    store = InMemoryEventStore()
+    profile = authorize_engagement(
+        engagement_id="eng-coop",
+        client_id="client-1",
+        targets=[_VALID_DOMAIN],
+        skip_domain_verification=True,
+        verification_mode="cooperative",
+        key=b"12345678901234567890123456789012",
+        consent_items=frozenset({"scope_confirmed", "techniques_authorized"}),
+        signed_by="operator",
+        signed_at="2026-08-09T00:00:00Z",
+        authorization_level="ACTIVE_APPROVED",
+        allow_origin_discovery=True,
+        event_store=store,
+    )
+
+    # Profile records the mode (tamper-proof — in canonical_json)
+    assert profile.verification_mode == "cooperative"
+    # No DNS resolver was needed (skip_domain_verification=True path)
+    assert _VALID_DOMAIN in profile.targets
+
+    # Event payload records the mode for audit trail
+    events = store.get_events("eng-coop")
+    auth_events = [e for e in events if e.event_type == EventType.ENGAGEMENT_AUTHORIZED]
+    assert len(auth_events) == 1
+    assert auth_events[0].payload["verification_mode"] == "cooperative"
+
+
+def test_cooperative_mode_in_canonical_json_affects_signature() -> None:
+    """verification_mode is part of canonical_json → changing it invalidates the
+    signature (tamper-proof: operator cannot silently switch from dns_txt to
+    cooperative after signing)."""
+    import os
+
+    os.environ["PROFILE_SIGNING_KEY"] = (
+        "1234567890123456789012345678901234567890123456789012345678901234"
+    )
+    profile_dns = EngagementProfile(
+        engagement_id="eng-001",
+        client_id="client-1",
+        scope_targets=frozenset({_VALID_DOMAIN}),
+        authorization_level="RECON_ONLY",
+        verification_mode="dns_txt",
+    )
+    profile_coop = EngagementProfile(
+        engagement_id="eng-001",
+        client_id="client-1",
+        scope_targets=frozenset({_VALID_DOMAIN}),
+        authorization_level="RECON_ONLY",
+        verification_mode="cooperative",
+    )
+    # Different verification_mode → different canonical_json → different hash
+    assert profile_dns.canonical_json() != profile_coop.canonical_json()
+    key = b"12345678901234567890123456789012"
+    assert profile_dns.sign(key) != profile_coop.sign(key)
+
+
+def test_default_verification_mode_is_dns_txt() -> None:
+    """Without explicit verification_mode, the default is 'dns_txt' (strict).
+    Cooperative mode is opt-in, never the default — anti-gate-bypass."""
+    profile = EngagementProfile(
+        engagement_id="eng-001",
+        client_id="client-1",
+        scope_targets=frozenset({_VALID_DOMAIN}),
+    )
+    assert profile.verification_mode == "dns_txt"

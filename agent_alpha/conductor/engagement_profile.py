@@ -215,6 +215,7 @@ class EngagementProfile:
     include_root: bool = False
     authorization_level: str = "RECON_ONLY"  # RECON_ONLY | ACTIVE_APPROVED | OFFENSIVE_APPROVED
     consent: ConsentRecord = field(default_factory=ConsentRecord)
+    verification_mode: str = "dns_txt"  # "dns_txt" (default, strict) | "cooperative" (SOW-based, operator-approved, no DNS-TXT)
 
     # ── Signature helpers ─────────────────────────────────────
 
@@ -238,6 +239,7 @@ class EngagementProfile:
             "include_root": self.include_root,
             "authorization_level": self.authorization_level,
             "consent": self.consent.to_dict(),
+            "verification_mode": self.verification_mode,
         }
         return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 

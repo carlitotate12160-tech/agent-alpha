@@ -151,6 +151,9 @@ class AuthorizeBody(BaseModel):
     allow_subdomain_enum: bool = False
     opsec_stealth: bool = False
     authorized_origins: list[str] | None = None  # manual override (dev/cooperative)
+    verification_mode: str = (
+        "dns_txt"  # "dns_txt" (default) | "cooperative" (SOW-based, operator-approved)
+    )
 
 
 class EnableReconBody(BaseModel):
@@ -718,6 +721,12 @@ def authorize_engagement_endpoint(
         "true",
         "yes",
     )
+    # Opso C: cooperative verification mode — operator explicitly chooses SOW-based
+    # verification (no DNS-TXT). Recorded in the signed profile + event payload for
+    # audit trail. When business is ready to tighten, default back to "dns_txt" only.
+    cooperative_mode = body.verification_mode == "cooperative"
+    if cooperative_mode:
+        skip_verification = True
 
     for domain in body.domains:
         normalized = _normalise_domain(domain)
@@ -773,6 +782,7 @@ def authorize_engagement_endpoint(
             ownership_tokens=ownership_tokens,
             dns_resolver=DnspythonResolver(),
             skip_domain_verification=skip_verification,
+            verification_mode=body.verification_mode,
             authorized_origins=authorized_origins,
             consent_items=frozenset(body.consent_items) if body.consent_items else None,
             signed_by=body.signed_by,
