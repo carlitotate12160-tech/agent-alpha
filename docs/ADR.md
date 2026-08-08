@@ -3316,3 +3316,55 @@ Agent-Alpha is strictly forbidden from actively hacking 3rd-party vendors, as th
 3. **Assume Breach Mode (Future Phase):** For internal or authorized scenarios, Agent-Alpha will support starting from an artificially compromised state (low-level credentials) to simulate a vendor breach and attempt lateral movement/privilege escalation.
 **Constraint:** These vectors are officially part of the Phase 0 (Recon) and Epsilon (Lateral) doctrines, but their code implementation is queued *after* the core foundation (Slices 1-6) is complete.
 
+
+### 12.57 Alpha as a Gate-Respecting Operator — Closed Feedback Loop (ACCEPTED)
+
+**Date:** 2026-08-08
+**Context:** Field-prove on alpha-ai (T4 MOAT PASS) + an APT-operator behaviour audit
+(8 log-grounded "teguran") showed Alpha behaves closer to a *scanner with APT techniques*
+than an *operator*: it probes, persists, and continues — findings accumulate but do not steer
+subsequent behaviour. Verified against code, this is an **INCOMPLETE feedback loop, NOT an absent
+one**: Alpha already has fingerprint→`frontier_seeds` (`_handle_capability_fingerprint`),
+dead-end `try_harder`, `EvasionPlanner` consecutive-BLOCKED exhaustion, a deterministic rule-tier
+(runs when the LLM declines), and the Bug #26 `protection_detected` spray-suppressor. What is
+missing is the rest of the loop.
+
+**Decision — Alpha becomes an operator by CLOSING the feedback loop, gate-respecting.**
+The four operator behaviours are adopted, each mapped so it NEVER crosses the Conductor auth gate:
+
+1. **Finding → action (recon-side, gated hand-off).** A jackpot finding triggers *immediate
+   RECON follow-through IN Alpha* — deterministic secret extraction (regex, not LLM) → CREDENTIAL
+   node → correlation with other findings — producing a HOT, prioritised hand-off. The
+   recon→ACCESS pivot (e.g. cred-reuse to Odoo) is dispatched to **Beta at the gated Alpha→Beta
+   hand-off**, never by Alpha. Alpha is `RECON_ONLY`; initial access is Beta + `ACTIVE_APPROVED`
+   (see non-negotiable "Auth gate in Conductor only"). Autonomous end-to-end proof is tracked as
+   the OdooAccessTool autonomous-win debt.
+2. **Mid-engagement pattern learning.** N consecutive 404 on a path pattern-group (`.env*`) →
+   skip the rest of the group, on this host and (if the stack differs) other hosts. Deterministic
+   counter, extends the `EvasionPlanner` consecutive pattern (anti-#6). Cross-engagement learning
+   (IntelligenceBase) stays deferred. → GAP-020.
+3. **Fingerprint drives path selection (hard-filter, not just add).** A confirmed stack must
+   REMOVE irrelevant generic paths, not only add stack-specific ones. Static list filtered by
+   fingerprint — simple, deterministic, no dynamic path generation. → GAP-021.
+4. **Strategy pivot on failure (bounded, playbook-driven).** Recon-side already = `try_harder`;
+   access-side pivots are playbook-defined alternatives in a deterministic order, **bounded (≤3),
+   never infinite retry, never LLM "what next"**. → Beta concern, tracked.
+
+**Rejected alternative — event-driven parallel pivot (DEFERRED to Phase 5+).** The proposal
+"Conductor dispatches Beta the instant a finding lands, mid-recon, in parallel with Alpha" is NOT
+adopted for Phase 4 because: (a) mid-recon the engagement is `RECON_ONLY` — Beta needs
+`ACTIVE_APPROVED`, an elevation that is a consent/human step (cannot be "immediate"); (b)
+Alpha-still-running + Beta-acting on one engagement = agent concurrency that brushes the
+"no mutable shared state between agents" non-negotiable; (c) premature — the field run completes in
+~6.5 min, recon is not the bottleneck; the real gap is the autonomous chain being unproven, not
+hand-off timing. Phase 4 uses the **phase-level gated hand-off** (Alpha completes recon →
+Conductor advances → Beta). Revisit event-driven pivot only when parallel agents / fan-out land.
+
+**Rejected — an LLM "judgment layer".** Risk/honeypot/target-priority hooks are premature and
+hallucination-prone. The LLM stays in ORIENT (hypothesis about a response), never in DECIDE
+("what should I do next"); DECIDE is deterministic + playbook-driven.
+
+**Constraint:** All four are recon-quality / hand-off-quality improvements within the existing
+phase + auth model — zero new offensive capability, zero gate change, zero new recon *vector*
+(they reduce waste, they do not add breadth). Concrete slices: GAP-020 → GAP-021 → GAP-022.
+
