@@ -340,9 +340,7 @@ class VirusTotalClient:
             return ""
         return getattr(resp, "text", "") or ""
 
-    def origin_ips_and_subdomains(
-        self, domain: str
-    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    def origin_ips_and_subdomains(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         """Return (origin_ip_candidates, vt_subdomains) for *domain*.
 
         Origin IPs come from the resolutions endpoint (historical DNS).

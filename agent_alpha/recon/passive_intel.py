@@ -269,9 +269,7 @@ class VirusTotalSource(Protocol):
     ) -> tuple[tuple[str, ...], tuple[str, ...]]: ...  # pragma: no cover
 
 
-def enrich_with_virustotal(
-    intel: PassiveIntelMap, vt: VirusTotalSource
-) -> PassiveIntelMap:
+def enrich_with_virustotal(intel: PassiveIntelMap, vt: VirusTotalSource) -> PassiveIntelMap:
     """Return *intel* enriched with VT origin-IP candidates + VT subdomains.
 
     ADDITIVE: NEW frozen map via replace. Origin IPs are UNIONED with any OTX
