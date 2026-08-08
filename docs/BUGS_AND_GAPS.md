@@ -1066,13 +1066,13 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 
 ## GAP-017: PassiveIntelMap Enrichment Dead-End — Consumer Not Wired
 
-- **Status**: PARTIALLY — origin_ip_candidates consumer wired (PR #361); protection_detected consumer (Slice A/B/C) still OPEN
+- **Status**: PARTIALLY — origin_ip_candidates consumer wired; protection_detected consumer (Slice A/B/C) still OPEN
 - **Severity**: Medium — enrichment data written to event store but read by nobody
 - **Effort**: Medium (3-slice fix: World Model ingestion, planner scoring, reach pivot)
 
 ### Context
 
-§12.48 slice-3 (PR #357) fills `protection_detected`, `mx_records`, `nameservers` in `PassiveIntelMap`. Slice-4 (PR #359) adds CertSpotter subdomains. Slice-5 (PR #360) adds OTX origin-IP candidates + historical paths. But NO consumer reads these fields:
+§12.48 slice-3 fills `protection_detected`, `mx_records`, `nameservers` in `PassiveIntelMap`. Slice-4 adds CertSpotter subdomains. Slice-5 adds OTX origin-IP candidates + historical paths. But NO consumer reads these fields:
 
 1. **World Model** does not ingest `PassiveIntelMap` — no protection awareness
 2. **Planner** does not use `protection_detected` for scoring — Bug #26 stays OPEN
@@ -1086,7 +1086,7 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 
 ### Prerequisites
 
-- §12.48 slice-3/4/5 producer wired (PR #357, #359, #360) — ✅ DONE
+- §12.48 slice-3/4/5 producer wired — DONE
 - Consumer wiring = this GAP
 
 ### Cross-reference
@@ -1094,7 +1094,7 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 - Bug #26 (Generic blind probing → WAF/CF block) — Layer 1/5 fix needs planner awareness
 - GAP-007 (OSINT / external context) — passive intel is the OSINT layer
 - §12.46 (Origin binding) — `origin_ip_candidates` feeds origin discovery
-- §12.48 slice-3 (PR #357) — producer wired, consumer = this GAP
+- §12.48 slice-3 — producer wired, consumer = this GAP
 
 ---
 
@@ -1119,7 +1119,7 @@ Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
 | 13 | GAP-014 (Fan-out parallel worker wiring) | Low | — | N-target engagement latency: sequential → parallel (alpha=10, beta=4, gamma=2). Interface built, pure wiring debt |
 | 14 | ~~GAP-015 (Credential spray tool)~~ | Medium | None blocking — applicator roster built (merged 296), USER nodes persisted by wp_rest_user_disclosure | **CLOSED** — Implemented as `UserDerivedCredsTool` (derive-not-spray). Fixes Bug #25. Prerequisite for GAP-013 (pattern mutation) |
 | 15 | GAP-016 (Wayback pre-intel) | Low-Medium | None blocking — standalone module | Archive-driven probe selection, reduce 404 noise (Bug #26 Layer 1), plugin detection without crawling |
-| 16 | GAP-017 (PassiveIntelMap → World Model/Planner) | Medium | §12.48 slice-3 (PR #357) ✅ producer wired | Enrichment signal consumed for pre-emptive pivot + Bug #26 Layer 1/5 fix + MX→origin (§12.46) |
+| 16 | GAP-017 (PassiveIntelMap → World Model/Planner) | Medium | §12.48 slice-3 ✅ producer wired | Enrichment signal consumed for pre-emptive pivot + Bug #26 Layer 1/5 fix + MX→origin (§12.46) |
 
 > ToolComposer (review GAP 8) sengaja tidak dimasukkan — akan di-build nantinya sebagai bagian dari Gamma phase.
 > GAP 7 (4 agents missing: Gamma/Delta/Epsilon) sengaja tidak dimasukkan — sedang dalam proses.
