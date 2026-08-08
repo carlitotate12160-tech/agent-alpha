@@ -248,6 +248,11 @@ def run_integrated_field_prove(config: IntegratedConfig) -> list[Oracle]:
             exclusions=config.scope_exclusions,
         ),
     )
+    # Re-fetch the record AFTER enable_recon — create_engagement returns a record
+    # with scope=None; the scope is set by enable_recon's STATE_TRANSITIONED event.
+    # Passing the stale rec to run_recon_for_engagement → NoTargetsError (mirrors
+    # main.py which fetches the record post-authorization in the worker).
+    rec = auth.get_record(engagement_id)
 
     profile = build_signed_profile(engagement_id, config)
 
