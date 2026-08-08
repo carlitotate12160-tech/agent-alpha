@@ -1,0 +1,51 @@
+# §12.48 integrated recon field-prove — alpha-ai.web.id (self-owned lab, full CF stack)
+#
+# Consumed by: agent_alpha/live_fire/recon_integrated_field_prove.py -> load_config()
+# Run:         python -m agent_alpha.live_fire.recon_integrated_field_prove <this-file.yaml>
+#
+# Proves the FULL autonomous recon path (recon_runner.run_recon_for_engagement with
+# conductor/main.py's production wiring): passive CT chain (CertSpotter->crt.sh->
+# HackerTarget) -> DNS enrichment -> OTX origin-IP + historical-path enrichment ->
+# CompositeOriginDiscovery -> Bug#26 protection-aware probe suppression, and the
+# §12.46 origin-binding MOAT (a hidden origin behind CF proven to serve the owned
+# host via the ownership-token canary — the CF-bypass proof).
+#
+# AUTHORIZATION: every host below is self-owned + in lab_guard._LAB_HOSTS (#214/#272,
+# ownership-proofed). assert_lab_only_target refuses anything else. NOTE: only the
+# apex + wp/laravel/odoo siblings are allowlisted today — do NOT add a host that is
+# not in _LAB_HOSTS or the harness fail-closes before any I/O.
+
+client_id: "alpha_ai_lab"
+
+scope:
+  ip_ranges: []
+  domains:
+    - "alpha-ai.web.id"          # apex (CF-fronted) — NS-derived cloudflare signal (T5)
+    - "wp.alpha-ai.web.id"       # CF-fronted recon target (origin-binding MOAT, T4)
+    - "laravel.alpha-ai.web.id"  # self-owned sibling (CT surface, T2)
+    - "odoo.alpha-ai.web.id"     # self-owned sibling (CT surface, T2)
+    - "direct.alpha-ai.web.id"   # self-owned non-CF sibling (CT surface, T2) — #364
+  exclusions: []
+
+# WP root — the CF-fronted host whose origin is discovered (OTX/CT) and PROVEN
+# via the well-known token canary. run_recon_for_engagement derives the rest of the
+# targets from the verified scope domains above.
+recon_url: "https://wp.alpha-ai.web.id/"
+
+# §12.46 origin-binding artifact — (host -> ownership token).
+# The origin behind Cloudflare MUST serve  /.well-known/agent-alpha-<token>.txt
+# echoing the token string. That well-known file is the ownership PROOF that lets
+# an otherwise-untrusted DISCOVERED origin IP be acted on (candidate != authz).
+# REPLACE the placeholder with the token your origin actually serves, or T4 will
+# honestly fail (fail-closed = no reach).
+ownership_tokens:
+  "wp.alpha-ai.web.id": "REPLACE_WITH_TOKEN_SERVED_AT_WELL_KNOWN"
+
+# §12.36 signed-consent metadata (embedded in the profile HMAC; any edit after
+# signing invalidates the signature — anti-downgrade).
+consent_items:
+  - "authorized_recon"
+  - "origin_discovery"
+  - "subdomain_enum"
+signed_by: "natanael"
+signed_at: "2026-08-08T00:00:00Z"
