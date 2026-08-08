@@ -100,7 +100,7 @@ class Planner:
 
         return list(seen)
 
-    def select_leak_paths(self, labels: list[str]) -> list[str]:
+    def select_leak_paths(self, labels: list[str], *, suppress_default: bool = False) -> list[str]:
         """Resolve which leak/discovery paths apply to a host given its known
         tech_stack *labels* (pass ``[]`` for an unfingerprinted host).
 
@@ -134,7 +134,11 @@ class Planner:
                 for path in spec.paths:
                     paths.setdefault(path, None)
 
-        if not non_universal_matched:
+        # Bug #26 Layer 5: when a WAF/CDN is detected upstream, suppress the
+        # blind DEFAULT_LEAK_PATHS spray on an unfingerprinted host — probe
+        # stack-specific paths only AFTER a fingerprint, to avoid the 404
+        # breadth-anomaly that trips the WAF before anything is found.
+        if not non_universal_matched and not suppress_default:
             for path in constants.DEFAULT_LEAK_PATHS:
                 paths.setdefault(path, None)
 
