@@ -795,7 +795,7 @@ class Alpha:
         if cached_origins is not None:
             authorized_origins_list = cached_origins
         else:
-            authorized_origins_list: list[str] = []
+            authorized_origins_list = []
             if self._origin_discovery is not None and getattr(
                 self._engagement_profile, "authorized_origins", None
             ):
