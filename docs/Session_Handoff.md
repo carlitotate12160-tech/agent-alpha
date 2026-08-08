@@ -78,8 +78,15 @@ Canary deployed for T4 (well-known ownership token at origin).
 3. **GAP-022 — deterministic rule coverage (`install.php` etc.) + finding correlation** (creds×users).
    ADR §12.57 points 1 & 4 (recon-side).
 4. **Subdomain takeover (R1)** — new payable finding (dangling CNAME); after the recon-quality trio.
-5. **Autonomous-chain proof (payable blocker)** — OdooAccessTool autonomous-win via run_strike/run_beta
-   (finding → gated Alpha→Beta hand-off → Omega), + Omega client-grade report. Then Beta breadth B1/B2 + B4.
+5. **Autonomous-chain proof (payable blocker)** — J4 RED confirmed on Oracle (PR #367):
+   OdooAccessTool did NOT win ToolRegistry.ranked() on the autonomous path. Root cause:
+   `_project_target_context` (strike.py:88-93) filters ASSET nodes by host=target
+   (wp.alpha-ai.web.id), so the Odoo ASSET (tech_stack=['odoo']) never enters ctx →
+   OdooAccessTool.applies_to returns 0.15 (off-target floor) → loses ranking. J1b GREEN
+   (Alpha autonomously found wp-config.php.bak leak + vaulted 2 creds). Detail + debt
+   closure condition: BUGS_AND_GAPS.md OdooAccessTool entry. Fix slice must also emit
+   a non-mutating TOOL_SELECTED event so J4 assert reads ranking evidence directly
+   (not proof-artifact inference). Then Beta breadth B1/B2 + B4.
 
 **Auth-gate boundary (ADR §12.57, non-negotiable):** Alpha NEVER does initial access, even on a jackpot;
 the recon→access pivot is the GATED Alpha→Beta hand-off. Event-driven parallel pivot = DEFERRED Phase 5+.

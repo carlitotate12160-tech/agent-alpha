@@ -1290,6 +1290,15 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   `verify_wp_config_leak` → `OdooAccessTool`; the autonomous path relies on
   `ToolRegistry.ranked()` picking OdooAccessTool from the candidate set, which it
   did NOT. Do not mark this debt closed until J4 is GREEN on Oracle.
+  **J4 fix slice (mandatory, not optional):** (1) fix `_project_target_context`
+  (strike.py:88-93) so cross-target ASSET tech_stack enters ctx (the Odoo ASSET
+  `tech_stack=['odoo']` is filtered out because host != target `wp.alpha-ai.web.id`);
+  (2) emit a non-mutating `TOOL_SELECTED` event from `ToolRegistry.ranked()` (or
+  `Beta.step`) so the J4 assert reads ranking evidence directly instead of inferring
+  from proof-artifact `method == "authenticate"` — the current inference is sound for
+  RED (absence of odoo proof = odoo did not win) but insufficient for GREEN (need to
+  prove OdooAccessTool was SELECTED, not just that some odoo proof exists). Both
+  must land in the same slice.
 - **GAP-014 (fan-out)**: confirmed accurate — `conductor/fanout.py` interface EXISTS, Shape A
   not wired (pure wiring debt, not stale).
 - **SessionStore (GAP-002)**: scratchpad mechanism lives in `agents/base.py` (#192), but the
