@@ -1064,6 +1064,40 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 
 ---
 
+## GAP-017: PassiveIntelMap Enrichment Dead-End — Consumer Not Wired
+
+- **Status**: OPEN
+- **Severity**: Medium — enrichment data written to event store but read by nobody
+- **Effort**: Medium (3-slice fix: World Model ingestion, planner scoring, reach pivot)
+
+### Context
+
+§12.48 slice-3 (PR #357) fills `protection_detected`, `mx_records`, `nameservers` in `PassiveIntelMap`. Slice-4 (PR #359) adds CertSpotter subdomains. Slice-5 (PR #360) adds OTX origin-IP candidates + historical paths. But NO consumer reads these fields:
+
+1. **World Model** does not ingest `PassiveIntelMap` — no protection awareness
+2. **Planner** does not use `protection_detected` for scoring — Bug #26 stays OPEN
+3. **`choose_reach()`** cannot pre-emptive pivot from passive intel — reactive only
+
+### Proposed Fix (3 slices)
+
+- **Slice A — World Model ingestion**: `passive_intel_map` → `world_model.py` (protection awareness)
+- **Slice B — Planner scoring**: `protection_detected` → `planner.py` (adjust probe budget for CF-protected targets)
+- **Slice C — Reach strategy pivot**: `origin_ip_candidates` → `reach_strategy.py` (pre-emptive origin-direct pivot)
+
+### Prerequisites
+
+- §12.48 slice-3/4/5 producer wired (PR #357, #359, #360) — ✅ DONE
+- Consumer wiring = this GAP
+
+### Cross-reference
+
+- Bug #26 (Generic blind probing → WAF/CF block) — Layer 1/5 fix needs planner awareness
+- GAP-007 (OSINT / external context) — passive intel is the OSINT layer
+- §12.46 (Origin binding) — `origin_ip_candidates` feeds origin discovery
+- §12.48 slice-3 (PR #357) — producer wired, consumer = this GAP
+
+---
+
 ## GAP Priority & Build Order
 
 Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
