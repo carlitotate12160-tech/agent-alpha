@@ -512,6 +512,7 @@ def authorize_engagement(
     ownership_tokens: dict[str, str] | None = None,
     dns_resolver: DNSResolver | None = None,
     skip_domain_verification: bool = False,
+    verification_mode: str = "dns_txt",
     event_store: EventStore | None = None,
     key: bytes,
 ) -> EngagementProfile:
@@ -634,6 +635,7 @@ def authorize_engagement(
         include_root=include_root,
         authorization_level=authorization_level,
         consent=consent,
+        verification_mode=verification_mode,
     )
 
     # Step 4 — sign.
@@ -658,6 +660,7 @@ def authorize_engagement(
                     "include_root": include_root,
                 },
                 "scope_mode": scope_mode,
+                "verification_mode": verification_mode,
             },
         )
 
