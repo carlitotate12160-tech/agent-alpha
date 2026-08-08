@@ -20,7 +20,7 @@ Carries NO opsec of its own: the CALLER must hand it a stealth-configured client
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
 from agent_alpha.agents.http_client import HttpResponse
@@ -67,13 +67,14 @@ class OriginAwareHttpClient:
         verify: bool | None = None,
     ) -> HttpResponse:
         target_url, host, is_direct = self._route(url)
-        return self._inner.get(
+        resp = self._inner.get(
             target_url,
             headers=self._merge_host(headers, host) if is_direct else headers,
             cookies=cookies,
             allow_redirects=allow_redirects,
             verify=False if is_direct else verify,
         )
+        return cast(HttpResponse, resp)
 
     def post(
         self,
@@ -87,7 +88,7 @@ class OriginAwareHttpClient:
         verify: bool | None = None,
     ) -> HttpResponse:
         target_url, host, is_direct = self._route(url)
-        return self._inner.post(
+        resp = self._inner.post(
             target_url,
             data=data,
             json_body=json_body,
@@ -96,6 +97,7 @@ class OriginAwareHttpClient:
             allow_redirects=allow_redirects,
             verify=False if is_direct else verify,
         )
+        return cast(HttpResponse, resp)
 
     def _route(self, url: str) -> tuple[str, str, bool]:
         """Return (target_url, fronted_host, is_origin_direct)."""

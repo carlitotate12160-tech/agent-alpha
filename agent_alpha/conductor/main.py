@@ -338,6 +338,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         except Exception as exc:
             raise ValueError(f"signing key unavailable: {exc}") from exc
 
+        engagement_profile: EngagementProfile | None = None
         try:
             events = target_store.get_events(engagement_id)
             profile_envelope = next(
@@ -525,20 +526,43 @@ def run_agent_task(
         provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
         orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), provider)
 
-        def agent_factory(graph_store: Any, session_store: Any = None) -> Callable[[], ExecOutcome]:
+        # Load the signed EngagementProfile for §12.46 Slice 2 (Beta origin-direct).
+        # Same pattern as run_engagement_task: read ENGAGEMENT_PROFILE_SIGNED event,
+        # verify signature, fail-open to None if missing (non-profile engagements
+        # still work — Beta just won't get origin-direct routing).
+        _task_profile: EngagementProfile | None = None
+        try:
+            signing_key = get_profile_signing_key()
+            _events = target_store.get_events(engagement_id)
+            _envelope = next(
+                (
+                    e
+                    for e in reversed(_events)
+                    if e.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED
+                ),
+                None,
+            )
+            if _envelope and _envelope.payload:
+                _task_profile = load_signed_profile_from_dict(_envelope.payload, key=signing_key)
+        except Exception:  # noqa: BLE001 — profile load failure → no origin-direct (graceful)
+            _log.debug("No signed profile for %s — Beta origin-direct disabled", engagement_id)
+
+        def agent_factory(
+            graph_store: Any, session_store: Any = None, _profile: Any = _task_profile
+        ) -> Callable[[], ExecOutcome]:
             if agent_role == a2a_pb2.BETA:
                 # §12.46 Slice 2: wrap HttpClient with OriginAwareHttpClient so Beta's
                 # offensive POSTs (login, XML-RPC) go origin-direct when a proven-bound
                 # origin exists — bypassing CF WAF. Fail-closed: fronted host with no
                 # binding + allow_origin_discovery → refuse (don't burn technique at edge).
                 # Alpha recon does NOT use this wrapper (it has origin_direct_fetch).
-                beta_http = http_client
-                if engagement_profile is not None:  # noqa: F821 — closure var
+                beta_http: Any = http_client
+                if _profile is not None:
                     from agent_alpha.agents.origin_aware_client import OriginAwareHttpClient
 
                     beta_http = OriginAwareHttpClient(
                         http_client,
-                        profile=engagement_profile,  # noqa: F821 — closure var
+                        profile=_profile,
                         event_store=target_store,
                         engagement_id=engagement_id,
                     )
