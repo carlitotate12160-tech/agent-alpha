@@ -21,6 +21,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from agent_alpha.a2a import a2a_pb2
+from agent_alpha.security.secrets import get_certspotter_api_key
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Report
@@ -39,6 +40,7 @@ from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscove
 from agent_alpha.recon.passive_intel import (
     PassiveDNSResolver,
     build_passive_intel_map,
+    certspotter_discover,
     enrich_with_dns,
     hackertarget_fallback,
     record_passive_intel,
@@ -286,36 +288,64 @@ def run_recon_for_engagement(
         if host is None or host in seen_hosts:
             continue
         seen_hosts.add(host)
+        # §12.48 slice-4: passive CT/OSINT source CHAIN, ordered by reliability —
+        # CertSpotter (primary CT, robust) -> crt.sh (fallback CT, flaky/often down)
+        # -> HackerTarget (keyless last-resort). Try in order; STOP at the first
+        # source that yields a surface (conserves rate-limited quotas — never a
+        # second source call once one has hits). ONE stealth client shared by the
+        # keyless HTTP sources (anti self-identifying UA). Each source fail-open.
+        osint_client = build_osint_http_client(engagement_id)
+        result: PassiveDiscoveryResult | None = None
+        sources_used: tuple[str, ...] = ()
+
+        # 1 — CertSpotter (primary). Optional Bearer key raises the limit; keyless works.
         try:
-            pd = build_passive_discovery(engagement_id, auth, store)
-            result: PassiveDiscoveryResult | None = pd.discover(engagement_id, host)
+            cs = certspotter_discover(
+                engagement_id,
+                host,
+                http_client=osint_client,
+                authorization=auth,
+                api_key=get_certspotter_api_key(),
+            )
+            if cs.discovered:
+                result, sources_used = cs, ("certspotter",)
         except Exception:
-            result = None
             _log.warning(
-                "Passive crt.sh discovery failed for %s (engagement %s) — continuing (fail-open)",
+                "CertSpotter discovery failed for %s (engagement %s) — continuing (fail-open)",
                 host,
                 engagement_id,
                 exc_info=True,
             )
 
-        # §12.48 slice-2: keyless fallback. Fire when crt.sh yielded NOTHING —
-        # either reachable-but-empty (rate-limit / 503 → parse yields nothing) OR
-        # unreachable (exception above → result is None). Both are "crt.sh gave us
-        # no surface". Fall back to the HackerTarget host-search (no API key),
-        # routed through the SAME stealth HttpClient (anti self-identifying UA) and
-        # the SAME fail-closed auth gate. Never a second call when crt.sh had hits.
-        sources_used: tuple[str, ...] = ("crtsh",)
+        # 2 — crt.sh fallback (emits PASSIVE_DISCOVERY). Keep its (possibly empty)
+        # result object so downstream always has a result to record.
+        if result is None or not result.discovered:
+            try:
+                pd = build_passive_discovery(engagement_id, auth, store)
+                r = pd.discover(engagement_id, host)
+                if r.discovered:
+                    result, sources_used = r, ("crtsh",)
+                elif result is None:
+                    result = r
+            except Exception:
+                _log.warning(
+                    "crt.sh fallback failed for %s (engagement %s) — continuing (fail-open)",
+                    host,
+                    engagement_id,
+                    exc_info=True,
+                )
+
+        # 3 — HackerTarget keyless last-resort.
         if result is None or not result.discovered:
             try:
                 fb = hackertarget_fallback(
                     engagement_id,
                     host,
-                    http_client=build_osint_http_client(engagement_id),
+                    http_client=osint_client,
                     authorization=auth,
                 )
                 if fb.discovered:
-                    result = fb
-                    sources_used = ("hackertarget",)
+                    result, sources_used = fb, ("hackertarget",)
             except Exception:
                 _log.warning(
                     "HackerTarget fallback failed for %s (engagement %s) — continuing (fail-open)",

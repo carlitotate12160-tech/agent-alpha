@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -81,3 +82,62 @@ def fetch_hackertarget_subdomains(domain: str, *, http_client: Any) -> list[str]
         _log.warning("HackerTarget fetch failed for %s — fail-open", domain, exc_info=True)
         return []
     return parse_hackertarget_hosts(getattr(resp, "text", "") or "", domain)
+
+
+# ── CertSpotter (SSLMate CT search) — CT-log source, sibling of crt.sh ─────────
+# More reliable / complete than crt.sh in the field. Keyless works (rate-limited);
+# an optional Bearer key raises the limit. include_subdomains=true + expand=dns_names
+# returns every issuance's SAN list. Same fail-open contract as the other sources.
+CERTSPOTTER_URL_TEMPLATE: str = (
+    "https://api.certspotter.com/v1/issuances?domain={domain}"
+    "&include_subdomains=true&expand=dns_names"
+)
+
+
+def parse_certspotter_names(body: str, domain: str) -> list[str]:
+    """Parse a CertSpotter issuances JSON body → sorted, deduped, domain-filtered
+    hostnames (from each issuance's ``dns_names``). Never raises.
+
+    Guards non-list payloads (CertSpotter returns an error OBJECT, not an array,
+    on a bad request / rate-limit) → treated as no data (fail-open)."""
+    try:
+        entries = json.loads(body)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+    if not isinstance(entries, list):
+        return []
+
+    domain_lower = domain.strip().lower()
+    if not domain_lower:
+        return []
+    suffix = "." + domain_lower
+
+    seen: set[str] = set()
+    for obj in entries:
+        if not isinstance(obj, dict):
+            continue
+        for name in obj.get("dns_names", []) or []:
+            host = str(name).strip().lower()
+            if host.startswith("*."):
+                host = host[2:]
+            if host and "*" not in host and (host == domain_lower or host.endswith(suffix)):
+                seen.add(host)
+    return sorted(seen)
+
+
+def fetch_certspotter_subdomains(
+    domain: str, *, http_client: Any, api_key: str | None = None
+) -> list[str]:
+    """Single GET to CertSpotter → parsed, domain-filtered hostnames. Fail-open.
+
+    ``http_client`` is the stealth ``HttpClient``. ``api_key`` (optional) is sent as
+    a Bearer token for higher limits; absent = keyless. Any transport/parse error → [].
+    """
+    url = CERTSPOTTER_URL_TEMPLATE.format(domain=domain)
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else None
+    try:
+        resp = http_client.get(url, headers=headers)
+    except Exception:  # noqa: BLE001 — OSINT source boundary; any error = no data (fail-open)
+        _log.warning("CertSpotter fetch failed for %s — fail-open", domain, exc_info=True)
+        return []
+    return parse_certspotter_names(getattr(resp, "text", "") or "", domain)

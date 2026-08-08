@@ -66,6 +66,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "enrich_with_dns": (
         "conductor/recon_runner.py",
     ),  # §12.48 slice-3: DNS enrichment (MX/NS/TXT + protection_detected) wired into the live passive stage
+    "certspotter_discover": (
+        "conductor/recon_runner.py",
+    ),  # §12.48 slice-4: CertSpotter primary CT source wired into the live passive chain
     "resolve_and_bind_origin": (
         "agents/alpha/scout.py",
     ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)
