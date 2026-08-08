@@ -152,7 +152,7 @@ def test_conductor_autonomous_chain_characterization(
     # alpha_ai_integrated.example.yaml ownership_tokens for wp.alpha-ai.web.id).
     # Nginx on the origin serves /var/www/alpha-ai-bait/.well-known/ for all vhosts,
     # so the same file works regardless of Host header (wp or odoo).
-    lab_token = "5fd127953896afcb6bc19b0cfc434786"
+    lab_token = "5fd127953896afcb6bc19b0cfc434786"  # ggignore — lab canary token, not a secret (see alpha_ai_integrated.example.yaml:50)
     signing_key = get_profile_signing_key()
     profile = authorize_engagement(
         engagement_id=rec.engagement_id,
