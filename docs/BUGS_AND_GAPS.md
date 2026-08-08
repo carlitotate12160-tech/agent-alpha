@@ -1098,6 +1098,40 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 
 ---
 
+## GAP-018: LiveOriginDiscovery Does Not Seed With In-Scope Siblings — Origin Discovery Fails When crt.sh Is Down
+
+- **Status**: OPEN — wiring-debt registered in `tests/governance/test_wiring_gate.py` (ratchet: test fails when `seed_hosts` appears in `conductor/main.py`, forcing move to WIRED_REQUIRED)
+- **Severity**: High — T4 origin-binding MOAT (CF-bypass proof) fails whenever crt.sh is down (flaky/often down)
+- **Effort**: Low (2-file additive wiring: `origin_resolver.py` + `conductor/main.py`)
+
+### Context (field-prove 2026-08-08, Oracle ARM64)
+
+The integrated recon field-prove (`recon_integrated_field_prove.py`) drove `run_recon_for_engagement` with production wiring on self-owned alpha-ai.web.id. T1/T2/T5/T6 PASS; T4 (ORIGIN_BINDING_PROVEN) FAIL. Root cause from INFO log:
+
+```
+origin_resolver: crt.sh fetch failed for alpha-ai.web.id (seed_hosts may still yield)
+origin_resolver: 0 CT subdomain(s) + 0 seed → 0 candidate host(s) for alpha-ai.web.id
+```
+
+`discover_origin_ips` has a `seed_hosts` parameter (in-scope authorized hostnames used as origin-candidate sources when crt.sh yields nothing — "a grey-cloud subdomain CT never logged is the #1 real origin leak" per its docstring). The gap015 runner proved the technique by calling `discover_origin_ips(..., seed_hosts=config.scope_domains)`. But the **production** wiring (`conductor/main.py` → `LiveOriginDiscovery(engagement_id, worker_auth)`) does NOT pass `seed_hosts` — so when crt.sh is down, origin discovery returns 0 candidates → no binding → T4 fails.
+
+This is RUNNER-SEAL != AUTONOMOUS-WIRED for the seed_hosts technique (Lyndon #2-adjacent).
+
+### Proposed Fix (additive, 2 files)
+
+1. `recon/origin_resolver.py`: `LiveOriginDiscovery.__init__` accepts `seed_hosts: Sequence[str] = ()`; `candidates()` passes it to `discover_origin_ips`.
+2. `conductor/main.py`: when constructing `LiveOriginDiscovery`, pass `record.scope.domains` as `seed_hosts`.
+
+Default empty → existing callers unaffected. When wired, the wiring-debt test trips → move `seed_hosts` to WIRED_REQUIRED.
+
+### Cross-reference
+
+- §12.46 (Origin binding) — `seed_hosts` feeds `discover_origin_ips` candidate list
+- GAP-015 — the runner that proved seed_hosts works (but production path doesn't use it)
+- `recon_integrated_field_prove.py` — the field-prove that surfaced this gap (T4 FAIL)
+
+---
+
 ## GAP Priority & Build Order
 
 Urutan fix GAP (terpisah dari Bug Priority Matrix dan Recommended Fix Order):
