@@ -12,7 +12,7 @@ No network I/O in this module — pure seam interface.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 
 class OriginDiscovery(Protocol):
@@ -58,7 +58,7 @@ class CompositeOriginDiscovery:
     base discovery is unchanged; OTX IPs are unioned, base order preserved first.
     """
 
-    def __init__(self, base: OriginDiscovery, event_store: object, engagement_id: str) -> None:
+    def __init__(self, base: OriginDiscovery, event_store: Any, engagement_id: str) -> None:
         self._base = base
         self._event_store = event_store
         self._engagement_id = engagement_id
@@ -72,10 +72,20 @@ class CompositeOriginDiscovery:
             events = self._event_store.get_events(self._engagement_id)
         except Exception:  # noqa: BLE001 — event read boundary; degrade to base only
             return out
+        host_norm = fronted_host.rstrip(".").lower()
         for ev in events:
             if getattr(ev, "event_type", None) != EventType.PASSIVE_INTEL_GATHERED:
                 continue
-            for ip in ev.payload.get("origin_ip_candidates", []) or []:
+            payload = ev.payload
+            # SECURITY (CodeRabbit): scope candidates to the host they were
+            # discovered for. get_events() returns ALL passive events for the
+            # engagement; without this filter an IP found for host A would be
+            # probed under host B's token + Host header (cross-host token leak /
+            # collateral). Exact host match — binding proof is a backstop, not a
+            # substitute for candidate scoping.
+            if payload.get("domain", "").rstrip(".").lower() != host_norm:
+                continue
+            for ip in payload.get("origin_ip_candidates", []) or []:
                 if ip not in seen:
                     seen.add(ip)
                     out.append(ip)

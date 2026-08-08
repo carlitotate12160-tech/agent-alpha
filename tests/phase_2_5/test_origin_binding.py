@@ -444,6 +444,23 @@ def test_composite_dedups_and_base_only_without_events() -> None:
     assert empty.candidates("ex.com") == ["1.2.3.4"]
 
 
+def test_composite_excludes_candidates_from_a_different_domain() -> None:
+    """SECURITY (CodeRabbit): an origin IP discovered for domain A must NOT be
+    surfaced as a candidate for host B — else it would be probed under B's token
+    + Host header (cross-host token leak / collateral)."""
+    store = InMemoryEventStore()
+    eng = "eng-comp-xdomain"
+    store.append(
+        event_type=EventType.PASSIVE_INTEL_GATHERED,
+        engagement_id=eng,
+        agent="alpha",
+        payload={"domain": "other.com", "origin_ip_candidates": [_OTX_IP], "sources_used": ["otx"]},
+    )
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery(["1.2.3.4"]), store, eng)
+    cands = comp.candidates("ex.com")  # different host than the event's domain
+    assert cands == ["1.2.3.4"]  # base only — the other.com IP is NOT leaked to ex.com
+
+
 class _BoomStore:
     def get_events(self, engagement_id: str) -> list[object]:
         raise RuntimeError("event store down")
