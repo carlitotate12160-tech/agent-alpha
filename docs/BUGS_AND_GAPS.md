@@ -1175,3 +1175,29 @@ that makes the refactor safe.
 | R1 | **Offline hash crack** | When Alpha harvests password hashes (DB dump / backup / wp-config→DB access), crack OFFLINE with hashcat + rockyou + rules (billions of guesses, NO lockout, safe). High-recall. | Gamma-adjacent (hash-harvest chain) | High — THE strong recall vector |
 | R2 | **Credential stuffing** | Check enumerated identities against known breach corpuses (reuse across services). Needs ethical/legal breach-data source (paid). | External data source | Medium — needs legal review |
 | R3 | **OSINT-targeted wordlist** | Company/year/season/local terms → hashcat rules. Broader than 4 derived candidates but still online-lockout-bounded. | None (extends UserDerivedCredsTool) | Low — marginal recall gain online |
+
+---
+
+## Wiring ledger — audited 2026-08-08 (post slice-4/5/6)
+
+Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc trust.
+
+- **CLOSED**: `origin_ip_candidates` dead-end — consumed by `CompositeOriginDiscovery` 
+  (`origin_discovery.py` + `main.py`, PR #361). OTX origin IPs now reach
+  `verify_origin_binding` (candidate proven, not hand-fed).
+- **WIRING_DEBT registered (gate-enforced)**: `protection_detected` + `historical_paths` 
+  are produced (slice-3 / slice-5 OTX) but have NO consumer → registered against
+  `agents/alpha/scout.py` so CI fails when the Bug #26 consumer wires them. Closing
+  Bug #26 (probe selection) graduates BOTH.
+- **Producer-only, no committed consumer yet** (acceptable per GAP-017, revisit):
+  `mx_records`, `nameservers` (internal input to `protection_detected`), `txt_records`.
+- **OdooAccessTool — WIRING now gate-protected** (WIRED_REQUIRED → `agents/beta/strike.py`),
+  but AUTONOMOUS-WIN PROOF still owed: no non-island test drives OdooAccessTool to WIN via
+  `run_strike`/`run_beta` (only unit-proven + odoo_chain_runner ISLAND). Proof debt — write a
+  `run_strike` W-test asserting winning_tool == odoo_access → ACCESS_LEVEL on an Odoo target.
+- **GAP-014 (fan-out)**: confirmed accurate — `conductor/fanout.py` interface EXISTS, Shape A
+  not wired (pure wiring debt, not stale).
+- **SessionStore (GAP-002)**: scratchpad mechanism lives in `agents/base.py` (#192), but the
+  `SessionStore` CLASS is not referenced in `recon_runner.py`/`execute_agent.py` (only the
+  lowercase `session_store` param) — gate still tracks it as debt. Doc "CLOSED" = mechanism
+  built; live-path class wiring incomplete. Reconcile when the pre-Gamma Conductor refactor lands.

@@ -78,6 +78,10 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "CompositeOriginDiscovery": (
         "conductor/main.py",
     ),  # GAP-017: OTX origin_ip_candidates unioned into the binding candidate path (consumer wired)
+    "OdooAccessTool": (
+        "agents/beta/strike.py",
+    ),  # Beta autonomous access tool wired into the ToolRegistry candidate set (protects wiring;
+    # NOTE: autonomous-WIN proof via run_strike/run_beta still owed — tracked in BUGS_AND_GAPS)
     "resolve_and_bind_origin": (
         "agents/alpha/scout.py",
     ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)
@@ -113,6 +117,14 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
     "CredentialLockoutGovernor": (
         ("tools/internal/access/odoo_access.py",),
         "§12.22 D2: odoo submits creds via its own http path (off-roster) — must route through the lockout governor",
+    ),
+    "protection_detected": (
+        ("agents/alpha/scout.py",),
+        "GAP-017 / Bug #26: DNS protection posture must gate blind path-probing (consumer not wired)",
+    ),
+    "historical_paths": (
+        ("agents/alpha/scout.py",),
+        "GAP-017 / Bug #26 Layer 1: OTX historical paths must drive probe selection (consumer not wired)",
     ),
 }
 
