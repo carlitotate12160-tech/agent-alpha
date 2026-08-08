@@ -104,3 +104,13 @@ class TestAssertLabOnlyTarget:
         """An empty or invalid target must raise LabOnlyViolation."""
         with pytest.raises(LabOnlyViolation, match="empty/invalid"):
             assert_lab_only_target("")
+
+
+def test_direct_alpha_ai_sibling_is_owned_lab_host() -> None:
+    """direct.alpha-ai.web.id is self-owned (domain-level DNS-TXT proof) and must
+    be an allowlisted lab host so the integrated field-prove can scope it — added
+    with proof, NOT by loosening the guard."""
+    assert "direct.alpha-ai.web.id" in LAB_TARGET_ALLOWLIST
+    # passes the fail-closed gate (no raise) for both bare host and URL forms
+    assert_lab_only_target("direct.alpha-ai.web.id")
+    assert_lab_only_target("https://direct.alpha-ai.web.id/")

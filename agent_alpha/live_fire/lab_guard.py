@@ -152,6 +152,15 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
         "#272",
     ),
+    # Direct (non-CF) sibling — self-owned; domain-level DNS-TXT proof (same token as
+    # the other alpha-ai.web.id subdomains). Used as an origin-exposure target in the
+    # integrated recon field-prove.
+    LabHost(
+        "direct.alpha-ai.web.id",
+        "natanael",
+        "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
+        "#364",
+    ),
     # Cloudflare quick tunnel — ephemeral, expires. Changes per tunnel start.
     LabHost(
         "responding-yards-adaptation-floors.trycloudflare.com",

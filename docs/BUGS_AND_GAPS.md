@@ -1064,6 +1064,81 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 
 ---
 
+## GAP-018: LiveOriginDiscovery Does Not Seed With In-Scope Siblings — Origin Discovery Fails When crt.sh Is Down
+
+- **Status**: OPEN — wiring-debt registered in `tests/governance/test_wiring_gate.py` (ratchet: test fails when `seed_hosts` appears in `conductor/main.py`, forcing move to WIRED_REQUIRED)
+- **Severity**: High — T4 origin-binding MOAT (CF-bypass proof) fails whenever crt.sh is down (flaky/often down)
+- **Effort**: Low (2-file additive wiring: `origin_resolver.py` + `conductor/main.py`)
+
+### Context (field-prove 2026-08-08, Oracle ARM64)
+
+The integrated recon field-prove (`recon_integrated_field_prove.py`) drove `run_recon_for_engagement` with production wiring on self-owned alpha-ai.web.id. T1/T2/T5/T6 PASS; T4 (ORIGIN_BINDING_PROVEN) FAIL. Root cause from INFO log:
+
+```
+origin_resolver: crt.sh fetch failed for alpha-ai.web.id (seed_hosts may still yield)
+origin_resolver: 0 CT subdomain(s) + 0 seed → 0 candidate host(s) for alpha-ai.web.id
+```
+
+`discover_origin_ips` has a `seed_hosts` parameter (in-scope authorized hostnames used as origin-candidate sources when crt.sh yields nothing — "a grey-cloud subdomain CT never logged is the #1 real origin leak" per its docstring). The gap015 runner proved the technique by calling `discover_origin_ips(..., seed_hosts=config.scope_domains)`. But the **production** wiring (`conductor/main.py` → `LiveOriginDiscovery(engagement_id, worker_auth)`) does NOT pass `seed_hosts` — so when crt.sh is down, origin discovery returns 0 candidates → no binding → T4 fails.
+
+This is RUNNER-SEAL != AUTONOMOUS-WIRED for the seed_hosts technique (Lyndon #2-adjacent).
+
+### Proposed Fix — two options (A is a subset of C; not exclusive)
+
+**Current state of `discover_origin_ips`** (verified line 108-130): candidate hosts come
+from ONLY two sources — (1) crt.sh subdomains (best-effort, fails when crt.sh down), and
+(2) `seed_hosts` (in-scope authorized hostnames). The COMPOSED production path
+(`CompositeOriginDiscovery` wrapping `LiveOriginDiscovery`) adds a third source: OTX
+`origin_ip_candidates` unioned from `PASSIVE_INTEL_GATHERED` events. But `seed_hosts` is
+the one NOT wired in production — `LiveOriginDiscovery(engagement_id, auth)` passes none.
+
+**Opsi A — seed_hosts = scope.domains (low effort, proven, closes T4)**
+
+1. `recon/origin_resolver.py`: `LiveOriginDiscovery.__init__` accepts `seed_hosts: Sequence[str] = ()`; `candidates()` passes it to `discover_origin_ips`.
+2. `conductor/main.py`: pass `record.scope.domains` as `seed_hosts`.
+
+`seed_hosts` comes from the engagement's VERIFIED scope — `record.scope.domains`, set by
+`enable_recon(Scope(...))` and persisted in the `STATE_TRANSITIONED` event. In the lab
+case: `[alpha-ai.web.id, wp.alpha-ai.web.id, laravel.alpha-ai.web.id, odoo.alpha-ai.web.id,
+direct.alpha-ai.web.id]`. DNS-resolving wp/laravel yields 168.110.192.62 (non-CF origin) —
+no crt.sh needed. Proven by gap015 runner (CHAIN PROVEN with crt.sh down).
+
+Limitation: only covers domains explicitly in `scope.domains`. A CT-discovered subdomain
+that is `is_in_scope` (wildcard match) but NOT in `scope.domains` is missed.
+
+**Opsi C — reuse passive-stage subdomains from event stream (architecturally cleaner)**
+
+Instead of `discover_origin_ips` fetching crt.sh AGAIN (duplicate of the passive stage's
+CertSpotter→crt.sh→HackerTarget chain), read `in_scope_subdomains` from the
+`PASSIVE_INTEL_GATHERED` events already written by the passive stage and use them as
+candidate hosts. `LiveOriginDiscovery` reads events for the fronted_host's domain, extracts
+`in_scope_subdomains`, and passes them as `seed_hosts` (alongside `scope.domains`).
+
+1. `recon/origin_resolver.py`: `LiveOriginDiscovery.__init__` accepts `event_store` + `seed_hosts`; `candidates()` reads `PASSIVE_INTEL_GATHERED` for the domain, unions `in_scope_subdomains` into `seed_hosts`, passes all to `discover_origin_ips`.
+2. `conductor/main.py`: pass `target_store` + `record.scope.domains` when constructing `LiveOriginDiscovery`.
+
+Pros over A: (a) reuses the ROBUST 3-source chain (CertSpotter→crt.sh→HackerTarget) instead
+of crt.sh-alone — crt.sh down is already handled gracefully in the passive stage; (b) no
+duplicate crt.sh fetch (anti-waste, anti-#6 duplication); (c) broader candidate set — all
+`in_scope` subdomains from passive, not just `scope.domains`.
+
+Cons: more invasive (event_store into LiveOriginDiscovery, 2-3 files). Requires passive
+stage to have run first (ordering OK — recon_runner runs passive before active).
+
+**A vs C verdict**: A is the right IMMEDIATE fix (proven, low risk, closes T4 on the lab).
+C is the right LONG-TERM fix (architecturally cleaner, no duplicate fetch, broader
+coverage). They are NOT exclusive — C is a superset of A (`seed_hosts = scope.domains ∪
+passive subdomains`). Recommended: A now (closes T4), C as a follow-up slice. When either
+is wired, the wiring-debt test trips → move `seed_hosts` to WIRED_REQUIRED.
+
+### Cross-reference
+
+- §12.46 (Origin binding) — `seed_hosts` feeds `discover_origin_ips` candidate list
+- GAP-015 — the runner that proved seed_hosts works (but production path doesn't use it)
+- `recon_integrated_field_prove.py` — the field-prove that surfaced this gap (T4 FAIL)
+
+---
+
 ## GAP-017: PassiveIntelMap Enrichment Dead-End — Consumer Not Wired
 
 - **Status**: PARTIALLY — origin_ip_candidates consumer wired; protection_detected consumer (Slice A/B/C) still OPEN

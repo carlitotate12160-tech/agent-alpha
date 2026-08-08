@@ -124,6 +124,12 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
         ("tools/internal/access/odoo_access.py",),
         "§12.22 D2: odoo submits creds via its own http path (off-roster) — must route through the lockout governor",
     ),
+    "seed_hosts": (
+        ("conductor/main.py",),
+        "GAP-018 / §12.46: LiveOriginDiscovery production wiring does not pass seed_hosts "
+        "(in-scope scope domains) to discover_origin_ips — origin discovery fails when "
+        "crt.sh is down (T4 origin-binding MOAT unprovable). Field-prove 2026-08-08.",
+    ),
 }
 
 

@@ -71,6 +71,7 @@ ATTACKER_HARNESSES: frozenset[str] = frozenset(
         "a1_validation_runner",
         "browser_solve_service",
         "gap015_field_prove",
+        "recon_integrated_field_prove",
     }
 )
 
