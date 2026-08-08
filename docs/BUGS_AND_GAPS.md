@@ -1066,7 +1066,7 @@ Integration point: `scout.run_recon()` calls `WaybackDiscovery.query()` before s
 
 ## GAP-017: PassiveIntelMap Enrichment Dead-End — Consumer Not Wired
 
-- **Status**: OPEN
+- **Status**: PARTIALLY — origin_ip_candidates consumer wired (PR #361); protection_detected consumer (Slice A/B/C) still OPEN
 - **Severity**: Medium — enrichment data written to event store but read by nobody
 - **Effort**: Medium (3-slice fix: World Model ingestion, planner scoring, reach pivot)
 
