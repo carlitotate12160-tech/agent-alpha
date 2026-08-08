@@ -393,9 +393,15 @@ def test_origin_discovery_wired_on_conductor_path(
     m.run_engagement_task(eid, "test-tenant")
 
     assert len(captured) >= 1
+    from agent_alpha.recon.origin_discovery import CompositeOriginDiscovery
     from agent_alpha.recon.origin_resolver import LiveOriginDiscovery
 
-    assert isinstance(captured[0], LiveOriginDiscovery), (
+    # GAP-017: origin_discovery may be wrapped in CompositeOriginDiscovery
+    # (unions OTX origin_ip_candidates). Unwrap to verify the base is real.
+    od = captured[0]
+    if isinstance(od, CompositeOriginDiscovery):
+        od = od._base  # noqa: SLF001 — test-only introspection
+    assert isinstance(od, LiveOriginDiscovery), (
         f"origin_discovery not wired as a real LiveOriginDiscovery on the live "
         f"Conductor path (got {captured[0]!r}) — §12.46 Slice B debt not closed"
     )
