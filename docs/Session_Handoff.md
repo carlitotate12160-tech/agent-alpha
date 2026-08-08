@@ -2,7 +2,7 @@
 
 # Agent-Alpha — Session Handoff (2026-08-07, cont.)
 
-Resume with: "lanjut Agent-Alpha — PR #346 stealth-by-default MERGED. bernofarm apex WafBlocked 25→12 (reproducible 3x on Oracle ARM64). DOCTRINE BANKED: stop beating full-CF apex from datacenter IP — residual 12 blocks = IP-rep + managed-challenge = INFRA ceiling, NOT code. NEXT = §12.48 PassiveIntelMap as SEPARATE component (anti-#8, starts §12.47 decomposition): crt.sh/Wayback/VirusTotal zero-touch → surface CT subdomains → resolve → non-CF/grey-cloud + origin candidates → verify_origin_binding (slice-1 sealed) → reach THOSE, avoid apex. Then origin-binding slice-3 (wire resolve_and_bind_origin into _attempt_reach). Then §12.50 pacing. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — T4 MOAT PASS di Oracle (integrated field-prove, alpha-ai full-CF: apex+wp origin 168.110.192.62 via seed_hosts → verify_origin_binding → ORIGIN_BINDING_PROVEN). §12.48 passive arc COMPLETE (slice-3 DNS-enrich, slice-4 CertSpotter-primary, slice-5 OTX, GAP-017 CompositeOriginDiscovery consumer). Bug#26 consumer wired (protection_detected+historical_paths). GAP-018 (seed_hosts) + GAP-019 (per-host origin cache: crt.sh 50→2, run 29→6.5min) FIXED. Hygiene: OdooAccessTool→WIRED_REQUIRED. ADR §12.57 (Alpha=gate-respecting operator, closed feedback loop; event-driven parallel pivot DEFERRED Phase 5+; Alpha-never-access affirmed). NEXT = GAP-020 (404 pattern-group exhaustion — deterministic, gate-safe, kills robot-spray). Do NOT build Gamma."
 
 ---
 
@@ -58,17 +58,31 @@ Strix cannot assemble.
 
 ## NEXT (foundation, in order — one slice at a time)
 
-**PHASE-4 EXIT CRITERIA — BOTH MET (verified 2026-08-07 via READ-BEFORE):**
-- CROSS_VERIFIED — DONE (see PENDING #3).
-- Dedup backup_file/wp_config — DONE: `canonical_leak_vuln_suffix` converges BOTH probes to one
-  `vuln:{host}:wp_config_leak` node (add_node upsert → single node); proven by
-  `test_path_probe::test_wp_config_backup_dedups_to_single_canonical_vuln` +
-  `test_leak_extraction::test_canonical_leak_vuln_suffix` (+ `.env`→backup_file differential). Omega
-  chain-entry preference is moot (one node). **Phase 4 is closeable.**
+**PHASE 4 status (2026-08-08): recon→reach→origin-binding MOAT proven end-to-end autonomous.**
+Integrated field-prove on self-owned alpha-ai (full-CF) = T4 PASS: apex + wp (CF-proxied) → origin
+168.110.192.62 discovered via seed_hosts (grey-cloud sibling) → verify_origin_binding token-canary →
+ORIGIN_BINDING_PROVEN. T1/T2/T5/T6 PASS; T3 honest-empty (OTX has no history for a fresh lab domain).
 
-1. **§12.48 slice-3 DNS enrichment** — fill PassiveIntelMap MX/TXT/NS + `protection_detected` (NS→CF). KEYLESS. Double-value: feeds §12.46 origin candidates (MX often reveals origin) AND produces the DNS signal (MX/NS/TXT/protection) that a LATER slice consumes for **Bug #26** Layer 1/5 (protection-detect before blind probe). Consumer wiring for Bug #26 + MX→origin (§12.46) = next slice; this slice is PRODUCER-ONLY (Bug #26 stays OPEN). **← IN REVIEW (PR #357), producer-only; pending Oracle seal + merge. NEXT after merge = item 2.**
-2. **Subdomain takeover** (dangling CNAME → expired service) — highest-value payable finding scanners miss; chains to full subdomain control.
-3. **Wayback** (GAP-016, keyless) → **VirusTotal** (key-gated enrichment). AXFR DEMOTED (rare + scanner-covered). robots/sitemap low. Dehashed = paid, feeds Beta.
+**MERGED this arc:** §12.48 slice-3 (DNS enrich, #357) · slice-4 (CertSpotter primary, #359) ·
+slice-5 (OTX origin-IP+paths, #360) · GAP-017 CompositeOriginDiscovery consumer (#361) · Bug#26
+consumer protection_detected+historical_paths (#363) · hygiene ledger + OdooAccessTool WIRED (#362) ·
+GAP-018 seed_hosts (#365) · GAP-019 per-host origin cache · ADR §12.57 + GAP-020/021/022 (doc).
+Canary deployed for T4 (well-known ownership token at origin).
+
+**NEXT (recon-quality trio first — field-informed, gate-safe, curator-compliant = precision not depth):**
+1. **GAP-020 — 404 pattern-group exhaustion** ← RECOMMENDED NEXT. N consecutive 404 on a group
+   (`.env*`) → skip rest (extends EvasionPlanner consecutive pattern, anti-#6). Kills the robot-spray
+   the field showed. Deterministic, no LLM, no gate change. ADR §12.57 point 2.
+2. **GAP-021 — fingerprint-driven path hard-filter** (remove irrelevant generic paths once a stack is
+   confirmed; not just add). ADR §12.57 point 3.
+3. **GAP-022 — deterministic rule coverage (`install.php` etc.) + finding correlation** (creds×users).
+   ADR §12.57 points 1 & 4 (recon-side).
+4. **Subdomain takeover (R1)** — new payable finding (dangling CNAME); after the recon-quality trio.
+5. **Autonomous-chain proof (payable blocker)** — OdooAccessTool autonomous-win via run_strike/run_beta
+   (finding → gated Alpha→Beta hand-off → Omega), + Omega client-grade report. Then Beta breadth B1/B2 + B4.
+
+**Auth-gate boundary (ADR §12.57, non-negotiable):** Alpha NEVER does initial access, even on a jackpot;
+the recon→access pivot is the GATED Alpha→Beta hand-off. Event-driven parallel pivot = DEFERRED Phase 5+.
 
 ## DOCTRINE BANKED (2026-08-07)
 
