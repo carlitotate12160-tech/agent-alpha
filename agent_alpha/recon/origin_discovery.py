@@ -85,8 +85,42 @@ class CompositeOriginDiscovery:
             # substitute for candidate scoping.
             if payload.get("domain", "").rstrip(".").lower() != host_norm:
                 continue
+            # 1. origin_ip_candidates (OTX/VT historical DNS — already IPs)
             for ip in payload.get("origin_ip_candidates", []) or []:
                 if ip not in seen:
                     seen.add(ip)
                     out.append(ip)
+            # 2. VT subdomains — DNS-resolve each as an additional origin candidate.
+            # Grey-cloud subdomains (e.g. qs.quantum-laboratories.com → 157.230.37.62)
+            # resolve directly to the origin IP, bypassing CF. These are HOSTS, not
+            # IPs — resolve them here. The binding gate still confirms each before use.
+            for sub in payload.get("subdomains", []) or []:
+                sub_norm = sub.strip().lower().rstrip(".")
+                if not sub_norm or sub_norm == host_norm:
+                    continue
+                for ip in _resolve_ipv4(sub_norm):
+                    if ip not in seen:
+                        seen.add(ip)
+                        out.append(ip)
         return out
+
+
+def _resolve_ipv4(hostname: str) -> list[str]:
+    """DNS resolve hostname → IPv4 addresses. Fail-open → [] on any error.
+
+    Local import to keep the module's pure-seam intent (no socket at import time).
+    """
+    import socket
+
+    try:
+        infos = socket.getaddrinfo(hostname, None, socket.AF_INET)
+        seen: set[str] = set()
+        result: list[str] = []
+        for info in infos:
+            ip = str(info[4][0])
+            if ip not in seen:
+                seen.add(ip)
+                result.append(ip)
+        return result
+    except OSError:
+        return []

@@ -917,6 +917,185 @@ def test_otx_enrichment_on_live_path_via_injected_client(monkeypatch: pytest.Mon
 
 
 # ══════════════════════════════════════════════════════════════════════
+# §12.48 slice-2 (VT) — VirusTotal enrichment (origin IPs + subdomains)
+# ══════════════════════════════════════════════════════════════════════
+
+from agent_alpha.recon.osint_sources import (  # noqa: E402
+    VirusTotalClient,
+    parse_vt_origin_ips,
+    parse_vt_subdomains,
+)
+from agent_alpha.recon.passive_intel import enrich_with_virustotal  # noqa: E402
+
+# VT v3 resolutions body — id format is "<ip><host>" concatenation
+_VT_RESOLUTIONS = (
+    '{"data":['
+    '{"id":"157.230.37.62quantum-laboratories.com","attributes":{"date":1646373277}},'
+    '{"id":"104.21.31.151quantum-laboratories.com","attributes":{"date":1781671663}},'
+    '{"id":"10.0.0.5internal.example.com","attributes":{"date":1600000000}}'
+    "]}"
+)  # 10.x is private → dropped
+_VT_SUBDOMAINS = (
+    '{"data":['
+    '{"id":"qs.quantum-laboratories.com","type":"subdomain"},'
+    '{"id":"erpdev.quantum-laboratories.com","type":"subdomain"},'
+    '{"id":"evil.other.com","type":"subdomain"},'
+    '{"id":"quantum-laboratories.com","type":"subdomain"}'
+    "]}"
+)  # evil.other.com is NOT a subdomain of quantum-laboratories.com → dropped
+
+
+class _VtHttp:
+    def __init__(self, resols: str, subs: str) -> None:
+        self._resols, self._subs = resols, subs
+        self.last_headers: dict[str, str] | None = None
+        self.calls: list[str] = []
+
+    def get(self, url: str, *, headers: dict[str, str] | None = None, **k: object) -> _Resp:
+        self.calls.append(url)
+        self.last_headers = headers
+        body = self._resols if "resolutions" in url else self._subs
+        return _Resp(200, body, {}, url)
+
+
+# ── UNIT: parsers ─────────────────────────────────────────────────────
+
+
+def test_parse_vt_origin_ips_extracts_public_only() -> None:
+    ips = parse_vt_origin_ips(_VT_RESOLUTIONS)
+    # 157.230.37.62 extracted from id prefix; 104.21.31.151 is CF but still public
+    # (parser does NOT filter CF — that's origin_resolver's job); 10.x dropped.
+    assert "157.230.37.62" in ips
+    assert "104.21.31.151" in ips
+    assert "10.0.0.5" not in ips
+
+
+def test_parse_vt_origin_ips_fail_open_on_garbage() -> None:
+    assert parse_vt_origin_ips("not json") == []
+
+
+def test_parse_vt_subdomains_filters_to_base_domain() -> None:
+    subs = parse_vt_subdomains(_VT_SUBDOMAINS, "quantum-laboratories.com")
+    assert "qs.quantum-laboratories.com" in subs
+    assert "erpdev.quantum-laboratories.com" in subs
+    assert "quantum-laboratories.com" in subs
+    assert "evil.other.com" not in subs
+
+
+def test_parse_vt_subdomains_fail_open_on_garbage() -> None:
+    assert parse_vt_subdomains("not json", "ex.com") == []
+
+
+# ── UNIT: VirusTotalClient (header + fail-open) ───────────────────────
+
+
+def test_vt_client_sends_key_header_and_returns_ips_subs() -> None:
+    http = _VtHttp(_VT_RESOLUTIONS, _VT_SUBDOMAINS)
+    ips, subs = VirusTotalClient(http, "VT_K").origin_ips_and_subdomains("quantum-laboratories.com")
+    assert "157.230.37.62" in ips
+    assert "qs.quantum-laboratories.com" in subs
+    assert http.last_headers == {"x-apikey": "VT_K"}
+
+
+# ── UNIT: enrich_with_virustotal (additive, unions with OTX, preserves) ─
+
+
+class _StubVt:
+    def __init__(self, ips: tuple[str, ...], subs: tuple[str, ...]) -> None:
+        self._ips, self._subs = ips, subs
+
+    def origin_ips_and_subdomains(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        return self._ips, self._subs
+
+
+def test_enrich_with_virustotal_unions_ips_and_subs() -> None:
+    base = build_passive_intel_map(
+        PassiveDiscoveryResult(
+            "ex.com",
+            ("ex.com", "a.ex.com"),
+            ("ex.com",),
+            ("a.ex.com",),
+        )
+    )
+    # Simulate OTX already filled origin_ip_candidates
+    from agent_alpha.recon.passive_intel import enrich_with_otx
+    otx_filled = enrich_with_otx(base, _StubOtx(("45.33.32.156",), ("/wp-login.php",)))
+    # VT adds a NEW IP + a NEW subdomain
+    out = enrich_with_virustotal(otx_filled, _StubVt(("157.230.37.62",), ("qs.ex.com",)))
+    # Origin IPs unioned (OTX + VT, deduped)
+    assert "45.33.32.156" in out.origin_ip_candidates
+    assert "157.230.37.62" in out.origin_ip_candidates
+    # Subdomains unioned (crt.sh + VT, deduped)
+    assert "a.ex.com" in out.subdomains
+    assert "qs.ex.com" in out.subdomains
+    # slice-1 fields preserved
+    assert out.in_scope_subdomains == ("ex.com",)
+    # OTX historical_paths preserved (not overwritten by VT)
+    assert out.historical_paths == ("/wp-login.php",)
+    assert out is not otx_filled
+
+
+def test_enrich_with_virustotal_dedupes_existing_ips() -> None:
+    base = build_passive_intel_map(
+        PassiveDiscoveryResult("ex.com", ("ex.com",), ("ex.com",), ())
+    )
+    otx_filled = enrich_with_otx(base, _StubOtx(("157.230.37.62",), ()))
+    # VT returns the SAME IP — must not duplicate
+    out = enrich_with_virustotal(otx_filled, _StubVt(("157.230.37.62",), ()))
+    assert out.origin_ip_candidates.count("157.230.37.62") == 1
+
+
+# ── WIRED-PROOF (§12.35 Rule 2): VT enrichment on the live path ────────
+
+
+def test_vt_enrichment_on_live_path_via_injected_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_recon_for_engagement, given an injected VT client, records origin-IP
+    candidates + subdomains + 'virustotal' in sources_used on the live event —
+    proving enrich_with_virustotal runs on the autonomous path (non-island, #2)."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    graph = NetworkXGraphStore()
+    crt = _CrtShClient()
+    monkeypatch.setattr(
+        recon_runner, "build_recon_pipeline", lambda *a, **k: _fake_pipeline(auth, graph, store)
+    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
+    )
+    monkeypatch.setattr(
+        recon_runner,
+        "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+    )
+    monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient())
+
+    vt = _StubVt(("157.230.37.62",), ("qs." + _ROOT,))
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
+        vt_client=vt,
+    )
+
+    payload = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ][0].payload
+    assert "157.230.37.62" in payload["origin_ip_candidates"]
+    assert any("qs." in s for s in payload["subdomains"])
+    assert "virustotal" in payload["sources_used"]
+
+
+# ══════════════════════════════════════════════════════════════════════
 # Bug #26 consumer — passive_intel_signal_for_host (domain-scoped read)
 # ══════════════════════════════════════════════════════════════════════
 

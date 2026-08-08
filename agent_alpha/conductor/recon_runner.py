@@ -39,14 +39,20 @@ from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscove
 from agent_alpha.recon.passive_intel import (
     OTXSource,
     PassiveDNSResolver,
+    VirusTotalSource,
     build_passive_intel_map,
     certspotter_discover,
     enrich_with_dns,
     enrich_with_otx,
+    enrich_with_virustotal,
     hackertarget_fallback,
     record_passive_intel,
 )
-from agent_alpha.security.secrets import get_certspotter_api_key, get_otx_api_key
+from agent_alpha.security.secrets import (
+    get_certspotter_api_key,
+    get_otx_api_key,
+    get_virustotal_api_key,
+)
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
@@ -242,6 +248,22 @@ def build_otx_client(engagement_id: str) -> OTXSource | None:
     return OtxClient(HttpClient(engagement_id=engagement_id), key)
 
 
+def build_virustotal_client(engagement_id: str) -> VirusTotalSource | None:
+    """Build the VirusTotal source from the configured key, or None if no key is set.
+
+    §12.48 slice-2 (VT) seam: constructed at the Conductor entry (main.py) and
+    injected into ``run_recon_for_engagement``. No key → None → VT enrichment is
+    skipped (graceful degradation). VT provides historical DNS resolutions
+    (origin IP candidates) + subdomains (grey-cloud hosts CT never logged)."""
+    key = get_virustotal_api_key()
+    if not key:
+        return None
+    from agent_alpha.agents.http_client import HttpClient
+    from agent_alpha.recon.osint_sources import VirusTotalClient
+
+    return VirusTotalClient(HttpClient(engagement_id=engagement_id), key)
+
+
 def build_osint_http_client(engagement_id: str) -> Any:
     """Module seam (monkeypatchable) for the OSINT-source HTTP client used by
     the §12.48 slice-2 keyless fallback. Same stealth ``HttpClient`` as recon
@@ -271,6 +293,7 @@ def run_recon_for_engagement(
     browser_solve_viable: bool = False,
     dns_resolver: PassiveDNSResolver | None = None,
     otx_client: OTXSource | None = None,
+    vt_client: VirusTotalSource | None = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -393,6 +416,14 @@ def run_recon_for_engagement(
                 if otx_client is not None:
                     intel = enrich_with_otx(intel, otx_client)
                     intel_sources = (*intel_sources, "otx")
+                # §12.48 slice-2 (VT): VirusTotal enrichment (origin-IP candidates
+                # + grey-cloud subdomains). Injected at the Conductor entry only
+                # when a VT key is set — None here = VT off. VT finds origin IPs
+                # and subdomains that crt.sh/OTX miss (e.g. qs.quantum-laboratories.com
+                # → 157.230.37.62 directly, no CF proxy).
+                if vt_client is not None:
+                    intel = enrich_with_virustotal(intel, vt_client)
+                    intel_sources = (*intel_sources, "virustotal")
             else:
                 intel_sources = sources_used
             record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)

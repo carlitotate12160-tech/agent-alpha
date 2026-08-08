@@ -237,3 +237,119 @@ class OtxClient:
         pdns = self._get(OTX_PASSIVE_DNS_URL_TEMPLATE.format(domain=domain))
         ul = self._get(OTX_URL_LIST_URL_TEMPLATE.format(domain=domain))
         return tuple(parse_otx_origin_ips(pdns, ul)), tuple(parse_otx_historical_paths(ul))
+
+
+# ── §12.48 slice-2 (VT): VirusTotal v3 passive DNS + subdomain source ─────────
+
+VT_DOMAIN_URL_TEMPLATE: str = "https://www.virustotal.com/api/v3/domains/{domain}"
+VT_RESOLUTIONS_URL_TEMPLATE: str = "https://www.virustotal.com/api/v3/domains/{domain}/resolutions"
+VT_SUBDOMAINS_URL_TEMPLATE: str = (
+    "https://www.virustotal.com/api/v3/domains/{domain}/relationships/subdomains?limit=40"
+)
+
+
+def parse_vt_origin_ips(resolutions_body: str) -> list[str]:
+    """Extract origin IP candidates from a VT v3 resolutions body (deduped, sorted).
+
+    VT v3 returns ``{"data": [{"id": "<ip><host>", "attributes": {"date": ...}}, ...]}``.
+    The ``id`` is a concatenation of IP + hostname — we extract the IP portion (the
+    leading numeric part before the hostname). Fail-open → [] on any parse error.
+    """
+    ips: set[str] = set()
+    try:
+        data = json.loads(resolutions_body)
+        for row in data.get("data", []) if isinstance(data, dict) else []:
+            if not isinstance(row, dict):
+                continue
+            # VT v3 id format: "<ip><hostname>" — extract IP from attributes or id
+            attrs = row.get("attributes", {}) or {}
+            ip = str(attrs.get("ip_address", "") or attrs.get("host_name", "") or "")
+            # If id is "<ip><host>", try to extract leading IP
+            if not ip:
+                raw_id = str(row.get("id", ""))
+                # Leading IPv4 pattern
+                parts = raw_id.split(".")
+                if len(parts) >= 4:
+                    candidate = ".".join(parts[:4])
+                    # Strip trailing non-digit chars
+                    cleaned = ""
+                    for ch in candidate:
+                        if ch.isdigit() or ch == ".":
+                            cleaned += ch
+                        else:
+                            break
+                    if _is_public_ipv4(cleaned):
+                        ips.add(cleaned.strip())
+            elif _is_public_ipv4(ip):
+                ips.add(ip.strip())
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return sorted(ips)
+
+
+def parse_vt_subdomains(subdomains_body: str, base_domain: str) -> list[str]:
+    """Extract subdomains from a VT v3 subdomains relationship body (deduped, sorted).
+
+    VT v3 returns ``{"data": [{"id": "<subdomain>", "type": "subdomain"}, ...]}``.
+    Filters to subdomains of *base_domain* (anti-cross-domain contamination).
+    Fail-open → [] on any parse error.
+    """
+    names: set[str] = set()
+    base = base_domain.strip().lower().rstrip(".")
+    try:
+        data = json.loads(subdomains_body)
+        for row in data.get("data", []) if isinstance(data, dict) else []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("id", "")).strip().lower().rstrip(".")
+            if not name:
+                continue
+            # Accept exact match or subdomain of base_domain
+            if name == base or name.endswith("." + base):
+                names.add(name)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return sorted(names)
+
+
+class VirusTotalClient:
+    """VirusTotal v3 source seam: key-gated GETs → origin IPs + subdomains.
+
+    Fail-open: any transport/parse error on either endpoint yields empties for that
+    endpoint, never raises. ``api_key`` sent as ``x-apikey`` header (VT v3 convention).
+
+    Two endpoints queried:
+      - ``/domains/{domain}/resolutions`` → historical IP resolutions (origin candidates)
+      - ``/domains/{domain}/relationships/subdomains`` → VT-discovered subdomains
+
+    Subdomains are NOT a subdomain source for crt.sh's pipeline (CT already covers that)
+    — they are returned separately so the caller can DNS-resolve them as additional
+    origin-candidate hosts (grey-cloud subdomains that CT never logged, like
+    ``qs.quantum-laboratories.com`` → origin IP directly).
+    """
+
+    def __init__(self, http_client: Any, api_key: str) -> None:
+        self._http = http_client
+        self._headers = {"x-apikey": api_key}
+
+    def _get(self, url: str) -> str:
+        try:
+            resp = self._http.get(url, headers=self._headers)
+        except Exception:  # noqa: BLE001 — OSINT boundary; any error = no data (fail-open)
+            _log.warning("VirusTotal fetch failed for %s — fail-open", url, exc_info=True)
+            return ""
+        return getattr(resp, "text", "") or ""
+
+    def origin_ips_and_subdomains(
+        self, domain: str
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Return (origin_ip_candidates, vt_subdomains) for *domain*.
+
+        Origin IPs come from the resolutions endpoint (historical DNS).
+        Subdomains come from the relationships/subdomains endpoint — these may
+        resolve to non-CF IPs (grey-cloud), unlike crt.sh which only sees CT-logged
+        certs. Both are candidates, NOT authorized — the binding gate confirms them.
+        """
+        resols = self._get(VT_RESOLUTIONS_URL_TEMPLATE.format(domain=domain))
+        subs = self._get(VT_SUBDOMAINS_URL_TEMPLATE.format(domain=domain))
+        return tuple(parse_vt_origin_ips(resols)), tuple(parse_vt_subdomains(subs, domain))

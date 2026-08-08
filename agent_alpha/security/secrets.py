@@ -184,6 +184,16 @@ def get_otx_api_key() -> str | None:
     return key or None
 
 
+def get_virustotal_api_key() -> str | None:
+    """Optional VirusTotal v3 API key (x-apikey header).
+
+    Platform-level secret, NOT per-client. Optional/fail-open: absent = VT
+    enrichment is skipped (engagement still runs). Read through this getter, never
+    os.environ directly (anti-hardcode / single seam)."""
+    key = os.environ.get("VIRUSTOTAL_API_KEY")
+    return key or None
+
+
 def get_profile_signing_key() -> bytes:
     """Canonical source for the EngagementProfile HMAC signing key.
 
