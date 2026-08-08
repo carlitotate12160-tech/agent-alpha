@@ -37,14 +37,16 @@ from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscoveryResult
 from agent_alpha.recon.passive_intel import (
+    OTXSource,
     PassiveDNSResolver,
     build_passive_intel_map,
     certspotter_discover,
     enrich_with_dns,
+    enrich_with_otx,
     hackertarget_fallback,
     record_passive_intel,
 )
-from agent_alpha.security.secrets import get_certspotter_api_key
+from agent_alpha.security.secrets import get_certspotter_api_key, get_otx_api_key
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "tools" / "playbooks"
@@ -225,6 +227,21 @@ def build_passive_discovery(
     )
 
 
+def build_otx_client(engagement_id: str) -> OTXSource | None:
+    """Build the OTX source from the configured key, or None if no key is set.
+
+    §12.48 slice-5 seam: constructed at the Conductor entry (main.py) and injected
+    into ``run_recon_for_engagement``. No key → None → OTX enrichment is skipped
+    (graceful degradation, anti self-identifying UA via the stealth HttpClient)."""
+    key = get_otx_api_key()
+    if not key:
+        return None
+    from agent_alpha.agents.http_client import HttpClient
+    from agent_alpha.recon.osint_sources import OtxClient
+
+    return OtxClient(HttpClient(engagement_id=engagement_id), key)
+
+
 def build_osint_http_client(engagement_id: str) -> Any:
     """Module seam (monkeypatchable) for the OSINT-source HTTP client used by
     the §12.48 slice-2 keyless fallback. Same stealth ``HttpClient`` as recon
@@ -253,6 +270,7 @@ def run_recon_for_engagement(
     engagement_profile: Any = None,
     browser_solve_viable: bool = False,
     dns_resolver: PassiveDNSResolver | None = None,
+    otx_client: OTXSource | None = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -369,6 +387,12 @@ def run_recon_for_engagement(
             if auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
                 intel = enrich_with_dns(intel, dns)
                 intel_sources = (*sources_used, "dns")
+                # §12.48 slice-5: OTX enrichment (origin-IP candidates + historical
+                # paths). Injected at the Conductor entry only when a key is set —
+                # None here = OTX off (existing tests + keyless deploys unaffected).
+                if otx_client is not None:
+                    intel = enrich_with_otx(intel, otx_client)
+                    intel_sources = (*intel_sources, "otx")
             else:
                 intel_sources = sources_used
             record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)

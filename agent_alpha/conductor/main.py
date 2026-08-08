@@ -378,6 +378,10 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             task_browser_solve = DeepSeekBrowserSolve.from_env()
             task_browser_solve_viable = task_browser_solve is not None
 
+        # §12.48 slice-5: OTX source injected only when a key is configured
+        # (build_otx_client returns None otherwise → OTX enrichment skipped).
+        task_otx = recon_runner.build_otx_client(engagement_id)
+
         run_result = recon_runner.run_recon_for_engagement(
             engagement_id,
             tenant_id,
@@ -391,6 +395,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             origin_discovery=task_origin_discovery,
             browser_solve=task_browser_solve,
             browser_solve_viable=task_browser_solve_viable,
+            otx_client=task_otx,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report

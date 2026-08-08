@@ -13,9 +13,11 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 from typing import Any
+from urllib.parse import urlparse
 
 _log = logging.getLogger(__name__)
 
@@ -141,3 +143,97 @@ def fetch_certspotter_subdomains(
         _log.warning("CertSpotter fetch failed for %s — fail-open", domain, exc_info=True)
         return []
     return parse_certspotter_names(getattr(resp, "text", "") or "", domain)
+
+
+# ── OTX (AlienVault / LevelBlue OTX) — passive-DNS + URL history ───────────────
+# UNIQUE value vs the CT sources: resolved IPs (passive_dns.address) and URL-scan
+# origin IPs (url_list[].result.urlworker.ip) = ORIGIN CANDIDATES for CF-bypass,
+# plus historical PATHS (url_list[].url). Key-gated (X-OTX-API-KEY); keyless is not
+# used (we don't spam unauth). Every field is a HINT/candidate — origin IPs MUST
+# pass verify_origin_binding downstream, never become hand-fed authorized_origins.
+OTX_PASSIVE_DNS_URL_TEMPLATE: str = (
+    "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/passive_dns"
+)
+OTX_URL_LIST_URL_TEMPLATE: str = (
+    "https://otx.alienvault.com/api/v1/indicators/domain/{domain}/url_list"
+)
+
+
+def _is_public_ipv4(raw: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(raw.strip())
+    except ValueError:
+        return False
+    return ip.version == 4 and ip.is_global  # routable origin candidate only
+
+
+def parse_otx_origin_ips(passive_dns_body: str, url_list_body: str) -> list[str]:
+    """Extract public origin-IP CANDIDATES from OTX passive_dns + url_list bodies.
+
+    passive_dns[].address and url_list[].result.urlworker.ip; public IPv4 only,
+    deduped, sorted. Never raises (fail-open → []). These are CANDIDATES: the
+    origin-binding gate confirms them, this parser never authorises anything.
+    """
+    ips: set[str] = set()
+    try:
+        pdns = json.loads(passive_dns_body)
+        for row in pdns.get("passive_dns", []) if isinstance(pdns, dict) else []:
+            if isinstance(row, dict) and _is_public_ipv4(str(row.get("address", ""))):
+                ips.add(str(row["address"]).strip())
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    try:
+        ul = json.loads(url_list_body)
+        for row in ul.get("url_list", []) if isinstance(ul, dict) else []:
+            worker = (
+                (row.get("result", {}) or {}).get("urlworker", {}) if isinstance(row, dict) else {}
+            )
+            ip = str(worker.get("ip", "")) if isinstance(worker, dict) else ""
+            if _is_public_ipv4(ip):
+                ips.add(ip.strip())
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    return sorted(ips)
+
+
+def parse_otx_historical_paths(url_list_body: str) -> list[str]:
+    """Extract historical URL PATHS from an OTX url_list body (deduped, sorted).
+
+    Only the path component (no host/query) — feeds a later Bug #26 probe-selection
+    consumer. Never raises (fail-open → [])."""
+    paths: set[str] = set()
+    try:
+        ul = json.loads(url_list_body)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+    for row in ul.get("url_list", []) if isinstance(ul, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        path = urlparse(str(row.get("url", ""))).path
+        if path and path != "/":
+            paths.add(path)
+    return sorted(paths)
+
+
+class OtxClient:
+    """OTX source seam: two key-gated GETs → (origin_ip_candidates, historical_paths).
+
+    Fail-open: any transport/parse error on either endpoint yields empties for that
+    endpoint, never raises. ``api_key`` sent as X-OTX-API-KEY."""
+
+    def __init__(self, http_client: Any, api_key: str) -> None:
+        self._http = http_client
+        self._headers = {"X-OTX-API-KEY": api_key}
+
+    def _get(self, url: str) -> str:
+        try:
+            resp = self._http.get(url, headers=self._headers)
+        except Exception:  # noqa: BLE001 — OSINT boundary; any error = no data (fail-open)
+            _log.warning("OTX fetch failed for %s — fail-open", url, exc_info=True)
+            return ""
+        return getattr(resp, "text", "") or ""
+
+    def origin_ips_and_paths(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        pdns = self._get(OTX_PASSIVE_DNS_URL_TEMPLATE.format(domain=domain))
+        ul = self._get(OTX_URL_LIST_URL_TEMPLATE.format(domain=domain))
+        return tuple(parse_otx_origin_ips(pdns, ul)), tuple(parse_otx_historical_paths(ul))

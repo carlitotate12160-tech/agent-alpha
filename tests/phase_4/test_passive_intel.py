@@ -203,7 +203,8 @@ def test_passive_intel_gathered_on_live_path_single_crtsh_call(
     )
     # CertSpotter primary returns empty here → chain falls to crt.sh (asserted below).
     monkeypatch.setattr(
-        recon_runner, "certspotter_discover",
+        recon_runner,
+        "certspotter_discover",
         lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
     )
     monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient())
@@ -354,7 +355,8 @@ def _wire(monkeypatch: pytest.MonkeyPatch, auth: Any, store: Any, crt: Any, ht_h
     # CertSpotter is now the primary CT source; return empty so the slice-1/2
     # chain falls through to crt.sh/HackerTarget exactly as these tests assert.
     monkeypatch.setattr(
-        recon_runner, "certspotter_discover",
+        recon_runner,
+        "certspotter_discover",
         lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
     )
 
@@ -709,9 +711,7 @@ def test_certspotter_discover_partitions_via_auth_gate() -> None:
     store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=store)
     rec = auth.create_engagement("client", "ex.com")
-    auth.enable_recon(
-        rec.engagement_id, Scope(ip_ranges=[], domains=["ex.com"], exclusions=[])
-    )
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=["ex.com"], exclusions=[]))
     body = '[{"dns_names":["ex.com","admin.ex.com"]}]'  # admin not in SOW -> enumerated
     res = certspotter_discover(
         rec.engagement_id, "ex.com", http_client=_CsHttp(body), authorization=auth
@@ -758,7 +758,12 @@ def test_certspotter_primary_wins_on_live_path(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _CsHttp(_CS_JSON))
 
     recon_runner.run_recon_for_engagement(
-        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec, dns_resolver=_NULL_DNS
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
     )
 
     intel_evs = [
@@ -769,3 +774,143 @@ def test_certspotter_primary_wins_on_live_path(monkeypatch: pytest.MonkeyPatch) 
     assert payload["sources_used"] == ["certspotter", "dns"]  # CertSpotter won; DNS enrich appended
     assert payload["in_scope_subdomains"] == [_ROOT]
     assert crt.calls == [], "crt.sh must NOT be called when CertSpotter (primary) has hits"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §12.48 slice-5 — OTX enrichment (origin-IP candidates + historical paths)
+# ══════════════════════════════════════════════════════════════════════
+
+from agent_alpha.recon.osint_sources import (  # noqa: E402
+    OtxClient,
+    parse_otx_historical_paths,
+    parse_otx_origin_ips,
+)
+from agent_alpha.recon.passive_intel import enrich_with_otx  # noqa: E402
+
+# NOTE: real global IPs — RFC-5737 doc ranges (203.0.113.x etc.) are is_global=False
+# and would be (correctly) filtered out, so they can't be used as "kept" fixtures.
+_OTX_PDNS = (
+    '{"passive_dns":[{"hostname":"a.ex.com","address":"45.33.32.156"},'
+    '{"hostname":"b.ex.com","address":"10.0.0.5"}]}'
+)  # 10.x is private → dropped
+_OTX_URLS = (
+    '{"url_list":[{"url":"https://ex.com/wp-login.php",'
+    '"result":{"urlworker":{"ip":"159.65.10.20"}}},'
+    '{"url":"https://ex.com/","result":{"urlworker":{"ip":"127.0.0.1"}}}]}'
+)  # loopback dropped, "/" path dropped
+
+
+class _OtxHttp:
+    def __init__(self, pdns: str, urls: str) -> None:
+        self._pdns, self._urls = pdns, urls
+        self.last_headers: dict[str, str] | None = None
+        self.calls: list[str] = []
+
+    def get(self, url: str, *, headers: dict[str, str] | None = None, **k: object) -> _Resp:
+        self.calls.append(url)
+        self.last_headers = headers
+        body = self._pdns if "passive_dns" in url else self._urls
+        return _Resp(200, body, {}, url)
+
+
+# ── UNIT: parsers (public-IP filter, path extraction) ─────────────────
+
+
+def test_parse_otx_origin_ips_public_only_deduped() -> None:
+    ips = parse_otx_origin_ips(_OTX_PDNS, _OTX_URLS)
+    # 203.0.113.10 (pdns) + 198.51.100.7 (urlworker); private 10.x + loopback dropped.
+    assert ips == ["159.65.10.20", "45.33.32.156"]
+
+
+def test_parse_otx_origin_ips_fail_open_on_garbage() -> None:
+    assert parse_otx_origin_ips("not json", "{}") == []
+
+
+def test_parse_otx_historical_paths_excludes_root() -> None:
+    assert parse_otx_historical_paths(_OTX_URLS) == ["/wp-login.php"]  # "/" dropped
+
+
+# ── UNIT: OtxClient (header + fail-open) ──────────────────────────────
+
+
+def test_otx_client_sends_key_header_and_returns_ips_paths() -> None:
+    http = _OtxHttp(_OTX_PDNS, _OTX_URLS)
+    ips, paths = OtxClient(http, "OTX_K").origin_ips_and_paths("ex.com")
+    assert ips == ("159.65.10.20", "45.33.32.156")
+    assert paths == ("/wp-login.php",)
+    assert http.last_headers == {"X-OTX-API-KEY": "OTX_K"}
+
+
+# ── UNIT: enrich_with_otx (additive, preserves slice-1/3) ─────────────
+
+
+class _StubOtx:
+    def __init__(self, ips: tuple[str, ...], paths: tuple[str, ...]) -> None:
+        self._ips, self._paths = ips, paths
+
+    def origin_ips_and_paths(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        return self._ips, self._paths
+
+
+def test_enrich_with_otx_fills_and_preserves() -> None:
+    base = build_passive_intel_map(
+        PassiveDiscoveryResult("ex.com", ("ex.com", "a.ex.com"), ("ex.com",), ("a.ex.com",))
+    )
+    out = enrich_with_otx(base, _StubOtx(("203.0.113.10",), ("/wp-login.php",)))
+    assert out.origin_ip_candidates == ("203.0.113.10",)
+    assert out.historical_paths == ("/wp-login.php",)
+    # slice-1 fields preserved
+    assert out.in_scope_subdomains == ("ex.com",)
+    assert out is not base
+    with pytest.raises((AttributeError, TypeError)):
+        out.origin_ip_candidates = ()  # type: ignore[misc]
+
+
+# ── WIRED-PROOF (§12.35 Rule 2): OTX enrichment on the live path ──────
+
+
+def test_otx_enrichment_on_live_path_via_injected_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_recon_for_engagement, given an injected OTX client, records origin-IP
+    candidates + historical paths + 'otx' in sources_used on the live event —
+    proving enrich_with_otx runs on the autonomous path (non-island, #2)."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    graph = NetworkXGraphStore()
+    crt = _CrtShClient()
+    monkeypatch.setattr(
+        recon_runner, "build_recon_pipeline", lambda *a, **k: _fake_pipeline(auth, graph, store)
+    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
+    )
+    monkeypatch.setattr(
+        recon_runner,
+        "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+    )
+    monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient())
+
+    otx = _StubOtx(("203.0.113.10",), ("/wp-login.php",))
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
+        otx_client=otx,
+    )
+
+    payload = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ][0].payload
+    assert payload["origin_ip_candidates"] == ["203.0.113.10"]
+    assert payload["historical_paths"] == ["/wp-login.php"]
+    assert "otx" in payload["sources_used"]

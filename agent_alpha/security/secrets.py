@@ -174,6 +174,16 @@ def get_certspotter_api_key() -> str | None:
     return key or None
 
 
+def get_otx_api_key() -> str | None:
+    """Optional AlienVault/LevelBlue OTX API key (X-OTX-API-KEY).
+
+    Platform-level secret, NOT per-client. Optional/fail-open: absent = OTX
+    enrichment is skipped (engagement still runs). Read through this getter, never
+    os.environ directly (anti-hardcode / single seam)."""
+    key = os.environ.get("OTX_API_KEY")
+    return key or None
+
+
 def get_profile_signing_key() -> bytes:
     """Canonical source for the EngagementProfile HMAC signing key.
 

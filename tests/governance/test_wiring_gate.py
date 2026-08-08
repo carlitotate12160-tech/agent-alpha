@@ -69,6 +69,12 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "certspotter_discover": (
         "conductor/recon_runner.py",
     ),  # §12.48 slice-4: CertSpotter primary CT source wired into the live passive chain
+    "enrich_with_otx": (
+        "conductor/recon_runner.py",
+    ),  # §12.48 slice-5: OTX enrichment (origin-IP candidates + historical paths) wired into the passive stage
+    "build_otx_client": (
+        "conductor/main.py",
+    ),  # §12.48 slice-5: OTX source built + injected on the live Conductor path
     "resolve_and_bind_origin": (
         "agents/alpha/scout.py",
     ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)
