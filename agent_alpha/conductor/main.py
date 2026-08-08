@@ -527,7 +527,22 @@ def run_agent_task(
 
         def agent_factory(graph_store: Any, session_store: Any = None) -> Callable[[], ExecOutcome]:
             if agent_role == a2a_pb2.BETA:
-                candidates = beta_web_applicators(http_client)
+                # §12.46 Slice 2: wrap HttpClient with OriginAwareHttpClient so Beta's
+                # offensive POSTs (login, XML-RPC) go origin-direct when a proven-bound
+                # origin exists — bypassing CF WAF. Fail-closed: fronted host with no
+                # binding + allow_origin_discovery → refuse (don't burn technique at edge).
+                # Alpha recon does NOT use this wrapper (it has origin_direct_fetch).
+                beta_http = http_client
+                if engagement_profile is not None:  # noqa: F821 — closure var
+                    from agent_alpha.agents.origin_aware_client import OriginAwareHttpClient
+
+                    beta_http = OriginAwareHttpClient(
+                        http_client,
+                        profile=engagement_profile,  # noqa: F821 — closure var
+                        event_store=target_store,
+                        engagement_id=engagement_id,
+                    )
+                candidates = beta_web_applicators(beta_http)
                 applicators = build_applicators_for_engagement(
                     engagement_id=engagement_id,
                     auth=auth,
@@ -540,7 +555,7 @@ def run_agent_task(
                     graph_store=graph_store,
                     event_store=target_store,
                     orchestrator=orchestrator,
-                    http_client=http_client,
+                    http_client=beta_http,
                     secrets_manager=task_secrets,
                     cred_applicators=applicators,
                     session_store=session_store,
