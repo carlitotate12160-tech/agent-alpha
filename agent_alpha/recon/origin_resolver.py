@@ -206,4 +206,26 @@ class LiveOriginDiscovery:
             # Cache so the same client + its RateLimiter (pacing state) is reused
             # across candidates() calls within this engagement (CodeRabbit #351-B).
             self._http_client = http
-        return discover_origin_ips(self._engagement_id, fronted_host, http, self._authorization)
+        return discover_origin_ips(
+            self._engagement_id,
+            fronted_host,
+            http,
+            self._authorization,
+            seed_hosts=self._scope_seed_hosts(),
+        )
+
+    def _scope_seed_hosts(self) -> tuple[str, ...]:
+        """The engagement's in-scope authorized domains, used as origin-candidate
+        seeds (GAP-018). discover_origin_ips re-filters each through is_in_scope,
+        so this is defense-in-depth, never a scope bypass. Without these, origin
+        discovery yields NOTHING whenever crt.sh is down (crt.sh flaky = common) —
+        the T4 CF-bypass MOAT becomes unprovable. Read from the auth state machine
+        (which owns the Scope from enable_recon) — LiveOriginDiscovery already holds
+        auth, so no caller (main.py) needs to spoon-feed derivable scope. Fail-open
+        to () if the record/scope is unavailable."""
+        try:
+            record = self._authorization.get_record(self._engagement_id)
+        except Exception:  # noqa: BLE001 — scope read must never crash discovery
+            return ()
+        scope = getattr(record, "scope", None)
+        return tuple(scope.domains) if scope is not None else ()
