@@ -914,3 +914,42 @@ def test_otx_enrichment_on_live_path_via_injected_client(monkeypatch: pytest.Mon
     assert payload["origin_ip_candidates"] == ["203.0.113.10"]
     assert payload["historical_paths"] == ["/wp-login.php"]
     assert "otx" in payload["sources_used"]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Bug #26 consumer — passive_intel_signal_for_host (domain-scoped read)
+# ══════════════════════════════════════════════════════════════════════
+
+from agent_alpha.recon.passive_intel import (  # noqa: E402
+    PassiveIntelSignal,
+    passive_intel_signal_for_host,
+)
+
+
+def test_passive_intel_signal_domain_scoped_read() -> None:
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    eng = auth.create_engagement("c", "ex.com").engagement_id
+    store.append(
+        event_type=EventType.PASSIVE_INTEL_GATHERED,
+        engagement_id=eng,
+        agent="alpha",
+        payload={
+            "domain": "ex.com",
+            "protection_detected": "cloudflare",
+            "historical_paths": ["/wp-login.php", "/api/v1"],
+        },
+    )
+    sig = passive_intel_signal_for_host(store, eng, "ex.com")
+    assert sig.protection_detected == "cloudflare"
+    assert sig.historical_paths == ("/wp-login.php", "/api/v1")
+    # SECURITY: a signal for ex.com must NOT steer probing of a different host.
+    assert passive_intel_signal_for_host(store, eng, "other.com") == PassiveIntelSignal()
+
+
+def test_passive_intel_signal_fail_open() -> None:
+    class _Boom:
+        def get_events(self, engagement_id: str) -> list[object]:
+            raise RuntimeError("event store down")
+
+    assert passive_intel_signal_for_host(_Boom(), "e", "h") == PassiveIntelSignal()

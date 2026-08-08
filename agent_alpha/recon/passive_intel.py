@@ -90,6 +90,47 @@ def build_passive_intel_map(result: PassiveDiscoveryResult) -> PassiveIntelMap:
     )
 
 
+# ── Bug #26 consumer: read passive-intel signal for a host (domain-scoped) ─────
+
+
+@dataclass(frozen=True)
+class PassiveIntelSignal:
+    """The Bug #26-relevant slice of a host's PassiveIntelMap, read back from the
+    event stream at active-recon time: protection posture + historical paths."""
+
+    protection_detected: str | None = None
+    historical_paths: tuple[str, ...] = ()
+
+
+def passive_intel_signal_for_host(
+    event_store: object, engagement_id: str, host: str
+) -> PassiveIntelSignal:
+    """Latest ``PASSIVE_INTEL_GATHERED`` for *host* (domain-scoped) → protection +
+    historical paths. Fail-open (empty signal) on any error / no matching event.
+
+    Domain-scoped like CompositeOriginDiscovery (a signal produced for domain A
+    must not steer probing of host B). Last matching event wins.
+    """
+    from agent_alpha.events.event_types import EventType
+
+    host_norm = host.rstrip(".").lower()
+    try:
+        events = event_store.get_events(engagement_id)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 — event-read boundary; degrade to empty signal
+        return PassiveIntelSignal()
+
+    protection: str | None = None
+    paths: tuple[str, ...] = ()
+    for ev in events:
+        if getattr(ev, "event_type", None) != EventType.PASSIVE_INTEL_GATHERED:
+            continue
+        if ev.payload.get("domain", "").rstrip(".").lower() != host_norm:
+            continue
+        protection = ev.payload.get("protection_detected")
+        paths = tuple(ev.payload.get("historical_paths", []) or [])
+    return PassiveIntelSignal(protection_detected=protection, historical_paths=paths)
+
+
 # ── §12.48 slice-3: DNS enrichment (MX/NS/TXT → protection posture) ────────────
 #
 # ADDITIVE over the sealed slice-1 map: enrich_with_dns takes an already-built

@@ -188,3 +188,20 @@ def test_planner_module_has_objective_targets() -> None:
     from agent_alpha.agents import planner as planner_mod
 
     assert callable(getattr(planner_mod, "_objective_targets", None))
+
+
+def test_select_leak_paths_suppress_default_drops_only_blind_spray() -> None:
+    """Bug #26 Layer 5: suppress_default removes the blind DEFAULT_LEAK_PATHS spray
+    on an unfingerprinted host and NOTHING else; suppress_default=False is unchanged."""
+    from agent_alpha.config import constants
+
+    planner = Planner()
+    full = planner.select_leak_paths([])
+    suppressed = planner.select_leak_paths([], suppress_default=True)
+
+    assert set(constants.DEFAULT_LEAK_PATHS) & set(full), "defaults must seed when unfingerprinted"
+    assert set(suppressed) <= set(full), "suppression must never ADD paths"
+    assert set(full) - set(suppressed) <= set(constants.DEFAULT_LEAK_PATHS), (
+        "suppression removed a non-DEFAULT_LEAK_PATH — universal/stack specs must survive"
+    )
+    assert planner.select_leak_paths([], suppress_default=False) == full, "off = unchanged"

@@ -47,6 +47,7 @@ from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.origin_binding import resolve_and_bind_origin
+from agent_alpha.recon.passive_intel import passive_intel_signal_for_host
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.plugin_cve_catalog import lookup as cve_lookup
 from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach, is_cloudflare_ip
@@ -242,7 +243,20 @@ class Alpha:
         # arrive later via CapabilitySpec.frontier_seeds the moment
         # _handle_capability_fingerprint confirms that stack — see
         # capability_probe.py patch.
-        for path in self._planner.select_leak_paths(labels=[]):
+        # Bug #26 consumer: read this host's passive-intel signal (domain-scoped)
+        # from the PASSIVE_INTEL_GATHERED stream to steer probe selection.
+        intel_signal = passive_intel_signal_for_host(
+            self.event_store, engagement_id, parsed.hostname or parsed.netloc
+        )
+        # Layer 5 — WAF/CDN detected (protection_detected) → suppress the blind
+        # DEFAULT_LEAK_PATHS spray on this unfingerprinted host; probe stack-specific
+        # only AFTER a fingerprint, avoiding the 404 breadth-anomaly that trips the WAF.
+        suppress_blind = intel_signal.protection_detected is not None
+        for path in self._planner.select_leak_paths(labels=[], suppress_default=suppress_blind):
+            self.enqueue_discovered_url(f"{root}{path}")
+        # Layer 1 — enqueue paths the site historically served (OTX historical_paths):
+        # real paths beat blind guesses and generate no 404 noise.
+        for path in intel_signal.historical_paths:
             self.enqueue_discovered_url(f"{root}{path}")
         for path in getattr(
             constants, "SURFACE_DISCOVERY_PATHS", ()

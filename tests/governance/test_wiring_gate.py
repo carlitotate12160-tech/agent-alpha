@@ -88,6 +88,12 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "LiveOriginDiscovery": (
         "conductor/main.py",
     ),  # §12.46 Slice B: real CT/DNS origin discovery injected on the live Conductor path (discover_origin_ips transitively via this)
+    "protection_detected": (
+        "agents/alpha/scout.py",
+    ),  # Bug #26 Layer 5: WAF posture suppresses blind path spray in run_recon (consumer wired)
+    "historical_paths": (
+        "agents/alpha/scout.py",
+    ),  # Bug #26 Layer 1: OTX historical paths seeded into the frontier in run_recon (consumer wired)
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
@@ -117,14 +123,6 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
     "CredentialLockoutGovernor": (
         ("tools/internal/access/odoo_access.py",),
         "§12.22 D2: odoo submits creds via its own http path (off-roster) — must route through the lockout governor",
-    ),
-    "protection_detected": (
-        ("agents/alpha/scout.py",),
-        "GAP-017 / Bug #26: DNS protection posture must gate blind path-probing (consumer not wired)",
-    ),
-    "historical_paths": (
-        ("agents/alpha/scout.py",),
-        "GAP-017 / Bug #26 Layer 1: OTX historical paths must drive probe selection (consumer not wired)",
     ),
 }
 
