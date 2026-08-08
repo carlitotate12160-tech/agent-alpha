@@ -25,7 +25,10 @@ from typing import TYPE_CHECKING, Protocol
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.events.event_types import EventType
-from agent_alpha.recon.osint_sources import fetch_hackertarget_subdomains
+from agent_alpha.recon.osint_sources import (
+    fetch_certspotter_subdomains,
+    fetch_hackertarget_subdomains,
+)
 from agent_alpha.recon.passive_discovery import PassiveDiscoveryResult
 
 if TYPE_CHECKING:
@@ -233,6 +236,48 @@ def hackertarget_fallback(
 
     # STEP 2+3 — fetch (fail-open) + parse
     names = fetch_hackertarget_subdomains(domain, http_client=http_client)
+
+    # STEP 4 — partition through the auth gate
+    in_scope: list[str] = []
+    enumerated: list[str] = []
+    for host in names:
+        if authorization.is_in_scope(engagement_id, host):
+            in_scope.append(host)
+        else:
+            enumerated.append(host)
+
+    return PassiveDiscoveryResult(
+        domain=domain,
+        discovered=tuple(names),
+        in_scope=tuple(in_scope),
+        enumerated=tuple(enumerated),
+    )
+
+
+# ── §12.48 slice-4: CertSpotter primary CT source (crt.sh demoted to fallback) ─
+
+
+def certspotter_discover(
+    engagement_id: str,
+    domain: str,
+    *,
+    http_client: object,
+    authorization: AuthorizationStateMachine,
+    api_key: str | None = None,
+) -> PassiveDiscoveryResult:
+    """Primary CT-log discovery via CertSpotter. Same contract as ``hackertarget_
+    fallback`` (canonical ``PassiveDiscoveryResult``, anti-#6): fail-closed RECON
+    gate BEFORE any I/O, single stealth GET (optional Bearer key), parse +
+    domain-filter, partition via ``is_in_scope`` (sole scope authority). Fail-open
+    on transport/parse error (empty result). Emits NO event — the caller records
+    the merged PassiveIntelMap.
+    """
+    # STEP 1 — fail-closed auth gate (BEFORE any network I/O)
+    if not authorization.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
+        return PassiveDiscoveryResult(domain, (), (), ())
+
+    # STEP 2+3 — fetch (fail-open) + parse
+    names = fetch_certspotter_subdomains(domain, http_client=http_client, api_key=api_key)
 
     # STEP 4 — partition through the auth gate
     in_scope: list[str] = []

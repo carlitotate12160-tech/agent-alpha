@@ -40,7 +40,7 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
-from agent_alpha.recon.passive_discovery import PassiveDiscovery
+from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscoveryResult
 from agent_alpha.tools.playbook import PlaybookEngine
 
 PLAYBOOK_DIR = pathlib.Path(__file__).resolve().parent.parent / "phase_2" / "fixtures" / "playbooks"
@@ -235,6 +235,14 @@ def test_in_scope_subdomains_become_recon_targets(
         )
 
     monkeypatch.setattr(recon_runner, "build_passive_discovery", _build_pd)
+    # §12.48 slice-4: CertSpotter is now primary CT source. Mock it empty so the
+    # chain falls through to crt.sh (mocked above) exactly as this test asserts.
+    monkeypatch.setattr(
+        recon_runner,
+        "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+        raising=False,
+    )
 
     # Track which URLs run_recon is called with.
     recon_calls: list[str] = []

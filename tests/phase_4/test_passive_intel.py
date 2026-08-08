@@ -201,6 +201,12 @@ def test_passive_intel_gathered_on_live_path_single_crtsh_call(
         "build_passive_discovery",
         lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
     )
+    # CertSpotter primary returns empty here → chain falls to crt.sh (asserted below).
+    monkeypatch.setattr(
+        recon_runner, "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+    )
+    monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient())
 
     recon_runner.run_recon_for_engagement(
         engagement_id=eng,
@@ -345,6 +351,12 @@ def _wire(monkeypatch: pytest.MonkeyPatch, auth: Any, store: Any, crt: Any, ht_h
         lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
     )
     monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: ht_http)
+    # CertSpotter is now the primary CT source; return empty so the slice-1/2
+    # chain falls through to crt.sh/HackerTarget exactly as these tests assert.
+    monkeypatch.setattr(
+        recon_runner, "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+    )
 
 
 def test_fallback_fires_on_live_path_when_crtsh_empty(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -621,3 +633,139 @@ def test_dns_signal_on_live_path_via_injected_resolver(
     # anti double-recon: crt.sh still exactly once (slice-1/2 not regressed)
     assert len(crt.calls) == 1, f"crt.sh called {len(crt.calls)}x — double-recon regression"
     assert payload["in_scope_subdomains"] == [_ROOT]
+
+
+# ══════════════════════════════════════════════════════════════════════
+# §12.48 slice-4 — CertSpotter primary CT source (crt.sh demoted to fallback)
+# ══════════════════════════════════════════════════════════════════════
+
+from agent_alpha.recon.osint_sources import (  # noqa: E402
+    fetch_certspotter_subdomains,
+    parse_certspotter_names,
+)
+from agent_alpha.recon.passive_intel import certspotter_discover  # noqa: E402
+
+_CS_JSON = f'[{{"dns_names":["{_ROOT}","{_ADMIN}","*.{_ROOT}"]}}]'
+
+
+class _CsHttp:
+    """CertSpotter stub — records the Authorization header + returns canned JSON."""
+
+    def __init__(self, body: str) -> None:
+        self._body = body
+        self.last_headers: dict[str, str] | None = None
+        self.calls: list[str] = []
+
+    def get(self, url: str, *, headers: dict[str, str] | None = None, **k: object) -> _Resp:
+        self.calls.append(url)
+        self.last_headers = headers
+        return _Resp(200, self._body, {}, url)
+
+
+class _CsBoom:
+    def get(self, url: str, *, headers: dict[str, str] | None = None, **k: object) -> _Resp:
+        raise RuntimeError("certspotter down")
+
+
+# ── UNIT: parser ──────────────────────────────────────────────────────
+
+
+def test_parse_certspotter_names_domain_filtered_dedup_wildcard() -> None:
+    body = '[{"dns_names":["ex.com","a.ex.com","*.ex.com","vpn.other.com"]}]'
+    # *.ex.com -> ex.com (dedup); other.com dropped; sorted.
+    assert parse_certspotter_names(body, "ex.com") == ["a.ex.com", "ex.com"]
+
+
+def test_parse_certspotter_error_object_is_empty() -> None:
+    # CertSpotter returns an OBJECT (not array) on error/rate-limit → no data.
+    assert parse_certspotter_names('{"message":"rate limited"}', "ex.com") == []
+    assert parse_certspotter_names("", "ex.com") == []
+
+
+# ── UNIT: fetch (bearer key + fail-open) ──────────────────────────────
+
+
+def test_fetch_certspotter_sends_bearer_when_key_present() -> None:
+    http = _CsHttp('[{"dns_names":["ex.com"]}]')
+    names = fetch_certspotter_subdomains("ex.com", http_client=http, api_key="SECRET_K")
+    assert names == ["ex.com"]
+    assert http.last_headers == {"Authorization": "Bearer SECRET_K"}
+
+
+def test_fetch_certspotter_keyless_no_auth_header() -> None:
+    http = _CsHttp('[{"dns_names":["ex.com"]}]')
+    fetch_certspotter_subdomains("ex.com", http_client=http, api_key=None)
+    assert http.last_headers is None
+
+
+def test_fetch_certspotter_fail_open_on_transport_error() -> None:
+    assert fetch_certspotter_subdomains("ex.com", http_client=_CsBoom()) == []
+
+
+# ── UNIT: certspotter_discover gate + partition ───────────────────────
+
+
+def test_certspotter_discover_partitions_via_auth_gate() -> None:
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client", "ex.com")
+    auth.enable_recon(
+        rec.engagement_id, Scope(ip_ranges=[], domains=["ex.com"], exclusions=[])
+    )
+    body = '[{"dns_names":["ex.com","admin.ex.com"]}]'  # admin not in SOW -> enumerated
+    res = certspotter_discover(
+        rec.engagement_id, "ex.com", http_client=_CsHttp(body), authorization=auth
+    )
+    assert res.in_scope == ("ex.com",)
+    assert res.enumerated == ("admin.ex.com",)
+
+
+def test_certspotter_discover_fail_closed_when_not_authorized() -> None:
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client", "ex.com")  # RECON not enabled
+    http = _CsHttp('[{"dns_names":["ex.com"]}]')
+    res = certspotter_discover(rec.engagement_id, "ex.com", http_client=http, authorization=auth)
+    assert res.discovered == () and http.calls == []  # no network before gate passes
+
+
+# ── WIRED-PROOF (§12.35 Rule 2): CertSpotter wins primary on the live path ──
+
+
+def test_certspotter_primary_wins_on_live_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_recon_for_engagement uses CertSpotter FIRST; when it yields a surface,
+    crt.sh is NOT called (primary wins, quota conserved) and PASSIVE_INTEL_GATHERED
+    records sources_used == ['certspotter']. Real certspotter_discover on the
+    autonomous path (non-island, #2); crt.sh-not-called proves the reorder."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    graph = NetworkXGraphStore()
+    crt = _CrtShClient()  # must NOT be called
+    monkeypatch.setattr(
+        recon_runner, "build_recon_pipeline", lambda *a, **k: _fake_pipeline(auth, graph, store)
+    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
+    )
+    # CertSpotter primary client returns the CT surface (real certspotter_discover runs).
+    monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _CsHttp(_CS_JSON))
+
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec, dns_resolver=_NULL_DNS
+    )
+
+    intel_evs = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ]
+    assert len(intel_evs) == 1
+    payload = intel_evs[0].payload
+    assert payload["sources_used"] == ["certspotter", "dns"]  # CertSpotter won; DNS enrich appended
+    assert payload["in_scope_subdomains"] == [_ROOT]
+    assert crt.calls == [], "crt.sh must NOT be called when CertSpotter (primary) has hits"

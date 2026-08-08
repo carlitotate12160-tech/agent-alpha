@@ -161,6 +161,19 @@ class LogScrubber:
             handler.addFilter(scrub_filter)
 
 
+def get_certspotter_api_key() -> str | None:
+    """Optional CertSpotter (SSLMate) API key for higher CT-search limits.
+
+    Passive OSINT enrichment — its ABSENCE must never block an engagement
+    (keyless CertSpotter still works, just rate-limited), so this returns None
+    rather than raising (unlike the mandatory signing key below). Platform-level
+    secret (Agent-Alpha's own account), NOT per-client. Read through this getter,
+    never os.environ directly (anti-hardcode / single seam).
+    """
+    key = os.environ.get("CERTSPOTTER_API_KEY")
+    return key or None
+
+
 def get_profile_signing_key() -> bytes:
     """Canonical source for the EngagementProfile HMAC signing key.
 
