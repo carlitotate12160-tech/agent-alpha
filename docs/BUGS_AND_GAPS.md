@@ -43,6 +43,11 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 26 | StealthPacer gate inverted (code exists, default OFF) | **High** | Low | CF bot detection → wp-json challenged → 0 users → 0 creds → Beta no dispatch |
 | 27 | Sensitive files probed before legitimate endpoints | Medium | Low | CF bot detection from .env probes blocks wp-json access |
 | 28 | Origin-direct generic homepage not detected | Medium | Low | Origin returns homepage for all paths → 0 findings from origin-direct |
+| 29 | Unreachable subdomain still probed for all 12 paths | **High** | Low | APT operator skips dead hosts; agent wastes ~15min probing 12 URLs × 4 unreachable subdomains |
+| 30 | auth_surface regex misses Vue.js `:type` password bindings | **High** | Low | pos.niagamas.com/admin/login not detected as auth surface |
+| 31 | Beta crashes on OriginUnreachableError when no origin binding | **High** | Medium | Beta dispatched (GAP-023 fix) but crashes on entry — can't strike |
+| 32 | OTX timeout 30s blocks sequential OSINT chain | Low | Medium | 30s wasted per engagement before VT runs |
+| 33 | Subdomain pivot path not designed (architectural gap) | Medium | High | Subdomain access not used as stepping stone to main domain |
 
 ## Recommended Fix Order
 
@@ -1440,3 +1445,118 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   try CF DIRECT instead (if not challenged), or mark as non-analyzable.
 - **Why**: field log — `install.php` 200 skipped as "non-analyzable" when the LLM declined;
   creds + users found but never combined.
+
+## GAP-029 — Unreachable subdomain still probed for all 12 paths
+
+- **Status**: OPEN.
+- **What**: `run_recon` seeds probe paths (leak paths + surface discovery paths) for EVERY
+  target before the homepage is fetched. If a subdomain is unreachable (DNS fail, connection
+  timeout, host down), the agent still probes 12+ paths against it — each timing out at 15-30s.
+  4 unreachable subdomains × 12 paths × 15s timeout = ~12 minutes wasted.
+- **Evidence**: bernofarm.com field-prove (2026-08-09) — `apifinger.bernofarm.com`,
+  `apifingeris2.bernofarm.com`, `apifingernew2.bernofarm.com`, `att3a2.bernofarm.com` all
+  unreachable, each probed for 12 paths. Total run time ~16 minutes for recon alone.
+  niagamas.com same pattern: `ainotulensi.niagamas.com`, `notulensi.niagamas.com`,
+  `scraping.niagamas.com`, `www.niagamas.com` all unreachable, each probed 12 paths.
+- **Impact**: Massif time waste. APT operator skips dead hosts immediately. Agent does not.
+- **Fix direction**: Track `_unreachable_hosts: set[str]`. When homepage fetch fails
+  (`HttpClientError`), add host to `_unreachable_hosts`. In `_pop_unprobed` or
+  `enqueue_discovered_url`, skip URLs whose host is in `_unreachable_hosts` UNLESS the URL
+  is the homepage (already probed). Alternatively: defer seed paths until after homepage
+  fetch succeeds (redesign, >2 files).
+- **Effort**: Low (1 file, scout.py — track + skip predicate).
+
+## GAP-030 — auth_surface regex misses Vue.js / framework-bound password inputs
+
+- **Status**: OPEN.
+- **What**: `detect_auth_surface_labels` regex `<input[^>]*type\s*=\s*['\"]?password\b['\"]?>`
+  matches only static `type="password"`. Modern frameworks (Vue, React, Alpine) use dynamic
+  bindings: `:type="showPassword ? 'text' : 'password'"` or `:type="password"`. These do NOT
+  match the regex, so login forms with framework-bound password inputs are not detected.
+- **Evidence**: niagamas.com field-prove — `pos.niagamas.com/admin/login` has
+  `<input :type="showPassword ? 'text' : 'password'" name="password">`. Regex does not match.
+  `pos.niagamas.com` never persisted as ASSET with `login-form` label. Router never saw it.
+- **Impact**: Login forms using Vue/React/Alpine bindings are invisible to the agent.
+  Beta never dispatches for these targets. Missed attack surface.
+- **Fix direction**: Add fallback signal — `name="password"` or `id="password"` as secondary
+  indicator when `type="password"` regex fails. This is still universal (any framework uses
+  name/id="password" for password fields), not per-framework catalog (anti-Lyndon #11).
+- **Effort**: Low (1 file, auth_surface.py — add fallback regex + test).
+
+## GAP-031 — Beta crashes on OriginUnreachableError when no origin binding exists
+
+- **Status**: OPEN.
+- **What**: Beta uses `OriginAwareHttpClient` which is fail-closed: if no proven/authorized
+  origin exists for a host, it raises `OriginUnreachableError` instead of falling back to
+  CF DIRECT. This crashes Beta's `step()` at `self.http_client.get(self._entry_point)`.
+- **Evidence**: niagamas.com field-prove (2026-08-09) — Beta dispatched (GAP-023 fix works),
+  but crashed immediately:
+  ```
+  OriginUnreachableError: no proven/authorized origin for 'niagamas.com'
+  - refusing naked reach (fail-closed; would hit the CDN edge and burn the technique)
+  ```
+  Beta never tried CF DIRECT as fallback. Applicator calls = [2] but both failed before
+  reaching the target.
+- **Impact**: Beta dispatch (GAP-023 fix) is wasted if Beta crashes on entry. The deadlock
+  is broken but Beta can't act.
+- **Fix direction**: Beta should fall back to CF DIRECT when no origin is bound, with
+  explicit logging "no origin binding — using CF DIRECT (may trigger challenge)". The
+  fail-closed behavior is correct for Alpha (recon shouldn't burn techniques), but Beta
+  is STRIKE — it MUST attempt the attack even via CDN. Alternatively: catch
+  `OriginUnreachableError` in Beta's `step()` and retry with plain HttpClient.
+- **Effort**: Medium (1-2 files — strike.py + possibly origin_aware_client.py).
+
+## GAP-032 — OTX timeout 30s blocks sequential OSINT chain
+
+- **Status**: OPEN.
+- **What**: OSINT sources run sequentially: CertSpotter → crt.sh → HackerTarget → DNS →
+  OTX → VT. OTX has 30s timeout. If OTX is down (frequently from Oracle), 30s wasted before
+  VT runs. No parallel execution.
+- **Evidence**: bernofarm.com + niagamas.com field-prove — OTX timeout 30s every run.
+  VT runs after OTX timeout, adding 30s to every engagement.
+- **Impact**: 30s wasted per engagement. Not critical, but unnecessary.
+- **Fix direction**: Run OSINT sources in parallel (ThreadPoolExecutor), merge results.
+  Or reduce OTX timeout to 10s. Or skip OTX if VT key is set (VT is more reliable).
+- **Effort**: Medium (recon_runner.py — parallel execution or timeout reduction).
+
+## GAP-033 — Subdomain pivot path not designed (subdomain as entry to main domain)
+
+- **Status**: OPEN (design gap, not yet implemented).
+- **What**: Agent discovers subdomains and probes them independently, but never uses
+  accessible subdomains as pivot points to the main domain. APT operator: if main domain
+  is CF-protected but `pos.niagamas.com/admin/login` is accessible, attack via subdomain
+  → pivot to main domain via shared infrastructure (session, cookie, API, DB).
+- **Evidence**: niagamas.com field-prove — `pos.niagamas.com/admin/login` accessible (Laravel),
+  `niagamas.com` CF-protected. Agent probes both independently, never connects them.
+  No concept of "subdomain access → main domain pivot" in the architecture.
+- **Impact**: Missed attack paths. Subdomain access is treated as end goal, not as
+  stepping stone to main domain.
+- **Fix direction**: Design phase needed. Not a wiring fix — this is an architectural
+  gap. Requires: (1) cross-host access tracking in graph, (2) Beta/Gamma awareness of
+  subdomain-to-main pivot opportunities, (3) credential/session reuse across hosts.
+- **Effort**: High (architectural — multiple files, design first).
+
+## Summary: All open GAPs from field-prove (niagamas + bernofarm)
+
+| GAP | Title | Severity | Effort | Field-prove source |
+|-----|-------|----------|--------|-------------------|
+| 023 | route_next blocks Beta when only USER nodes exist | **FIXED** | Low | niagamas (merged 60d0071) |
+| 026 | StealthPacer gate inverted (default OFF) | High | Low | niagamas |
+| 027 | Sensitive files probed before legitimate endpoints | Medium | Low | niagamas |
+| 028 | Origin-direct generic homepage not detected | Medium | Low | niagamas |
+| 029 | Unreachable subdomain probed for all 12 paths | High | Low | bernofarm + niagamas |
+| 030 | auth_surface regex misses Vue.js password inputs | High | Low | niagamas (pos.niagamas.com) |
+| 031 | Beta crashes on OriginUnreachableError | High | Medium | niagamas |
+| 032 | OTX timeout 30s blocks sequential OSINT | Low | Medium | bernofarm + niagamas |
+| 033 | Subdomain pivot path not designed | Medium | High | niagamas (design gap) |
+
+## Recommended fix order (one slice at a time)
+
+1. **GAP-029** (unreachable skip) — paling cepat, eliminasi waste massif, 1 file
+2. **GAP-030** (auth_surface regex) — 1 file, fix Vue.js detection
+3. **G26** (pacer default) — 2 baris, pacing ON by default
+4. **GAP-031** (Beta crash) — supaya Beta bisa jalan setelah dispatch
+5. **GAP-027** (probing order) — legitimate endpoints first
+6. **GAP-028** (origin homepage detection) — baseline comparison
+7. **GAP-032** (OTX parallel/timeout) — performance, bukan correctness
+8. **GAP-033** (subdomain pivot) — design phase, bukan sekarang
