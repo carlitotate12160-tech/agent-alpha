@@ -1536,6 +1536,52 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   subdomain-to-main pivot opportunities, (3) credential/session reuse across hosts.
 - **Effort**: High (architectural — multiple files, design first).
 
+## GAP-034 — Entry-selection has no node-level reachability signal
+
+- **Status**: DEFERRED (registered from entry-selection slice-1; do NOT build in slice-1).
+- **What**: `select_strike_entry` (conductor/router.py) picks Beta's entry_point by
+  auth-surface-label presence on ASSET nodes (reuses `_AUTH_SURFACE_LABELS`). Label
+  presence is used as a *reachability proxy* — you cannot fingerprint `http_basic_auth` /
+  `login-form` on a host Alpha never reached. This proxy holds for the niagamas/bernofarm
+  topology (dead apex has no label; reachable subdomain has one) but BREAKS for a host that
+  is WAF-dead yet still carries an auth-surface label (e.g. an apex that returned a login
+  once, then went WAF_BLOCKED). There is no `reachable`/`waf_confirmed_unreachable` property
+  on the ASSET node, and `protection_detected` is producer-only (computed, not consumed for
+  target-selection — see Session_Handoff GAPS).
+- **Evidence**: `agent_alpha/graph/nodes.py` `AssetProps` = `host`, `tech_stack` only (no
+  reachability field). `WAF_BLOCKED` is an event, not projected onto the node. Verified
+  HEAD 3c3127e.
+- **Impact**: Entry-selection cannot deterministically DEMOTE a dead-but-labelled host below
+  a live one. Slice-1 is correct for the field topology but not fully general.
+- **Fix direction**: Project a per-host reachability verdict from `WAF_BLOCKED` /
+  transport-fail events onto a node property (or a small read-model over the event store),
+  then have `select_strike_entry` rank live > dead. This is the deterministic reachability
+  signal the SituationAssessor (ADR §12.58) will also consume. Design-first: touches recon
+  persist + nodes schema + selector (>2 files → interface, not a patch — anti #10).
+- **Effort**: Medium (design first; multi-file). Promote alongside instinct #2 (cred-reuse)
+  under the SituationAssessor container, not before.
+
+## GAP-035 — Entry-selection strikes ONE candidate; multi-surface not iterated
+
+- **Status**: DEFERRED (entry-selection slice-2; do NOT build in slice-1).
+- **What**: `select_strike_entry` returns a SINGLE best entry_point, and Beta's `run_strike`
+  contract is single-entry_point. When a target exposes MORE than one in-scope auth surface
+  (e.g. `hub` 401 basic-auth AND `pos` login-form), only the top-ranked one is struck; the
+  rest are never attacked. Session_Handoff defines the full instinct as "Beta enumerates
+  in-scope auth-surface ASSETs as strike candidates, per-host ctx + per-host gate" — that is
+  the multi-candidate form, deliberately out of slice-1 scope.
+- **Evidence**: `conductor/main.py` run_beta dispatches one `run_strike(engagement_id,
+  strike_entry)`; `agents/beta/strike.py` builds ctx for a single `self._entry_point`.
+  Verified HEAD 3c3127e.
+- **Impact**: Second/third reachable login surface on the same engagement goes unstruck =
+  missed payable finding.
+- **Fix direction**: Iterate ranked candidates from `select_strike_entry` (return a list),
+  each with its OWN per-host ctx (`_project_target_context`) and its OWN per-host
+  `authorization.is_in_scope` gate (the authoritative gate stays in Beta/Conductor). Bounded
+  (≤N) to avoid queue sprawl. Keep Beta's single-entry_point contract intact — the loop lives
+  at the dispatch seam, not inside strike.py (anti #8/#10).
+- **Effort**: Medium (dispatch-seam loop + per-candidate ctx/gate; no strike.py rewrite).
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm)
 
 | GAP | Title | Severity | Effort | Field-prove source |
@@ -1549,6 +1595,8 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 031 | Beta crashes on OriginUnreachableError | High | Medium | niagamas |
 | 032 | OTX timeout 30s blocks sequential OSINT | Low | Medium | bernofarm + niagamas |
 | 033 | Subdomain pivot path not designed | Medium | High | niagamas (design gap) |
+| 034 | Entry-selection has no node-level reachability signal | Medium | Medium | niagamas/bernofarm (entry-selection slice-1) |
+| 035 | Entry-selection strikes ONE candidate; multi-surface not iterated | Medium | Medium | niagamas (hub + pos both reachable) |
 
 ## Recommended fix order (one slice at a time)
 

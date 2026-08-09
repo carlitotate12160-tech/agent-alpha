@@ -3460,3 +3460,90 @@ deterministic rules, NOT reasoning that requires an LLM.
   reachable — agent did not pivot to them; Beta targeted the dead apex.
 - bernofarm: same mechanical, non-pivoting behaviour.
 
+### 12.59 Hybrid Cognition Roadmap — deterministic-first, LLM-in-DECIDE as Phase-6 OPEN (ACCEPTED, Phase-6 OPEN)
+
+**Date:** 2026-08-09
+**Supersedes/extends:** operationalises §12.58 (operator instinct) into a phased build
+order; re-affirms §12.57 (LLM stays in ORIENT, never DECIDE) for Phases 4–5.
+
+**Context (the first-principles question).**
+
+The operator asked, correctly, whether *pure deterministic rules can ever behave like a
+human APT operator* — "even adding 6 steps, deterministic rules won't feel human." The claim
+is HALF right, and the precision decides the architecture. Two layers were being conflated:
+
+- **CONTROL layer (DECIDE)** — read the board, flank when the front is hard, reuse creds,
+  skip dead hosts, pivot to a live surface. This is exactly what makes an agent feel like it
+  "has a way of thinking" — and it is **fully deterministic-expressible** (the §12.58 thesis).
+  Today's robot-feel is NOT the absence of an LLM here; it is the **absence of the
+  deterministic control loop** (now being built, one instinct at a time). Putting an LLM in
+  DECIDE is precisely what §12.57 rejected (hallucination on offensive targeting).
+- **HYPOTHESIS layer (ORIENT)** — inventing a hypothesis outside the playbook ("this odd
+  response smells like misconfig X, try Y"). This is where determinism genuinely has a
+  ceiling — and where the LLM **already lives** per §12.57.
+
+Conclusion: the layer that needs more-than-deterministic is already LLM-backed (ORIENT); the
+layer the operator wanted to add an LLM to (DECIDE) is where determinism is a STRENGTH
+(reproducible, gate-safe, Oracle seeded-replay) and an LLM is a LIABILITY. A great APT
+operator is not random in execution — the discipline is deterministic; the creativity is in
+hypothesis, not in gate execution.
+
+**Decision — a three-phase hybrid, deterministic-first.**
+
+1. **Phase 4 — deterministic instincts, one at a time (ACCEPTED).** Build & FIELD-PROVE each
+   instinct as a plain deterministic rule before the next: entry-selection (Beta strikes the
+   reachable auth-surface, not the dead apex — instinct #1, ADR §12.58 cardinal test), then
+   dead-target pivot, then cred-reuse. No container, no framework, no LLM in DECIDE. Each
+   instinct is a pure function, seeded-replay stable, Oracle-sealed.
+2. **Phase 5 — promote to `SituationAssessor` (ACCEPTED, still deterministic).** Only when
+   3–5 instincts exist, extract the container (promotion-on-repeat, the discipline used for
+   the reach wrapper and path_probe catalog). Still deterministic; still no LLM in DECIDE.
+3. **Phase 6 — LLM advisor in DECIDE (OPEN QUESTION, NOT a locked decision).** Candidate
+   only. Banked with an **empirical trigger**: after `SituationAssessor` is stable, if the
+   agent STILL feels robotic ON THE CONTROL LAYER, that is the evidence to reconsider an
+   LLM-propose / deterministic-validate structure — with data, not a hunch. If the residual
+   ceiling is in ORIENT (the likely case), strengthen the existing ORIENT LLM instead of
+   moving the LLM into DECIDE.
+
+**Why Phase 6 is OPEN, not ACCEPTED (the flaw in "LLM propose, validator approve").**
+
+"LLM proposes, a deterministic validator approves/rejects" is defensible in principle
+(final authority stays deterministic) BUT is not a free lunch relabel of §12.57:
+
+- The validator only ADDS value if the LLM proposes something OUTSIDE the deterministic menu.
+  If the validator has a deterministic preference ordering strong enough to rank proposals,
+  the LLM was unnecessary (the ranker already decides). If the validator only checks
+  "legal / passes gates", then across all legal-but-wasteful options the **LLM effectively
+  steers** — which re-enters the §12.57 hallucination risk. This circularity must be resolved
+  before Phase 6 is accepted.
+- Any LLM in the live loop breaks seeded-replay unless decisions are recorded and replayed
+  (real engineering debt for Oracle seals).
+
+**Two hard conditions IF Phase 6 is ever opened.**
+
+1. The LLM only earns its place by proposing outside the deterministic menu; the validator
+   must then have an **independent oracle** to judge that proposal's quality, not merely its
+   legality (else = §12.57 by the back door).
+2. Full **record-and-replay** of every LLM proposal + validator verdict, so Oracle seals stay
+   reproducible (anti-#3/#9).
+
+**Rejected / guarded.**
+
+- **LLM in DECIDE during Phase 4–5** — rejected (§12.57; determinism is the strength there).
+- **Locking the Phase-6 LLM architecture now** — rejected (#1/#5: deciding a 2-phase-out
+  architecture before a single instinct is field-proven; §12.58 forbids designing the
+  container before the instincts exist — this is one step further out).
+- **Periodic strategic assessment** — NOT rejected; deferred (§12.58 open question #1).
+  Trigger-driven first; cadence/cost of any true periodic pass revisited at Phase 5.
+
+**Open questions (resolve before Phase 6, not now).**
+
+1. Does the LLM ever propose a CONTROL action the deterministic layer wouldn't — with a
+   measurable win — after 3–5 instincts exist? (The empirical trigger.)
+2. Independent-oracle design for validating out-of-menu proposals.
+3. Record-and-replay mechanics for LLM-in-loop under Oracle seals.
+
+**Cardinal discipline (carried from §12.58).** One vertical slice at a time; instinct proven
+in the field before the next; container by promotion, not up-front; the auth gate
+(§12.57 non-negotiable) is never softened by any cognition layer.
+
