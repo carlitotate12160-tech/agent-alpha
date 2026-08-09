@@ -315,3 +315,99 @@ class TestDifferential:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
+
+
+def test_alpha_auth_surface_no_cred_routes_beta() -> None:
+    """CARDINAL (auth-surface-dispatch): a login surface with NO harvested
+    credential MUST route to BETA - Beta's STRIKE charter is to attack the login
+    (default/derived creds) to GET the first credential. Was OMEGA (the deadlock)."""
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+
+    g = NetworkXGraphStore()
+    g.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset:login.test",
+            "type": "asset",
+            "properties": {"host": "login.test", "tech_stack": ["login-form"]},
+            "confidence": 0.7,
+        },
+    )
+    result = route_next(
+        g, from_agent=a2a_pb2.ALPHA, status=a2a_pb2.COMPLETE, gamma_authorized=False
+    )
+    assert result == a2a_pb2.BETA
+
+
+def test_alpha_http_basic_auth_no_cred_routes_beta() -> None:
+    """HTTP Basic Auth surface (401/WWW-Authenticate) also triggers Beta dispatch."""
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+
+    g = NetworkXGraphStore()
+    g.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset:hub.test",
+            "type": "asset",
+            "properties": {"host": "hub.test", "tech_stack": ["http_basic_auth"]},
+            "confidence": 0.7,
+        },
+    )
+    result = route_next(
+        g, from_agent=a2a_pb2.ALPHA, status=a2a_pb2.COMPLETE, gamma_authorized=False
+    )
+    assert result == a2a_pb2.BETA
+
+
+def test_alpha_no_auth_surface_no_cred_routes_omega() -> None:
+    """Negative: ASSET without auth-surface labels → OMEGA (recon-only report)."""
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+
+    g = NetworkXGraphStore()
+    g.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset:plain.test",
+            "type": "asset",
+            "properties": {"host": "plain.test", "tech_stack": ["nginx"]},
+            "confidence": 0.7,
+        },
+    )
+    result = route_next(
+        g, from_agent=a2a_pb2.ALPHA, status=a2a_pb2.COMPLETE, gamma_authorized=False
+    )
+    assert result == a2a_pb2.OMEGA
+
+
+def test_alpha_auth_surface_with_cred_routes_beta() -> None:
+    """Regression: auth surface + harvested credential still routes to BETA."""
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+
+    g = NetworkXGraphStore()
+    g.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "asset:login.test",
+            "type": "asset",
+            "properties": {"host": "login.test", "tech_stack": ["login-form"]},
+            "confidence": 0.7,
+        },
+    )
+    g.apply_event(
+        "NodeDiscovered",
+        {
+            "id": "cred:login.test:wp_config_leak",
+            "type": "credential",
+            "properties": {
+                "username": "admin",
+                "secret_ref": "secret_abc123",
+                "service": "wp",
+                "access_level": "user",
+            },
+            "confidence": 0.9,
+        },
+    )
+    result = route_next(
+        g, from_agent=a2a_pb2.ALPHA, status=a2a_pb2.COMPLETE, gamma_authorized=False
+    )
+    assert result == a2a_pb2.BETA

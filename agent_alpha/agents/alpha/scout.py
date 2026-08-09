@@ -43,6 +43,7 @@ from agent_alpha.graph.nodes import (
 )
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
+from agent_alpha.recon.auth_surface import detect_auth_surface_labels
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
@@ -552,6 +553,10 @@ class Alpha:
             # but NEVER with "laravel" in tech_stack, and NEVER increment
             # findings.
             nodes_added = self._handle_generic_probe(resp, url)
+
+        # Universal auth-surface detection (anti per-target #11): ANY reachable
+        # login/auth surface becomes a first-class finding, whatever tool ran.
+        nodes_added += self._detect_auth_surface(resp, url)
 
         self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
 
@@ -1240,6 +1245,35 @@ class Alpha:
             self._findings += 1
 
         return added + v_added
+
+    def _detect_auth_surface(self, resp: Any, url: str) -> int:
+        """Universal auth-surface persistence (anti per-target #11). Records ANY
+        reachable login/auth surface as a first-class ASSET finding so the router
+        (has_web_auth_surface) can route the access phase to it - independent of
+        whether a framework-specific vuln probe fired. Idempotent via
+        merge_asset_node + deterministic asset:{host} node id."""
+        host = urlparse(url).hostname or urlparse(url).netloc
+        if not host:
+            return 0
+        labels = detect_auth_surface_labels(
+            status_code=resp.status_code,
+            headers=resp.headers,
+            body=getattr(resp, "text", "") or "",
+        )
+        if not labels:
+            return 0
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        asset_node = merge_asset_node(
+            self.graph_store,
+            host,
+            tech_stack_add=labels,
+            confidence=0.7,
+            timestamp_utc=now_utc,
+        )
+        persist_node(
+            self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
+        )
+        return 1
 
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""

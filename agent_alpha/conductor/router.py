@@ -134,7 +134,13 @@ def route_next(
         return a2a_pb2.OMEGA
 
     if from_agent == a2a_pb2.ALPHA:
-        if has_harvested_credential(graph_store) and has_web_auth_surface(graph_store):
+        # Auth surface = attack it (Beta's STRIKE charter). A login is actionable
+        # WITHOUT a pre-harvested credential: Beta tries default/derived creds to GET
+        # the first one; a harvested cred merely ADDS CredReuse to the roster. (Was
+        # `AND has_harvested_credential` - the deadlock: you needed a credential to
+        # attack the very login that produces one. Beta still gated by ACTIVE_APPROVED
+        # in decide_advance - tier auth is NOT bypassed here.)
+        if has_web_auth_surface(graph_store):
             return a2a_pb2.BETA
         return a2a_pb2.OMEGA  # recon-only report
 
