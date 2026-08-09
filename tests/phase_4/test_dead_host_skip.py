@@ -77,13 +77,36 @@ class FakeHttpClient:
 
 # ── Rule-only orchestrator stub ──────────────────────────────────────────────
 
-class _NullProvider:
-    """LLM provider that must never be called in these tests (no cost path)."""
+class _DeadOnlyProvider:
+    """LLM provider that must never be called (dead hosts must not reach ORIENT)."""
 
     model = "null"
 
     def complete(self, *args: object, **kwargs: object) -> object:
         raise AssertionError("LLM provider called — dead-host tests must NOT reach LLM tier")
+
+
+class _StubProvider:
+    """LLM provider that returns a valid generic_http_probe decision.
+
+    Used for live-host tests where a 200 response legitimately reaches the
+    ORIENT stage (the R1/live-host tests verify that live hosts are NOT
+    killed, so they need the loop to complete without crashing).
+    """
+
+    model = "stub"
+
+    def complete(self, *args: object, **kwargs: object) -> object:
+        return type(
+            "R",
+            (),
+            {
+                "text": '{"tool": "generic_http_probe"}',
+                "usage_cost_usd": 0.0,
+                "model": "stub",
+                "reasoning": "",
+            },
+        )()
 
 
 # ── Builder ──────────────────────────────────────────────────────────────────
@@ -92,6 +115,7 @@ def _build_alpha(
     http: FakeHttpClient,
     *,
     domains: list[str] | None = None,
+    provider: Any | None = None,
 ) -> tuple[Alpha, str, InMemoryEventStore]:
     store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=store)
@@ -103,7 +127,7 @@ def _build_alpha(
     )
     orch = LLMOrchestrator(
         playbook=PlaybookEngine.from_directory(_PLAYBOOK_DIR),
-        provider=_NullProvider(),
+        provider=provider or _DeadOnlyProvider(),
     )
     alpha = Alpha(
         authorization=auth,
@@ -186,7 +210,8 @@ def test_nonroot_failure_does_NOT_mark_dead() -> None:
             ),
         },
     )
-    alpha, eid, _ = _build_alpha(http, domains=[_LIVE_HOST])
+    # Live host reaches the ORIENT stage on a 200 response — use the stub LLM provider.
+    alpha, eid, _ = _build_alpha(http, domains=[_LIVE_HOST], provider=_StubProvider())
 
     # Manually enqueue the sensitive + second paths before run_recon (mirrors seed logic)
     alpha.run_recon(eid, f"https://{_LIVE_HOST}/")
@@ -235,23 +260,14 @@ def test_reachable_host_not_over_skipped() -> None:
         "<html><head><title>Live</title></head>"
         "<body><h1>Hello</h1></body></html>"
     )
-    http = FakeHttpClient(
-        dead_roots={_DEAD_HOST},
-        live_routes={
-            live_root: FakeResponse(200, live_body, {"Server": "nginx"}),
-            live_path: FakeResponse(200, '{"status": "ok"}', {"Content-Type": "application/json"}),
-        },
-    )
-
-    # Run with dead host as primary target; manually verify live host isn't skipped
-    # by running dead host run and then separate live run.
+    # Use stub LLM provider: live host reaches the ORIENT stage on its 200 root.
     http2 = FakeHttpClient(
         live_routes={
             live_root: FakeResponse(200, live_body, {"Server": "nginx"}),
             live_path: FakeResponse(200, '{"status": "ok"}', {"Content-Type": "application/json"}),
         },
     )
-    alpha2, eid2, _ = _build_alpha(http2, domains=[_LIVE_HOST])
+    alpha2, eid2, _ = _build_alpha(http2, domains=[_LIVE_HOST], provider=_StubProvider())
     alpha2.run_recon(eid2, live_root)
 
     # The live host root must have been probed
@@ -337,7 +353,8 @@ def test_nonroot_failure_does_not_emit_abandoned_event() -> None:
             ),
         },
     )
-    alpha, eid, store = _build_alpha(http, domains=[_LIVE_HOST])
+    # Live host reaches ORIENT on a 200 root — use stub provider.
+    alpha, eid, store = _build_alpha(http, domains=[_LIVE_HOST], provider=_StubProvider())
     alpha.run_recon(eid, f"https://{_LIVE_HOST}/")
 
     events = _abandoned_events(store, eid)
