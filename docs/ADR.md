@@ -3368,3 +3368,95 @@ hallucination-prone. The LLM stays in ORIENT (hypothesis about a response), neve
 phase + auth model — zero new offensive capability, zero gate change, zero new recon *vector*
 (they reduce waste, they do not add breadth). Concrete slices: GAP-020 → GAP-021 → GAP-022.
 
+### 12.58 Strategic Situation Reasoning ("operator instinct") (PROPOSED / SEED)
+
+> Status: **PROPOSED — seed for a dedicated session.** Number §12.58 provisional
+> (confirm next-free on commit). Do NOT implement until this ADR is ACCEPTED and a
+> single first-slice scope is agreed. Captured 2026-08-09.
+
+**Context (the problem, first-principles).**
+
+Field runs (niagamas, bernofarm) show Agent-Alpha behaving mechanically: it grinds a
+per-target work queue and never "reads the board." Concretely:
+- The cognitive loop is per-target (OBSERVE→ORIENT→PLAN→ACT→VERIFY→PERSIST); routing is
+  a pure function of graph predicates (`route_next`).
+- The only global-state awareness is stall/no_progress detection (BoundedAutonomy /
+  `work_remaining`). There is **no strategic reprioritization**.
+- Result: when all primary targets are unreachable/hardened, the agent does NOT pivot to
+  a reachable/softer target; it does not skip dead hosts; it does not act on identities it
+  already harvested. A human operator continuously reassesses ("front is hard → flank").
+
+This is the through-line of every gap this session: no soft-door pivot, dropped usernames,
+Beta targeting the dead apex instead of the reachable surface.
+
+**Reframe (important):** what is missing is NOT "awareness/consciousness/instinct". It is a
+concrete, buildable capability: a **deterministic strategic control-loop + heuristic
+reprioritization of the work queue**. "APT instinct" = experience-encoded pattern
+heuristics (dead host → skip; hard front → find flank; have creds → reuse). These are
+deterministic rules, NOT reasoning that requires an LLM.
+
+**Decision (proposed shape).**
+
+1. **Deterministic, not LLM.** Strategic DECIDE stays deterministic. ADR §12.57 already
+   REJECTED an "LLM judgment layer" (hallucination-prone; LLM stays in ORIENT). A
+   SituationAssessor that "reasons strategically" via LLM is out of scope by prior decision.
+
+2. **Incremental instincts, not a framework up-front.** Do NOT build SituationAssessor +
+   StrategyAdjustment type + periodic hook + queue-wire + tests in one go — that is
+   feature-before-foundation (#1) + premature abstraction (#4) + a god-component risk.
+   Build ONE concrete deterministic heuristic first; extract the `SituationAssessor`
+   container only when 2–3 instincts exist (promotion-on-repeat — same discipline used for
+   the reach wrapper and the path_probe catalog).
+
+3. **First instinct = entry-selection / dead-target pivot.** Reprioritize the strike/recon
+   frontier by (reachability + softness + value); skip WAF-confirmed-dead targets in favour
+   of reachable ones. This is exactly the niagamas failure AND the already-queued
+   entry-selection slice (Beta strikes the reachable auth surface, not the dead apex).
+
+4. **Trigger-driven, not heavy periodic (initially).** Reassess on concrete triggers
+   (target unreachable / WAF_BLOCKED / stall / new auth-surface found), not a costly
+   periodic strategic pass. Cadence/cost of any true "periodic" assessment is an open
+   question for the ADR.
+
+**Component sketch (for WHEN it is promoted — NOT a build order).**
+
+- `InstinctRules` — deterministic meta-heuristics (pure functions over graph + frontier +
+  reach evidence). One rule per instinct. No LLM.
+- `StrategyAdjustment` — canonical output type (e.g. reprioritize(target, delta),
+  skip(target), pivot(from,to)). Do NOT create until ≥2 adjustments exist.
+- Hook into `run_cognitive_loop` — trigger-based assessment; deterministic; testable.
+- Hook into the work queue / frontier — apply adjustments (reprioritize/skip). This is the
+  highest-value concrete piece.
+
+**Rejected / guarded.**
+
+- **LLM strategic brain** — rejected (§12.57).
+- **Big-bang SituationAssessor framework before a proven instinct** — rejected
+  (feature-before-foundation, premature abstraction).
+- **Per-target hardcoded behaviour** (e.g. niagamas-specific) — rejected (#11); every rule
+  must be universal across clients.
+
+**Open questions (resolve in the dedicated session before building).**
+
+1. Trigger set vs periodic cadence (cost, determinism, replay-stability).
+2. How reprioritization composes with BoundedAutonomy stall semantics + the frontier order
+   (must not starve the live target — cf. the §ADR bounded-autonomy stall fix).
+3. Reprioritization signal: reachability (WAF_BLOCKED evidence) + softness
+   (protection_detected — currently producer-only, would need consumption) + value
+   (auth-surface / harvested-cred proximity).
+4. Determinism + seeded replay for tests.
+
+**Cardinal test contract (first slice).**
+
+- GIVEN a graph where every primary target is WAF-confirmed unreachable AND one in-scope
+  subdomain is reachable (auth surface),
+- WHEN the strategic reprioritization runs,
+- THEN the reachable subdomain is selected/struck and the dead apex is skipped
+  (deterministic, no LLM). Universal — synthetic hosts, no per-client logic.
+
+**Field evidence backing this ADR.**
+
+- niagamas: apex CF-hard + unreachable; `hub` (401 basic-auth) + `pos` (Laravel login)
+  reachable — agent did not pivot to them; Beta targeted the dead apex.
+- bernofarm: same mechanical, non-pivoting behaviour.
+
