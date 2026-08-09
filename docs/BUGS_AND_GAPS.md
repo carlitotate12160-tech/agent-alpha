@@ -1582,6 +1582,24 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   at the dispatch seam, not inside strike.py (anti #8/#10).
 - **Effort**: Medium (dispatch-seam loop + per-candidate ctx/gate; no strike.py rewrite).
 
+## GAP-036 — LLM tool-pick fires on auth-surface pages (no deterministic RULE)
+
+- **Status**: OPEN, LOW priority (efficiency/OPSEC noise, NOT correctness).
+- **What**: LLMOrchestrator = RULE→SINGLE_LLM. No playbook RULE matches a login/auth-surface
+  page, so DECIDE falls to the LLM tier, which picks the nearest framework-vuln tool
+  (laravel_debug_probe) → success=False → 0 nodes + a wasted probe. Violates §12.57 (DECIDE
+  must be deterministic; LLM stays in ORIENT). Distinct from GAP-030 (that = detection regex).
+- **Evidence**: niagamas — `[ALPHA/ORIENT] Selected tool 'laravel_debug_probe' via the
+  single_llm tier` on pos.niagamas.com/admin/login, /signup, /forget-password. Verified in
+  code: no login-form RULE exists; _detect_auth_surface records the label anyway (scout.py:559).
+- **Impact**: 1 wasted probe per auth URL + misleading logs + minor OPSEC noise. Correctness
+  unaffected once GAP-030 lands (label persists regardless of tool).
+- **Fix direction**: Add a deterministic RULE-tier rule for auth surfaces (password input / 401 /
+  known login route on a clean 200) → route to a lightweight generic/auth-surface handler; do
+  NOT build a login-form_fingerprint tool (duplicates _detect_auth_surface — anti #6). Guard:
+  rule applies to clean 200 auth pages only; debug/Ignition (500/error) probing stays intact.
+- **Effort**: Low (1 playbook rule + test). Do AFTER GAP-030 + entry-selection close.
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm)
 
 | GAP | Title | Severity | Effort | Field-prove source |
@@ -1597,6 +1615,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 033 | Subdomain pivot path not designed | Medium | High | niagamas (design gap) |
 | 034 | Entry-selection has no node-level reachability signal | Medium | Medium | niagamas/bernofarm (entry-selection slice-1) |
 | 035 | Entry-selection strikes ONE candidate; multi-surface not iterated | Medium | Medium | niagamas (hub + pos both reachable) |
+| 036 | LLM tool-pick fires on auth-surface pages (no deterministic RULE) | Low | Low | niagamas (pos.niagamas.com) |
 
 ## Recommended fix order (one slice at a time)
 
