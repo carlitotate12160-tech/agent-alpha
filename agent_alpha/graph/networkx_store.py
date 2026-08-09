@@ -30,7 +30,9 @@ class NetworkXGraphStore:
                 # Intel events (e.g. api_endpoint from js_secret_probe) use
                 # NODE_DISCOVERED with non-graph-node payloads. Skip them —
                 # they are audit trail, not graph nodes.
-                logger.debug("Skipping non-graph NODE_DISCOVERED payload: type=%s", payload.get("type"))
+                logger.debug(
+                    "Skipping non-graph NODE_DISCOVERED payload: type=%s", payload.get("type")
+                )
                 return
             self._graph.add_node(node.id, data=node)
         elif event_type == "EdgeDiscovered":
