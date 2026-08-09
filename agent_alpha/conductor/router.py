@@ -16,6 +16,7 @@ exploit-reachability oracle (see adr_alpha_to_gamma_skip_beta.md).
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse, urlunparse
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.config import constants
@@ -83,6 +84,36 @@ def has_web_auth_surface(graph_store: Any) -> bool:
         if _AUTH_SURFACE_LABELS.intersection(tech):
             return True
     return False
+
+
+def select_strike_entry(graph_store: Any, *, default_target: str) -> str:
+    parsed_default = urlparse(default_target)
+    label_priority = tuple(sorted(_AUTH_SURFACE_LABELS))
+    rank_by_label = {label: idx for idx, label in enumerate(label_priority)}
+    candidates: list[tuple[int, str, str]] = []
+
+    for node in graph_store.nodes_by_type(NodeType.ASSET):
+        tech = getattr(node.properties, "tech_stack", None) or []
+        priority = min(
+            (rank_by_label[label] for label in tech if label in rank_by_label),
+            default=None,
+        )
+        host = getattr(node.properties, "host", "") or ""
+        if priority is None or not host:
+            continue
+        candidates.append(
+            (
+                priority,
+                host,
+                urlunparse((parsed_default.scheme, host, "/", "", "", "")),
+            )
+        )
+
+    if not candidates:
+        return default_target
+
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return candidates[0][2]
 
 
 def has_access_from_harvested_cred(graph_store: Any) -> bool:

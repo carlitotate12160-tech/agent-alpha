@@ -98,6 +98,7 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
         "recon/origin_resolver.py",
     ),  # GAP-018: LiveOriginDiscovery.candidates() seeds in-scope domains → discover_origin_ips
     # yields origin candidates even when crt.sh is down (T4 CF-bypass MOAT reachable)
+    "select_strike_entry": ("conductor/main.py",),
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
