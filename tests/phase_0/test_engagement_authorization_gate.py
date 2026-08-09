@@ -597,12 +597,12 @@ def test_cooperative_mode_in_canonical_json_affects_signature() -> None:
     assert profile_dns.sign(key) != profile_coop.sign(key)
 
 
-def test_default_verification_mode_is_dns_txt() -> None:
-    """Without explicit verification_mode, the default is 'dns_txt' (strict).
-    Cooperative mode is opt-in, never the default — anti-gate-bypass."""
+def test_default_verification_mode_is_cooperative() -> None:
+    """Without explicit verification_mode, the default is 'cooperative'.
+    This is for ease of use in operator-driven SOW workflows."""
     profile = EngagementProfile(
         engagement_id="eng-001",
         client_id="client-1",
         scope_targets=frozenset({_VALID_DOMAIN}),
     )
-    assert profile.verification_mode == "dns_txt"
+    assert profile.verification_mode == "cooperative"
