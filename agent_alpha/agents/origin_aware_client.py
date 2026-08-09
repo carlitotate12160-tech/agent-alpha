@@ -23,14 +23,14 @@ from __future__ import annotations
 from typing import Any, cast
 from urllib.parse import urlsplit, urlunsplit
 
-from agent_alpha.agents.http_client import HttpResponse
+from agent_alpha.agents.http_client import HttpClientError, HttpResponse
 from agent_alpha.conductor.engagement_profile import (
     assert_origin_authorized_or_bound,
     proven_origins,
 )
 
 
-class OriginUnreachableError(RuntimeError):
+class OriginUnreachableError(HttpClientError):
     """Offensive request to a host with no authorized/proven-bound origin while
     the engagement expects CDN-fronted origins (allow_origin_discovery).
     Fail-closed: refuse the naked CDN-edge hit rather than burn the technique."""
@@ -56,6 +56,7 @@ class OriginAwareHttpClient:
         self._profile = profile
         self._event_store = event_store
         self._engagement_id = engagement_id
+        self._fronted_cache: frozenset[str] | None = None
 
     def get(
         self,
@@ -110,15 +111,27 @@ class OriginAwareHttpClient:
         if self._profile is None or not host:
             return url, host, False
 
-        bound = proven_origins(self._event_store, self._engagement_id, host)
+        # Bindings - fail-open on any store error (CodeRabbit): a store failure here
+        # must degrade to "no known binding", never crash the strike (symmetric with
+        # the _fronted_hosts fail-open below - both store reads now fail-open).
+        try:
+            bound = proven_origins(self._event_store, self._engagement_id, host)
+        except Exception:  # noqa: BLE001 - store boundary; no binding evidence => none
+            bound = frozenset()
         signed = set(getattr(self._profile, "authorized_origins", frozenset()) or ())
         candidates = bound | signed
 
         if not candidates:
-            if getattr(self._profile, "allow_origin_discovery", False):
+            # Fail-closed ONLY for hosts recon CONFIRMED are CF-fronted (WAF_BLOCKED
+            # event). A host recon reached directly (e.g. a 401 basic-auth subdomain)
+            # has NO WAF_BLOCKED event -> plain passthrough (do NOT over-refuse a
+            # reachable host). OriginUnreachableError IS an HttpClientError -> the
+            # caller (Beta) skips the target gracefully. Independent of the discovery
+            # flag: a WAF-confirmed host is never naked-hit regardless.
+            if self._host_is_fronted(host):
                 raise OriginUnreachableError(
-                    f"no proven/authorized origin for {host!r} - refusing naked reach "
-                    f"(fail-closed; would hit the CDN edge and burn the technique)"
+                    f"{host!r} is CF-fronted (WAF_BLOCKED) with no proven origin - "
+                    f"skipping target (fail-closed; won't naked-hit the CDN edge)"
                 )
             return url, host, False
 
@@ -134,6 +147,33 @@ class OriginAwareHttpClient:
             (parts.scheme or "https", origin_ip, parts.path, parts.query, parts.fragment)
         )
         return rewritten, host, True
+
+    def _fronted_hosts(self) -> frozenset[str]:
+        """Set of hosts recon CONFIRMED are CF-fronted (a WAF_BLOCKED event exists).
+        Computed ONCE per wrapper (Beta run) and cached: Alpha's recon is complete
+        before Beta runs, so this set is static during the strike - #6 perf (one
+        scan, not per-_route). Fail-open on any store error (empty set -> nothing
+        refused -> never crash)."""
+        if self._fronted_cache is not None:
+            return self._fronted_cache
+        from agent_alpha.events.event_types import EventType
+
+        fronted: set[str] = set()
+        try:
+            events = self._event_store.get_events(self._engagement_id)
+        except Exception:  # noqa: BLE001 - store boundary; no evidence => reachable
+            events = []
+        for e in events:
+            if getattr(e, "event_type", None) == EventType.WAF_BLOCKED:
+                blocked_host = (getattr(e, "payload", None) or {}).get("host")
+                if blocked_host:
+                    fronted.add(blocked_host)
+        self._fronted_cache = frozenset(fronted)
+        return self._fronted_cache
+
+    def _host_is_fronted(self, host: str) -> bool:
+        """Per-host (cross-host isolation): a block for host A NEVER refuses host B."""
+        return host in self._fronted_hosts()
 
     @staticmethod
     def _merge_host(headers: dict[str, str] | None, host: str) -> dict[str, str]:
