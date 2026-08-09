@@ -40,6 +40,9 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 24 | response_classifier `challenge-platform` false positive on CF-proxied sites | High | Low | All CF-proxied sites misclassified as CHALLENGE | **FIXED** |
 | 25 | DefaultCredsTool ignores harvested USER nodes — only tries hardcoded creds | **RESOLVED** | Medium | Beta can't spray discovered usernames |
 | 26 | Generic blind probing causes excessive 404s → WAF/CF block | **High** | Medium | Agent blocked before finding anything | **IN PROGRESS (Phase 4 Recon/Evasion Overhaul, Slices 1-6)** |
+| 27 | Pacing not implemented (§12.49 doctrine) | **High** | Medium | CF bot detection → wp-json challenged → 0 users → 0 creds → Beta no dispatch |
+| 28 | Sensitive files probed before legitimate endpoints | Medium | Low | CF bot detection from .env probes blocks wp-json access |
+| 29 | Origin-direct generic homepage not detected | Medium | Low | Origin returns homepage for all paths → 0 findings from origin-direct |
 
 ## Recommended Fix Order
 
@@ -1305,6 +1308,18 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   `SessionStore` CLASS is not referenced in `recon_runner.py`/`execute_agent.py` (only the
   lowercase `session_store` param) — gate still tracks it as debt. Doc "CLOSED" = mechanism
   built; live-path class wiring incomplete. Reconcile when the pre-Gamma Conductor refactor lands.
+- **GAP-023 (routing): `route_next` blocks Beta when only USER nodes exist (no CREDENTIAL)**
+  — `router.py:137` requires `has_harvested_credential(graph_store)` (CREDENTIAL node with
+  `secret_ref` prefix) AND `has_web_auth_surface` to dispatch BETA. GAP-015 CLOSED built
+  `UserDerivedCredsTool` (reads USER nodes, derives candidates) and wired it in `strike.py`,
+  but the ROUTING GATE still blocks Beta from ever running when Alpha finds USER nodes
+  without a leaked credential. Confirmed on niagamas.com (Oracle, 2026-08-08): Alpha found
+  4 USER nodes (amdhartono, bahrul, elvin, yudha) via `wp_rest_user_disclosure` + WooCommerce
+  exposed (auth surface), but `route_next` returned OMEGA (recon-only report) because
+  `has_harvested_credential` = False. `UserDerivedCredsTool` exists and is wired but never
+  reached. Fix: extend `route_next` ALPHA→BETA predicate to include `has_user_disclosure`
+  (USER nodes + auth surface) as an alternative trigger to `has_harvested_credential`.
+  This is Beta breadth B1 from Session_Handoff NEXT #5.
 
 ---
 
@@ -1365,5 +1380,53 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   (`install.php`/`upgrade.php` 200 = WP-setup-exposed) — the rule-tier exists, its catalog is thin;
   (b) finding correlation — combine `wp-config.php.bak` DB creds + enumerated WP users into a
   single prioritised CREDENTIAL/USER hand-off for Beta (findings currently persist independently).
+
+## GAP-023 — Pacing not implemented (§12.49 doctrine, code missing)
+
+- **Status**: OPEN. Doctrine §12.49: "Stealth by default from the 1st request (curl_cffi, Header
+  ordering, Pacing)."
+- **What**: Agent probes 40+ URLs with zero delay between requests. CF bot detection triggers
+  after aggressive burst → challenges ALL subsequent requests including legitimate endpoints
+  (wp-json) that were accessible on slower runs.
+- **Evidence**: niagamas.com field-prove — Run 1 (83 events, slower pacing from crt.sh timeouts)
+  → wp-json/wp/v2/users accessible via CF DIRECT → 4 users + 2 vulns. Run 2 (247 events,
+  aggressive burst) → CF challenge on wp-json → origin-direct fallback → origin returns homepage
+  (~98KB) → 0 users, 0 vulns.
+- **Impact**: Cascade — no pacing → CF bot detection → wp-json challenged → origin-direct →
+  homepage → 0 users → 0 credentials → Beta never dispatches. Root cause of "0 findings" on
+  aggressive runs.
+- **Fix direction**: inter-request delay (configurable, default 2-5s), jittered. Respect
+  Retry-After headers. Back off on CHALLENGE verdicts. NOT a full stealth framework — just
+  pacing in the fetch loop.
+
+## GAP-024 — Probing order: sensitive files before legitimate endpoints
+
+- **Status**: OPEN.
+- **What**: Agent probes sensitive files (`.env`, `.git/config`, `wp-config.php.bak`) BEFORE
+  legitimate endpoints (`wp-json`, `wp-admin`). Sensitive file probes trigger CF bot detection,
+  which then blocks legitimate endpoints that were previously accessible.
+- **Evidence**: niagamas.com — `.env` and `.git/config` probed early → CF switches to challenge
+  mode → wp-json/wp/v2/users (probed later) gets challenged → origin-direct fallback → homepage.
+- **Impact**: Legitimate endpoint data (wp-json users, woocommerce API) lost because CF already
+  in bot-detection mode from sensitive file probes.
+- **Fix direction**: Two-phase probing — Phase 1: legitimate endpoints (wp-json, robots.txt,
+  sitemap, homepage) via CF DIRECT. Phase 2: sensitive files (`.env`, `.git`, backup files) via
+  origin-direct (after binding proven). APT nyata tidak ketok `.env` di detik pertama.
+
+## GAP-025 — Origin-direct response validation (generic homepage detection)
+
+- **Status**: OPEN.
+- **What**: Origin server `139.59.255.22` returns WordPress homepage (~98KB) for ALL paths
+  including `.env`, `.git/config`, `wp-json/wp/v2/users`. Agent treats this as real content,
+  runs probes against homepage body → 0 findings. No baseline comparison to detect that
+  origin-direct returns generic homepage instead of path-specific content.
+- **Evidence**: niagamas.com field-prove — ALL origin-direct fetches return ~98KB body
+  (98766-98789 bytes, ±23 bytes variance). wp-json/wp/v2/users via CF = 5,903 bytes (real JSON),
+  via origin-direct = 98,785 bytes (homepage). Agent does not detect this.
+- **Impact**: Origin-direct probes waste LLM tokens analyzing homepage body. False "HTTP 200"
+  on sensitive files that don't exist (origin returns homepage, not 404).
+- **Fix direction**: After origin-direct fetch, compare body hash to homepage baseline (fetched
+  once per host at start). If identical → flag as "origin returns generic homepage" → skip probe,
+  try CF DIRECT instead (if not challenged), or mark as non-analyzable.
 - **Why**: field log — `install.php` 200 skipped as "non-analyzable" when the LLM declined;
   creds + users found but never combined.
