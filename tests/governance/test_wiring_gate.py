@@ -42,6 +42,8 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "PolicyEnforcer": ("conductor/advance.py",),  # OPSEC/blast-radius gate (GAP-005)
     "calculate_blast_radius": ("conductor/blast_gate.py",),  # Blast-radius evaluation (GAP-006)
     "engagement_profile": ("conductor/main.py",),  # §12.36: signed profile reaches Conductor
+    "select_strike_entry": ("conductor/main.py",),  # entry-selection: Beta strikes reachable auth-surface
+    "STRIKE_ENTRY_SELECTED": ("conductor/main.py",),  # entry-selection observability event
     "wp_fingerprint": (
         "agents/alpha/scout.py",
     ),  # WP battery auto-seeds from fingerprint (PR #274 wiring)
