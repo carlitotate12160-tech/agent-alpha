@@ -86,6 +86,7 @@ def apply_event(
                 domains=_str_list(scope_data, "domains"),
                 exclusions=_str_list(scope_data, "exclusions"),
                 db_endpoints=_str_list(scope_data, "db_endpoints"),
+                allow_subdomains=bool(scope_data.get("allow_subdomains", False)),
             )
             sc.verified = bool(scope_data.get("verified", False))
             record.scope = sc

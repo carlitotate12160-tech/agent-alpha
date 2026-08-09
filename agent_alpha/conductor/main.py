@@ -911,10 +911,13 @@ def enable_recon(
             raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     # Derive Scope from the signed profile's scope_targets (SINGLE source).
+    # Wire allow_subdomain_enum from the profile → Scope.allow_subdomains so
+    # is_in_scope() accepts subdomains (Strategy B: side-door target expansion).
     scope = Scope(
         ip_ranges=[],
         domains=sorted(profile.scope_targets),
         exclusions=[],
+        allow_subdomains=profile.allow_subdomain_enum,
     )
 
     try:

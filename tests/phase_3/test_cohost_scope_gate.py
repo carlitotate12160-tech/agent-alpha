@@ -179,3 +179,92 @@ def test_reverse_ip_cohost_discovery_does_not_enter_scope(
     assert auth.assert_offensive_web_target(eng, "sibling-app.cloudwaysapps.com") is False, (
         "co-host must not be a valid offensive web target"
     )
+
+
+# ── Test 5: allow_subdomains suffix match (Strategy B) ─────────
+
+
+def test_allow_subdomains_accepts_subdomain(auth: AuthorizationStateMachine) -> None:
+    """With allow_subdomains=True, hub.example.com matches example.com."""
+    rec = auth.create_engagement("client", "example.com")
+    scope = Scope(
+        ip_ranges=[],
+        domains=["example.com"],
+        exclusions=[],
+        db_endpoints=[],
+        allow_subdomains=True,
+    )
+    auth.enable_recon(rec.engagement_id, scope)
+    assert auth.is_in_scope(rec.engagement_id, "hub.example.com") is True
+    assert auth.is_in_scope(rec.engagement_id, "pos.example.com") is True
+    assert auth.is_in_scope(rec.engagement_id, "a.b.c.example.com") is True
+
+
+def test_allow_subdomains_false_rejects_subdomain(auth: AuthorizationStateMachine) -> None:
+    """Without allow_subdomains, subdomains are NOT in scope (exact match only)."""
+    rec = auth.create_engagement("client", "example.com")
+    scope = Scope(
+        ip_ranges=[],
+        domains=["example.com"],
+        exclusions=[],
+        db_endpoints=[],
+        allow_subdomains=False,
+    )
+    auth.enable_recon(rec.engagement_id, scope)
+    assert auth.is_in_scope(rec.engagement_id, "hub.example.com") is False
+    # Exact match still works
+    assert auth.is_in_scope(rec.engagement_id, "example.com") is True
+
+
+def test_allow_subdomains_rejects_suffix_attack(auth: AuthorizationStateMachine) -> None:
+    """Suffix attack: example.com.evil.com must NOT match example.com.
+
+    The match must be '.{domain}' (dot-prefixed), not raw endswith().
+    """
+    rec = auth.create_engagement("client", "example.com")
+    scope = Scope(
+        ip_ranges=[],
+        domains=["example.com"],
+        exclusions=[],
+        db_endpoints=[],
+        allow_subdomains=True,
+    )
+    auth.enable_recon(rec.engagement_id, scope)
+    assert auth.is_in_scope(rec.engagement_id, "example.com.evil.com") is False, (
+        "suffix attack: example.com.evil.com must not match example.com"
+    )
+    assert auth.is_in_scope(rec.engagement_id, "notexample.com") is False, (
+        "suffix attack: notexample.com must not match example.com"
+    )
+
+
+def test_allow_subdomains_rejects_foreign_domain(auth: AuthorizationStateMachine) -> None:
+    """A completely foreign domain is never in scope, even with allow_subdomains."""
+    rec = auth.create_engagement("client", "example.com")
+    scope = Scope(
+        ip_ranges=[],
+        domains=["example.com"],
+        exclusions=[],
+        db_endpoints=[],
+        allow_subdomains=True,
+    )
+    auth.enable_recon(rec.engagement_id, scope)
+    assert auth.is_in_scope(rec.engagement_id, "hub.evil.com") is False
+    assert auth.is_in_scope(rec.engagement_id, "evil.com") is False
+
+
+def test_allow_subdomains_respects_exclusions(auth: AuthorizationStateMachine) -> None:
+    """Exclusions take precedence over suffix match."""
+    rec = auth.create_engagement("client", "example.com")
+    scope = Scope(
+        ip_ranges=[],
+        domains=["example.com"],
+        exclusions=["staging.example.com"],
+        db_endpoints=[],
+        allow_subdomains=True,
+    )
+    auth.enable_recon(rec.engagement_id, scope)
+    assert auth.is_in_scope(rec.engagement_id, "hub.example.com") is True
+    assert auth.is_in_scope(rec.engagement_id, "staging.example.com") is False, (
+        "excluded subdomain must not be in scope even with allow_subdomains"
+    )

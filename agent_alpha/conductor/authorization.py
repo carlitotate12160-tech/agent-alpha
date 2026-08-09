@@ -201,6 +201,7 @@ class AuthorizationStateMachine:
                     "exclusions": scope.exclusions,
                     "verified": scope.verified,
                     "db_endpoints": scope.db_endpoints,
+                    "allow_subdomains": scope.allow_subdomains,
                 },
             },
         )
@@ -354,7 +355,23 @@ class AuthorizationStateMachine:
 
         if parsed.kind == "domain":
             assert isinstance(parsed.value, str)
-            return any(parsed.value == domain.strip().lower() for domain in scope.domains)
+            target = parsed.value
+            # Exact match — always in scope (no consent flag needed).
+            for domain in scope.domains:
+                if target == domain.strip().lower():
+                    return True
+            # Suffix match — only when subdomain enumeration is consented
+            # (Scope.allow_subdomains, wired from EngagementProfile.allow_subdomain_enum).
+            # This is Strategy B: VT/crt.sh subdomains become independent targets.
+            # Security: must match ".{domain}" — NOT endswith(domain) — to prevent
+            # suffix attacks (evil.example.com matching example.com is fine, but
+            # example.com.evil.com must NOT match example.com).
+            if getattr(scope, "allow_subdomains", False):
+                for domain in scope.domains:
+                    d = domain.strip().lower()
+                    if target.endswith("." + d):
+                        return True
+            return False
 
         for cidr in scope.ip_ranges:
             try:

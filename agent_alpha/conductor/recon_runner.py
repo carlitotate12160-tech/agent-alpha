@@ -424,6 +424,18 @@ def run_recon_for_engagement(
                 if vt_client is not None:
                     intel = enrich_with_virustotal(intel, vt_client)
                     intel_sources = (*intel_sources, "virustotal")
+                    # §12.48 Strategy B: VT subdomains that pass is_in_scope become
+                    # independent targets (not just origin-IP candidates). This is
+                    # the "side door" path — subdomains not fronted by CF are probed
+                    # directly. is_in_scope is the sole authority (suffix match when
+                    # Scope.allow_subdomains is set from EngagementProfile).
+                    host_norm = host.rstrip(".").lower()
+                    for sub in intel.subdomains:
+                        sub_norm = sub.strip().lower().rstrip(".")
+                        if not sub_norm or sub_norm == host_norm:
+                            continue
+                        if auth.is_in_scope(engagement_id, sub_norm):
+                            discovered_in_scope.add(sub_norm)
             else:
                 intel_sources = sources_used
             record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)

@@ -68,6 +68,11 @@ class Scope:
     exclusions: list[str]  # IPs/domains explicitly out of scope
     verified: bool = False
     db_endpoints: list[str] = field(default_factory=list)
+    # When True, is_in_scope() accepts any subdomain of a scoped domain
+    # (suffix match: hub.example.com matches example.com). Wired from
+    # EngagementProfile.allow_subdomain_enum — the consent flag is the
+    # SOLE authority for subdomain target expansion (Strategy B).
+    allow_subdomains: bool = False
 
     def validate(self) -> None:
         """Validate the scope. Raises ValueError on any problem."""
