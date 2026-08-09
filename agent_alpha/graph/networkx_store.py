@@ -24,7 +24,14 @@ class NetworkXGraphStore:
 
     def apply_event(self, event_type: str, payload: dict[str, Any]) -> None:
         if event_type == "NodeDiscovered":
-            node = _reconstruct_node(payload)
+            try:
+                node = _reconstruct_node(payload)
+            except KeyError:
+                # Intel events (e.g. api_endpoint from js_secret_probe) use
+                # NODE_DISCOVERED with non-graph-node payloads. Skip them —
+                # they are audit trail, not graph nodes.
+                logger.debug("Skipping non-graph NODE_DISCOVERED payload: type=%s", payload.get("type"))
+                return
             self._graph.add_node(node.id, data=node)
         elif event_type == "EdgeDiscovered":
             edge = AttackEdge(
