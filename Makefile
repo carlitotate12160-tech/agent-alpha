@@ -3,7 +3,9 @@
 # Run: make test   (all tests)
 # Run: make all    (check + test)
 
-VENV := .venv312/bin
+# Auto-detect venv: CI uses .venv, local dev uses .venv312 (Python 3.12.3).
+# Prefer .venv312 if it exists (local), fall back to .venv (CI).
+VENV := $(shell test -d .venv312/bin && echo .venv312/bin || echo .venv/bin)
 PYTHON := $(VENV)/python3
 RUFF := $(VENV)/ruff
 MYPY := $(VENV)/mypy
