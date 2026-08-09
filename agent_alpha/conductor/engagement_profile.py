@@ -270,6 +270,7 @@ def dump_signed_profile(profile: EngagementProfile, *, key: bytes) -> dict[str, 
             "include_root": profile.include_root,
             "authorization_level": profile.authorization_level,
             "consent": profile.consent.to_dict(),
+            "verification_mode": profile.verification_mode,
         },
         "hmac": profile.sign(key),
     }
