@@ -99,6 +99,14 @@ class EventType(enum.StrEnum):
     # evidence so a WAF block is NEVER silently treated as "clean / not
     # vulnerable" (anti-false-negative). Carries {host, path, status_code}.
 
+    # ── Phase 4 (dead-host short-circuit — GAP-029 instinct #2) ──
+    HOST_ABANDONED = "HostAbandoned"
+    # ^ A host's ROOT probe raised HttpClientError (transport-unreachable:
+    # DNS failure, connection refused, timeout). All queued paths for that
+    # host are pruned and future enqueues are refused for this run. Carries
+    # {host, reason, trigger}. Append-only audit parity with WAF_BLOCKED so
+    # the abandonment is replayable and never silently discarded.
+
     # ── Phase 6 (governance — §12.36 signed authorization gate) ───
     OWNERSHIP_CHALLENGE_ISSUED = "OwnershipChallengeIssued"
     # ^ Conductor minted a DNS-TXT challenge token for a domain. The operator

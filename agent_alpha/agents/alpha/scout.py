@@ -189,6 +189,15 @@ class Alpha:
         # are never subject to this gate — only hrefs parsed from page HTML are.
         self._host_stack: dict[str, set[str]] = {}
         self._organic_crawl_count: dict[str, int] = {}
+        # Instinct #2 (GAP-029): hosts whose ROOT raised HttpClientError this run.
+        # All queued/future paths for these hosts are skipped — avoids N*seed_paths
+        # unreachable probes for dead subdomains (field ingco: 19 × 12 = 118, ~25 min).
+        # ROOT-failure ONLY (R1): a non-root transport error (e.g. WAF RST on /.env
+        # while the homepage is 200) must NOT kill a live host.
+        # Known tradeoff: a single root timeout marks the host dead for this run;
+        # cost of one skipped live host << 12× waste per dead host. No retries here.
+        # The challenge-skip instinct (anti #6/#7) will populate this SAME set later.
+        self._dead_hosts: set[str] = set()
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -233,6 +242,7 @@ class Alpha:
         self._bound_origin = {}
         self._host_stack = {}
         self._organic_crawl_count = {}
+        self._dead_hosts = set()
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -389,7 +399,24 @@ class Alpha:
         try:
             resp = self.http_client.get(url)
         except HttpClientError:
-            self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
+            host = urlparse(url).hostname or urlparse(url).netloc
+            # R1: mark dead ONLY on a root/homepage transport failure. A non-root
+            # failure (e.g. WAF RST on /.env while the homepage is 200) must NOT
+            # kill a live host — false-negatives drop payable surface (anti-#3).
+            if urlparse(url).path in ("", "/"):
+                self._dead_hosts.add(host)
+                # R2: prune queued paths for this host NOW in one pass so that
+                # _pop_unprobed stays untouched and work_remaining stays accurate.
+                self._work_queue = [
+                    u
+                    for u in self._work_queue
+                    if (urlparse(u).hostname or urlparse(u).netloc) != host
+                ]
+                # S1: append-only audit event (parity with WAF_BLOCKED) + monologue.
+                self._persist_host_abandoned_event(host)
+                self._emit("OBSERVE", f"{host} root unreachable → abandon its queue")
+            else:
+                self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
             return _finish(0, 0.0, f"OBSERVE: {url} unreachable")
 
         # Classify the response through the ONE canonical classifier so a WAF/CF
@@ -2079,6 +2106,10 @@ class Alpha:
             if parsed.path.startswith(prefix):
                 return False
         host = parsed.hostname or parsed.netloc
+        # Instinct #2 (GAP-029): refuse to enqueue paths for a host whose root
+        # already raised HttpClientError this run (host is transport-unreachable).
+        if host in self._dead_hosts:
+            return False
         if (
             self.authorization.is_in_scope(self._engagement_id, host)
             and url not in self._probed
@@ -2089,6 +2120,24 @@ class Alpha:
         return False
 
     # ── Private: helpers ────────────────────────────────────────
+
+    def _persist_host_abandoned_event(self, host: str) -> None:
+        """Append-only audit: host abandoned (root transport-unreachable).
+
+        Mirrors ``_handle_waf_block``'s ``EventType.WAF_BLOCKED`` emission —
+        same event_store path, same engagement_id. Parity ensures the
+        abandonment is replayable and auditable (S1 — anti-#3, anti-#7).
+        """
+        self.event_store.append(
+            EventType.HOST_ABANDONED,
+            self._engagement_id,
+            "alpha",
+            {
+                "host": host,
+                "reason": "transport_unreachable",
+                "trigger": "root_probe",
+            },
+        )
 
     def _try_harder_recovery(self) -> str | None:
         """Try-Harder dead-end recovery (D2-b).
