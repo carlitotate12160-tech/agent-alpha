@@ -408,7 +408,8 @@ class Alpha:
                 # R2: prune queued paths for this host NOW in one pass so that
                 # _pop_unprobed stays untouched and work_remaining stays accurate.
                 self._work_queue = [
-                    u for u in self._work_queue
+                    u
+                    for u in self._work_queue
                     if (urlparse(u).hostname or urlparse(u).netloc) != host
                 ]
                 # S1: append-only audit event (parity with WAF_BLOCKED) + monologue.
