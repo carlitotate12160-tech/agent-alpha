@@ -15,6 +15,7 @@ exploit-reachability oracle (see adr_alpha_to_gamma_skip_beta.md).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -54,6 +55,16 @@ _AUTH_SURFACE_LABELS: frozenset[str] = frozenset(
 )
 
 
+@dataclass(frozen=True)
+class StrikeEntrySelection:
+    """Result of select_strike_entry — URL + observability metadata."""
+
+    selected_entry: str
+    matched_label: str | None
+    fallback_to_default: bool
+    candidates_considered: tuple[str, ...]
+
+
 # ── Graph predicates (pure reads, no side effects) ─────────────────────────────
 
 
@@ -86,18 +97,22 @@ def has_web_auth_surface(graph_store: Any) -> bool:
     return False
 
 
-def select_strike_entry(graph_store: Any, *, default_target: str) -> str:
+def select_strike_entry(graph_store: Any, *, default_target: str) -> StrikeEntrySelection:
     parsed_default = urlparse(default_target)
     label_priority = tuple(sorted(_AUTH_SURFACE_LABELS))
     rank_by_label = {label: idx for idx, label in enumerate(label_priority)}
-    candidates: list[tuple[int, str, str]] = []
+    candidates: list[tuple[int, str, str, str | None]] = []
 
     for node in graph_store.nodes_by_type(NodeType.ASSET):
         tech = getattr(node.properties, "tech_stack", None) or []
-        priority = min(
-            (rank_by_label[label] for label in tech if label in rank_by_label),
-            default=None,
-        )
+        matched_label = None
+        priority = None
+        for label in tech:
+            if label in rank_by_label:
+                if priority is None or rank_by_label[label] < priority:
+                    priority = rank_by_label[label]
+                    matched_label = label
+
         host = getattr(node.properties, "host", "") or ""
         if priority is None or not host:
             continue
@@ -106,14 +121,26 @@ def select_strike_entry(graph_store: Any, *, default_target: str) -> str:
                 priority,
                 host,
                 urlunparse((parsed_default.scheme, host, "/", "", "", "")),
+                matched_label,
             )
         )
 
     if not candidates:
-        return default_target
+        return StrikeEntrySelection(
+            selected_entry=default_target,
+            matched_label=None,
+            fallback_to_default=True,
+            candidates_considered=(),
+        )
 
     candidates.sort(key=lambda item: (item[0], item[1]))
-    return candidates[0][2]
+    winner = candidates[0]
+    return StrikeEntrySelection(
+        selected_entry=winner[2],
+        matched_label=winner[3],
+        fallback_to_default=False,
+        candidates_considered=tuple(c[1] for c in candidates),
+    )
 
 
 def has_access_from_harvested_cred(graph_store: Any) -> bool:

@@ -567,7 +567,22 @@ def run_agent_task(
                         event_store=target_store,
                         engagement_id=engagement_id,
                     )
-                strike_entry = select_strike_entry(graph_store, default_target=record.target)
+                strike_entry_selection = select_strike_entry(
+                    graph_store, default_target=record.target
+                )
+                strike_entry = strike_entry_selection.selected_entry
+                # Emit observability event BEFORE building applicators + running strike
+                target_store.append(
+                    event_type=EventType.STRIKE_ENTRY_SELECTED,
+                    engagement_id=engagement_id,
+                    agent="CONDUCTOR",
+                    payload={
+                        "selected_entry": strike_entry,
+                        "matched_label": strike_entry_selection.matched_label,
+                        "fallback_to_default": strike_entry_selection.fallback_to_default,
+                        "candidates_considered": strike_entry_selection.candidates_considered,
+                    },
+                )
                 candidates = beta_web_applicators(beta_http)
                 applicators = build_applicators_for_engagement(
                     engagement_id=engagement_id,

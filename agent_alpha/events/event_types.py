@@ -75,6 +75,13 @@ class EventType(enum.StrEnum):
     CHAIN_COMPLETE = "ChainComplete"
     # ^ Conductor halted: no next agent recommended. Carries {reason}.
 
+    # ── Phase 4 (entry-selection observability — honest-seal) ───────
+    STRIKE_ENTRY_SELECTED = "StrikeEntrySelected"
+    # ^ Conductor selected Beta's strike entry_point (auth-surface ASSET) instead of
+    # the default apex. Carries {selected_entry, matched_label, fallback_to_default,
+    # candidates_considered}. Emitted BEFORE build_applicators + run_strike so the audit
+    # precedes the action.
+
     # ── Phase 2.5 (passive recon — R2 subdomain discovery) ────────
     PASSIVE_DISCOVERY = "PassiveDiscovery"
     # ^ PassiveDiscovery.discover(): one event per passive crt.sh run.
