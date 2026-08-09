@@ -308,6 +308,7 @@ def load_signed_profile_from_dict(data: dict[str, Any], *, key: bytes) -> Engage
         include_root=bool(profile_data.get("include_root", False)),
         authorization_level=profile_data.get("authorization_level", "RECON_ONLY"),
         consent=ConsentRecord.from_dict(consent_data) if consent_data else ConsentRecord(),
+        verification_mode=profile_data.get("verification_mode", "dns_txt"),
     )
 
     if "sha256" in data:
