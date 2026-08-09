@@ -111,7 +111,13 @@ class OriginAwareHttpClient:
         if self._profile is None or not host:
             return url, host, False
 
-        bound = proven_origins(self._event_store, self._engagement_id, host)
+        # Bindings - fail-open on any store error (CodeRabbit): a store failure here
+        # must degrade to "no known binding", never crash the strike (symmetric with
+        # the _fronted_hosts fail-open below - both store reads now fail-open).
+        try:
+            bound = proven_origins(self._event_store, self._engagement_id, host)
+        except Exception:  # noqa: BLE001 - store boundary; no binding evidence => none
+            bound = frozenset()
         signed = set(getattr(self._profile, "authorized_origins", frozenset()) or ())
         candidates = bound | signed
 

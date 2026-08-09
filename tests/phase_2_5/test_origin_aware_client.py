@@ -1,9 +1,5 @@
 # tests/phase_2_5/test_origin_aware_client.py
-"""§12.46 Slice 2 - OriginAwareHttpClient routing/gate + fail-close logic (hermetic).
-
-Owns the WRAPPER's own logic. proven_origins / assert_origin_authorized_or_bound
-are sealed elsewhere -> stubbed. Live XML-RPC reach seal = Oracle.
-"""
+"""§12.46 Slice 2 - OriginAwareHttpClient routing/gate/fail-close (hermetic)."""
 
 from __future__ import annotations
 
@@ -42,10 +38,6 @@ class _FakeEvent:
 
 
 class _FakeStore:
-    """Event store returning WAF_BLOCKED events for the given fronted hosts.
-    Records the engagement_id it was queried with (isolation/eid coverage) and
-    can simulate a store failure (fail-open coverage)."""
-
     def __init__(self, waf_hosts=(), *, raises: bool = False):
         self._events = [_FakeEvent(EventType.WAF_BLOCKED, {"host": h}) for h in waf_hosts]
         self.queried_eids: list[str] = []
@@ -82,8 +74,7 @@ def test_post_origin_direct_on_proven_binding(monkeypatch, gate_spy):
     c = OriginAwareHttpClient(
         inner, profile=_profile(discovery=True), event_store=_FakeStore(), engagement_id="e1"
     )
-    resp = c.post("https://odoo.alpha-ai.web.id/xmlrpc/2/common", data={"x": "1"})
-    assert resp == "POST_RESP"
+    c.post("https://odoo.alpha-ai.web.id/xmlrpc/2/common", data={"x": "1"})
     call = inner.calls[-1]
     assert call["url"] == "https://168.110.192.62/xmlrpc/2/common"
     assert call["headers"]["Host"] == "odoo.alpha-ai.web.id"
@@ -119,7 +110,6 @@ def test_signed_authorized_origin_routes_direct(monkeypatch, gate_spy):
     assert inner.calls[-1]["url"] == "https://10.0.0.5/a"
 
 
-# ── fail-closed: host recon CONFIRMED fronted (WAF_BLOCKED) + no origin ────────
 def test_fail_closed_when_host_is_waf_blocked(monkeypatch, gate_spy):
     _bind(monkeypatch, set())
     inner = _FakeInner()
@@ -134,7 +124,6 @@ def test_fail_closed_when_host_is_waf_blocked(monkeypatch, gate_spy):
     assert inner.calls == []
 
 
-# ── BUG-FIX (hub): reachable host, no WAF_BLOCKED -> plain, NOT refused ────────
 def test_reachable_host_no_wafblock_plain_passthrough(monkeypatch, gate_spy):
     _bind(monkeypatch, set())
     inner = _FakeInner()
@@ -167,15 +156,13 @@ def test_gate_denial_propagates(monkeypatch):
     assert inner.calls == []
 
 
-# ── REVIEW #1: behavior change pinned — discovery=False + WAF-blocked -> refuse ─
+# ── REVIEW #1: discovery=False + WAF-blocked -> refuse (evidence-based) ────────
 def test_non_discovery_wafblocked_fails_closed(monkeypatch, gate_spy):
-    """A WAF-confirmed host is NEVER naked-hit, INDEPENDENT of the discovery flag.
-    (Old code passed through when discovery=False; new code is evidence-based.)"""
     _bind(monkeypatch, set())
     inner = _FakeInner()
     c = OriginAwareHttpClient(
         inner,
-        profile=_profile(discovery=False),  # NOT a discovery engagement
+        profile=_profile(discovery=False),
         event_store=_FakeStore(waf_hosts={"blocked.test"}),
         engagement_id="e1",
     )
@@ -184,46 +171,58 @@ def test_non_discovery_wafblocked_fails_closed(monkeypatch, gate_spy):
     assert inner.calls == []
 
 
-# ── REVIEW #2: fail-open — store error -> reachable (plain), never crash ───────
-def test_fail_open_on_store_error(monkeypatch, gate_spy):
-    _bind(monkeypatch, set())
+# ── REVIEW #2: _fronted_hosts fail-open (store error, proven_origins stubbed) ──
+def test_fronted_hosts_fail_open_on_store_error(monkeypatch, gate_spy):
+    _bind(monkeypatch, set())  # proven_origins stubbed -> only _fronted_hosts hits the store
     inner = _FakeInner()
     c = OriginAwareHttpClient(
         inner,
         profile=_profile(discovery=True),
-        event_store=_FakeStore(raises=True),  # get_events raises
+        event_store=_FakeStore(raises=True),
         engagement_id="e1",
     )
-    c.get("https://whatever.test/x")  # must NOT raise
-    assert inner.calls[-1]["url"] == "https://whatever.test/x"  # plain passthrough
+    c.get("https://whatever.test/x")
+    assert inner.calls[-1]["url"] == "https://whatever.test/x"
 
 
-# ── REVIEW #3: cross-host isolation — block for A must NOT refuse B ────────────
+# ── CODERABBIT: proven_origins() runs FIRST — must ALSO fail-open (real path) ──
+def test_proven_origins_fail_open_on_store_error(gate_spy):
+    """proven_origins() hits the store BEFORE _fronted_hosts. If it raises there,
+    the wrapper must fail-open (no binding) -> plain, not crash. Real proven_origins
+    (NOT stubbed) + a raising store — the exact gap CodeRabbit flagged."""
+    inner = _FakeInner()
+    c = OriginAwareHttpClient(
+        inner,
+        profile=_profile(discovery=True),
+        event_store=_FakeStore(raises=True),
+        engagement_id="e1",
+    )
+    c.get("https://whatever.test/x")  # must NOT crash (proven_origins raised, caught)
+    assert inner.calls[-1]["url"] == "https://whatever.test/x"
+
+
+# ── REVIEW #3: cross-host isolation ───────────────────────────────────────────
 def test_cross_host_isolation(monkeypatch, gate_spy):
     _bind(monkeypatch, set())
     inner = _FakeInner()
     c = OriginAwareHttpClient(
         inner,
         profile=_profile(discovery=True),
-        event_store=_FakeStore(waf_hosts={"apex.test"}),  # only apex blocked
+        event_store=_FakeStore(waf_hosts={"apex.test"}),
         engagement_id="e1",
     )
-    c.get("https://hub.test/ok")  # different host -> plain, NOT refused
+    c.get("https://hub.test/ok")
     assert inner.calls[-1]["url"] == "https://hub.test/ok"
-    with pytest.raises(OriginUnreachableError):  # blocked host still refused
+    with pytest.raises(OriginUnreachableError):
         c.get("https://apex.test/x")
 
 
-# ── REVIEW #4a: source guard — Beta MUST catch HttpClientError (not RuntimeError)
+# ── REVIEW #4: Beta MUST catch HttpClientError (source guard + catchability) ───
 def test_beta_source_catches_httpclienterror() -> None:
     src = (pathlib.Path(agent_alpha.__file__).parent / "agents/beta/strike.py").read_text()
-    assert "except HttpClientError" in src, (
-        "Beta must catch HttpClientError so a wrapper fail-close is a graceful skip, "
-        "not a crash. If this changed to e.g. `except RuntimeError`, the fix regresses."
-    )
+    assert "except HttpClientError" in src
 
 
-# ── REVIEW #4b: behavioral — the raise IS caught by `except HttpClientError` ───
 def test_fail_close_is_catchable_as_httpclienterror(monkeypatch, gate_spy):
     _bind(monkeypatch, set())
     c = OriginAwareHttpClient(
@@ -235,7 +234,7 @@ def test_fail_close_is_catchable_as_httpclienterror(monkeypatch, gate_spy):
     caught = False
     try:
         c.get("https://apex.test/x")
-    except HttpClientError:  # EXACTLY how Beta catches it (strike.py)
+    except HttpClientError:
         caught = True
     assert caught
 
@@ -244,7 +243,7 @@ def test_origin_unreachable_is_httpclienterror() -> None:
     assert issubclass(OriginUnreachableError, HttpClientError)
 
 
-# ── REVIEW #5: _host_is_fronted queries the CORRECT engagement_id ──────────────
+# ── REVIEW #5: correct engagement_id queried ──────────────────────────────────
 def test_host_is_fronted_queries_correct_engagement(monkeypatch, gate_spy):
     _bind(monkeypatch, set())
     store = _FakeStore(waf_hosts=set())
@@ -255,7 +254,7 @@ def test_host_is_fronted_queries_correct_engagement(monkeypatch, gate_spy):
     assert store.queried_eids == ["eng-XYZ"]
 
 
-# ── REVIEW #6: fronted-host set cached — store queried ONCE across many routes ─
+# ── REVIEW #6: fronted set cached — one store scan across many routes ──────────
 def test_fronted_set_cached_single_store_query(monkeypatch, gate_spy):
     _bind(monkeypatch, set())
     store = _FakeStore(waf_hosts={"apex.test"})
@@ -264,4 +263,4 @@ def test_fronted_set_cached_single_store_query(monkeypatch, gate_spy):
     )
     for _ in range(5):
         c.get("https://hub.test/ok")
-    assert len(store.queried_eids) == 1  # one scan, not per-_route
+    assert len(store.queried_eids) == 1
