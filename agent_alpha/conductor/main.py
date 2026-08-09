@@ -153,7 +153,7 @@ class AuthorizeBody(BaseModel):
     opsec_stealth: bool = False
     authorized_origins: list[str] | None = None  # manual override (dev/cooperative)
     verification_mode: str = (
-        "dns_txt"  # "dns_txt" (default) | "cooperative" (SOW-based, operator-approved)
+        "cooperative"  # "cooperative" (default, SOW-based) | "dns_txt" (strict)
     )
 
 

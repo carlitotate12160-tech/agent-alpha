@@ -131,6 +131,7 @@ def _authorize_with_stub(
         "allow_evasion": allow_evasion,
         "opsec_stealth": opsec_stealth,
         "allow_origin_discovery": allow_origin_discovery,
+        "verification_mode": "dns_txt",
     }
     if consent_items is not None:
         body["consent_items"] = consent_items

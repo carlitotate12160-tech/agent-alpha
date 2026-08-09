@@ -215,7 +215,9 @@ class EngagementProfile:
     include_root: bool = False
     authorization_level: str = "RECON_ONLY"  # RECON_ONLY | ACTIVE_APPROVED | OFFENSIVE_APPROVED
     consent: ConsentRecord = field(default_factory=ConsentRecord)
-    verification_mode: str = "dns_txt"  # "dns_txt" (default, strict) | "cooperative" (SOW-based, operator-approved, no DNS-TXT)
+    verification_mode: str = (
+        "cooperative"  # "cooperative" (default) | "dns_txt" (strict, lab guard)
+    )
 
     # ── Signature helpers ─────────────────────────────────────
 
