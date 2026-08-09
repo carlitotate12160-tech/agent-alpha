@@ -58,3 +58,50 @@ def test_labels_are_router_auth_surface_labels() -> None:
     from agent_alpha.conductor.router import _AUTH_SURFACE_LABELS
 
     assert {"login-form", "http_basic_auth"} <= _AUTH_SURFACE_LABELS
+
+
+def test_vue_bound_password_input_detected() -> None:
+    """Vue.js dynamic binding :type="..." with name="password" must be detected."""
+    body = '<input :type="showPassword ? \'text\' : \'password\'" name="password">'
+    assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
+
+
+def test_autocomplete_current_password_detected() -> None:
+    """WHATWG standard autocomplete attribute (SPA-proof)."""
+    body = '<input autocomplete="current-password">'
+    assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
+
+
+def test_autocomplete_new_password_detected() -> None:
+    """New-password autocomplete (change password forms)."""
+    body = '<input autocomplete="new-password">'
+    assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
+
+
+def test_name_password_detected() -> None:
+    """name="password" attribute (any framework)."""
+    body = '<input name="password">'
+    assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
+
+
+def test_id_password_detected() -> None:
+    """id="password" attribute (any framework)."""
+    body = '<input id="password">'
+    assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
+
+
+def test_static_type_password_still_detected() -> None:
+    """Regression: existing static type="password" detection still works."""
+    body = '<input type="password">'
+    assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
+
+
+def test_no_password_no_label() -> None:
+    """No password signal → no login-form label (no false positive)."""
+    body = "<html><body>welcome, no login here</body></html>"
+    assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == []
+
+
+def test_basic_auth_unchanged() -> None:
+    """Regression: HTTP basic auth detection still works."""
+    assert detect_auth_surface_labels(status_code=401, headers={}, body="") == ["http_basic_auth"]
