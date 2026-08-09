@@ -183,6 +183,13 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "dns-txt:agent-alpha=client-approved",
         "#335",
     ),
+    # Client-approved external target (Odoo behind Cloudflare)
+    LabHost(
+        "niagamas.com",
+        "natanael",
+        "dns-txt:agent-alpha=client-approved",
+        "#367",
+    ),
 )
 
 # Derived allowlist — backward compatible with all 13 callers.
