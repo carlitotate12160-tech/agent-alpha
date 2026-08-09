@@ -42,6 +42,7 @@ def _profile(
     allow_origin_discovery: bool = True,
     token: str | None = _TOKEN,
     host: str = _HOST,
+    verification_mode: str = "dns_txt",
 ) -> EngagementProfile:
     tokens = frozenset({(host, token)}) if token else frozenset()
     return EngagementProfile(
@@ -50,6 +51,7 @@ def _profile(
         scope_targets=frozenset({host}),
         allow_origin_discovery=allow_origin_discovery,
         ownership_tokens=tokens,
+        verification_mode=verification_mode,
     )
 
 
@@ -176,6 +178,75 @@ def test_no_token_returns_none() -> None:
 
     assert result is None
     assert not discovery.called  # token check fails before discovery
+    assert len(store.get_events(_ENG)) == 0
+
+
+# ── 4b. COOPERATIVE MODE (GAP-038): no token + cooperative → soft binding ──
+
+
+def test_cooperative_no_token_soft_binds_first_candidate() -> None:
+    """GAP-038: cooperative mode + no token → skip binding proof, return first
+    non-CF, non-internal candidate. Trust anchor = operator-approved SOW.
+    discover_origin_ips already confirmed the IP serves fronted_host via
+    _probe_as_origin (Host header + non-CF + confirming status)."""
+
+    public_ip = "93.184.216.34"  # example.com — not CF, not internal
+    discovery = _FakeDiscovery([_CF_EDGE_IP, public_ip])
+    store = InMemoryEventStore()
+
+    result = resolve_and_bind_origin(
+        fronted_host=_HOST,
+        profile=_profile(token=None, verification_mode="cooperative"),
+        event_store=store,
+        engagement_id=_ENG,
+        discovery=discovery,
+    )
+
+    assert result == public_ip  # CF-edge filtered, public origin returned
+    assert discovery.called  # candidates() WAS invoked (unlike dns_txt no-token)
+    events = store.get_events(_ENG)
+    assert len(events) == 1
+    payload = events[0].payload
+    assert payload["proof_type"] == "cooperative_soft_binding"
+    assert payload["origin_ip"] == public_ip
+
+
+def test_cooperative_no_token_rejects_internal_ip() -> None:
+    """GAP-038: cooperative soft binding still rejects internal/metadata IPs
+    (SSRF guard, CWE-918). Internal IP → skipped, not bound."""
+
+    public_ip = "93.184.216.34"  # example.com — not CF, not internal
+    discovery = _FakeDiscovery([_INTERNAL_IP, public_ip])
+    store = InMemoryEventStore()
+
+    result = resolve_and_bind_origin(
+        fronted_host=_HOST,
+        profile=_profile(token=None, verification_mode="cooperative"),
+        event_store=store,
+        engagement_id=_ENG,
+        discovery=discovery,
+    )
+
+    assert result == public_ip  # internal skipped, public origin bound
+    events = store.get_events(_ENG)
+    assert len(events) == 1
+
+
+def test_cooperative_no_candidates_returns_none() -> None:
+    """GAP-038: cooperative mode + no candidates → None (fail-closed)."""
+
+    discovery = _FakeDiscovery([])
+    store = InMemoryEventStore()
+
+    result = resolve_and_bind_origin(
+        fronted_host=_HOST,
+        profile=_profile(token=None, verification_mode="cooperative"),
+        event_store=store,
+        engagement_id=_ENG,
+        discovery=discovery,
+    )
+
+    assert result is None
     assert len(store.get_events(_ENG)) == 0
 
 

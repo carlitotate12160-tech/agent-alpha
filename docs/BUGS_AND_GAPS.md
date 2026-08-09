@@ -1624,6 +1624,28 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   Threshold tunable via constants. This is defense-in-depth on top of GAP-026 (pacer ON).
 - **Effort**: Low (counter dict + threshold check in except block, ~15 lines + test).
 
+## GAP-038 — Cooperative mode short-circuits origin discovery (no binding proof)
+
+- **Status**: OPEN, HIGH priority (blocker — Beta tidak dapat reach origin di cooperative mode).
+- **What**: `resolve_and_bind_origin` (origin_binding.py L90-92) requires `token_for(profile, host)`
+  to return a non-None ownership token before invoking `discovery.candidates()`. Cooperative mode
+  sets `ownership_tokens={}` (no DNS-TXT, operator-approved SOW) → `token_for` returns None →
+  `resolve_and_bind_origin` exits at L92 → `candidates()` NEVER called → 0 ORIGIN_DIRECT_ATTEMPT
+  → Beta has no origin IP → applicator fail → `beta_failed`.
+- **Evidence**: ibudanbalita — `ORIGIN_DIRECT_ATTEMPT events: 0`, `Applicator calls: [2]` (both
+  failed), `ENGAGEMENT_RUN_FAILED reason='beta_failed'`. Trace: token_for returns None karena
+  ownership_tokens=frozenset() di cooperative profile.
+- **Root cause**: Token canary adalah satu-satunya binding proof. Cert-SAN corroboration
+  di-desain (origin_binding.py L9 comment) tapi deferred. Cooperative mode tidak punya
+  binding proof alternative.
+- **Fix direction (Option A — loose, fast-to-market)**: Skip binding proof when
+  `verification_mode="cooperative"` AND token is None. `discover_origin_ips` already does
+  soft binding via `_probe_as_origin` (Host header + non-CF filter + confirming status).
+  Trust anchor = operator-approved SOW (cooperative mode), bukan cryptographic token.
+  Fail-closed tetap jalan: discover_origin_ips return [] → None → no reach.
+  Future upgrade: cert-SAN corroboration (Option B) untuk cryptographic proof tanpa token.
+- **Effort**: Low (~10 lines di resolve_and_bind_origin + test).
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 
 | GAP | Title | Severity | Effort | Field-prove source |
@@ -1641,6 +1663,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 035 | Entry-selection strikes ONE candidate; multi-surface not iterated | Medium | Medium | niagamas (hub + pos both reachable) |
 | 036 | LLM tool-pick fires on auth-surface pages (no deterministic RULE) | Low | Low | niagamas (pos.niagamas.com) |
 | 037 | Mid-run host death not detected (consecutive-failure threshold) | High | Low | busonlineticket.co.th (Sucuri WAF) |
+| 038 | Cooperative mode short-circuits origin discovery (no binding proof) | High | Low | ibudanbalita (cooperative, 0 origin attempts) |
 
 ## Recommended fix order (one slice at a time)
 
