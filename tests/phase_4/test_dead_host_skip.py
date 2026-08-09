@@ -200,7 +200,10 @@ def test_nonroot_failure_does_NOT_mark_dead() -> None:
         live_routes={
             f"https://{_LIVE_HOST}/": FakeResponse(
                 200,
-                "<html><head><title>Live Site</title></head><body><h1>OK</h1></body></html>",
+                f"<html><head><title>Live</title></head><body>"
+                f"<a href='{sensitive_url}'>env</a>"
+                f"<a href='{second_path}'>admin</a>"
+                f"</body></html>",
                 {"Server": "nginx"},
             ),
             second_path: FakeResponse(
@@ -213,8 +216,13 @@ def test_nonroot_failure_does_NOT_mark_dead() -> None:
     # Live host reaches the ORIENT stage on a 200 response — use the stub LLM provider.
     alpha, eid, _ = _build_alpha(http, domains=[_LIVE_HOST], provider=_StubProvider())
 
-    # Manually enqueue the sensitive + second paths before run_recon (mirrors seed logic)
+    # run_recon probes the root. The HTML parser extracts /.env and /admin and
+    # enqueues them. The loop then probes /.env (which raises HttpClientError)
+    # and /admin (which returns 200).
     alpha.run_recon(eid, f"https://{_LIVE_HOST}/")
+
+    assert sensitive_url in http.calls, "sensitive_url was never called; test is vacuous"
+    assert second_path in http.calls, "second_path was never called; test is vacuous"
 
     assert _LIVE_HOST not in alpha._dead_hosts, (
         f"R1 VIOLATED: non-root HttpClientError on /.env marked {_LIVE_HOST} as dead; "
@@ -258,7 +266,7 @@ def test_reachable_host_not_over_skipped() -> None:
     live_path = f"https://{_LIVE_HOST}/api/v1"
     live_body = (
         "<html><head><title>Live</title></head>"
-        "<body><h1>Hello</h1></body></html>"
+        f"<body><a href='{live_path}'>API</a></body></html>"
     )
     # Use stub LLM provider: live host reaches the ORIENT stage on its 200 root.
     http2 = FakeHttpClient(
@@ -270,11 +278,10 @@ def test_reachable_host_not_over_skipped() -> None:
     alpha2, eid2, _ = _build_alpha(http2, domains=[_LIVE_HOST], provider=_StubProvider())
     alpha2.run_recon(eid2, live_root)
 
-    # The live host root must have been probed
+    # The live host root and the extracted live_path must both have been probed
     live_calls = _calls_to_host(http2.calls, _LIVE_HOST)
-    assert len(live_calls) >= 1, (
-        f"Live host {_LIVE_HOST} was never probed; calls = {http2.calls}"
-    )
+    assert live_root in live_calls, "live_root was never probed"
+    assert live_path in live_calls, "live_path was never probed; test is vacuous"
     # The live host must NOT be in _dead_hosts
     assert _LIVE_HOST not in alpha2._dead_hosts, (
         f"Live host was incorrectly marked dead: _dead_hosts = {alpha2._dead_hosts}"
@@ -348,7 +355,9 @@ def test_nonroot_failure_does_not_emit_abandoned_event() -> None:
         live_routes={
             f"https://{_LIVE_HOST}/": FakeResponse(
                 200,
-                "<html><head><title>Live</title></head><body><h1>OK</h1></body></html>",
+                f"<html><head><title>Live</title></head><body>"
+                f"<a href='{sensitive_url}'>env</a>"
+                f"</body></html>",
                 {"Server": "nginx"},
             ),
         },
@@ -356,6 +365,8 @@ def test_nonroot_failure_does_not_emit_abandoned_event() -> None:
     # Live host reaches ORIENT on a 200 root — use stub provider.
     alpha, eid, store = _build_alpha(http, domains=[_LIVE_HOST], provider=_StubProvider())
     alpha.run_recon(eid, f"https://{_LIVE_HOST}/")
+
+    assert sensitive_url in http.calls, "sensitive_url was never called; test is vacuous"
 
     events = _abandoned_events(store, eid)
     assert len(events) == 0, (
