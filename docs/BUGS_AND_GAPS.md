@@ -40,9 +40,9 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 24 | response_classifier `challenge-platform` false positive on CF-proxied sites | High | Low | All CF-proxied sites misclassified as CHALLENGE | **FIXED** |
 | 25 | DefaultCredsTool ignores harvested USER nodes — only tries hardcoded creds | **RESOLVED** | Medium | Beta can't spray discovered usernames |
 | 26 | Generic blind probing causes excessive 404s → WAF/CF block | **High** | Medium | Agent blocked before finding anything | **IN PROGRESS (Phase 4 Recon/Evasion Overhaul, Slices 1-6)** |
-| 27 | Pacing not implemented (§12.49 doctrine) | **High** | Medium | CF bot detection → wp-json challenged → 0 users → 0 creds → Beta no dispatch |
-| 28 | Sensitive files probed before legitimate endpoints | Medium | Low | CF bot detection from .env probes blocks wp-json access |
-| 29 | Origin-direct generic homepage not detected | Medium | Low | Origin returns homepage for all paths → 0 findings from origin-direct |
+| 26 | StealthPacer gate inverted (code exists, default OFF) | **High** | Low | CF bot detection → wp-json challenged → 0 users → 0 creds → Beta no dispatch |
+| 27 | Sensitive files probed before legitimate endpoints | Medium | Low | CF bot detection from .env probes blocks wp-json access |
+| 28 | Origin-direct generic homepage not detected | Medium | Low | Origin returns homepage for all paths → 0 findings from origin-direct |
 
 ## Recommended Fix Order
 
@@ -1381,25 +1381,35 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   (b) finding correlation — combine `wp-config.php.bak` DB creds + enumerated WP users into a
   single prioritised CREDENTIAL/USER hand-off for Beta (findings currently persist independently).
 
-## GAP-023 — Pacing not implemented (§12.49 doctrine, code missing)
+## GAP-026 — StealthPacer gate inverted: code exists, default OFF (violates §12.49)
 
 - **Status**: OPEN. Doctrine §12.49: "Stealth by default from the 1st request (curl_cffi, Header
   ordering, Pacing)."
-- **What**: Agent probes 40+ URLs with zero delay between requests. CF bot detection triggers
-  after aggressive burst → challenges ALL subsequent requests including legitimate endpoints
-  (wp-json) that were accessible on slower runs.
-- **Evidence**: niagamas.com field-prove — Run 1 (83 events, slower pacing from crt.sh timeouts)
-  → wp-json/wp/v2/users accessible via CF DIRECT → 4 users + 2 vulns. Run 2 (247 events,
-  aggressive burst) → CF challenge on wp-json → origin-direct fallback → origin returns homepage
-  (~98KB) → 0 users, 0 vulns.
+- **What**: `StealthPacer` (§12.50) is fully implemented — multi-modal burst-and-pause, Gaussian
+  jitter, adaptive backoff on 429/503. BUT the gate in `recon_runner.py:156` requires
+  `engagement_profile.opsec_stealth=True` to activate it. The API default in `main.py:152` is
+  `opsec_stealth: bool = False`. All 3 runner scripts (`run_niagamas_conductor.py`,
+  `run_quantum_conductor.py`, `run_full_chain.py`) do NOT set `opsec_stealth=True`. Result:
+  pacer never activates → agent fetches 40+ URLs with zero delay → CF bot detection triggers
+  → challenges all subsequent requests including legitimate endpoints (wp-json).
+- **Classification**: NOT "code missing" — code EXISTS, gate is INVERTED. Doctrine says
+  "stealth by default" but code defaults to OFF. This is Lyndon #2 (dead code treated as done)
+  — StealthPacer has unit tests that pass, but it is never active in field.
+- **Evidence**: niagamas.com field-prove — Run 1 (83 events, natural pacing from crt.sh 30s
+  timeouts) → wp-json/wp/v2/users accessible via CF DIRECT → 4 users + 2 vulns. Run 2 (247
+  events, zero pacing) → CF challenge on wp-json → origin-direct fallback → origin returns
+  homepage (~98KB) → 0 users, 0 vulns.
 - **Impact**: Cascade — no pacing → CF bot detection → wp-json challenged → origin-direct →
   homepage → 0 users → 0 credentials → Beta never dispatches. Root cause of "0 findings" on
   aggressive runs.
-- **Fix direction**: inter-request delay (configurable, default 2-5s), jittered. Respect
-  Retry-After headers. Back off on CHALLENGE verdicts. NOT a full stealth framework — just
-  pacing in the fetch loop.
+- **Fix direction**: Flip the default. Either (a) `opsec_stealth: bool = True` in `main.py:152`
+  so the API defaults to stealth-on, OR (b) remove the gate entirely in `recon_runner.py:156`
+  so `StealthPacer` is always used (pacing is basic operational hygiene, not an elevated
+  capability). Option (b) is cleaner — `opsec_stealth` consent item should gate EVASION
+  techniques (browser solve, TLS impersonate), not pacing. Runner scripts do NOT need changes
+  if the default is flipped.
 
-## GAP-024 — Probing order: sensitive files before legitimate endpoints
+## GAP-027 — Probing order: sensitive files before legitimate endpoints
 
 - **Status**: OPEN.
 - **What**: Agent probes sensitive files (`.env`, `.git/config`, `wp-config.php.bak`) BEFORE
@@ -1413,7 +1423,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   sitemap, homepage) via CF DIRECT. Phase 2: sensitive files (`.env`, `.git`, backup files) via
   origin-direct (after binding proven). APT nyata tidak ketok `.env` di detik pertama.
 
-## GAP-025 — Origin-direct response validation (generic homepage detection)
+## GAP-028 — Origin-direct response validation (generic homepage detection)
 
 - **Status**: OPEN.
 - **What**: Origin server `139.59.255.22` returns WordPress homepage (~98KB) for ALL paths
