@@ -529,7 +529,7 @@ def authorize_engagement(
     ownership_tokens: dict[str, str] | None = None,
     dns_resolver: DNSResolver | None = None,
     skip_domain_verification: bool = False,
-    verification_mode: str = "dns_txt",
+    verification_mode: str = "cooperative",
     event_store: EventStore | None = None,
     key: bytes,
 ) -> EngagementProfile:
