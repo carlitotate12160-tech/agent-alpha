@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-09, reach arc + auth-surface-dispatch)
+# Agent-Alpha — Session Handoff (2026-08-09, entry-selection arc + §12.58/§12.59)
 
-Resume with: "lanjut Agent-Alpha — §12.46 reach arc + auth-surface-dispatch. Slice 1 LIVE-sealed: origin-binding on autonomous path (authorized_origins=frozenset() forces binding leg; ORIGIN_BINDING_PROVEN x2 wp+odoo via well_known_token on Oracle live). auth-surface-dispatch unit-sealed (Fix A router + Fix B detector, 36/36 + ruff/format/mypy); partially LIVE-proven (hub.niagamas.com persisted http_basic_auth, Beta dispatched applicator_calls=[2]). OAHC wrapper unit-sealed (15/15 random-order, v2 fail-close + 6 review holes + CodeRabbit Major). PENDING: (1) OAHC live-seal + PR merge, (2) verify run_agent_task wraps STEALTH client not naked (GAP-026 applies to Beta), (3) auth-surface FULL autonomous seal (entry-selection slice — Beta strikes reachable auth surface not dead apex). NEXT = OAHC live-seal → doc/ledger updates → entry-selection slice → SituationAssessor ADR §12.58. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — §12.58/§12.59 operator-cognition arc. Entry-selection slice-1 (SituationAssessor instinct #1) LIVE-SEALED on the AUTONOMOUS path: Beta now strikes the reachable auth-surface (`select_strike_entry`, conductor/router.py) instead of the dead apex. Proof = differential test through `run_agent_task` (run_strike receives the selected host, NOT record.target) + wiring-gate ratchet `select_strike_entry -> conductor/main.py`. Oracle: 37 passed (phase_4/test_entry_selection + governance/test_wiring_gate), make check clean, make quality 373 passed / 4 skipped / 0 failed. §12.59 Hybrid Cognition Roadmap ACCEPTED (deterministic-first Phase 4-5; LLM-in-DECIDE = Phase-6 OPEN). Honest-seal event STRIKE_ENTRY_SELECTED WIRED (event-sourced observability of the DECIDE). PENDING: (1) live niagamas re-run to confirm STRIKE_ENTRY_SELECTED = hub.niagamas.com LITERAL in event store, (2) close niagamas exploit path (cred acquisition + Bug #25). NEXT = GAP-029 dead-host skip = deterministic instinct #2. Do NOT build Gamma."
 
 ---
 
@@ -18,6 +18,8 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **Entry-selection slice-1 — Beta strikes reachable auth-surface, not dead apex (instinct #1, §12.58/§12.59)** | **LIVE-sealed on AUTONOMOUS path** (contract + differential + ratchet) | Pure `select_strike_entry(graph_store, *, default_target)` (router.py, reuses `_AUTH_SURFACE_LABELS` SSOT — anti #7). ONE `strike_entry` computed once, wired to BOTH `build_applicators_for_engagement(web_target=)` and `beta.run_strike(...)` (fixed the Lyndon #10-adjacent two-seam hardcode to record.target). Differential test via `run_agent_task` proves run_strike gets the selected host. wiring-gate ratchet `select_strike_entry -> conductor/main.py`. Oracle: 37 passed, make check clean, make quality 373 passed. |
+| **Honest-seal event STRIKE_ENTRY_SELECTED — observability of the DECIDE** | **LIVE-sealed on AUTONOMOUS path** (event-sourced) | `EventType.STRIKE_ENTRY_SELECTED` emitted BEFORE applicator build / run_strike (main.py). `select_strike_entry` returns `StrikeEntrySelection` dataclass (URL + matched_label + fallback_to_default + candidates_considered). Event payload = `{selected_entry, matched_label, fallback_to_default, candidates_considered}`. wiring-gate ratchet `STRIKE_ENTRY_SELECTED -> conductor/main.py`. Oracle: 6/6 phase_4 tests pass (incl. 2 event-emission tests). Converts inferential proof → LITERAL + audited forever. |
 | **Slice 1 — origin-binding on autonomous path** | **LIVE-sealed** | `authorized_origins=frozenset()` forces the binding leg; `ORIGIN_BINDING_PROVEN` x2 (wp + odoo, `well_known_token`) on Oracle live run. Non-negotiable "no hand-fed authorized_origins" now actually exercised. |
 | **auth-surface-dispatch — router Fix A + detector Fix B** | **Unit-sealed Oracle (36/36 + ruff/format/mypy)** + partially LIVE-proven | Live niagamas: `hub.niagamas.com` persisted `http_basic_auth` (Fix B fired live); Beta dispatched WITHOUT a credential (Fix A — deadlock broken, applicator_calls=[2]). |
 | **OAHC wrapper (v2 fail-close + 6 review holes + CodeRabbit Major)** | **Unit-sealed Oracle (15/15 random-order, ruff/format)** | crash→graceful skip (`OriginUnreachableError(HttpClientError)`), per-host WAF_BLOCKED evidence (no over-refuse), both store reads fail-open symmetric. |
@@ -48,26 +50,24 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 ---
 
-## PENDING (finish before / early next session — IN ORDER)
+## PENDING (finish before next slice — IN ORDER)
 
-1. **OAHC wrapper — LIVE seal + PR merge.** Unit-sealed only (15/15). MUST re-run niagamas and confirm the log has NO `OriginUnreachableError` crash (Beta skips the unreachable apex gracefully). Then merge the wrapper PR (v2 + review + CodeRabbit).
-2. **run_agent_task wiring — verify it wraps a STEALTH client, not a naked one.** `main.py` builds `HttpClient(engagement_id=...)` bare for Beta (vs recon which passes `opsec=` + `StealthPacer`). If Beta's inner client is naked, Slice-2's opsec intent is unrealized = **GAP-026 applies to Beta**. VERIFY + wrap with opsec+pacer.
-3. **auth-surface-dispatch — FULL autonomous seal.** Beta now DISPATCHES on a bare surface, but has NOT yet been proven to EXPLOIT one live. Blocked by: entry-selection (Beta targets the apex `record.target`, not the reachable surface `hub`) + Bug #25 (UserDerived not consuming usernames live). Do NOT mark closed until a live log shows Beta attacking the detected surface.
+1. **Live niagamas re-run — confirm STRIKE_ENTRY_SELECTED = hub.niagamas.com LITERAL.** The honest-seal event is wired + unit-sealed, but live proof is still INFERENTIAL (graph has only `hub.niagamas.com` as auth-surface + wiring always routes through `select_strike_entry`). Re-run niagamas and grep the event store for `STRIKE_ENTRY_SELECTED` payload — converts inferential → LITERAL. (Re-run started 2026-08-09, in progress.)
+2. **Close the niagamas EXPLOIT path** (separate from targeting): Beta now strikes hub but FAILS honestly (no credential for the 401 basic-auth; CREDENTIAL nodes: 0). Needs cred acquisition + **Bug #25** (UserDerived not consuming usernames — RECURRED on niagamas: usernames found, dropped). Targeting is fixed; exploit is NOT closed — do NOT mark closed.
 
 ---
 
 ## NEXT (foundation, in order — one slice at a time)
 
-**Re-sequence 2026-08-09:** J4 cross-target is NOT next. The reach arc revealed 3 layered foundations underneath J4. J4 duluan = 403, sia-sia.
+**Re-sequence 2026-08-09 (entry-selection arc):** Entry-selection slice-1 + honest-seal DONE. Next = deterministic instinct #2.
 
 **Recommended next order:**
 
-1. **OAHC live-seal** (re-run niagamas, no crash) + merge PR. [PENDING #1]
-2. **Commit owed doc/ledger updates** (see MISSED/OWED below).
-3. **Entry-selection slice** — Beta strikes the reachable auth surface, not the dead apex. Closes the niagamas exploit path AND is SituationAssessor "instinct #1". NOT a "subdomain pivot subsystem" (do NOT create GAP-029 as such) — it is: *Beta enumerates in-scope auth-surface ASSETs as strike candidates, per-host ctx + per-host gate.*
-4. **NEW session: SituationAssessor ADR §12.58** → scope → build instinct #1 as the first deterministic reprioritization rule.
+1. **Live niagamas re-run** — confirm STRIKE_ENTRY_SELECTED = hub.niagamas.com LITERAL in event store. [PENDING #1]
+2. **Close niagamas exploit path** — cred acquisition + Bug #25 fix. [PENDING #2]
+3. **GAP-029 — dead-host short-circuit = deterministic instinct #2 (§12.58/§12.59 Phase-4).** System-1 immediate reflex (not periodic): when a host root fetch raises HttpClientError, record the host as unreachable and SKIP all remaining queued probes for that host. This is the "dead host → skip" instinct — universal, deterministic, closes the massif probe-waste. (See GAP-029 in the ledger — do NOT open a new gap number; this IS it.) Fix option A (minimal, matches ledger): track `_unreachable_hosts: set[str]` on Alpha, add host on root HttpClientError, skip in `_pop_unprobed`. Option B (deeper): defer seed-path enqueue until homepage fetch succeeds (redesign, >2 files — interface, not patch; anti #10). Recommend A for slice-2, register B as the follow-on.
 
-**After entry-selection (recon-quality trio still valid, lower priority):**
+**After GAP-029 (recon-quality trio still valid, lower priority):**
 - GAP-020 — 404 pattern-group exhaustion (deterministic, kills robot-spray).
 - GAP-021 — fingerprint-driven path hard-filter.
 - GAP-022 — deterministic rule coverage + finding correlation.
@@ -88,12 +88,13 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 ---
 
-## GAPS IDENTIFIED (new — register; several are the SAME root)
+## GAPS IDENTIFIED (status change — do NOT duplicate)
 
-- **Entry-selection (cross-target strike).** Beta strikes `record.target` (apex) only; it does NOT strike discovered auth surfaces (`hub`). This is why the niagamas login is never attacked. NOT a "subdomain pivot subsystem" (do NOT create GAP-029 as such) — it is: *Beta enumerates in-scope auth-surface ASSETs as strike candidates, per-host ctx + per-host gate.* THE next slice. Also = SituationAssessor "instinct #1".
-- **SPA-login detection.** Fix B regex misses Vue/React dynamic bindings (`:type=password`). Broaden universally: `autocomplete="current-password"/"new-password"` (web standard, SPA-proof, strongest signal), `:type`/`v-bind:type`, `name/id="password"`.
+- **GAP-029 — LIVE-CONFIRMED AGAIN (2026-08-09 entry-selection re-run).** Root confirmed in code: `scout._step_once` `_finish` (scout.py:385-393) ends ONE cognitive-loop iteration only; `run_cognitive_loop` pops the next URL immediately — no host-level abort. Queue seeded at scout.py:260-269 (leak paths + OTX historical + surface paths) is walked path-by-path even after `https://<host>/` is unreachable. Promote GAP-029 to the NEXT build slice (= instinct #2 above). Fix option A (minimal, matches ledger): track `_unreachable_hosts: set[str]` on Alpha, add host on root HttpClientError, skip in `_pop_unprobed`. Option B (deeper): defer seed-path enqueue until homepage fetch succeeds (redesign, >2 files — interface, not patch; anti #10). Recommend A for slice-2, register B as the follow-on.
+- **GAP-034 — DEFERRED (entry-selection slice-1).** Entry-selection has no node-level reachability signal — `select_strike_entry` uses auth-surface label presence as a reachability proxy. Breaks for a host that is WAF-dead but still carries a label. Design-first; promote alongside instinct #2 (cred-reuse) under SituationAssessor. See docs/BUGS_AND_GAPS.md.
+- **GAP-035 — DEFERRED (entry-selection slice-2).** Entry-selection strikes ONE candidate; multi-surface not iterated. When a target exposes >1 in-scope auth surface (hub 401 + pos login-form), only the top-ranked one is struck. Slice-2 = dispatch-seam loop + per-candidate ctx/gate. See docs/BUGS_AND_GAPS.md.
+- **Bug #25 — RECURRED live on niagamas** (usernames found, dropped). RUNNER-SEAL != AUTONOMOUS-WIRED. Blocks the niagamas exploit close. Verify + wire on the live path.
 - **GAP-026 (stealth-by-default) still OPEN.** `opsec_stealth: bool = False` default → CF bot-detection → recon degrades. APT tripped at the door = lost. HIGH. (Beta wiring PENDING #2 is the same thread.)
-- **Bug #25 (UserDerived not consuming usernames live).** "Resolved" but RECURRED on niagamas (usernames found, dropped). RUNNER-SEAL != AUTONOMOUS-WIRED. Verify live.
 - **protection_detected is producer-only.** Computed, consumed only to suppress blind probes — NOT to route entry via an unprotected sibling. (OAHC now consumes WAF_BLOCKED for reach; protection_detected consumption for target-selection is still open.)
 - **CertSpotter reliability (NOT Google CT).** Google CT logs are append-only, not domain-queryable — NOT a crt.sh replacement. CertSpotter (already primary) carried the run despite crt.sh/OTX timeouts. Fix = set a CertSpotter Bearer API key (raises keyless rate limit) + short fail-open timeouts. Deeper reliability = active DNS-brute (future).
 
@@ -105,6 +106,15 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 - SituationAssessor / strategic control-loop — see ADR seed §12.58 (this handoff's sibling).
 - GAP-020/021/022 (recon-quality trio) — valid but lower priority than entry-selection.
 - Subdomain takeover (R1) — after recon-quality trio.
+
+---
+
+## DOCTRINE BANKED (2026-08-09, entry-selection arc)
+
+- **ADR §12.59 Hybrid Cognition Roadmap** — deterministic-first. Phase 4 = instincts one at a time, field-proven (entry-selection #1 DONE → GAP-029 dead-host skip #2 → cred-reuse). Phase 5 = promote to `SituationAssessor` (still deterministic, only at 3-5 instincts). Phase 6 = LLM advisor in DECIDE = OPEN QUESTION, empirical trigger, NOT locked. Reaffirms §12.57 (LLM in ORIENT, never DECIDE) for Phase 4-5.
+- **Key insight**: robot-feel lives on the CONTROL layer (deterministic-fixable, = §12.58); the more-than-deterministic layer (novel hypothesis) is ORIENT and already LLM-backed. DECIDE is where determinism is the STRENGTH (reproducible / gate-safe / seeded-replay).
+- **RUNNER-SEAL != AUTONOMOUS-WIRED** re-affirmed: entry-selection sealed via the `run_agent_task` differential (autonomous path), not a runner island. Honest-seal event STRIKE_ENTRY_SELECTED makes live proof LITERAL (not inferential).
+- **Honest-seal discipline**: the DECIDE layer's most important targeting decision (which host Beta strikes) is now event-sourced. Every strike selection is auditable forever. Additive over the sealed contract — never touch selector ranking after seal.
 
 ---
 
