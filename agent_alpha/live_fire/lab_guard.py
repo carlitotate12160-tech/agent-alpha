@@ -204,6 +204,13 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "dns-txt:agent-alpha=client-approved",
         "#TBD",
     ),
+    # Client-approved external target (CodeIgniter + PHP 7.4 on Hostinger/LiteSpeed)
+    LabHost(
+        "ingco.co.id",
+        "natanael",
+        "dns-txt:agent-alpha=client-approved",
+        "#378",
+    ),
 )
 
 # Derived allowlist — backward compatible with all 13 callers.
