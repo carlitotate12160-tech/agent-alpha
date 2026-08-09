@@ -131,9 +131,6 @@ def test_ingco_dead_subdomain_topology() -> None:
     Invariant: total_unreachable_gets ≤ number_of_dead_hosts.
     This test is a PERMANENT RATCHET — it must never be removed without an ADR.
     """
-    dead_set = set(_INGCO_DEAD_HOSTS)
-    primary = _INGCO_DEAD_HOSTS[0]
-
     # Run one target at a time (mirrors run_recon per-target semantics).
     # Accumulate total unreachable GET calls across all 19 runs.
     total_unreachable_calls: dict[str, list[str]] = {}  # host -> calls

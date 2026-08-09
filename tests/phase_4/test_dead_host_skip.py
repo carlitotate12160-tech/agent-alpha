@@ -20,8 +20,6 @@ import dataclasses
 import pathlib
 from typing import Any
 
-import pytest
-
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
@@ -186,7 +184,7 @@ def test_root_failure_marks_and_prunes() -> None:
 # Test 2 — R1 CARDINAL: non-root failure must NOT mark the host dead
 # ═══════════════════════════════════════════════════════════════════════════
 
-def test_nonroot_failure_does_NOT_mark_dead() -> None:
+def test_nonroot_failure_does_not_mark_dead() -> None:
     """CARDINAL (R1): homepage 200, then /.env raises HttpClientError.
     The host must NOT enter _dead_hosts; its remaining paths must still be probed.
 
