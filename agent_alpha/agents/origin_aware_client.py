@@ -72,6 +72,8 @@ class OriginAwareHttpClient:
             headers=self._merge_host(headers, host) if is_direct else headers,
             cookies=cookies,
             allow_redirects=allow_redirects,
+            # verify=False on origin-direct: cert matches domain not IP literal (ADR §12.33).
+            # lgtm[py/request-without-cert-validation]
             verify=False if is_direct else verify,
         )
         return cast(HttpResponse, resp)
@@ -95,6 +97,8 @@ class OriginAwareHttpClient:
             headers=self._merge_host(headers, host) if is_direct else headers,
             cookies=cookies,
             allow_redirects=allow_redirects,
+            # verify=False on origin-direct: cert matches domain not IP literal (ADR §12.33).
+            # lgtm[py/request-without-cert-validation]
             verify=False if is_direct else verify,
         )
         return cast(HttpResponse, resp)
