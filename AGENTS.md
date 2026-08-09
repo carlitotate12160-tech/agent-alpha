@@ -69,6 +69,19 @@ WSL git has `core.autocrlf=input` set (commits use LF). Many files show as
 Do NOT mass-commit these — they are not real changes. Only stage files you
 actually edited.
 
+## Git Branch Policy
+
+**ALWAYS create a new branch + PR for code changes.** Never push directly to `main`.
+
+- **Code changes** (`.py`, `.ts`, `.go`, config files, Makefile, CI workflows):
+  branch → commit → push → PR → wait CI + CodeRabbit → merge.
+- **Docs only** (`*.md` files in `docs/`, `AGENTS.md`, `ADR*.md`):
+  may push directly to `main` (no PR needed — docs only, no code risk).
+
+Why: pushing code directly to `main` skips CodeRabbit review and CI verification
+on a PR. CodeRabbit only reviews PRs, not direct pushes. Direct pushes also
+break the audit trail (no PR link in commit history).
+
 ## Test Commands (Oracle ARM64 — authoritative)
 
 **ALWAYS run on Oracle, never accept Windows/local results (Lyndon #9).**
