@@ -3547,3 +3547,70 @@ hypothesis, not in gate execution.
 in the field before the next; container by promotion, not up-front; the auth gate
 (§12.57 non-negotiable) is never softened by any cognition layer.
 
+### 12.60 Two-Tier Proof + Field-Feedback Ratchet — lab-green is not field-ready (ACCEPTED)
+
+**Date:** 2026-08-09
+**Extends:** the Independent Verification Axiom + Lyndon #9 (wrong test environment) to their
+deeper reading: **lab vs field**, not merely Windows vs Oracle.
+
+**Context (the observed failure).**
+
+Across the entry-selection arc, EVERY gap (GAP-029 dead-host, GAP-030 Vue login regex,
+GAP-036 LLM tool-pick, GAP-037 no basic-auth applicator, GAP-038 WP-only username harvest,
+soft-404 false positives) was found by the FIELD (niagamas, bernofarm, ingco.co.id), never by
+the lab. The lab stayed green throughout. Root cause: **a lab is built to MATCH the capability,
+so it omits exactly what the capability omits.** Passing it proves "the code does what the code
+was written to do" — internal consistency, same failure mode as the finder — which the
+Independent Verification Axiom says is NOT verification. Lab-green ≠ field-ready. This is also
+the mechanism behind Natanael's frustration #5 (endless bug-fixing, no milestone): the field
+keeps surfacing the next omission forever, because nothing turns a field failure into a
+permanent guard.
+
+**Decision — proof is two-tier, and every field failure ratchets into the lab.**
+
+1. **Tier-1 (lab-seal) = reproducibility. NECESSARY, NOT SUFFICIENT.** Deterministic,
+   seeded-replay, Oracle ARM64. NEW RULE: a capability's Tier-1 fixture MUST include the
+   adversarial shapes the field has already shown for that capability class — not only the
+   happy path. (Login detection → fixture carries Vue-bound + basic-auth + static together.)
+   Tier-1 alone may NOT back a "done"/"field-ready" claim.
+
+2. **Tier-2 (field-prove) = THE BAR.** A capability is "field-proven + payable" only after it
+   runs on a real / self-owned hostile target. Self-owned full-CF (alpha-ai) for capabilities
+   needing full attack; real clients for recon/auth-gated. Registered per-capability.
+   Self-owned lab targets (wp_lab, alpha-ai) are Tier-1.5 — closer than a unit fixture, still
+   not the uncontrolled field.
+
+3. **Field-Feedback Ratchet (the enforced mechanism).** Every field failure is captured as a
+   PERMANENT synthetic adversarial fixture in Tier-1 — promotion-on-repeat at the TEST layer.
+   ingco dead-subdomain topology, niagamas dead-apex, pos Vue-login, hub basic-auth-only,
+   bernofarm full-CF → each becomes a named fixture. Enforced like the wiring-gate: a
+   `tests/governance/test_field_regression.py` (or per-phase field-fixture corpus) so a fixed
+   field bug can NEVER silently regress AND the lab corpus grows toward field realism. Over
+   time, Tier-1 green starts to MEAN field-ready — because the lab now contains the field's
+   nastiness. Milestone = "survives the hostile corpus", not "unit tests pass".
+
+**Consequences.**
+
+- "Sealed" now has a tier: `lab-sealed` < `field-proven`. Session_Handoff and the ledger state
+  which tier a capability is at (mirrors verified tri-state unverified<self_verified<cross_verified).
+- Every NEW slice this session forward carries BOTH: a Tier-1 fixture that includes the field
+  shape that motivated it, AND a Tier-2 field-prove note (which target, expected observable).
+- The field-regression corpus is the anti-#5 milestone: it only grows, never silently shrinks.
+
+**Rejected / guarded.**
+
+- **Lab-green = done** — rejected (the failure this ADR names).
+- **Skip Tier-1, only field-test** — rejected (field runs are not seeded-replay reproducible;
+  Oracle determinism still required; a field win with no fixture regresses next refactor).
+- **A giant field-simulation framework up-front** — rejected (#1/#4). The corpus grows ONE
+  fixture per real field failure (promotion-on-repeat), never speculatively.
+
+**Open questions.**
+
+1. Fixture fidelity: how much of a hostile field topology (CF challenge, LiteSpeed 403,
+   reflected soft-404) can be synthesised deterministically vs needs a live target?
+2. Tier-2 cadence for real clients under the auth gate (recon-only vs authorized attack).
+3. Where the field-regression corpus lives (one governance file vs per-phase) and its ratchet
+   test shape.
+
+
