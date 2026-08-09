@@ -55,6 +55,7 @@ from agent_alpha.conductor.health import RedisCeleryProbe, build_queue_health
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.conductor.revoker import CeleryTaskRevoker
+from agent_alpha.conductor.router import select_strike_entry
 from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.conductor.verification import verify_access_nodes
 from agent_alpha.config.constants import (
@@ -566,12 +567,13 @@ def run_agent_task(
                         event_store=target_store,
                         engagement_id=engagement_id,
                     )
+                strike_entry = select_strike_entry(graph_store, default_target=record.target)
                 candidates = beta_web_applicators(beta_http)
                 applicators = build_applicators_for_engagement(
                     engagement_id=engagement_id,
                     auth=auth,
                     graph_store=graph_store,
-                    web_target=record.target,
+                    web_target=strike_entry,
                     candidates=candidates,
                 )
                 beta = Beta(
@@ -586,7 +588,7 @@ def run_agent_task(
                 )
 
                 def run_beta() -> ExecOutcome:
-                    handoff_msg = beta.run_strike(engagement_id, record.target)
+                    handoff_msg = beta.run_strike(engagement_id, strike_entry)
                     handoff_payload = a2a_pb2.HandoffPayload()
                     handoff_payload.ParseFromString(handoff_msg.payload)
                     if handoff_payload.status == a2a_pb2.COMPLETE:
