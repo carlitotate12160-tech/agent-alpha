@@ -1600,7 +1600,31 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   rule applies to clean 200 auth pages only; debug/Ignition (500/error) probing stays intact.
 - **Effort**: Low (1 playbook rule + test). Do AFTER GAP-030 + entry-selection close.
 
-## Summary: All open GAPs from field-prove (niagamas + bernofarm)
+## GAP-037 — Mid-run host death not detected (consecutive-failure threshold)
+
+- **Status**: OPEN, HIGH priority (OPSEC + waste — root cause: GAP-026 pacer OFF).
+- **What**: GAP-029 fix only marks a host dead on ROOT transport failure (path `/` or `""`).
+  If the root succeeded early but the host goes unreachable MID-RUN (WAF rate-limit block,
+  IP ban, transient network failure), non-root path failures emit "unreachable" but do NOT
+  trigger dead-host abandonment. The agent continues probing every remaining queued path
+  for that host — each timing out at 30s — wasting minutes and generating OPSEC noise.
+- **Evidence**: busonlineticket.co.th — root fetched 200 (line 48), 37 requests succeeded,
+  then Sucuri WAF triggered IP rate-limit block. From line 133 onward, 30+ requests all
+  timed out (30s each = 15+ min waste). GAP-029 did NOT fire because root already succeeded.
+  `apps.busonlineticket.co.th` (root unreachable from start) → correctly abandoned (GAP-029
+  fired). Host utama (`busonlineticket.co.th`) → NOT abandoned because root was 200 earlier.
+- **Impact**: 15+ minutes wasted probing a blocked host. Each timeout = 30s. OPSEC noise
+  from repeated failed connection attempts to a WAF that already blocked the source IP.
+- **Root cause chain**: GAP-026 (StealthPacer OFF) → 37 requests burst → Sucuri rate-limit
+  trigger → IP blocked → mid-run death. GAP-026 is the ROOT cause; GAP-037 is the mitigation
+  for when block occurs despite pacing (aggressive WAF, shared IP, etc.).
+- **Fix direction**: Track consecutive transport failures per host (`_host_fail_count:
+  dict[str, int]`). Increment on HttpClientError, reset to 0 on any successful response.
+  When count ≥ threshold (3-5), mark host dead + prune queue (same mechanism as GAP-029).
+  Threshold tunable via constants. This is defense-in-depth on top of GAP-026 (pacer ON).
+- **Effort**: Low (counter dict + threshold check in except block, ~15 lines + test).
+
+## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 
 | GAP | Title | Severity | Effort | Field-prove source |
 |-----|-------|----------|--------|-------------------|
@@ -1616,6 +1640,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 034 | Entry-selection has no node-level reachability signal | Medium | Medium | niagamas/bernofarm (entry-selection slice-1) |
 | 035 | Entry-selection strikes ONE candidate; multi-surface not iterated | Medium | Medium | niagamas (hub + pos both reachable) |
 | 036 | LLM tool-pick fires on auth-surface pages (no deterministic RULE) | Low | Low | niagamas (pos.niagamas.com) |
+| 037 | Mid-run host death not detected (consecutive-failure threshold) | High | Low | busonlineticket.co.th (Sucuri WAF) |
 
 ## Recommended fix order (one slice at a time)
 
