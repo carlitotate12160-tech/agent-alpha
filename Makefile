@@ -3,7 +3,7 @@
 # Run: make test   (all tests)
 # Run: make all    (check + test)
 
-VENV := .venv/bin
+VENV := .venv312/bin
 PYTHON := $(VENV)/python3
 RUFF := $(VENV)/ruff
 MYPY := $(VENV)/mypy
