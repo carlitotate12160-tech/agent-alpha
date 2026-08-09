@@ -209,7 +209,7 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "ingco.co.id",
         "natanael",
         "dns-txt:agent-alpha=client-approved",
-        "#TBD",
+        "#378",
     ),
 )
 
