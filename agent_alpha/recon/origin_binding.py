@@ -82,14 +82,24 @@ def resolve_and_bind_origin(
     """
     from agent_alpha.conductor.engagement_profile import token_for
     from agent_alpha.events.event_types import EventType
+    from agent_alpha.recon.net_guard import is_internal_ip
     from agent_alpha.recon.reach_strategy import is_cloudflare_ip
 
     if not getattr(profile, "allow_origin_discovery", False):
         return None  # capability gate (§12.36)
 
     token = token_for(profile, fronted_host)
-    if not token:
-        return None  # no P2 artifact → cannot bind (fail-closed)
+    # GAP-038: cooperative mode (operator-approved SOW) skips the token-canary
+    # binding proof. Trust anchor = signed SOW, bukan cryptographic token.
+    # discover_origin_ips already does soft binding: _probe_as_origin confirms
+    # the IP responds to Host:fronted_host with a non-WAF status (non-CF filter
+    # + confirming status code). Fail-closed: candidates() return [] → None.
+    # Future upgrade: cert-SAN corroboration (Option B) untuk cryptographic proof.
+    cooperative_skip_binding = (
+        token is None and getattr(profile, "verification_mode", "dns_txt") == "cooperative"
+    )
+    if not token and not cooperative_skip_binding:
+        return None  # no P2 artifact + not cooperative → cannot bind (fail-closed)
 
     try:
         candidate_ips = discovery.candidates(fronted_host)
@@ -107,8 +117,29 @@ def resolve_and_bind_origin(
         if governor is not None:
             governor.record_escalation(fronted_host)
 
+        if cooperative_skip_binding:
+            # GAP-038 Option A: soft binding only. discover_origin_ips already
+            # confirmed the IP serves fronted_host via _probe_as_origin (Host
+            # header + non-CF + confirming status). Reject internal/metadata
+            # IPs (SSRF guard) — same check verify_origin_binding does.
+            if is_internal_ip(ip):
+                continue
+            event_store.append(
+                EventType.ORIGIN_BINDING_PROVEN,
+                engagement_id,
+                "alpha",
+                {
+                    "fronted_host": fronted_host,
+                    "origin_ip": ip,
+                    "proof_type": "cooperative_soft_binding",
+                },
+            )
+            return str(ip)
+
         # verify_origin_binding already rejects internal/metadata IPs (SSRF)
-        # + token-mismatch (co-tenant)
+        # + token-mismatch (co-tenant). token is non-None here: cooperative
+        # path returns above; this branch only runs when token exists.
+        assert token is not None  # type narrowing for mypy
         if verify_origin_binding(origin_ip=ip, fronted_host=fronted_host, ownership_token=token):
             event_store.append(
                 EventType.ORIGIN_BINDING_PROVEN,
