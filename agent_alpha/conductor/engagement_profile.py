@@ -368,24 +368,39 @@ def _assert_fronted_host_owned(
     lab_allowlist: frozenset[str],
 ) -> None:
     """Shared scope/guardrail gate: host must be guardrail-clear AND a
-    proven-owned target (lab allowlist OR signed scope_targets).
+    proven-owned target (lab allowlist OR signed scope_targets OR — when
+    ``allow_subdomain_enum`` is consented — a dot-boundary subdomain of a
+    signed scope_target).
     Single source (anti-#6) — called by both ``assert_origin_authorized``
     and ``assert_origin_authorized_or_bound``.
+
+    Subdomain rule (GAP-040): ``is_in_scope`` (Gate 1) already probes
+    subdomains of scope domains when ``allow_subdomain_enum`` is set; this
+    gate must not be STRICTER for origin-direct than the recon gate or every
+    CF-fronted subdomain crashes on WAF block. Dot-boundary only
+    (``.apex.com``), never raw endswith — ``notex.com`` must not inherit
+    ``ex.com`` ownership.
 
     Raises
     ------
     OriginNotAuthorizedError
-        When the fronted host is not in the lab allowlist AND not in signed
-        scope_targets.
+        When the fronted host is not in the lab allowlist, not in signed
+        scope_targets, and not a consented subdomain of a scope target.
     GuardrailError
         When the fronted host is blocked by the hard guardrail.
     """
     assert_not_guardrailed(fronted_host)
-    if fronted_host not in lab_allowlist and fronted_host not in profile.scope_targets:
-        raise OriginNotAuthorizedError(
-            f"fronted host {fronted_host!r} not a proven-owned target "
-            f"(not in lab allowlist and not in signed scope_targets)"
-        )
+    if fronted_host in lab_allowlist or fronted_host in profile.scope_targets:
+        return
+    if getattr(profile, "allow_subdomain_enum", False):
+        host = fronted_host.strip().lower()
+        for target in profile.scope_targets:
+            if host.endswith("." + target.strip().lower()):
+                return
+    raise OriginNotAuthorizedError(
+        f"fronted host {fronted_host!r} not a proven-owned target "
+        f"(not in lab allowlist and not in signed scope_targets)"
+    )
 
 
 def assert_origin_authorized(

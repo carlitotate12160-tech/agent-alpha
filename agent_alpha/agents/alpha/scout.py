@@ -890,6 +890,7 @@ class Alpha:
         # 5. Dispatch
         if strategy is ReachStrategy.ORIGIN_DIRECT and authorized_origin is not None:
             from agent_alpha.conductor.engagement_profile import (
+                OriginNotAuthorizedError,
                 assert_origin_authorized_or_bound,
             )
 
@@ -898,13 +899,22 @@ class Alpha:
                 # §12.46 composed gate — fail-closed. Authorizes iff the IP is in
                 # the signed authorized_origins OR (allow_origin_discovery AND an
                 # ORIGIN_BINDING_PROVEN event exists for this IP + fronted host).
-                assert_origin_authorized_or_bound(
-                    origin_ip,
-                    host,
-                    self._engagement_profile,
-                    self.event_store,
-                    self._engagement_id,
-                )
+                # GAP-040: a gate RAISE is an honest block (return None per this
+                # function's contract), never an engagement-killing exception.
+                try:
+                    assert_origin_authorized_or_bound(
+                        origin_ip,
+                        host,
+                        self._engagement_profile,
+                        self.event_store,
+                        self._engagement_id,
+                    )
+                except OriginNotAuthorizedError:
+                    self._emit(
+                        "OBSERVE",
+                        f"Reach: ORIGIN_DIRECT refused by auth gate for {host} — honest block",
+                    )
+                    return None
 
                 self._emit(
                     "OBSERVE",

@@ -231,6 +231,78 @@ def test_signed_authorized_origins_still_works() -> None:
     )  # no raise
 
 
+# ── 4b. GAP-040: consented subdomain of an owned apex passes the ownership gate ──
+
+
+def test_subdomain_of_owned_apex_passes_ownership_gate() -> None:
+    """GAP-040 (field niagamas 2026-08-10): is_in_scope probes subdomains of scope
+    domains when allow_subdomain_enum is consented, but _assert_fronted_host_owned
+    demanded an EXACT scope_targets hit → OriginNotAuthorizedError crash on every
+    CF-fronted subdomain. Subdomain of an owned apex IS owned (same token scope)."""
+    profile = EngagementProfile(
+        engagement_id=_ENGAGEMENT_ID,
+        client_id="client-42",
+        scope_targets=frozenset({_VALID_DOMAIN}),
+        allow_origin_discovery=True,
+        allow_subdomain_enum=True,
+    )
+    store = InMemoryEventStore()
+    _emit_proven_event(store, _ORIGIN_IP, fronted_host=f"pos.{_VALID_DOMAIN}")
+    assert_origin_authorized_or_bound(
+        origin_ip=_ORIGIN_IP,
+        fronted_host=f"pos.{_VALID_DOMAIN}",
+        profile=profile,
+        event_store=store,
+        engagement_id=_ENGAGEMENT_ID,
+        lab_allowlist=_TEST_ALLOWLIST,
+    )  # no raise — subdomain inherits apex ownership when subdomain enum consented
+
+
+def test_subdomain_rejected_without_subdomain_consent() -> None:
+    """allow_subdomain_enum=False → subdomain does NOT inherit apex ownership.
+    Consent gate stays fail-closed."""
+    profile = EngagementProfile(
+        engagement_id=_ENGAGEMENT_ID,
+        client_id="client-42",
+        scope_targets=frozenset({_VALID_DOMAIN}),
+        allow_origin_discovery=True,
+        allow_subdomain_enum=False,
+    )
+    store = InMemoryEventStore()
+    _emit_proven_event(store, _ORIGIN_IP, fronted_host=f"pos.{_VALID_DOMAIN}")
+    with pytest.raises(OriginNotAuthorizedError, match="not a proven-owned target"):
+        assert_origin_authorized_or_bound(
+            origin_ip=_ORIGIN_IP,
+            fronted_host=f"pos.{_VALID_DOMAIN}",
+            profile=profile,
+            event_store=store,
+            engagement_id=_ENGAGEMENT_ID,
+            lab_allowlist=_TEST_ALLOWLIST,
+        )
+
+
+def test_lookalike_domain_never_inherits_ownership() -> None:
+    """Dot-boundary: not{_VALID_DOMAIN} endswith({_VALID_DOMAIN}) but is NOT a
+    subdomain — must never inherit ownership (suffix-attack guard)."""
+    profile = EngagementProfile(
+        engagement_id=_ENGAGEMENT_ID,
+        client_id="client-42",
+        scope_targets=frozenset({_VALID_DOMAIN}),
+        allow_origin_discovery=True,
+        allow_subdomain_enum=True,
+    )
+    store = InMemoryEventStore()
+    with pytest.raises(OriginNotAuthorizedError, match="not a proven-owned target"):
+        assert_origin_authorized_or_bound(
+            origin_ip=_ORIGIN_IP,
+            fronted_host=f"not{_VALID_DOMAIN}",  # notclient-target.com
+            profile=profile,
+            event_store=store,
+            engagement_id=_ENGAGEMENT_ID,
+            lab_allowlist=_TEST_ALLOWLIST,
+        )
+
+
 # ── 5. SIGNATURE INTEGRITY: proving doesn't change profile ────
 
 
