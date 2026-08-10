@@ -1746,6 +1746,46 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 - **Note**: Not blocking PR #384 — GAP-041 fix is correct independent of this
   opsec debt. GAP-041 prevents false proofs; GAP-042 prevents fingerprinting.
 
+## GAP-043 — CDN edge IP filter only covers Cloudflare (Sucuri/Incapsula/Akamai false proof)
+
+- **Status**: OPEN 2026-08-10 (identified during busonlineticket.co.th re-run).
+- **What**: `is_cloudflare_ip()` (reach_strategy.py) is the ONLY CDN edge IP
+  filter in the origin-discovery pipeline. It checks 14 Cloudflare CIDR ranges
+  (`CF_IP_RANGES` in constants.py). Origin candidates from VT/OTX that resolve
+  to Sucuri/Incapsula/Akamai/Fastly edge IPs pass the filter (not CF range) →
+  treated as "origin" → `probe_as_origin` may return 200 (edge responds 200 for
+  homepage) → `ORIGIN_BINDING_PROVEN` for a CDN edge IP → `ORIGIN_DIRECT` hits
+  the same WAF, not the origin. False proof: "origin bound" but still behind WAF.
+- **Evidence**: busonlineticket.co.th re-run 2026-08-10 —
+  `CompositeOriginDiscovery.candidates()` returned [] (crt.sh down + VT/OTX
+  empty for .co.th), so the bug did NOT fire (no IP reached the filter). But
+  if VT/OTX had returned a Sucuri edge IP, it would have passed
+  `is_cloudflare_ip` (not CF range) → false proof. Bug #19 (DONE PR #188) only
+  covers response classification (detect Sucuri 403/challenge), NOT edge IP
+  filtering (detect Sucuri IP as non-origin). Two different layers.
+- **Impact**: Any non-CF CDN/WAF target with VT/OTX historical IPs → potential
+  false `ORIGIN_BINDING_PROVEN` → wasted `ORIGIN_DIRECT_ATTEMPT` to edge IP →
+  no actual bypass. Audit trail polluted with false proof events.
+- **Fix scope (2 layer — NOT enumerate all vendors upfront)**:
+  - **Layer 1 (filter time — IP range registry)**: generalize
+    `is_cloudflare_ip` → `is_cdn_edge_ip` backed by `CDN_EDGE_RANGES` dict
+    (`{"cloudflare": (...), "sucuri": (...), "incapsula": (...)}`). Vendor
+    baru = 1 dict entry, bukan fungsi baru (anti-#6). CF + Sucuri sekarang
+    (field-prove encountered), vendor lain additive.
+  - **Layer 2 (probe time — response marker detection)**: `probe_as_origin`
+    checks response headers for CDN edge markers (`cf-ray`, `x-sucuri-id`,
+    `x-iinfo`) → if edge response, return False (false proof guard). Catches
+    edge IPs not in Layer 1 registry (vendor baru, range berubah).
+- **Effort**: Medium (3-4 files: `constants.py`, `reach_strategy.py`,
+  `origin_resolver.py`, `origin_binding.py` + test fixtures).
+- **Priority**: After GAP-037 (host death detection). Not a blocker for
+  busonlineticket now (no IP candidates = bug doesn't fire). Latent risk for
+  any non-CF CDN target with VT/OTX coverage.
+- **Anti-pattern guard**: do NOT create `is_sucuri_ip()`, `is_incapsula_ip()`
+  as parallel functions (Lyndon #6 — duplicate canonical types). Do NOT
+  hardcode all 20+ CDN vendors upfront (Lyndon #5 — scope creep). Generalize
+  interface, add vendors incrementally as field-prove encounters them.
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 
 | GAP | Title | Severity | Effort | Field-prove source |
