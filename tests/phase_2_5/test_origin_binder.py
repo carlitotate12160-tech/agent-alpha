@@ -365,7 +365,7 @@ def test_token_lookup_is_normalization_insensitive() -> None:
     profile = authorize_engagement(
         engagement_id="eng-norm-001",
         client_id="client-42",
-        targets={"Example.COM."},
+        targets=["Example.COM."],
         allow_origin_discovery=True,
         ownership_tokens={"example.com": "tok-123"},
         consent_items=frozenset({"scope"}),
