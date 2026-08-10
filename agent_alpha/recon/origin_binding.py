@@ -96,8 +96,7 @@ def resolve_and_bind_origin(
     # + confirming status code). Fail-closed: candidates() return [] → None.
     # Future upgrade: cert-SAN corroboration (Option B) untuk cryptographic proof.
     cooperative_skip_binding = (
-        token is None
-        and getattr(profile, "verification_mode", "dns_txt") == "cooperative"
+        token is None and getattr(profile, "verification_mode", "dns_txt") == "cooperative"
     )
     if not token and not cooperative_skip_binding:
         return None  # no P2 artifact + not cooperative → cannot bind (fail-closed)
