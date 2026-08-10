@@ -1723,6 +1723,29 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   Existing GAP-038 tests updated to mock `probe_as_origin`.
 - **Effort**: Low (probe call + rename + 2 new tests + 2 updated tests).
 
+## GAP-042 — Origin probe bypasses stealth HttpClient (opsec debt)
+
+- **Status**: OPEN 2026-08-10 (identified by CodeRabbit review on PR #384).
+- **What**: `probe_as_origin` → `origin_direct_fetch` builds its own
+  `httpx.Client` with only `{"Host": host}`, without `curl_cffi` TLS
+  impersonation, header ordering, or `acquire()`/`sleep()` pacing controls.
+  The live Alpha path uses `HttpClient` for all other recon traffic (§12.49
+  proactive evasion), but the origin-probe path (both `LiveOriginDiscovery`
+  base candidates AND GAP-041 cooperative candidates) bypasses the configured
+  opsec transport.
+- **Evidence**: CodeRabbit inline review on `agent_alpha/recon/origin_binding.py:131`
+  (PR #384, 2026-08-10). Pre-existing — not introduced by GAP-041; GAP-041
+  extended the call surface from base discovery only to also cooperative path.
+- **Impact**: Origin-direct probes to client infrastructure are fingerprintable
+  by WAF/IDS (vanilla httpx TLS signature, no pacing). For engagements with
+  `opsec_stealth=True` this violates §12.49 (stealth by default from 1st request).
+- **Fix scope**: Route `probe_as_origin` through `HttpClient` (or inject a
+  stealth-aware fetcher). Touches `origin_resolver.py` + `origin_binding.py` +
+  `reach_transport.py`. NOT a single-file change — needs interface design.
+- **Effort**: Medium (cross-module transport refactor + stealth test fixtures).
+- **Note**: Not blocking PR #384 — GAP-041 fix is correct independent of this
+  opsec debt. GAP-041 prevents false proofs; GAP-042 prevents fingerprinting.
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 
 | GAP | Title | Severity | Effort | Field-prove source |
