@@ -1626,7 +1626,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-038 — Cooperative mode short-circuits origin discovery (no binding proof)
 
-- **Status**: OPEN, HIGH priority (blocker — Beta tidak dapat reach origin di cooperative mode).
+- **Status**: FIXED 2026-08-09 (merged PR #381).
 - **What**: `resolve_and_bind_origin` (origin_binding.py L90-92) requires `token_for(profile, host)`
   to return a non-None ownership token before invoking `discovery.candidates()`. Cooperative mode
   sets `ownership_tokens={}` (no DNS-TXT, operator-approved SOW) → `token_for` returns None →
@@ -1645,6 +1645,33 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   Fail-closed tetap jalan: discover_origin_ips return [] → None → no reach.
   Future upgrade: cert-SAN corroboration (Option B) untuk cryptographic proof tanpa token.
 - **Effort**: Low (~10 lines di resolve_and_bind_origin + test).
+
+## GAP-039 — CompositeOriginDiscovery exact-host filter drops apex intel for subdomain binding
+
+- **Status**: FIXED 2026-08-10 (fix branch fix/gap-039-composite-apex-scope).
+- **What**: `CompositeOriginDiscovery.candidates()` (origin_discovery.py) scoped
+  event-sourced OTX/VT `origin_ip_candidates` with an EXACT host match
+  (`payload.domain == fronted_host`). Passive intel is gathered per APEX domain
+  (one `PASSIVE_INTEL_GATHERED` per engagement target), but origin binding is
+  requested per blocked HOST — usually a subdomain (`pos.ex.com` WAF-blocked).
+  Exact match → apex event never matches subdomain host → OTX/VT historical-DNS
+  IPs never reach `resolve_and_bind_origin` → `ORIGIN_DIRECT_ATTEMPT=0` even with
+  OTX/VT keys active and historical IPs present.
+- **Evidence**: niagamas re-run 2026-08-10 with `.env.runtime` keys loaded
+  (VT/OTX/CERTSPOTTER all SET): direct API query proves OTX+VT hold origin
+  candidates (`206.189.93.100` for niagamas, `216.106.184.20` for bernofarm),
+  yet `ORIGIN_DIRECT_ATTEMPT events: 0`, `beta_failed`. WAF_BLOCKED on
+  `pos.niagamas.com` paths triggered binding for host `pos.niagamas.com` while
+  the only PASSIVE_INTEL_GATHERED event carried `domain=niagamas.com`.
+- **Root cause**: Filter written for the CodeRabbit cross-domain-leak guard used
+  exact match, conflating "same registrable domain family" (apex ↔ its
+  subdomains, same token scope) with "cross-domain" (must reject).
+- **Fix**: Dot-boundary suffix match: accept when `host == domain` OR
+  `host.endswith("." + domain)`. Cross-domain and false-suffix (`notex.com` vs
+  `ex.com`) still rejected. Adversarial fixtures added per §12.60 ratchet:
+  `test_composite_subdomain_inherits_apex_candidates`,
+  `test_composite_dot_boundary_no_false_suffix` (test_origin_binding.py).
+- **Effort**: Low (filter change + 2 tests).
 
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 

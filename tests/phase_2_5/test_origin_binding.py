@@ -461,6 +461,30 @@ def test_composite_excludes_candidates_from_a_different_domain() -> None:
     assert cands == ["1.2.3.4"]  # base only — the other.com IP is NOT leaked to ex.com
 
 
+def test_composite_subdomain_inherits_apex_candidates() -> None:
+    """GAP-039 (field niagamas run 2026-08-10): passive intel is gathered per APEX
+    domain, but origin binding is requested per blocked HOST — a subdomain. The
+    apex event's OTX/VT candidates MUST flow to subdomain fronted hosts, or
+    ORIGIN_DIRECT_ATTEMPT stays 0 on every CF-fronted subdomain."""
+    store = InMemoryEventStore()
+    eng = "eng-comp-apex"
+    _record_otx_candidate(store, eng, _OTX_IP)  # event domain = ex.com (apex)
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery([]), store, eng)
+    cands = comp.candidates("pos.ex.com")  # blocked host = subdomain of the apex
+    assert _OTX_IP in cands
+
+
+def test_composite_dot_boundary_no_false_suffix() -> None:
+    """Suffix match must be dot-bounded: notex.com must NOT inherit ex.com's
+    candidates (raw endswith would leak across domains)."""
+    store = InMemoryEventStore()
+    eng = "eng-comp-suffix"
+    _record_otx_candidate(store, eng, _OTX_IP)  # event domain = ex.com
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery(["1.2.3.4"]), store, eng)
+    cands = comp.candidates("notex.com")  # endswith("ex.com") but NOT a subdomain
+    assert cands == ["1.2.3.4"]  # base only
+
+
 class _BoomStore:
     def get_events(self, engagement_id: str) -> list[object]:
         raise RuntimeError("event store down")
