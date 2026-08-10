@@ -4,7 +4,7 @@
 Detects that a site is ALREADY COMPROMISED — e.g. injected SEO/gambling spam (a
 parasite-hosting / cloaked-injection pattern rife on hacked WordPress in SE Asia).
 This is what a CVE scanner misses and what an external attacker (and Strix on
-bernofarm) surfaces: "from outside it looks fine, inside it is owned."
+a field target) surfaces: "from outside it looks fine, inside it is owned."
 
 Deterministic + high-precision (anti-#3): a finding is minted ONLY when the injection
 signal is strong (many gambling anchors OR hidden-link blocks), never on a single stray
@@ -61,7 +61,7 @@ _HIDDEN_RE = re.compile(
 # STRONG cloak (almost never legitimate UI): off-screen positioning / zero font /
 # negative text-indent. Used for the keyword-INDEPENDENT structural signal below —
 # a hacked site often injects hidden links to random compromised third-party domains
-# (bernofarm: synergyformusic.com, pd-vosac.hr) that carry NO gambling keyword.
+# (field target: synergyformusic.com, pd-vosac.hr) that carry NO gambling keyword.
 _STRONG_CLOAK_RE = re.compile(
     r'style=["\'][^"\']*('
     r"font-size\s*:\s*0"
@@ -142,7 +142,7 @@ def detect_seo_injection(html: str) -> SeoInjectionResult | None:
 
     # Keyword-INDEPENDENT structural signal: a strongly-cloaked block carrying several
     # external links. Catches injected hidden link farms to arbitrary compromised domains
-    # (the bernofarm SEO-spam case) that no gambling-keyword match would ever flag.
+    # (a field SEO-spam case) that no gambling-keyword match would ever flag.
     hidden_link_farm = False
     for m in _STRONG_CLOAK_RE.finditer(html):
         window = html[m.start() : m.start() + 3000]

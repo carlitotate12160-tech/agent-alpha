@@ -372,7 +372,7 @@ WP_VERSION_PATHS: tuple[str, ...] = ("/readme.html",)
 # enqueue_discovered_url() and are already curated. Without this allowlist,
 # a same-origin href filter has no domain intelligence: every product/blog/
 # category page on the site queues for LLM-tier probing at the same priority
-# as an actual WP surface (field evidence: unibis.co.id, 2026-07-29 — 20min /
+# as an actual WP surface (field evidence: a SE-Asia e-commerce site, 2026-07-29 — 20min /
 # ~30 product-page probes / 0 findings from any of them). Content pages
 # (product/blog/category/about/contact) are intentionally NOT enumerated here
 # (unbounded — WP permalink structures vary per site); this is a positive
@@ -619,7 +619,7 @@ CF_IP_RANGES: tuple[str, ...] = (
 # SURFACE_DISCOVERY_PATHS, fingerprint frontier_seeds, WP_REST_INTERESTING_ROUTES
 # escalation) call enqueue_discovered_url() directly and are NOT counted —
 # they are already-curated security surface, not organic crawl.
-# Field evidence: unibis.co.id 2026-07-29 — 20min / 30+ product-page probes /
+# Field evidence: a SE-Asia e-commerce site 2026-07-29 — 20min / 30+ product-page probes /
 # 0 findings from any of them; Laravel/Odoo/unknown hosts had no backstop.
 MAX_ORGANIC_CRAWL_PER_HOST: int = 25
 

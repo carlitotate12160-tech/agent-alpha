@@ -254,7 +254,7 @@ def enrich_with_otx(intel: PassiveIntelMap, otx: OTXSource) -> PassiveIntelMap:
 # and extends subdomains with VT-discovered hosts. PRODUCER ONLY — origin IPs are
 # CANDIDATES; CompositeOriginDiscovery + verify_origin_binding confirm them before
 # any reach. VT subdomains are extra origin-candidate hosts (grey-cloud subdomains
-# that CT never logged — the quantum-laboratories.com qs.* case).
+# that CT never logged — a field grey-cloud subdomain case).
 
 
 class VirusTotalSource(Protocol):
@@ -276,7 +276,7 @@ def enrich_with_virustotal(intel: PassiveIntelMap, vt: VirusTotalSource) -> Pass
     candidates already present (deduped) — VT and OTX see different histories.
     VT subdomains are appended to the crt.sh subdomains (deduped) — grey-cloud
     subdomains that CT never logged are the #1 real origin leak (e.g.
-    qs.quantum-laboratories.com → 157.230.37.62 directly, no CF proxy).
+    a grey-cloud subdomain → origin IP directly, no CF proxy).
 
     Fail-open (the source returns empties on any error). Never raises.
     """

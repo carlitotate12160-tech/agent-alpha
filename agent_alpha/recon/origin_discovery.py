@@ -91,7 +91,7 @@ class CompositeOriginDiscovery:
                     seen.add(ip)
                     out.append(ip)
             # 2. VT subdomains — DNS-resolve each as an additional origin candidate.
-            # Grey-cloud subdomains (e.g. qs.quantum-laboratories.com → 157.230.37.62)
+            # Grey-cloud subdomains (e.g. a grey-cloud subdomain → origin IP)
             # resolve directly to the origin IP, bypassing CF. These are HOSTS, not
             # IPs — resolve them here. The binding gate still confirms each before use.
             for sub in payload.get("subdomains", []) or []:

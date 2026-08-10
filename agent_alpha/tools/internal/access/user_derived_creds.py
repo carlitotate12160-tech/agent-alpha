@@ -51,7 +51,7 @@ from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGove
 def _domain_stem(host: str) -> str:
     """Registrable-domain stem via the Public Suffix List (offline, deterministic).
 
-    ``bernofarm.com`` → ``bernofarm``; ``www.foo.co.id`` → ``foo``;
+    ``<client-domain>.com`` → ``<client>``; ``www.foo.co.id`` → ``foo``;
     ``portal.acme.co.uk`` → ``acme``. Empty string for an empty/invalid host.
     """
     h = (host or "").strip().lower().rstrip(".")
@@ -163,7 +163,7 @@ class UserDerivedCredsTool:
         (WpLoginApplicator + HttpFormApplicator, each wrapped in GovernedApplicator
         sharing one cached CredentialLockoutGovernor) is self-built and used. Derived
         guessing is never run on an ungoverned wire, but an empty roster no longer
-        results in a silent no-op (RUNNER-SEAL≠WIRED regression, solusibersama).
+        results in a silent no-op (RUNNER-SEAL≠WIRED regression, field target).
         """
         if self._http_client is None:
             raise ValueError("UserDerivedCredsTool.run requires an injected http_client")

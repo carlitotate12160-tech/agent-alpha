@@ -191,7 +191,7 @@ class Alpha:
         self._organic_crawl_count: dict[str, int] = {}
         # Instinct #2 (GAP-029): hosts whose ROOT raised HttpClientError this run.
         # All queued/future paths for these hosts are skipped — avoids N*seed_paths
-        # unreachable probes for dead subdomains (field ingco: 19 × 12 = 118, ~25 min).
+        # unreachable probes for dead subdomains (field: 19 × 12 = 118, ~25 min).
         # ROOT-failure ONLY (R1): a non-root transport error (e.g. WAF RST on /.env
         # while the homepage is 200) must NOT kill a live host.
         # Known tradeoff: a single root timeout marks the host dead for this run;

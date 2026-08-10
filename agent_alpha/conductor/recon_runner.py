@@ -419,8 +419,8 @@ def run_recon_for_engagement(
                 # §12.48 slice-2 (VT): VirusTotal enrichment (origin-IP candidates
                 # + grey-cloud subdomains). Injected at the Conductor entry only
                 # when a VT key is set — None here = VT off. VT finds origin IPs
-                # and subdomains that crt.sh/OTX miss (e.g. qs.quantum-laboratories.com
-                # → 157.230.37.62 directly, no CF proxy).
+                # and subdomains that crt.sh/OTX miss (e.g. a grey-cloud
+                # subdomain → origin IP directly, no CF proxy).
                 if vt_client is not None:
                     intel = enrich_with_virustotal(intel, vt_client)
                     intel_sources = (*intel_sources, "virustotal")

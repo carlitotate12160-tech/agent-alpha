@@ -325,7 +325,7 @@ class VirusTotalClient:
     Subdomains are NOT a subdomain source for crt.sh's pipeline (CT already covers that)
     — they are returned separately so the caller can DNS-resolve them as additional
     origin-candidate hosts (grey-cloud subdomains that CT never logged, like
-    ``qs.quantum-laboratories.com`` → origin IP directly).
+    a grey-cloud subdomain → origin IP directly).
     """
 
     def __init__(self, http_client: Any, api_key: str) -> None:
