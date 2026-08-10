@@ -186,21 +186,26 @@ def test_no_token_returns_none() -> None:
 
 def test_cooperative_no_token_soft_binds_first_candidate() -> None:
     """GAP-038: cooperative mode + no token → skip binding proof, return first
-    non-CF, non-internal candidate. Trust anchor = operator-approved SOW.
-    discover_origin_ips already confirmed the IP serves fronted_host via
-    _probe_as_origin (Host header + non-CF + confirming status)."""
+    non-CF, non-internal candidate whose probe_as_origin confirms it serves
+    fronted_host. Trust anchor = operator-approved SOW. GAP-041: every
+    cooperative candidate is now probed (event-sourced OTX/VT IPs are NOT
+    pre-probed by discover_origin_ips)."""
 
     public_ip = "93.184.216.34"  # example.com — not CF, not internal
     discovery = _FakeDiscovery([_CF_EDGE_IP, public_ip])
     store = InMemoryEventStore()
 
-    result = resolve_and_bind_origin(
-        fronted_host=_HOST,
-        profile=_profile(token=None, verification_mode="cooperative"),
-        event_store=store,
-        engagement_id=_ENG,
-        discovery=discovery,
-    )
+    with patch(
+        "agent_alpha.recon.origin_resolver.probe_as_origin",
+        return_value=True,
+    ):
+        result = resolve_and_bind_origin(
+            fronted_host=_HOST,
+            profile=_profile(token=None, verification_mode="cooperative"),
+            event_store=store,
+            engagement_id=_ENG,
+            discovery=discovery,
+        )
 
     assert result == public_ip  # CF-edge filtered, public origin returned
     assert discovery.called  # candidates() WAS invoked (unlike dns_txt no-token)
@@ -219,13 +224,17 @@ def test_cooperative_no_token_rejects_internal_ip() -> None:
     discovery = _FakeDiscovery([_INTERNAL_IP, public_ip])
     store = InMemoryEventStore()
 
-    result = resolve_and_bind_origin(
-        fronted_host=_HOST,
-        profile=_profile(token=None, verification_mode="cooperative"),
-        event_store=store,
-        engagement_id=_ENG,
-        discovery=discovery,
-    )
+    with patch(
+        "agent_alpha.recon.origin_resolver.probe_as_origin",
+        return_value=True,
+    ):
+        result = resolve_and_bind_origin(
+            fronted_host=_HOST,
+            profile=_profile(token=None, verification_mode="cooperative"),
+            event_store=store,
+            engagement_id=_ENG,
+            discovery=discovery,
+        )
 
     assert result == public_ip  # internal skipped, public origin bound
     events = store.get_events(_ENG)
@@ -248,6 +257,76 @@ def test_cooperative_no_candidates_returns_none() -> None:
 
     assert result is None
     assert len(store.get_events(_ENG)) == 0
+
+
+# ── 4c. GAP-041: dead/stale candidate is probed, rejected, next tried ──
+
+
+def test_cooperative_dead_candidate_skipped_live_candidate_bound() -> None:
+    """GAP-041 (field niagamas 2026-08-10): event-sourced OTX/VT historical IPs
+    are NOT pre-probed by discover_origin_ips. Cooperative path must probe each
+    candidate with probe_as_origin before emitting PROVEN. A dead/stale IP
+    (probe returns False) is skipped — the next candidate is tried. Without this
+    probe, a stale IP gets ORIGIN_BINDING_PROVEN then every origin_direct_fetch
+    fails (false proof).
+
+    Uses TEST-NET-3 (203.0.113.0/24, IANA documentation range) — not routable,
+    safe for tests. is_internal_ip is mocked because it flags TEST-NET as
+    internal (correct for production, wrong for this unit test)."""
+    dead_ip = "203.0.113.99"  # TEST-NET-3, IANA documentation range
+    live_ip = "203.0.113.100"  # TEST-NET-3, IANA documentation range
+    discovery = _FakeDiscovery([dead_ip, live_ip])
+    store = InMemoryEventStore()
+
+    def fake_probe(ip: str, host: str) -> bool:
+        return ip == live_ip  # dead_ip fails probe
+
+    with (
+        patch("agent_alpha.recon.net_guard.is_internal_ip", return_value=False),
+        patch(
+            "agent_alpha.recon.origin_resolver.probe_as_origin",
+            side_effect=fake_probe,
+        ) as mock_probe,
+    ):
+        result = resolve_and_bind_origin(
+            fronted_host=_HOST,
+            profile=_profile(token=None, verification_mode="cooperative"),
+            event_store=store,
+            engagement_id=_ENG,
+            discovery=discovery,
+        )
+
+    assert result == live_ip  # dead skipped, live bound
+    assert mock_probe.call_count == 2  # both candidates probed
+    events = store.get_events(_ENG)
+    assert len(events) == 1
+    assert events[0].payload["origin_ip"] == live_ip
+
+
+def test_cooperative_all_candidates_dead_returns_none() -> None:
+    """GAP-041: all candidates fail probe_as_origin → None, no PROVEN event
+    emitted (fail-closed — no false proof).
+
+    Uses TEST-NET-3 (203.0.113.0/24) — IANA documentation range, not routable."""
+    dead_ip_1 = "203.0.113.99"
+    dead_ip_2 = "203.0.113.100"
+    discovery = _FakeDiscovery([dead_ip_1, dead_ip_2])
+    store = InMemoryEventStore()
+
+    with (
+        patch("agent_alpha.recon.net_guard.is_internal_ip", return_value=False),
+        patch("agent_alpha.recon.origin_resolver.probe_as_origin", return_value=False),
+    ):
+        result = resolve_and_bind_origin(
+            fronted_host=_HOST,
+            profile=_profile(token=None, verification_mode="cooperative"),
+            event_store=store,
+            engagement_id=_ENG,
+            discovery=discovery,
+        )
+
+    assert result is None
+    assert len(store.get_events(_ENG)) == 0  # no false PROVEN
 
 
 # ── 5. GOVERNOR CAP: N+1 non-binding + governor at N ─────────

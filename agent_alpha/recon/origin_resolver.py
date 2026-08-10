@@ -51,7 +51,7 @@ def _resolve_ipv4(hostname: str) -> list[str]:
         return []
 
 
-def _probe_as_origin(ip: str, host: str) -> bool:
+def probe_as_origin(ip: str, host: str) -> bool:
     """True iff ip responds to Host:host with a non-WAF-403 status.
 
     Uses origin_direct_fetch (verify_tls=False: origin cert covers the
@@ -157,7 +157,7 @@ def discover_origin_ips(
     confirmed: list[str] = []
     for ip in sorted(ip_to_hosts)[:max_probe_candidates]:
         for probe_host in ip_to_hosts[ip]:
-            if _probe_as_origin(ip, probe_host):
+            if probe_as_origin(ip, probe_host):
                 _log.info(
                     "origin_resolver: confirmed origin IP %s for %s (via %s)",
                     ip,

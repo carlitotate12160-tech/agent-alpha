@@ -83,6 +83,7 @@ def resolve_and_bind_origin(
     from agent_alpha.conductor.engagement_profile import token_for
     from agent_alpha.events.event_types import EventType
     from agent_alpha.recon.net_guard import is_internal_ip
+    from agent_alpha.recon.origin_resolver import probe_as_origin
     from agent_alpha.recon.reach_strategy import is_cloudflare_ip
 
     if not getattr(profile, "allow_origin_discovery", False):
@@ -91,9 +92,9 @@ def resolve_and_bind_origin(
     token = token_for(profile, fronted_host)
     # GAP-038: cooperative mode (operator-approved SOW) skips the token-canary
     # binding proof. Trust anchor = signed SOW, bukan cryptographic token.
-    # discover_origin_ips already does soft binding: _probe_as_origin confirms
-    # the IP responds to Host:fronted_host with a non-WAF status (non-CF filter
-    # + confirming status code). Fail-closed: candidates() return [] → None.
+    # GAP-041: candidates from event-sourced OTX/VT IPs are NOT pre-probed —
+    # the cooperative branch probes each with probe_as_origin before PROVEN.
+    # Fail-closed: candidates() return [] → None; all probes fail → None.
     # Future upgrade: cert-SAN corroboration (Option B) untuk cryptographic proof.
     cooperative_skip_binding = (
         token is None and getattr(profile, "verification_mode", "dns_txt") == "cooperative"
@@ -118,12 +119,17 @@ def resolve_and_bind_origin(
             governor.record_escalation(fronted_host)
 
         if cooperative_skip_binding:
-            # GAP-038 Option A: soft binding only. discover_origin_ips already
-            # confirmed the IP serves fronted_host via _probe_as_origin (Host
-            # header + non-CF + confirming status). Reject internal/metadata
-            # IPs (SSRF guard) — same check verify_origin_binding does.
+            # GAP-038 Option A: soft binding. GAP-041: probe EVERY candidate
+            # here — CompositeOriginDiscovery unions event-sourced OTX/VT
+            # historical IPs that were NEVER probed (only base
+            # discover_origin_ips candidates are pre-probed). Emitting PROVEN
+            # for an unprobed candidate is a false proof (field niagamas:
+            # stale IP 206.189.93.100 "proven", all fetches then failed).
+            # Internal/metadata rejected first (SSRF guard, no network).
             if is_internal_ip(ip):
                 continue
+            if not probe_as_origin(str(ip), fronted_host):
+                continue  # dead/stale candidate — try the next one
             event_store.append(
                 EventType.ORIGIN_BINDING_PROVEN,
                 engagement_id,
