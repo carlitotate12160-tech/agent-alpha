@@ -1673,6 +1673,32 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   `test_composite_dot_boundary_no_false_suffix` (test_origin_binding.py).
 - **Effort**: Low (filter change + 2 tests).
 
+## GAP-040 — Ownership gate rejects consented subdomains (origin-direct crash)
+
+- **Status**: FIXED 2026-08-10 (fix branch fix/gap-040-subdomain-ownership-gate).
+- **What**: TWO defects on the origin-direct path for subdomains:
+  1. `_assert_fronted_host_owned` (engagement_profile.py) demanded an EXACT
+     `scope_targets` hit (apex only). Subdomains discovered via VT/crt.sh pass
+     Gate 1 (`is_in_scope`, `allow_subdomains` suffix match) and get probed, but
+     on WAF block → binding proven → composed gate raised
+     `OriginNotAuthorizedError: fronted host 'pos.niagamas.com' not a
+     proven-owned target`. Gate 2 was STRICTER than Gate 1 — inconsistent.
+  2. `scout._attempt_reach` let that raise propagate, crashing the whole
+     engagement (`ENGAGEMENT_RUN_FAILED`), violating its own contract
+     ("Returns None if reach is not authorized — honest block, anti-#3").
+- **Evidence**: niagamas re-run 2026-08-10 post-GAP-039 — `ORIGIN_BINDING_PROVEN`
+  emitted for the first time, then immediate `OriginNotAuthorizedError` traceback;
+  `status: failed`, `AGENT_DISPATCHED=0`, engagement aborted mid-recon.
+- **Fix**: (1) Gate 2 mirrors Gate 1: subdomain of a signed scope_target is owned
+  when `allow_subdomain_enum` is consented (dot-boundary suffix, lookalikes
+  rejected). (2) `_attempt_reach` catches `OriginNotAuthorizedError` → honest
+  block (return None). Lab allowlist stays exact-match (harness strictness by
+  design).
+- **Tests**: `test_subdomain_of_owned_apex_passes_ownership_gate`,
+  `test_subdomain_rejected_without_subdomain_consent`,
+  `test_lookalike_domain_never_inherits_ownership` (§12.60 ratchet fixtures).
+- **Effort**: Low (gate + crash guard + 3 tests).
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 
 | GAP | Title | Severity | Effort | Field-prove source |
