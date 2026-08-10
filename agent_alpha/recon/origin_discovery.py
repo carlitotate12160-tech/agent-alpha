@@ -77,13 +77,18 @@ class CompositeOriginDiscovery:
             if getattr(ev, "event_type", None) != EventType.PASSIVE_INTEL_GATHERED:
                 continue
             payload = ev.payload
-            # SECURITY (CodeRabbit): scope candidates to the host they were
+            # SECURITY (CodeRabbit): scope candidates to the domain they were
             # discovered for. get_events() returns ALL passive events for the
-            # engagement; without this filter an IP found for host A would be
-            # probed under host B's token + Host header (cross-host token leak /
-            # collateral). Exact host match — binding proof is a backstop, not a
-            # substitute for candidate scoping.
-            if payload.get("domain", "").rstrip(".").lower() != host_norm:
+            # engagement; without this filter an IP found for domain A would be
+            # probed under domain B's token + Host header (cross-domain token
+            # leak / collateral). Passive intel is gathered per APEX domain (one
+            # PASSIVE_INTEL_GATHERED per engagement target) but origin binding is
+            # requested per blocked HOST — often a subdomain (pos.ex.com blocked
+            # → needs apex ex.com's OTX/VT candidates, GAP-039). Match the apex
+            # exactly OR a dot-boundary subdomain of it — same registrable
+            # domain, same token scope. Cross-domain still rejected.
+            domain_norm = payload.get("domain", "").rstrip(".").lower()
+            if host_norm != domain_norm and not host_norm.endswith("." + domain_norm):
                 continue
             # 1. origin_ip_candidates (OTX/VT historical DNS — already IPs)
             for ip in payload.get("origin_ip_candidates", []) or []:
