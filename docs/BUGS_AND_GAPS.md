@@ -1699,6 +1699,30 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   `test_lookalike_domain_never_inherits_ownership` (§12.60 ratchet fixtures).
 - **Effort**: Low (gate + crash guard + 3 tests).
 
+## GAP-041 — Cooperative soft-binding emits PROVEN for unprobed (stale) candidates
+
+- **Status**: FIXED 2026-08-10 (fix branch fix/gap-041-false-soft-binding).
+- **What**: The cooperative soft-binding branch (GAP-038 Option A) assumed
+  `discover_origin_ips` already confirmed every candidate via `_probe_as_origin`.
+  That holds for `LiveOriginDiscovery` (base candidates are pre-probed). But
+  `CompositeOriginDiscovery` unions event-sourced OTX/VT historical IPs that
+  were NEVER probed — the cooperative branch emitted `ORIGIN_BINDING_PROVEN`
+  for the first non-CF, non-internal candidate without any liveness check.
+- **Evidence**: niagamas re-run 2026-08-10 (post-GAP-039+040) —
+  `ORIGIN_BINDING_PROVEN` for `206.189.93.100` (VT historical, 2025), then
+  all 3 `ORIGIN_DIRECT_ATTEMPT` fetches failed with
+  `origin_direct_fetch failed` (connection refused — server moved). False
+  proof: PROVEN event with zero confirming traffic.
+- **Fix**: Cooperative branch now calls `probe_as_origin(ip, fronted_host)`
+  before emitting PROVEN. Dead/stale candidate → skip, try next. All dead →
+  return None (fail-closed, no false proof). Also renamed `_probe_as_origin`
+  → public `probe_as_origin` (was only used internally; now called from
+  `origin_binding.py` cooperative path).
+- **Tests**: `test_cooperative_dead_candidate_skipped_live_candidate_bound`,
+  `test_cooperative_all_candidates_dead_returns_none` (§12.60 ratchet).
+  Existing GAP-038 tests updated to mock `probe_as_origin`.
+- **Effort**: Low (probe call + rename + 2 new tests + 2 updated tests).
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 
 | GAP | Title | Severity | Effort | Field-prove source |
