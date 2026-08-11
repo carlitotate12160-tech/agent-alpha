@@ -1,11 +1,13 @@
 # tests/phase_4/test_soft404_calibration.py
-# GAP-044 — Soft-404 (catch-all) suppression — Tier-1 contract tests.
-# Reuses the GAP-029 _build_alpha/_StubProvider harness.
-#   * test_no_catch_all_not_calibrated — CARDINAL (fail-safe): a host that PROPERLY
-#     404s a random path stores NO signature -> real content is never suppressed.
+# GAP-044 + GAP-048 — soft-404 catch-all suppression via two-probe DIFFERENTIAL
+# calibration (format-agnostic). Reuses the GAP-029 _build_alpha/_StubProvider harness.
+#   * test_no_catch_all_not_calibrated — CARDINAL fail-safe.
+#   * test_real_page_not_suppressed_on_catch_all_host — CARDINAL false-negative guard
+#     (real content on a CALIBRATED catch-all host must NOT be suppressed).
 # Run on Oracle ARM64 / .venv312.
 from __future__ import annotations
 
+import itertools
 from typing import Any
 from urllib.parse import urlparse
 
@@ -13,19 +15,29 @@ from agent_alpha.events.event_types import EventType
 from tests.phase_4.test_dead_host_skip import FakeResponse, _StubProvider, _build_alpha
 
 _HOST = "catchall.example"
-_PAD = "X" * 93800  # match the ingco 93858-byte catch-all shape
+_PAD = "X" * 4000
 
 
 class CatchAllHttpClient:
-    """UNKNOWN paths all return 200 + a generic error page echoing the requested path
-    (reflected). Designated `real` paths return distinct 200 content. proper_404=True
-    models a NORMAL host (missing path -> 404) for the fail-safe cardinal test."""
+    """UNKNOWN paths return 200 + a catch-all echoing the path AND carrying a per-request
+    token (varies every call — simulates CSRF/session so the two-probe diff has volatile
+    positions to find). `real` paths return distinct content. proper_404=True models a
+    normal host (missing -> 404) for the fail-safe cardinal test."""
 
     def __init__(self, real: dict[str, FakeResponse] | None = None,
-                 proper_404: bool = False) -> None:
+                 proper_404: bool = False, token_fmt: str = "hex") -> None:
         self.real = real or {}
         self.proper_404 = proper_404
+        self.token_fmt = token_fmt
+        self._ctr = itertools.count()
         self.calls: list[str] = []
+
+    def _token(self) -> str:
+        n = next(self._ctr)
+        if self.token_fmt == "uuid":
+            h = f"{n:032x}"
+            return f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"
+        return f"{n:032x}"  # 32-hex
 
     def get(self, url: str, **kw: Any) -> FakeResponse:
         self.calls.append(url)
@@ -34,25 +46,35 @@ class CatchAllHttpClient:
             return self.real[path]
         if self.proper_404:
             return FakeResponse(404, f"<html>404 {path}</html>", {})
-        return FakeResponse(200, f"<html>ERROR: {path} not found</html>{_PAD}",
-                            {"content-type": "text/html"})
+        body = (f'<meta name="csrf" content="{self._token()}">'
+                f"<title>404 {path} not found</title>{_PAD}")
+        return FakeResponse(200, body, {"content-type": "text/html"})
 
 
 def _soft404_events(store, eid):
-    return [
-        e for e in store.get_events(eid)
-        if e.event_type == EventType.PASSIVE_DISCOVERY
-        and getattr(e, "payload", {}).get("reason") == "soft_404_catch_all"
-    ]
+    return [e for e in store.get_events(eid)
+            if e.event_type == EventType.PASSIVE_DISCOVERY
+            and getattr(e, "payload", {}).get("reason") == "soft_404_catch_all"]
 
 
-def test_catch_all_calibrated_and_suppressed() -> None:
-    real = {"/": FakeResponse(200, "<html>real homepage, distinct body</html>", {})}
-    http = CatchAllHttpClient(real=real)
+def test_catch_all_calibrated_and_suppressed_hex() -> None:
+    real = {"/": FakeResponse(200, "<html>real homepage, distinct</html>", {})}
+    http = CatchAllHttpClient(real=real, token_fmt="hex")
     alpha, eid, store = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
     alpha.run_recon(eid, f"https://{_HOST}/")
-    assert _HOST in alpha._soft404_sig, "catch-all host must be calibrated"
-    assert _soft404_events(store, eid), "seeded soft-404 paths must be suppressed + audited"
+    assert _HOST in alpha._soft404_sig
+    assert _soft404_events(store, eid)
+
+
+def test_catch_all_suppressed_uuid_format() -> None:
+    """Format-agnostic: a UUID token (dashes — the regex whack-a-mole missed this) is
+    still neutralised by the differential diff."""
+    real = {"/": FakeResponse(200, "<html>real homepage, distinct</html>", {})}
+    http = CatchAllHttpClient(real=real, token_fmt="uuid")
+    alpha, eid, store = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
+    alpha.run_recon(eid, f"https://{_HOST}/")
+    assert _HOST in alpha._soft404_sig
+    assert _soft404_events(store, eid)
 
 
 def test_no_catch_all_not_calibrated() -> None:
@@ -66,18 +88,28 @@ def test_no_catch_all_not_calibrated() -> None:
 
 
 def test_real_page_not_suppressed_on_catch_all_host() -> None:
+    """CARDINAL false-negative guard: a REAL page on a CALIBRATED catch-all host must NOT
+    be suppressed. The calibrated signature exists (host IS catch-all), but a page with
+    distinct content must fail the match — either different token count (structural
+    mismatch) or different masked hash (skeleton mismatch). Without this test, a future
+    regression where masked-hash collision suppresses real content goes undetected (anti-#3)."""
     real = {"/": FakeResponse(200, "<html>UNIQUE real content 12345</html>", {})}
     http = CatchAllHttpClient(real=real)
     alpha, eid, _ = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
     alpha.run_recon(eid, f"https://{_HOST}/")
+    # Host IS calibrated (catch-all active)...
+    assert _HOST in alpha._soft404_sig
+    # ...but the real homepage must NOT be suppressed.
     home = FakeResponse(200, "<html>UNIQUE real content 12345</html>", {})
     assert alpha._is_soft404(_HOST, f"https://{_HOST}/", home) is False
 
 
-def test_calibration_probe_is_once_per_host() -> None:
+def test_two_probes_per_host() -> None:
+    """Differential calibration issues exactly TWO deterministic probes per host."""
     real = {"/": FakeResponse(200, "<html>home</html>", {})}
     http = CatchAllHttpClient(real=real)
     alpha, eid, _ = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
+    segs = {alpha._soft404_probe_path(_HOST, "a"), alpha._soft404_probe_path(_HOST, "b")}
     alpha.run_recon(eid, f"https://{_HOST}/")
-    probe_seg = alpha._soft404_probe_path(_HOST)
-    assert len([u for u in http.calls if probe_seg in u]) == 1
+    hits = [u for u in http.calls if any(seg in u for seg in segs)]
+    assert len(hits) == 2, hits
