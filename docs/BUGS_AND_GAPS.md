@@ -48,6 +48,9 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 31 | Beta crashes on OriginUnreachableError when no origin binding | **High** | Medium | Beta dispatched (GAP-023 fix) but crashes on entry — can't strike |
 | 32 | OTX timeout 30s blocks sequential OSINT chain | Low | Medium | 30s wasted per engagement before VT runs |
 | 33 | Subdomain pivot path not designed (architectural gap) | Medium | High | Subdomain access not used as stepping stone to main domain |
+| 34 | Frontier queue re-enqueues already-probed URLs → infinite cycle | **High** | Medium | Run never converges; burns HTTP + LLM tokens re-probing identical URLs (spectranet: 3 full cycles in 5+ min, 0 new findings after cycle 1) |
+| 35 | `LLM_TOOL_SELECT_MAX_TOKENS=512` too small for reasoning model | **High** | Low | `deepseek-v4-flash` reasoning_content consumes token budget → intermittent `CompletionTruncatedError` → `OrientationError` on wp-admin pages (2/5 calls fail with 7KB body). Model is correct/available; token budget is the root cause |
+| 36 | `/wp-admin/*` login-gated pages enter frontier without rule match | Medium | Low | `update-core.php`, `upgrade.php`, `import.php` (login-gated WP admin pages) escalate to LLM tier → token burn for predictable non-findings. Add playbook rule for wp-admin login redirect body signature |
 
 ## Recommended Fix Order
 
@@ -85,6 +88,9 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 15. Bug #17 (Apache mod_autoindex sort URL explosion) — filter sort query params in `_extract_hrefs()`, quick win.
 16. Bug #16 (runner script `Report.chains`) — fix local runner scripts so they do not crash at the end.
 17. ~~Bug #21 (LLM-tier tool re-selection)~~ — **CLOSED #196** (pass `exclude_tools` to LLM tier + post-filter + contract guard).
+18. **Bug #35** (LLM token budget too small) — one-line constant fix, stops intermittent `OrientationError` on wp-admin pages. **Do this FIRST** — it's the lowest effort + highest impact.
+19. **Bug #34** (frontier cycling) — add `seen_urls` dedup to `enqueue_discovered_url`. Without this, no run ever converges.
+20. **Bug #36** (wp-admin login-gated playbook) — add one playbook YAML. Quick win after #35 is fixed (reduces LLM calls that would otherwise truncate).
 
 ---
 
@@ -1916,3 +1922,145 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 13. **§12.61 slice 1** (historical DNS origin discovery) — biggest missing passive signal
 14. **GAP-046** (basic-auth applicator) — after §12.61 slices
 15. **GAP-047** (username harvest non-WP) — after GAP-046
+
+---
+
+## Bug #34: Frontier Queue Re-enqueues Already-Probed URLs → Infinite Cycle
+
+- **Status**: OPEN
+- **Priority**: High
+- **Effort**: Medium
+- **Blocks**: Run never converges; burns HTTP + LLM tokens re-probing identical URLs
+- **Observed**: spectranet.com.ng live-fire run (2026-08-11) — 3 full cycles in 5+ min, 0 new findings after cycle 1
+
+### Root Cause
+
+The scout's frontier queue re-enqueues URLs that have already been fetched and
+analyzed. `_ran_campaigns` correctly prevents tool handlers from re-running
+(handler returns 0 on repeat), but the URL is still **fetched** (HTTP request)
+and **sent to the LLM** (token burn) before the handler no-ops. The frontier
+has no `seen_urls` dedup at the enqueue boundary.
+
+### Evidence (spectranet.com.ng, 2026-08-11)
+
+Cycle 1: homepage → leak paths → wp-json → readme → wc/v3 → users → wp-admin pages
+Cycle 2: `.git/config` → leak paths → wp-json → readme → wc/v3 → users → wp-admin pages
+Cycle 3: `.git/config` → leak paths → wp-json → ... (identical, killed after 5+ min)
+
+Each cycle: ~15 HTTP requests + ~4 LLM calls = 0 new findings after cycle 1.
+
+### Affected Files
+
+- `agent_alpha/agents/alpha/scout.py` — `enqueue_discovered_url` (no seen-set check)
+- `agent_alpha/agents/alpha/scout.py:636-641` — frontier expansion loop re-enqueues hrefs from re-fetched pages
+
+### Proposed Fix
+
+Add a `_seen_urls: set[str]` to the scout. `enqueue_discovered_url` checks
+`url in self._seen_urls` before adding to the queue. Deterministic catalog
+seeds (`WELL_KNOWN_LEAK_PATHS`, `wp_fingerprint.frontier_seeds`) also go through
+this check — they are first-time only. Test contract: a re-enqueued URL is a
+no-op (returns False), and the scout's `_step_once` never fetches a URL twice.
+
+---
+
+## Bug #35: `LLM_TOOL_SELECT_MAX_TOKENS=512` Too Small for Reasoning Model
+
+- **Status**: OPEN
+- **Priority**: High
+- **Effort**: Low (one-line constant change + test)
+- **Blocks**: Intermittent `OrientationError` on wp-admin pages; ~40% LLM call failure rate on 7KB+ bodies
+- **Observed**: spectranet.com.ng live-fire run (2026-08-11) — `upgrade.php`, `import.php`, `update-core.php` (cycle 2) all failed with "LLM decision failed; non-analyzable"
+
+### Root Cause
+
+`LLM_TOOL_SELECT_MAX_TOKENS = 512` in `agent_alpha/config/constants.py:149`.
+The reasoning provider `deepseek-v4-flash` is a reasoning model: it spends
+completion tokens on `reasoning_content` **before** emitting the final
+`content` (the JSON tool decision). `reasoning_content` IS counted against
+the `max_tokens` budget by the DeepSeek API.
+
+When reasoning is long (~500+ tokens), the 512-token budget is exhausted by
+reasoning alone → `finish_reason="length"` → `CompletionTruncatedError`
+(subclass of `RuntimeError`) → `OrientationError` in the orchestrator.
+
+### Evidence (reproduced 2026-08-11)
+
+Direct LLM call with 7201-byte wp-admin body, `max_tokens=512`, 5 consecutive calls:
+
+| Call | Result | reasoning_content length |
+|------|--------|--------------------------|
+| 1 | **FAIL** (CompletionTruncatedError) | >512 tokens |
+| 2 | OK (`{"tool": "wp_version"}`) | 2240 chars (~498 tokens) |
+| 3 | OK | 2164 chars |
+| 4 | OK | 1287 chars |
+| 5 | **FAIL** (CompletionTruncatedError) | >512 tokens |
+
+2/5 calls fail (40%). The failure is **intermittent** because reasoning length
+varies per call — sometimes ~498 tokens (just under 512), sometimes >512.
+
+### Model verification
+
+`deepseek-v4-flash` IS available on api.deepseek.com (confirmed via
+`provider.list_models()`). The model is correct — the token budget is the
+root cause, not a model mismatch.
+
+### Affected Files
+
+- `agent_alpha/config/constants.py:149` — `LLM_TOOL_SELECT_MAX_TOKENS = 512`
+- `agent_alpha/llm/providers/deepseek.py:94-97` — `CompletionTruncatedError` raised when `finish_reason == "length"` and `content` is empty
+- `agent_alpha/llm/orchestrator.py:111-115` — `OrientationError` wraps the truncation
+
+### Proposed Fix
+
+Raise `LLM_TOOL_SELECT_MAX_TOKENS` from 512 to **2048**. This gives headroom
+for reasoning (~500-600 tokens) + content (~50 tokens) with safety margin.
+Cost impact: `deepseek-v4-flash` output pricing is $0.0002/1K tokens →
++1536 tokens = +$0.0003 per LLM call. Negligible.
+
+Test contract: 5 consecutive LLM calls with a 7KB wp-admin body at
+`max_tokens=2048` must produce 0 `CompletionTruncatedError` exceptions.
+
+---
+
+## Bug #36: `/wp-admin/*` Login-Gated Pages Enter Frontier Without Rule Match
+
+- **Status**: OPEN
+- **Priority**: Medium
+- **Effort**: Low (one playbook YAML file)
+- **Blocks**: LLM token burn for predictable non-findings on login-gated WP admin pages
+- **Observed**: spectranet.com.ng live-fire run (2026-08-11) — `update-core.php`, `upgrade.php`, `import.php` all escalated to LLM tier (no rule match) → token burn + Bug #35 truncation
+
+### Root Cause
+
+`WP_CRAWL_ALLOW_PATH_PREFIXES` includes `/wp-admin/` (correctly — some wp-admin
+pages have real surface value). But login-gated pages (`update-core.php`,
+`upgrade.php`, `import.php`, `plugins.php`, etc.) return HTTP 200 with a login
+form or maintenance page body that matches NO playbook rule → escalates to
+SINGLE_LLM tier → token burn for a page that has zero unauthenticated recon
+value.
+
+### Evidence
+
+| Page | HTTP | Body | Rule match? | LLM called? | Finding? |
+|------|------|------|-------------|-------------|----------|
+| `update-core.php` | 200 | 8511 B (login redirect) | No | Yes (cycle 1: OK, cycle 2: FAIL) | 0 |
+| `upgrade.php` | 200 | 1357 B (maintenance) | No | Yes (FAIL) | 0 |
+| `import.php` | 200 | 8506 B (login form) | No | Yes (FAIL) | 0 |
+
+### Affected Files
+
+- `agent_alpha/config/constants.py:380-386` — `WP_CRAWL_ALLOW_PATH_PREFIXES` includes `/wp-admin/`
+- `agent_alpha/tools/playbooks/` — no playbook for wp-admin login-gated body signature
+
+### Proposed Fix
+
+Add `wp_admin_login_gated.yaml` playbook that matches on WP login form body
+signature (`<form name="loginform"`, `wp-login.php`, "You must log in",
+"Database Update Required") → tool `generic_http_probe` with rationale
+"wp-admin login-gated page; no unauthenticated recon surface". This prevents
+LLM escalation for predictable login-gated pages while keeping `/wp-admin/`
+in the crawl allowlist (for genuine surface like `install.php` info disclosure).
+
+Test contract: a wp-admin page with login form body matches the new rule
+(RULE tier, not LLM tier) and produces 0 findings.

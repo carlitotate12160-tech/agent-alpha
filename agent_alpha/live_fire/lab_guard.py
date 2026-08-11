@@ -176,6 +176,8 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
     LabHost("decoy.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
     LabHost("dead.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
     LabHost("hardened.recon.lab", "natanael", "localhost:recon_lab/", "#207"),
+    # GAP-044 field-prove: catch-all 200 lab (nginx :8444, all paths → 200)
+    LabHost("catchall.lab", "natanael", "localhost:nginx/catchall.lab", "#386"),
     # Client-approved external target (Odoo behind Cloudflare)
     LabHost(
         "quantum-laboratories.com",
