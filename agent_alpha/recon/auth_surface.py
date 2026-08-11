@@ -26,6 +26,38 @@ _AUTOCOMPLETE_PASSWORD = re.compile(
 _NAME_ID_PASSWORD = re.compile(r'<input[^>]*(?:name|id)\s*=\s*["\']?password["\']?', re.IGNORECASE)
 
 
+# ── Auth-type label vocabulary (SINGLE source, anti-#7) ─────────────────────────
+# Beta can bind a credential applicator to STRIKABLE labels NOW. The others are
+# classified-but-not-attacked (GAP-030): token/digest/api need Gamma-tier tools
+# (JWT confusion, API abuse) or no applicator exists — labelling them precisely
+# stops false ``http_basic_auth`` from routing a strike at a non-basic surface.
+HTTP_BASIC_AUTH = "http_basic_auth"
+HTTP_DIGEST_AUTH = "http_digest_auth"
+TOKEN_AUTH = "token_auth"
+API_AUTH = "api_auth"
+UNKNOWN_AUTH = "unknown_auth"
+LOGIN_FORM = "login-form"
+
+# WWW-Authenticate scheme (RFC 7235 token, case-insensitive) -> auth-type label.
+_WWW_AUTH_SCHEME: dict[str, str] = {
+    "basic": HTTP_BASIC_AUTH,
+    "digest": HTTP_DIGEST_AUTH,
+    "bearer": TOKEN_AUTH,
+}
+
+# The subset Beta may actually strike this phase (auth-type only; the router adds
+# tech-stack fingerprints like wp/odoo that also imply a strikable login surface).
+STRIKABLE_AUTH_LABELS: frozenset[str] = frozenset({HTTP_BASIC_AUTH, LOGIN_FORM})
+
+
+def _body_is_json(headers: Mapping[str, str], body: str) -> bool:
+    for k, v in headers.items():
+        if k.lower() == "content-type" and "json" in v.lower():
+            return True
+    stripped = (body or "").lstrip()
+    return stripped[:1] in ("{", "[")
+
+
 def detect_auth_surface_labels(
     *, status_code: int, headers: Mapping[str, str], body: str
 ) -> list[str]:
@@ -44,9 +76,16 @@ def detect_auth_surface_labels(
     universal HTML attributes, not framework-specific patterns.
     """
     labels: list[str] = []
-    has_www_auth = any(k.lower() == "www-authenticate" for k in headers)
-    if status_code == 401 or has_www_auth:
-        labels.append("http_basic_auth")
+    # ── Auth-challenge classification (GAP-030): discriminate by WWW-Authenticate
+    #    scheme. A bare 401 without a Basic challenge is NOT assumed basic-auth —
+    #    that false positive would route a basic-auth strike at a token/api surface.
+    www_auth = next((v for k, v in headers.items() if k.lower() == "www-authenticate"), None)
+    if www_auth is not None:
+        scheme = www_auth.strip().split(None, 1)[0].lower() if www_auth.strip() else ""
+        labels.append(_WWW_AUTH_SCHEME.get(scheme, UNKNOWN_AUTH))
+    elif status_code == 401:
+        # 401 with no challenge header: JSON body => api_auth, else unknown_auth.
+        labels.append(API_AUTH if _body_is_json(headers, body) else UNKNOWN_AUTH)
     if body:
         # Check all three fallbacks; any match = login-form
         has_password_input = (
@@ -55,7 +94,7 @@ def detect_auth_surface_labels(
             or _NAME_ID_PASSWORD.search(body) is not None
         )
         if has_password_input:
-            labels.append("login-form")
+            labels.append(LOGIN_FORM)
     # Dedup while preserving order (first occurrence wins)
     seen: set[str] = set()
     deduped: list[str] = []
