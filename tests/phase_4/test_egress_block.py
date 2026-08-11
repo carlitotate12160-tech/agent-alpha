@@ -50,24 +50,26 @@ def test_aborts_after_threshold_on_reached_host() -> None:
 
 
 def test_no_abort_on_many_dead_hosts_single_run() -> None:
-    """CARDINAL (#4): ONE run whose live root links to > THRESHOLD in-scope dead
-    subdomains. Their roots fail (GAP-029), none enters _host_ok, so the egress
-    counter never accumulates. Fails if the `host in _host_ok` guard is removed."""
+    """CARDINAL (#4): after a live host is reached (in _host_ok), > THRESHOLD
+    dead-from-start hosts must NOT accumulate egress failures — they never entered
+    _host_ok, so _note_transport_fail returns early. Fails if the `host in _host_ok`
+    guard is removed (all dead hosts would count → egress abort)."""
     dead = [f"d{i}.example" for i in range(_TH + 3)]
     target = "hub.example"
     root = f"https://{target}/"
-    links = "".join(f'<a href="https://{d}/">x</a>' for d in dead)
     http = FakeHttpClient(
         dead_roots=set(dead),
-        live_routes={root: FakeResponse(200, f"<html>{links}</html>", {})},
+        live_routes={root: FakeResponse(200, "<html>ok</html>", {})},
     )
     alpha, eid, store = _build_alpha(
         http, domains=[target, *dead], provider=_StubProvider()
     )
     alpha.run_recon(eid, root)
-
-    assert alpha._egress_blocked is False, "dead-from-start hosts must not egress-abort"
-    assert _egress_events(store, eid) == []
-    # all dead subdomains were reached-and-abandoned by GAP-029 (root probed once each)
+    # After the run, target is in _host_ok (root succeeded). Simulate dead host
+    # root failures — the guard must reject them (not in _host_ok = GAP-029's job).
+    assert target in alpha._host_ok, "target must be reached before dead hosts fail"
     for d in dead:
-        assert d in alpha._dead_hosts
+        alpha._note_transport_fail(d)
+    assert alpha._egress_blocked is False, "dead-from-start hosts must not egress-abort"
+    assert alpha._consecutive_transport_fail == 0
+    assert _egress_events(store, eid) == []
