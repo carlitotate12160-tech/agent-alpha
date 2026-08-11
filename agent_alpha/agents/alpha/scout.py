@@ -2201,9 +2201,9 @@ class Alpha:
     def _soft404_probe_path(self, host: str, salt: str) -> str:
         """Deterministic-per-(engagement, host, salt) random MISSING path. Two salts = two
         independent catch-all samples for differential calibration (GAP-048)."""
-        return hashlib.sha256(
-            f"{self._engagement_id}:{host}:soft404:{salt}".encode()
-        ).hexdigest()[:32]
+        return hashlib.sha256(f"{self._engagement_id}:{host}:soft404:{salt}".encode()).hexdigest()[
+            :32
+        ]
 
     def _soft404_tokens(self, url: str, body: str) -> list[str]:
         """Structure-preserving tokens AFTER neutralising the reflected path (so paths of
