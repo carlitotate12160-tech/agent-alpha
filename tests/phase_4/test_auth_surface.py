@@ -20,8 +20,13 @@ def test_single_quoted_password_input() -> None:
     assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
 
 
-def test_http_basic_auth_via_401() -> None:
-    assert detect_auth_surface_labels(status_code=401, headers={}, body="") == ["http_basic_auth"]
+def test_bare_401_no_challenge_is_unknown_auth() -> None:
+    """GAP-030 (deliberate contract change): a bare 401 WITHOUT a WWW-Authenticate
+    challenge is NO LONGER assumed http_basic_auth (that false positive would route a
+    basic-auth strike at a token/api surface). Tradeoff: a real basic-auth host whose
+    header was stripped by a proxy/CDN is now unknown_auth (false-negative) — accepted
+    per the classify-precisely decision. Only an actual Basic challenge -> http_basic_auth."""
+    assert detect_auth_surface_labels(status_code=401, headers={}, body="") == ["unknown_auth"]
 
 
 def test_http_basic_auth_via_header_case_insensitive() -> None:
@@ -62,7 +67,7 @@ def test_labels_are_router_auth_surface_labels() -> None:
 
 def test_vue_bound_password_input_detected() -> None:
     """Vue.js dynamic binding :type="..." with name="password" must be detected."""
-    body = '<input :type="showPassword ? \'text\' : \'password\'" name="password">'
+    body = "<input :type=\"showPassword ? 'text' : 'password'\" name=\"password\">"
     assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == ["login-form"]
 
 
@@ -102,6 +107,72 @@ def test_no_password_no_label() -> None:
     assert detect_auth_surface_labels(status_code=200, headers={}, body=body) == []
 
 
-def test_basic_auth_unchanged() -> None:
-    """Regression: HTTP basic auth detection still works."""
-    assert detect_auth_surface_labels(status_code=401, headers={}, body="") == ["http_basic_auth"]
+def test_basic_auth_requires_basic_challenge() -> None:
+    """Regression: http_basic_auth requires an actual WWW-Authenticate: Basic challenge."""
+    hdr = {"WWW-Authenticate": 'Basic realm="x"'}
+    assert detect_auth_surface_labels(status_code=401, headers=hdr, body="") == ["http_basic_auth"]
+
+
+# ── GAP-030 expanded: WWW-Authenticate scheme discrimination ────────────────────
+
+
+def test_401_multiple_challenges_bearer_then_basic() -> None:
+    """Server advertises both Bearer and Basic in one header — BOTH labels emitted."""
+    hdr = {"WWW-Authenticate": 'Bearer, Basic realm="restricted"'}
+    labels = detect_auth_surface_labels(status_code=401, headers=hdr, body="")
+    assert "token_auth" in labels
+    assert "http_basic_auth" in labels
+
+
+def test_401_comma_in_realm_not_split() -> None:
+    """realm="x,y" — comma inside quoted string must NOT split schemes."""
+    hdr = {"WWW-Authenticate": 'Basic realm="x,y"'}
+    labels = detect_auth_surface_labels(status_code=401, headers=hdr, body="")
+    assert labels == ["http_basic_auth"]
+
+
+def test_401_bearer_is_token_auth_not_basic() -> None:
+    hdr = {"WWW-Authenticate": "Bearer"}
+    assert detect_auth_surface_labels(status_code=401, headers=hdr, body="") == ["token_auth"]
+
+
+def test_401_digest_is_digest_auth_not_basic() -> None:
+    hdr = {"WWW-Authenticate": 'Digest realm="x", nonce="y"'}
+    assert detect_auth_surface_labels(status_code=401, headers=hdr, body="") == ["http_digest_auth"]
+
+
+def test_401_json_no_header_is_api_auth() -> None:
+    hdr = {"Content-Type": "application/json"}
+    assert detect_auth_surface_labels(
+        status_code=401, headers=hdr, body='{"error":"unauthorized"}'
+    ) == ["api_auth"]
+
+
+def test_401_json_body_without_content_type_is_api_auth() -> None:
+    assert detect_auth_surface_labels(status_code=401, headers={}, body='{"detail":"nope"}') == [
+        "api_auth"
+    ]
+
+
+def test_unknown_scheme_is_unknown_auth() -> None:
+    hdr = {"WWW-Authenticate": "Negotiate"}
+    assert detect_auth_surface_labels(status_code=401, headers=hdr, body="") == ["unknown_auth"]
+
+
+def test_non_strikable_auth_types_excluded_from_router_candidates() -> None:
+    """Contract #9: token_auth / api_auth / http_digest_auth / unknown_auth are NOT
+    strike candidates (kept out of the router's strikable set)."""
+    from agent_alpha.conductor.router import _AUTH_SURFACE_LABELS
+
+    for non_strikable in ("token_auth", "api_auth", "http_digest_auth", "unknown_auth"):
+        assert non_strikable not in _AUTH_SURFACE_LABELS
+    # strikable ones remain
+    assert {"http_basic_auth", "login-form"} <= _AUTH_SURFACE_LABELS
+
+
+def test_401_login_page_still_strikable_via_login_form() -> None:
+    """A 401 that serves an HTML login form is still strikable (login-form present),
+    even though the 401-with-no-basic-challenge also yields unknown_auth."""
+    body = '<form><input type="password" name="pw"></form>'
+    labels = detect_auth_surface_labels(status_code=401, headers={}, body=body)
+    assert "login-form" in labels

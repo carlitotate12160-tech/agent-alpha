@@ -22,6 +22,7 @@ from urllib.parse import urlparse, urlunparse
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.config import constants
 from agent_alpha.graph.nodes import NodeType, RelationshipType
+from agent_alpha.recon.auth_surface import STRIKABLE_AUTH_LABELS
 
 # Semantic auth-surface label set — authentication ENTRY POINTS a Beta
 # credential-applicator can bind to.  Single source of truth for routing (#7).
@@ -42,17 +43,16 @@ from agent_alpha.graph.nodes import NodeType, RelationshipType
 # NO "http"/"https" SERVICE fallback — every web recon produces an http service
 # node, which would make this predicate VACUOUS (always true) and collapse the
 # ALPHA→BETA vs ALPHA→OMEGA routing distinction.
-_AUTH_SURFACE_LABELS: frozenset[str] = frozenset(
-    {
-        constants.STACK_WP,
-        "odoo",
-        "login-form",
-        "http_basic_auth",
-        "admin",
-        "tomcat",
-        "laravel",
-    }
+#
+# Tech-stack fingerprints that ALSO imply a strikable login surface (proven WP/Odoo
+# cred-reuse chains rely on these). Auth-type labels come from the classifier
+# (single source, anti-#7); non-strikable auth types (token_auth/api_auth/
+# http_digest_auth/unknown_auth) are deliberately NOT here, so an api_auth host is
+# never selected as a strike candidate (GAP-030 expanded).
+_STRIKABLE_TECH_LABELS: frozenset[str] = frozenset(
+    {constants.STACK_WP, "odoo", "admin", "tomcat", "laravel"}
 )
+_AUTH_SURFACE_LABELS: frozenset[str] = STRIKABLE_AUTH_LABELS | _STRIKABLE_TECH_LABELS
 
 
 @dataclass(frozen=True)
