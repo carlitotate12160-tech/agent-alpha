@@ -50,6 +50,37 @@ _WWW_AUTH_SCHEME: dict[str, str] = {
 STRIKABLE_AUTH_LABELS: frozenset[str] = frozenset({HTTP_BASIC_AUTH, LOGIN_FORM})
 
 
+# GAP-030 Slice 1b: SPA login surface rendered by JS. A pure SPA shell
+# (<div id="app">) carries NO password input in the initial HTML, so the HTML
+# regexes above miss it — the login <input> lives in the JS bundle. This label is
+# CLASSIFY-ONLY (NOT in STRIKABLE_AUTH_LABELS): the existing form applicator POSTs
+# form-encoded to the page URL, but an SPA logs in via a JSON API endpoint, so
+# striking it needs a future SPA-login applicator. Classifying it closes the recon
+# blindness + feeds that future applicator; it never wastes a strike slot now.
+SPA_LOGIN_FORM = "spa-login-form"
+
+_JS_LOGIN_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"""type\s*[:=]\s*['\"]password['\"]""", re.IGNORECASE),
+    re.compile(
+        r"""autocomplete\s*[:=]\s*['\"](?:current-password|new-password)['\"]""",
+        re.IGNORECASE,
+    ),
+    re.compile(r"""(?:name|id)\s*[:=]\s*['\"]password['\"]""", re.IGNORECASE),
+    re.compile(r"""<input[^>]*type\s*=\s*['\"]?password""", re.IGNORECASE),
+)
+
+
+def scan_js_for_login_surface(js_body: str) -> bool:
+    """True iff a JS bundle body advertises a login/password INPUT (SPA login form).
+
+    Pure + deterministic; no I/O. The caller (verify_js_secret_leak) already has the
+    bundle body in hand, so this reuses that fetch — no second network round-trip.
+    """
+    if not js_body:
+        return False
+    return any(pattern.search(js_body) for pattern in _JS_LOGIN_PATTERNS)
+
+
 def _body_is_json(headers: Mapping[str, str], body: str) -> bool:
     for k, v in headers.items():
         if k.lower() == "content-type" and "json" in v.lower():

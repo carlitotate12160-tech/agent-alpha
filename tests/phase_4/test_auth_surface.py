@@ -7,7 +7,7 @@ hosts only; ZERO reference to any specific client.
 
 from __future__ import annotations
 
-from agent_alpha.recon.auth_surface import detect_auth_surface_labels
+from agent_alpha.recon.auth_surface import detect_auth_surface_labels, scan_js_for_login_surface
 
 
 def test_form_login_password_input_any_stack() -> None:
@@ -176,3 +176,34 @@ def test_401_login_page_still_strikable_via_login_form() -> None:
     body = '<form><input type="password" name="pw"></form>'
     labels = detect_auth_surface_labels(status_code=401, headers={}, body=body)
     assert "login-form" in labels
+
+
+# ── GAP-030 Slice 1b: SPA login-surface scan of JS bundle bodies ────────────────
+
+
+def test_js_scan_detects_type_password() -> None:
+    assert scan_js_for_login_surface('h("input",{type:"password"})') is True
+
+
+def test_js_scan_detects_autocomplete_password() -> None:
+    assert scan_js_for_login_surface('{autocomplete:"current-password"}') is True
+    assert scan_js_for_login_surface('{autocomplete:"new-password"}') is True
+
+
+def test_js_scan_detects_name_or_id_password() -> None:
+    assert scan_js_for_login_surface('createElement("input",{name:"password"})') is True
+    assert scan_js_for_login_surface("el.id = 'password'") is True
+
+
+def test_js_scan_detects_template_input_password() -> None:
+    assert scan_js_for_login_surface('render(`<input type="password">`)') is True
+
+
+def test_js_scan_bare_password_word_not_false_positive() -> None:
+    """The bare word 'password' (e.g. a reset-email string) must NOT trigger."""
+    assert scan_js_for_login_surface('const msg = "check your password reset email"') is False
+
+
+def test_js_scan_empty_or_no_login() -> None:
+    assert scan_js_for_login_surface("") is False
+    assert scan_js_for_login_surface("export const sum=(a,b)=>a+b") is False

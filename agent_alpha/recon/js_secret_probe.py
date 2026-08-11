@@ -44,6 +44,7 @@ from agent_alpha.graph.nodes import (
     VulnerabilityProperties,
 )
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
+from agent_alpha.recon.auth_surface import SPA_LOGIN_FORM, scan_js_for_login_surface
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 
 # ── SecretHit dataclass ─────────────────────────────────────────────────────
@@ -280,6 +281,7 @@ def verify_js_secret_leak(
 
         # ── Discover in-scope JS bundles ───────────────────────────────────
         bundle_urls = discover_js_bundles(body, page_url)
+        spa_login_detected = False
 
         for bundle_url in bundle_urls:
             # ── GET the bundle ──────────────────────────────────────────────
@@ -303,6 +305,19 @@ def verify_js_secret_leak(
 
             if bstatus != 200:
                 continue
+
+            # ── GAP-030 1b: SPA login surface in the bundle (classify-only) ──
+            if scan_js_for_login_surface(bbody) and not spa_login_detected:
+                spa_login_detected = True
+                _now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+                login_asset = merge_asset_node(
+                    graph_store,
+                    target,
+                    tech_stack_add=[SPA_LOGIN_FORM],
+                    confidence=0.7,
+                    timestamp_utc=_now,
+                )
+                persist_node(event_store, graph_store, engagement_id, login_asset, agent="alpha")
 
             # ── Scan for validated secrets ──────────────────────────────────
             hits = scan_js_for_secrets(bbody)
