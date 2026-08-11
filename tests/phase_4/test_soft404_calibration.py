@@ -109,7 +109,9 @@ def test_two_probes_per_host() -> None:
     real = {"/": FakeResponse(200, "<html>home</html>", {})}
     http = CatchAllHttpClient(real=real)
     alpha, eid, _ = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
-    segs = {alpha._soft404_probe_path(_HOST, "a"), alpha._soft404_probe_path(_HOST, "b")}
     alpha.run_recon(eid, f"https://{_HOST}/")
+    # Compute segs AFTER run_recon — _engagement_id is set during run_recon,
+    # so probe paths computed before would differ from the actual probes used.
+    segs = {alpha._soft404_probe_path(_HOST, "a"), alpha._soft404_probe_path(_HOST, "b")}
     hits = [u for u in http.calls if any(seg in u for seg in segs)]
     assert len(hits) == 2, hits
