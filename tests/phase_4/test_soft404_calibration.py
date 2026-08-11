@@ -78,6 +78,6 @@ def test_calibration_probe_is_once_per_host() -> None:
     real = {"/": FakeResponse(200, "<html>home</html>", {})}
     http = CatchAllHttpClient(real=real)
     alpha, eid, _ = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
-    probe_seg = alpha._soft404_probe_path(_HOST)
     alpha.run_recon(eid, f"https://{_HOST}/")
+    probe_seg = alpha._soft404_probe_path(_HOST)
     assert len([u for u in http.calls if probe_seg in u]) == 1
