@@ -101,6 +101,13 @@ class _FakeHttpClient:
                 status_code=200,
                 headers={"server": "cloudflare", "cf-ray": "abc123"},
             )
+        # GAP-044: calibration probe (32-char hex path) → proper 404, not ok_body.
+        # Models a real server that 404s unknown paths (anti false soft-404 calibration).
+        from urllib.parse import urlparse
+
+        _path = urlparse(url).path.lstrip("/")
+        if len(_path) >= 32 and all(c in "0123456789abcdef" for c in _path):
+            return _FakeResp(text="<html>404 Not Found</html>", status_code=404, headers={})
         return _FakeResp(text=self._ok_body, status_code=200, headers={})
 
 
