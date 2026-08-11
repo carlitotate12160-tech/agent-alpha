@@ -2204,13 +2204,16 @@ class Alpha:
         ).hexdigest()[:32]
 
     def _soft404_strip(self, url: str, body: str) -> str:
-        """Neutralise per-URL reflected tokens so two catch-all pages for DIFFERENT
-        missing paths compare equal."""
+        """Neutralise per-REQUEST variance so a catch-all served for DIFFERENT missing
+        paths compares equal: (1) reflected path/url/host, (2) HTML attribute VALUES
+        (CSRF/nonce/session token live here), (3) long digit runs (timestamps/epoch)."""
         p = urlparse(url)
         out = body
         for tok in (url, p.path, unquote(p.path), p.netloc):
             if tok:
                 out = out.replace(tok, "\u00a7")
+        out = re.sub(r"=\s*\"[^\"]*\"|=\s*'[^']*'", '="\u00a7"', out)
+        out = re.sub(r"\d{6,}", "\u00a7", out)
         return out
 
     def _soft404_signature(self, url: str, body: str) -> str:
