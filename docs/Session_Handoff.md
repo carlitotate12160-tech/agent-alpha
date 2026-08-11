@@ -71,11 +71,10 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
   `CredentialLockoutGovernor` per engagement (§12.22 D2). Status precedence COMPLETE > BLOCKED >
   FAILED. `strike.py` UNTOUCHED (single-entry contract). New audit events
   STRIKE_CANDIDATE_ATTEMPTED/SKIPPED; all wired in `test_wiring_gate.py`.
-- **OPEN DECISION — strike-all vs stop-on-first-COMPLETE**: this build strikes ALL in-scope
-  surfaces (each = its own potential payable finding — matches the GAP-035 ledger rationale
-  "2nd/3rd surface unstruck = missed finding"). The earlier locked note said "stop on first
-  COMPLETE" (OPSEC-lean). Shared lockout budget now bounds the OPSEC cost. DECIDE before merge;
-  stop-on-first = a 2-line `break` after the first COMPLETE.
+- **DECISION LOCKED 2026-08-11 — strike-all**: Beta strikes ALL in-scope surfaces (up to
+  MAX_STRIKE_CANDIDATES=3), NOT stop-on-first-COMPLETE. Rationale: each surface = its own
+  potential payable finding; stopping early = missed finding (the exact problem GAP-035 fixes).
+  Shared lockout budget bounds the OPSEC cost. Supersedes the earlier "stop on first COMPLETE" note.
 - **Verified this session (Python 3.12.13 = Oracle parity, NOT the seal)**: 19 entry-selection
   tests; phase_4 + phase_3 + governance green; mypy clean; 0 new ruff errors. RED->GREEN proven
   for the multi-candidate cardinal, first-wins, and BLOCKED precedence branches.
