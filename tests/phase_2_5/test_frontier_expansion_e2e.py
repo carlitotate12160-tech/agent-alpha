@@ -193,13 +193,16 @@ def test_run_recon_dead_end_seed_probes_only_seed() -> None:
     # paths. The Lyndon #11 guard still holds: a link-free page must produce NO
     # href-driven frontier growth — i.e. nothing beyond the seed + that constant
     # baseline.
-    # Baseline = seed + select_leak_paths([]) + SURFACE_DISCOVERY_PATHS (both are
-    # fixed, target-INDEPENDENT constant seeds). The Lyndon #11 guard still holds:
-    # a link-free page produces NO href-driven growth beyond these constant seeds.
+    # Baseline = seed + GAP-044 calibration probe + select_leak_paths([]) +
+    # SURFACE_DISCOVERY_PATHS (all fixed, target-INDEPENDENT constant seeds).
+    # The Lyndon #11 guard still holds: a link-free page produces NO href-driven
+    # growth beyond these constant seeds.
     from agent_alpha.agents.planner import Planner
 
+    _probe = f"https://{_SCOPE_HOST}/{agent._soft404_probe_path(_SCOPE_HOST)}"
     expected = (
         [dead]
+        + [_probe]  # GAP-044: one calibration probe per host
         + [f"https://{_SCOPE_HOST}{p}" for p in Planner().select_leak_paths(labels=[])]
         + [f"https://{_SCOPE_HOST}{p}" for p in constants.SURFACE_DISCOVERY_PATHS]
     )
