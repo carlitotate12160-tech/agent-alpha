@@ -1794,7 +1794,9 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-044 — Soft-404 false positives: exact-hash dedup misses reflected/varying error pages
 
-- **Status**: OPEN 2026-08-11 (BLOCKER — correctness, Lyndon #3 false positive).
+- **Status**: PARTIAL FIX MERGED (#386, per-format regex normalization) — INCOMPLETE
+  (CSRF-hex-in-JS-object leaked). SUPERSEDED by **GAP-048** two-probe differential
+  (format-agnostic). Keep GAP-044 as the problem statement; GAP-048 carries the fix.
 - **What**: The identical-body dedup (`test_identical_body_dedup.py`) uses exact body
   hash to suppress repeated catch-all responses. But many targets serve VARYING error
   pages — reflected path in body, dynamic timestamp, session token, CSRF nonce — so the
@@ -1904,6 +1906,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 045 | CF-ceiling honest-outcome classification (Omega/Conductor) | Low | Low | ibudanbalita (product value) |
 | 046 | HTTP Basic Auth applicator absent | Medium | Medium | niagamas hub 401 |
 | 047 | Username harvest WP-REST-only (non-WP surfaces) | Medium | High | niagamas pos Vue login |
+| 048 | Soft-404 signature format-fragile (regex whack-a-mole) | **BLOCKER** | Medium | ingco (CSRF-hex-in-JS-object leaked by GAP-044 regexes) — SUPERSEDES GAP-044 fix |
 
 ## Recommended fix order (one slice at a time)
 
@@ -1922,6 +1925,8 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 13. **§12.61 slice 1** (historical DNS origin discovery) — biggest missing passive signal
 14. **GAP-046** (basic-auth applicator) — after §12.61 slices
 15. **GAP-047** (username harvest non-WP) — after GAP-046
+16. **GAP-048** (soft-404 regex whack-a-mole) — **BLOCKER** (Lyndon #3 re-opened). Two-probe
+    differential calibration (format-agnostic). SUPERSEDES the GAP-044 regex normalizer.
 
 ---
 
@@ -2064,3 +2069,43 @@ in the crawl allowlist (for genuine surface like `install.php` info disclosure).
 
 Test contract: a wp-admin page with login form body matches the new rule
 (RULE tier, not LLM tier) and produces 0 findings.
+
+---
+
+## GAP-048 — Soft-404 signature is format-fragile: regex normalization is whack-a-mole
+
+- **Status**: PATCH READY (`GAP-048_two_probe_differential.patch`, verified apply-clean +
+  compile + logic-sim @ 84f1d86; seal Oracle). SUPERSEDES the GAP-044 regex normalizer.
+- **What**: GAP-044 (#386) normalized the catch-all body with per-format REGEXES — reflected
+  path, then HTML attribute values, then digit runs. Each only covers ONE token shape. Field
+  showed the pattern is whack-a-mole: a CSRF **hex** token inside a JS object
+  (`'csrf_token_name': '<32hex>'`, colon-delimited) is neither an HTML attribute (needs `=`)
+  nor digit-only (`\d{6,}` misses hex) → survives normalization → signature differs per
+  request → catch-all NOT suppressed → false-positive finding returns. Adding a hex regex
+  closes hex; the NEXT target's token (base64 session, UUID, JWT) breaks it again. Enumerating
+  token formats never terminates.
+- **Evidence**: ingco.co.id catch-all — diff between the baseline probe and
+  `/config/database.yml.bak` was exactly 2 lines, both the per-request CSRF token
+  (`value="0a12ffca…"` at L1453 handled by the attr regex; `'csrf_token_name': '0a12ffca…'`
+  at L1866 NOT handled — colon context). 32-char hex changes per request → hash differs →
+  `_is_soft404` False → 93858-byte catch-all analysed as a real finding.
+- **Impact**: BLOCKER re-opened — false positives persist (Lyndon #3) on any target whose
+  catch-all carries a per-request token the current regexes miss. Blocks the GAP-044
+  field-prove (`catchall.lab`, #387).
+- **Fix (IMPLEMENTED — two-probe DIFFERENTIAL calibration, format-agnostic)**: probe TWO
+  independent random missing paths; both 200 with equal token count → catch-all. The token
+  POSITIONS that DIFFER between the two samples ARE the per-request volatile tokens (CSRF,
+  session, timestamp) — WHATEVER their format. Mask exactly those positions → the signature is
+  driven by *what the target actually varies*, not by an enumerated regex list. Reflected path
+  is neutralised first (path→constant) so paths of any complexity keep a stable token count
+  (alignment). Ends the whack-a-mole. FAIL-SAFE: any transport error, a proper 404/redirect,
+  or an unstable token count (e.g. variable-length JWT) stores NO signature → real content is
+  never suppressed. Single source (anti-#7); drops the three GAP-044 regexes.
+- **Tests (§12.60)**: true-positive (hex + **UUID** — the format the regex missed); fail-safe
+  cardinal (proper-404 host → no signature); TWO false-negative guards on a CALIBRATED host —
+  structural mismatch AND same-token-count-different-skeleton (masked-hash collision). Field
+  regression: `catchall.lab` Tier-2 must show 0 false findings.
+- **Cost/known-limit**: +1 calibration GET per reachable host (2 probes total). Variable-length
+  tokens (JWT payloads) → unstable token count → fail-safe skip (no false positive), register
+  as a follow-on only if seen. Deterministic (seeded probe paths) → seeded-replay stable.
+- **Effort**: Medium (1 file: scout.py — replaces the GAP-044 helper block).
