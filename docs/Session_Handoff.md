@@ -60,16 +60,35 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
   3. Merge PR #388
   4. **Tier-2 field-prove on `catchall.lab` (#387)**: 0 false findings → closes BLOCKER
 
-### 2. Slice-2 entry-selection — GAP-034 (reachability read-model) + GAP-035 (multi-candidate)
+### 2. GAP-035 multi-candidate entry-selection — BUILT FRESH 2026-08-11 (own slice)
 
-- **Files**: patch provided by user — `router.py` (`unreachable_hosts` + `strike_targets` field + dead-host filter), `main.py` (multi-strike loop with `MAX_STRIKE_CANDIDATES=3`, stop on first COMPLETE), `constants.py` (`MAX_STRIKE_CANDIDATES`), `test_wiring_gate.py` (wiring ratchet), `test_entry_selection_slice2.py` (4 unit tests)
-- **Design (locked)**: GAP-034 = read-model over EVENTS (`unreachable_hosts()` — only `HOST_ABANDONED` = strike-dead; `WAF_BLOCKED` does NOT exclude). GAP-035 = strike top-N (`MAX_STRIKE_CANDIDATES=3`, stop on first COMPLETE), Beta single-entry contract untouched (loop at dispatch seam).
-- **Verified this session**: GAP-034 (router + read-model) — 4 unit tests logic-verified correct against `_AUTH_SURFACE_LABELS` alphabetical ordering (admin=0, http_basic_auth=1, laravel=2, login-form=3, odoo=4, tomcat=5, wordpress=6).
-- **NOT verified — needs work before merge**:
-  1. **GAP-035 `main.py:run_beta` dispatch-loop = COMPILE-ONLY** — needs integration test: 2 auth-surfaces, target 1 FAILED → target 2 struck; target 1 COMPLETE → target 2 NOT struck. Without this, multi-strike behavioral change is unproven (anti-#3).
-  2. **Comment copy-paste error in test_wiring_gate.py** — `unreachable_hosts` line has comment `# entry-selection: Beta strikes reachable auth-surface` (belongs to `select_strike_entry` above it).
-  3. **`make quality` on Oracle** — blast-radius tests asserting single Beta dispatch / `applicator_calls` will change (now multi).
-- **Action next session**: add integration test for multi-strike loop → fix comment → `make quality` on Oracle → merge → **Tier-2 niagamas**: confirm Beta strikes hub AND pos (not one), WAF-dead apex never struck.
+- **Prior bundled patch (GAP-034+035, `unreachable_hosts`/`strike_targets`) DISCARDED** — bundling
+  was the bug source. Rebuilt GAP-035 alone; GAP-034 = separate next slice.
+- **Design (as built)**: `router.select_strike_entry` returns `ranked_entries:
+  tuple[StrikeCandidate,...]` (FULL ranked, uncapped). Dispatch-seam loop in
+  `conductor/main.py run_beta` strikes up to `MAX_STRIKE_CANDIDATES=3` IN-SCOPE candidates
+  (Conductor scope gate runs FIRST, then cap — out-of-scope never consumes budget). ONE shared
+  `CredentialLockoutGovernor` per engagement (§12.22 D2). Status precedence COMPLETE > BLOCKED >
+  FAILED. `strike.py` UNTOUCHED (single-entry contract). New audit events
+  STRIKE_CANDIDATE_ATTEMPTED/SKIPPED; all wired in `test_wiring_gate.py`.
+- **OPEN DECISION — strike-all vs stop-on-first-COMPLETE**: this build strikes ALL in-scope
+  surfaces (each = its own potential payable finding — matches the GAP-035 ledger rationale
+  "2nd/3rd surface unstruck = missed finding"). The earlier locked note said "stop on first
+  COMPLETE" (OPSEC-lean). Shared lockout budget now bounds the OPSEC cost. DECIDE before merge;
+  stop-on-first = a 2-line `break` after the first COMPLETE.
+- **Verified this session (Python 3.12.13 = Oracle parity, NOT the seal)**: 19 entry-selection
+  tests; phase_4 + phase_3 + governance green; mypy clean; 0 new ruff errors. RED->GREEN proven
+  for the multi-candidate cardinal, first-wins, and BLOCKED precedence branches.
+- **CodeRabbit round-3 applied**: (1) shared lockout governor, (2) BLOCKED precedence,
+  (3) MAX applied post-scope in Conductor (router uncapped), (4) status moved here + ledger
+  trimmed, (5) fake constructors store kwargs.
+- **SEAL**: `make check` + `make test-phase4` on Oracle ARM64 from HEAD 7f4daa9a + apply patch.
+- **Then Tier-2 niagamas**: confirm Beta strikes hub AND pos, WAF-dead apex never struck.
+
+### 3. GAP-034 reachability read-model — DEFERRED = next slice
+- Read-model over EVENTS (WAF_BLOCKED/transport-fail -> per-host verdict), NOT a field on the
+  sealed `AssetProperties` (anti #6). Ranks live>dead + feeds SituationAssessor §12.58. GAP-035
+  does not depend on it (each candidate already passes its own per-host in-scope gate).
 
 ---
 
