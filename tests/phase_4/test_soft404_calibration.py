@@ -115,3 +115,64 @@ def test_two_probes_per_host() -> None:
     segs = {alpha._soft404_probe_path(_HOST, "a"), alpha._soft404_probe_path(_HOST, "b")}
     hits = [u for u in http.calls if any(seg in u for seg in segs)]
     assert len(hits) == 2, hits
+
+
+class _UnstableTokenClient:
+    """Two probes return DIFFERENT token structures (hex then UUID) → unstable token
+    count → fail-safe: NO signature stored. Exercises the len(t1) != len(t2) branch."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self._ctr = itertools.count()
+
+    def get(self, url: str, **kw: Any) -> FakeResponse:
+        self.calls.append(url)
+        path = urlparse(url).path
+        n = next(self._ctr)
+        if n == 0:
+            token = f"{n:032x}"  # hex (no dashes)
+        else:
+            h = f"{n:032x}"
+            token = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"  # UUID (dashes)
+        body = f'<meta name="csrf" content="{token}"><title>404 {path}</title>{_PAD}'
+        return FakeResponse(200, body, {"content-type": "text/html"})
+
+
+def test_unstable_token_count_stores_no_signature() -> None:
+    """Fail-safe: two probes with DIFFERENT token structures (hex vs UUID) produce
+    different token counts → no signature stored → real content never suppressed.
+    Exercises the len(t1) != len(t2) early-return branch in _calibrate_soft404."""
+    http = _UnstableTokenClient()
+    alpha, eid, store = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
+    alpha.run_recon(eid, f"https://{_HOST}/")
+    assert _HOST not in alpha._soft404_sig
+    assert _soft404_events(store, eid) == []
+
+
+def test_same_token_count_different_skeleton_not_suppressed() -> None:
+    """CARDINAL false-negative guard (same-structure variant): a body with the SAME
+    token count as the catch-all but DIFFERENT non-volatile content must NOT be
+    suppressed. The masked hash must differ because the skeleton differs — not just
+    because the structure differs. Without this, a masked-hash collision that
+    suppresses structurally-similar real content goes undetected (anti-#3)."""
+    # Build a catch-all host, then construct a same-token-count body with different
+    # non-volatile content and assert _is_soft404 returns False.
+    real = {"/": FakeResponse(200, "<html>real homepage, distinct</html>", {})}
+    http = CatchAllHttpClient(real=real, token_fmt="hex")
+    alpha, eid, _ = _build_alpha(http, domains=[_HOST], provider=_StubProvider())
+    alpha.run_recon(eid, f"https://{_HOST}/")
+    assert _HOST in alpha._soft404_sig
+
+    # Construct a body with the SAME structural shape (same token count) but different
+    # non-volatile content. The catch-all body is:
+    #   <meta name="csrf" content="<32hex>"><title>404 /<path> not found</title><PAD>
+    # Replace "404" with "500" and "not found" with "server error" — same token count,
+    # different non-volatile values → masked hash MUST differ.
+    ntok, volatile, _ = alpha._soft404_sig[_HOST]
+    fake_token = "deadbeef" * 4  # 32-hex, same length as catch-all token
+    same_struct_body = (
+        f'<meta name="csrf" content="{fake_token}">'
+        f"<title>500 /test server error</title>{_PAD}"
+    )
+    fake_resp = FakeResponse(200, same_struct_body, {"content-type": "text/html"})
+    assert alpha._is_soft404(_HOST, f"https://{_HOST}/test", fake_resp) is False
