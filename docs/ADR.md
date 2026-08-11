@@ -3614,3 +3614,76 @@ permanent guard.
    test shape.
 
 
+### 12.61 Flank-when-CF-hard — origin-discovery breadth (ACCEPTED, menu)
+
+**Date:** 2026-08-09
+**Extends:** §12.58 (operator instinct: "front hard → flank") + §12.60 (two-tier proof) +
+the banked doctrine "stop beating full-CF apex from datacenter IP; the moat = origin-exposure
+bypass; bernofarm success = find a REACHABLE non-CF surface."
+
+**Context (field pattern).** Four recent field targets — niagamas (apex full-CF), bernofarm
+(full-CF), ibudanbalita (full-CF + CloudFront), busonlineticket (Sucuri) — were all logged as
+"CF ceiling." Verified: on ibudanbalita, origin discovery yielded 0 candidates (crt.sh failed +
+CF hides origin) → Beta correctly declined (fail-closed). The proven wins (alpha-ai origin-direct,
+solusibersama Cloudways) were on targets with an EXPOSED origin/surface.
+
+**Reframe (first-principles APT).** The CF "ceiling" is NARROWER than assumed. The true ceiling
+is only **bruteing the CF edge itself** (interactive challenge-solve + IP-reputation from a
+datacenter IP = residential/mobile proxy = INFRA, correctly deferred). An operator never gedors
+the hardened front door — they FLANK. Two axes, mostly PASSIVE / datacenter-friendly:
+
+- **A. Find the ORIGIN (go around CF, not through it):**
+  1. **Historical DNS** (SecurityTrails/DNSHistory) — the A-record BEFORE CF was fronted; origin
+     IP often unchanged. HIGHEST leverage, passive. (Agent today: only crt.sh/VT/OTX — which
+     FAILED on these targets. This is the biggest missing signal.)
+  2. **Mail/MX/SPF** — mail servers usually on origin infra, not CF → origin netblock. Passive.
+  3. **Cert / favicon / title pivot** (Shodan/Censys) — search IPv4 for a host serving the
+     target's exact favicon-hash / cert / title → the origin directly. Passive (API).
+  4. **Grey-cloud / DNS-only records + forgotten subdomains** (dev/staging/cpanel/legacy) —
+     often not proxied → direct origin. (Enum exists; the filter "which is non-CF/origin" is the value.)
+- **B. Skip the perimeter (don't need the origin) — the login is reachable THROUGH CF:**
+  5. **Leaked credentials** (breach data for the org email domain) → credential-stuff the
+     CF-fronted login. Valid creds walk through CF. The #1 real-APT initial-access vector.
+  6. **Exposed secrets in public code** (org + devs' GitHub/GitLab) — API keys, DB creds, .env,
+     hardcoded origin IPs. Passive OSINT.
+  7. **Public cloud storage** (S3/GCS/Azure from org name) — often public, no CF.
+  8. **Subdomain takeover** (dangling CNAME) — passive-discoverable, claimable.
+
+**Decision.** Adopt origin-discovery/perimeter-skip breadth as the next **deterministic instinct
+territory** ("front CF-hard → flank"), built as a MENU under §12.58/§12.59 discipline:
+
+1. **One slice at a time, promotion-on-repeat.** Do NOT build all of A1–B8. Recommended order by
+   leverage: **(1) Historical DNS origin discovery** (passive, extends the moat, most likely to
+   open niagamas/bernofarm) → **(2) cert/favicon pivot** → **(3) leaked-cred stuffing** (axis B).
+2. **The moat is COMPOSITION + PROOF, not API-wrapping** (anti frustration #6). Value = orchestrate
+   the signals into a PROVEN origin-exposure chain, then hit the origin via the existing two-proof
+   binding — NOT another lookup wrapper.
+3. **Auth model unchanged (non-negotiable).** A discovered origin still requires the two proofs
+   (domain-ownership + origin-binding). Credential-stuffing requires an in-scope login + the
+   existing lockout-governor + consent. No gate softened.
+4. **§12.60 two-tier.** Each technique carries a field-shaped Tier-1 fixture + a Tier-2 field-prove
+   (re-run niagamas/bernofarm) — a technique is "done" only when it opens a real target, not a lab.
+
+**Product framing (SEA market).** For a full-CF target with NO exposed origin, the honest outcome
+is NOT "failure" — it is a **defensive-validation deliverable**: "your edge/WAF held N techniques
+from a datacenter-IP attacker; here is what WOULD expose you." Payable without a breach; answers the
+SEA market's actual question ("seberapa kuat proteksi kami"). (See the CF-ceiling honest-outcome gap.)
+
+**Rejected / guarded.**
+- **Brute the CF edge (challenge-solve, IP-rep evasion) from a datacenter IP** — deferred (INFRA
+  ceiling: residential/mobile proxy = procurement, not a code slice).
+- **Build-all origin-discovery framework up-front** — rejected (#1/#5; menu + promotion-on-repeat).
+- **Per-target hardcoded discovery** — rejected (#11; every technique universal, signals-driven).
+- **API-wrapper-as-value** — rejected (frustration #6; the moat is composition + proof).
+
+**Open questions.** (1) External-API dependency/cost policy for SecurityTrails/Shodan/Censys
+(keyless fallbacks + budget). (2) How the flank instinct composes with entry-selection + §12.58
+reprioritization (a fronted-apex host with a discovered origin should re-enter the strike frontier).
+(3) Breach-data source legality/scope for axis-B leaked-cred stuffing.
+
+**Cardinal (first slice — historical DNS).** GIVEN a full-CF apex whose crt.sh yields nothing but
+whose historical A-record points at a still-live origin IP, WHEN origin discovery runs, THEN the
+historical IP is surfaced as a candidate and (two-proof-bound) becomes strike-reachable — proven on
+a real full-CF target (Tier-2), not a lab.
+
+
