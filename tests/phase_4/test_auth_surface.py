@@ -116,6 +116,21 @@ def test_basic_auth_requires_basic_challenge() -> None:
 # ── GAP-030 expanded: WWW-Authenticate scheme discrimination ────────────────────
 
 
+def test_401_multiple_challenges_bearer_then_basic() -> None:
+    """Server advertises both Bearer and Basic in one header — BOTH labels emitted."""
+    hdr = {"WWW-Authenticate": 'Bearer, Basic realm="restricted"'}
+    labels = detect_auth_surface_labels(status_code=401, headers=hdr, body="")
+    assert "token_auth" in labels
+    assert "http_basic_auth" in labels
+
+
+def test_401_comma_in_realm_not_split() -> None:
+    """realm="x,y" — comma inside quoted string must NOT split schemes."""
+    hdr = {"WWW-Authenticate": 'Basic realm="x,y"'}
+    labels = detect_auth_surface_labels(status_code=401, headers=hdr, body="")
+    assert labels == ["http_basic_auth"]
+
+
 def test_401_bearer_is_token_auth_not_basic() -> None:
     hdr = {"WWW-Authenticate": "Bearer"}
     assert detect_auth_surface_labels(status_code=401, headers=hdr, body="") == ["token_auth"]

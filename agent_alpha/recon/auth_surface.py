@@ -58,6 +58,38 @@ def _body_is_json(headers: Mapping[str, str], body: str) -> bool:
     return stripped[:1] in ("{", "[")
 
 
+def _parse_www_authenticate_schemes(headers: Mapping[str, str]) -> list[str]:
+    """Extract all WWW-Authenticate scheme tokens from response headers.
+
+    Handles comma-joined single-header form (legacy). Comma inside quoted strings
+    (realm="x,y") is NOT split. Mapping[str, str] already flattens separate headers.
+    """
+    raw_values = [v for k, v in headers.items() if k.lower() == "www-authenticate"]
+    schemes: list[str] = []
+    for raw in raw_values:
+        parts: list[str] = []
+        current = ""
+        in_quote = False
+        for ch in raw:
+            if ch in ('"', "'"):
+                in_quote = not in_quote
+            if ch == "," and not in_quote:
+                parts.append(current.strip())
+                current = ""
+            else:
+                current += ch
+        if current.strip():
+            parts.append(current.strip())
+        for part in parts:
+            scheme = part.split(None, 1)[0].lower() if part else ""
+            # Skip parts that are parameters of the previous challenge (e.g.
+            # nonce="y" after Digest realm="x",). A valid scheme token is a
+            # bare word that is NOT a key=value pair.
+            if scheme and "=" not in part.split(None, 1)[0]:
+                schemes.append(scheme)
+    return schemes
+
+
 def detect_auth_surface_labels(
     *, status_code: int, headers: Mapping[str, str], body: str
 ) -> list[str]:
@@ -79,10 +111,12 @@ def detect_auth_surface_labels(
     # ── Auth-challenge classification (GAP-030): discriminate by WWW-Authenticate
     #    scheme. A bare 401 without a Basic challenge is NOT assumed basic-auth —
     #    that false positive would route a basic-auth strike at a token/api surface.
-    www_auth = next((v for k, v in headers.items() if k.lower() == "www-authenticate"), None)
-    if www_auth is not None:
-        scheme = www_auth.strip().split(None, 1)[0].lower() if www_auth.strip() else ""
-        labels.append(_WWW_AUTH_SCHEME.get(scheme, UNKNOWN_AUTH))
+    #    Multiple WWW-Authenticate challenges (RFC 7235) are ALL parsed — a server
+    #    may advertise "Bearer, Basic" and both labels are emitted.
+    www_auth_schemes = _parse_www_authenticate_schemes(headers)
+    if www_auth_schemes:
+        for scheme in www_auth_schemes:
+            labels.append(_WWW_AUTH_SCHEME.get(scheme, UNKNOWN_AUTH))
     elif status_code == 401:
         # 401 with no challenge header: JSON body => api_auth, else unknown_auth.
         labels.append(API_AUTH if _body_is_json(headers, body) else UNKNOWN_AUTH)
