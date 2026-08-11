@@ -70,6 +70,7 @@ from agent_alpha.config.constants import (
 )
 from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build_event_store
 from agent_alpha.events.event_types import EventType
+from agent_alpha.events.reachability import unreachable_hosts
 from agent_alpha.events.store import TransientStoreError
 from agent_alpha.events.trace import project_engagement_trace
 from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
@@ -570,8 +571,12 @@ def run_agent_task(
                         event_store=target_store,
                         engagement_id=engagement_id,
                     )
+                # GAP-034: demote strike-dead hosts (HOST_ABANDONED) so the
+                # bounded budget prefers reachable auth-surfaces.
                 strike_entry_selection = select_strike_entry(
-                    graph_store, default_target=record.target
+                    graph_store,
+                    default_target=record.target,
+                    unreachable_hosts=unreachable_hosts(target_store.get_events(engagement_id)),
                 )
                 strike_entry = strike_entry_selection.selected_entry
                 # Emit observability event BEFORE building applicators + running strike

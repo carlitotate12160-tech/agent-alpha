@@ -51,6 +51,8 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "ranked_entries": ("conductor/main.py",),
     "STRIKE_CANDIDATE_ATTEMPTED": ("conductor/main.py",),
     "STRIKE_CANDIDATE_SKIPPED": ("conductor/main.py",),
+    # GAP-034: reachability read-model consumed on the live entry-selection path.
+    "unreachable_hosts": ("conductor/main.py",),
     "wp_fingerprint": (
         "agents/alpha/scout.py",
     ),  # WP battery auto-seeds from fingerprint (PR #274 wiring)

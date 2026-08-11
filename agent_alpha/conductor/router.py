@@ -114,7 +114,12 @@ def has_web_auth_surface(graph_store: Any) -> bool:
     return False
 
 
-def select_strike_entry(graph_store: Any, *, default_target: str) -> StrikeEntrySelection:
+def select_strike_entry(
+    graph_store: Any,
+    *,
+    default_target: str,
+    unreachable_hosts: frozenset[str] = frozenset(),
+) -> StrikeEntrySelection:
     parsed_default = urlparse(default_target)
     label_priority = tuple(sorted(_AUTH_SURFACE_LABELS))
     rank_by_label = {label: idx for idx, label in enumerate(label_priority)}
@@ -150,7 +155,11 @@ def select_strike_entry(graph_store: Any, *, default_target: str) -> StrikeEntry
             candidates_considered=(),
         )
 
-    candidates.sort(key=lambda item: (item[0], item[1]))
+    # GAP-034: reachability is the primary sort key — hosts Alpha ABANDONED
+    # (HOST_ABANDONED) sink below live ones so the bounded strike budget is not
+    # spent on a strike-dead host. Demote (not delete): a dead host stays a
+    # last-resort candidate. WAF_BLOCKED is NOT dead (origin-bypass target).
+    candidates.sort(key=lambda item: (item[1] in unreachable_hosts, item[0], item[1]))
     winner = candidates[0]
     # Full ranked list (NOT capped here). The MAX_STRIKE_CANDIDATES budget is
     # applied by the Conductor AFTER its scope gate (#3) — the router cannot see
