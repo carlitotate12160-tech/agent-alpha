@@ -198,6 +198,11 @@ class Alpha:
         # cost of one skipped live host << 12× waste per dead host. No retries here.
         # The challenge-skip instinct (anti #6/#7) will populate this SAME set later.
         self._dead_hosts: set[str] = set()
+        # GAP-037: hosts that succeeded transport at least once this run, and the
+        # consecutive-transport-failure counter used to detect a mid-run egress block.
+        self._host_ok: set[str] = set()
+        self._consecutive_transport_fail: int = 0
+        self._egress_blocked: bool = False
 
     # ── Public entry point ──────────────────────────────────────
 
@@ -243,6 +248,9 @@ class Alpha:
         self._host_stack = {}
         self._organic_crawl_count = {}
         self._dead_hosts = set()
+        self._host_ok = set()
+        self._consecutive_transport_fail = 0
+        self._egress_blocked = False
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -317,6 +325,7 @@ class Alpha:
         """
         out = self._step_once(context)
         out.setdefault("work_remaining", len(self._work_queue))
+        out.setdefault("egress_blocked", self._egress_blocked)
         return out
 
     def _decide(self, observation: dict[str, Any]) -> Any:
@@ -417,7 +426,27 @@ class Alpha:
                 self._emit("OBSERVE", f"{host} root unreachable → abandon its queue")
             else:
                 self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
+            # GAP-037: count failures ONLY on hosts we were already reaching. A
+            # brand-new dead host (never in _host_ok) is GAP-029's job, not a block.
+            if host in self._host_ok:
+                self._consecutive_transport_fail += 1
+                if (
+                    self._consecutive_transport_fail >= constants.EGRESS_BLOCK_THRESHOLD
+                    and not self._egress_blocked
+                ):
+                    self._egress_blocked = True
+                    self._persist_egress_blocked_event(host)
+                    self._emit(
+                        "OBSERVE",
+                        f"{self._consecutive_transport_fail} consecutive timeouts on "
+                        f"reached hosts -> egress IP blocked; aborting run",
+                    )
             return _finish(0, 0.0, f"OBSERVE: {url} unreachable")
+
+        # GAP-037: transport worked -> host reachable; reset counter, remember host.
+        _ok_host = urlparse(url).hostname or urlparse(url).netloc
+        self._host_ok.add(_ok_host)
+        self._consecutive_transport_fail = 0
 
         # Classify the response through the ONE canonical classifier so a WAF/CF
         # block on ANY recon path is recorded as evidence and never dressed as
@@ -2146,6 +2175,21 @@ class Alpha:
                 "host": host,
                 "reason": "transport_unreachable",
                 "trigger": "root_probe",
+            },
+        )
+
+    def _persist_egress_blocked_event(self, host: str) -> None:
+        """Append-only audit: egress IP blocked mid-run (transport failures piling
+        up on already-reached hosts). Mirrors _persist_host_abandoned_event -- same
+        event_store path (anti-#7). GAP-037."""
+        self.event_store.append(
+            EventType.EGRESS_BLOCKED,
+            self._engagement_id,
+            "alpha",
+            {
+                "host": host,
+                "consecutive_failures": self._consecutive_transport_fail,
+                "reason": "egress_ip_blocked",
             },
         )
 

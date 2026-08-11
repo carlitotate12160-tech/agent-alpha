@@ -61,6 +61,7 @@ class StopReason(enum.Enum):
     TIME_BUDGET = "time_budget"
     COST_BUDGET = "cost_budget"
     NO_PROGRESS = "no_progress"
+    EGRESS_BLOCKED = "egress_blocked"
     GOAL_COMPLETED = "goal_completed"
 
 
@@ -217,6 +218,15 @@ def run_cognitive_loop(
         total_nodes_discovered += discovered
         # Un-probed frontier size reported by the agent (0 if it does not report).
         work_remaining = int(result.get("work_remaining", 0) or 0)
+
+        # GAP-037: agent detected its egress IP is blocked mid-run -> abort now.
+        # Firing more 30s-timeout probes into a black hole is pure waste. Consent-free.
+        if result.get("egress_blocked"):
+            return LoopOutcome(
+                stop_reason=StopReason.EGRESS_BLOCKED,
+                iterations_run=iteration,
+                nodes_discovered=total_nodes_discovered,
+            )
 
         # GOAL_COMPLETED is VERIFIED by the loop via the typed objective against
         # the graph — NEVER self-reported by the agent (anti false-success). It
