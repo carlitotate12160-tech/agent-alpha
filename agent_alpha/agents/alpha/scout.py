@@ -2241,7 +2241,7 @@ class Alpha:
         t1, t2 = samples
         if len(t1) != len(t2):
             return
-        volatile = frozenset(i for i, (a, b) in enumerate(zip(t1, t2)) if a != b)
+        volatile = frozenset(i for i, (a, b) in enumerate(zip(t1, t2, strict=False)) if a != b)
         self._soft404_sig[host] = (
             len(t1),
             volatile,
