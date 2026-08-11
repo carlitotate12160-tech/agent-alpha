@@ -1544,7 +1544,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-034 — Entry-selection has no node-level reachability signal
 
-- **Status**: DEFERRED = next slice after GAP-035. Design/status → docs/Session_Handoff.md.
+- **Status**: BUILT 2026-08-11 (HOST_ABANDONED-only demote read-model; WAF_BLOCKED NOT excluded). Detail → docs/Session_Handoff.md.
 - **What**: `select_strike_entry` (conductor/router.py) picks Beta's entry_point by
   auth-surface-label presence on ASSET nodes (reuses `_AUTH_SURFACE_LABELS`). Label
   presence is used as a *reachability proxy* — you cannot fingerprint `http_basic_auth` /

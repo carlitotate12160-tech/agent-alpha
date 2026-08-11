@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 import pytest
 
 from agent_alpha.a2a import a2a_pb2
@@ -11,6 +13,8 @@ from agent_alpha.conductor.router import (
     select_strike_entry,
 )
 from agent_alpha.config.constants import MAX_STRIKE_CANDIDATES
+from agent_alpha.events.event_types import EventType
+from agent_alpha.events.reachability import unreachable_hosts
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import AssetProperties, AttackNode, NodeType, node_to_dict
@@ -702,3 +706,59 @@ def test_out_of_scope_ranked_above_does_not_starve_in_scope(
         if e.event_type == "StrikeCandidateSkipped"
     ]
     assert {e.payload["host"] for e in skipped} == set(oos)
+
+
+# ── GAP-034: reachability read-model demotes strike-dead hosts ──────────────────
+
+
+def test_gap034_unreachable_hosts_only_from_host_abandoned() -> None:
+    """CARDINAL product decision: ONLY HOST_ABANDONED marks a host strike-dead.
+    WAF_BLOCKED does NOT (it is the origin-bypass target — the moat)."""
+    store = InMemoryEventStore()
+    store.append(EventType.HOST_ABANDONED, "e", "alpha", {"host": "dead.example"})
+    store.append(EventType.WAF_BLOCKED, "e", "alpha", {"host": "waf.example"})
+
+    assert unreachable_hosts(store.get_events("e")) == frozenset({"dead.example"})
+
+
+def test_gap034_demotes_abandoned_host_below_live() -> None:
+    """A dead host with a HIGHER-priority label must rank BELOW a live host with a
+    lower-priority label once reachability is applied (demote, not delete)."""
+    graph = _graph_with_assets(("dead.example", ["admin"]), ("live.example", ["http_basic_auth"]))
+
+    # Baseline (no reachability): admin outranks http_basic_auth -> dead wins.
+    base = select_strike_entry(graph, default_target=_DEF_TARGET)
+    assert base.selected_entry == "https://dead.example/"
+
+    # With reachability: dead demoted -> live wins, dead kept as last-resort.
+    result = select_strike_entry(
+        graph, default_target=_DEF_TARGET, unreachable_hosts=frozenset({"dead.example"})
+    )
+    assert result.selected_entry == "https://live.example/"
+    assert [c.host for c in result.ranked_entries] == ["live.example", "dead.example"]
+
+
+def test_gap034_abandoned_host_demoted_out_of_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Integration: a dead-but-high-label in-scope host must NOT consume a strike slot
+    when MAX live surfaces exist. RED without GAP-034 (dead 'admin' ranks first)."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    record = auth.create_engagement(client_id="client-1", target=_DEF_TARGET)
+    live = [f"z{i}.example" for i in range(MAX_STRIKE_CANDIDATES)]
+    dead = "a-dead.example"  # sorts first alphabetically + highest-priority label below
+    auth.enable_recon(
+        record.engagement_id, Scope(ip_ranges=[], domains=live + [dead], exclusions=[])
+    )
+    auth.enable_active(record.engagement_id)
+    _seed(store, record.engagement_id, (dead, ["admin"]), *[(h, ["http_basic_auth"]) for h in live])
+    store.append(EventType.HOST_ABANDONED, record.engagement_id, "alpha", {"host": dead})
+
+    struck: list[str] = []
+    _patch_conductor(monkeypatch, store, _complete_beta(struck))
+
+    conductor_main.run_agent_task.run(record.engagement_id, None, a2a_pb2.BETA)
+
+    struck_hosts = {urlparse(u).hostname for u in struck}
+    assert dead not in struck_hosts  # demoted out of the MAX budget
+    assert len(struck) == MAX_STRIKE_CANDIDATES
+    assert struck_hosts == set(live)

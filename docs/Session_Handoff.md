@@ -85,10 +85,18 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 - **SEAL**: `make check` + `make test-phase4` on Oracle ARM64 from HEAD 7f4daa9a + apply patch.
 - **Then Tier-2 niagamas**: confirm Beta strikes hub AND pos, WAF-dead apex never struck.
 
-### 3. GAP-034 reachability read-model — DEFERRED = next slice
-- Read-model over EVENTS (WAF_BLOCKED/transport-fail -> per-host verdict), NOT a field on the
-  sealed `AssetProperties` (anti #6). Ranks live>dead + feeds SituationAssessor §12.58. GAP-035
-  does not depend on it (each candidate already passes its own per-host in-scope gate).
+### 3. GAP-034 reachability read-model — BUILT 2026-08-11 (on top of GAP-035)
+- `events/reachability.py::unreachable_hosts(events) -> frozenset[str]` — pure read-model over
+  the event store. NOT a field on the sealed `AssetProperties` (anti #6).
+- **Product decision (locked)**: ONLY `HOST_ABANDONED` marks a host strike-dead. `WAF_BLOCKED`
+  does NOT — it is the origin-exposure-bypass target (the moat); demoting it would sabotage the
+  core value. (Corrects an earlier loose note that said WAF_BLOCKED excludes.)
+- `select_strike_entry(..., unreachable_hosts=...)` — reachability is the PRIMARY sort key;
+  dead hosts DEMOTED (not deleted) below live ones, so the MAX_STRIKE_CANDIDATES budget prefers
+  reachable surfaces. Conductor computes the set from `target_store` and passes it (router stays pure).
+- Wired in `test_wiring_gate.py` (`unreachable_hosts` -> conductor/main.py). Feeds SituationAssessor §12.58 later.
+- **Verified (3.12.13)**: 22 entry-selection tests; RED-proven (dead host consumes a slot without demote).
+  SEAL = `make check` + `make test-phase4` on Oracle.
 
 ---
 
