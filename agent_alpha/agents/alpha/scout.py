@@ -21,7 +21,7 @@ import re
 import uuid
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.base import BoundedAutonomy, StopReason, run_cognitive_loop
@@ -173,6 +173,10 @@ class Alpha:
         self._analyzable_probes: int = 0
         self._ran_campaigns: set[str] = set()
         self._body_hashes: set[str] = set()
+        # GAP-044: per-host soft-404 (catch-all) detection. FAIL-SAFE: a host WITHOUT
+        # a catch-all gets no signature -> nothing is ever suppressed (anti-#3).
+        self._soft404_sig: dict[str, str] = {}
+        self._soft404_calibrated: set[str] = set()
         self._current_objective: Any = None
         self._try_harder_fired: bool = False
         self._reach_attempted: set[str] = set()
@@ -239,6 +243,8 @@ class Alpha:
         self._analyzable_probes = 0
         self._ran_campaigns = set()
         self._body_hashes = set()
+        self._soft404_sig = {}
+        self._soft404_calibrated = set()
         self._current_objective = None
         self._try_harder_fired = False
         self._reach_attempted = set()
@@ -488,6 +494,24 @@ class Alpha:
                 "origin rejection, not the target's content",
             )
             return _finish(0, 0.0, f"OBSERVE: {url} unsupported media type")
+
+        # ── GAP-044: soft-404 (catch-all) suppression (fail-safe) ──────────────
+        _s404_host = urlparse(url).hostname or urlparse(url).netloc
+        if resp.status_code == 200:
+            self._calibrate_soft404(_s404_host, urlparse(url))
+            if self._is_soft404(_s404_host, url, resp):
+                self._emit(
+                    "OBSERVE",
+                    f"{url} matches {_s404_host} soft-404 catch-all signature — "
+                    "non-analyzable (anti false-positive finding)",
+                )
+                self.event_store.append(
+                    EventType.PASSIVE_DISCOVERY,
+                    self._engagement_id,
+                    "alpha",
+                    {"url": url, "reason": "soft_404_catch_all", "host": _s404_host},
+                )
+                return _finish(0, 0.0, f"OBSERVE: {url} soft-404 catch-all")
 
         # ── ORIENT / PLAN ───────────────────────────────────────
         observation: dict[str, Any] = {
@@ -2170,6 +2194,59 @@ class Alpha:
                 "trigger": "root_probe",
             },
         )
+
+    # ── GAP-044: soft-404 catch-all calibration (deterministic, fail-safe) ──────
+    def _soft404_probe_path(self, host: str) -> str:
+        """Deterministic-per-(engagement, host) random-looking probe path: seeded-replay
+        stable AND unpredictable to the target."""
+        return hashlib.sha256(
+            f"{self._engagement_id}:{host}:soft404".encode()
+        ).hexdigest()[:32]
+
+    def _soft404_strip(self, url: str, body: str) -> str:
+        """Neutralise per-URL reflected tokens so two catch-all pages for DIFFERENT
+        missing paths compare equal."""
+        p = urlparse(url)
+        out = body
+        for tok in (url, p.path, unquote(p.path), p.netloc):
+            if tok:
+                out = out.replace(tok, "\u00a7")
+        return out
+
+    def _soft404_signature(self, url: str, body: str) -> str:
+        """Body-ONLY, path-stripped signature (ignores headers/content-type, which a
+        catch-all varies per extension)."""
+        return hashlib.sha256(self._soft404_strip(url, body).encode("utf-8")).hexdigest()
+
+    def _calibrate_soft404(self, host: str, parsed: Any) -> None:
+        """ONCE per host: probe a guaranteed-missing random path. 200 -> the host has a
+        catch-all -> store its path-stripped body signature. FAIL-SAFE: a transport error
+        or a proper 404/redirect stores NO signature (zero false-negative risk)."""
+        if host in self._soft404_calibrated:
+            return
+        self._soft404_calibrated.add(host)
+        probe_url = f"{parsed.scheme}://{parsed.netloc}/{self._soft404_probe_path(host)}"
+        try:
+            probe = self.http_client.get(probe_url)
+        except HttpClientError:
+            return
+        if getattr(probe, "status_code", 0) == 200:
+            self._soft404_sig[host] = self._soft404_signature(
+                probe_url, getattr(probe, "text", "") or ""
+            )
+            self._emit(
+                "OBSERVE",
+                f"{host} answers a random missing path with 200 -> soft-404 catch-all "
+                "calibrated; findings on this host now require a distinct body (anti-#3)",
+            )
+
+    def _is_soft404(self, host: str, url: str, resp: Any) -> bool:
+        """True iff *resp* matches the host's calibrated catch-all signature. False when
+        the host has no signature -> fail-safe: real content is never suppressed."""
+        sig = self._soft404_sig.get(host)
+        if sig is None:
+            return False
+        return self._soft404_signature(url, getattr(resp, "text", "") or "") == sig
 
     def _note_transport_ok(self, host: str) -> None:
         """GAP-037: a transport success on *host* -- mark it reachable and reset the
