@@ -119,21 +119,28 @@ def test_two_probes_per_host() -> None:
 
 class _UnstableTokenClient:
     """Two probes return DIFFERENT token structures (hex then UUID) → unstable token
-    count → fail-safe: NO signature stored. Exercises the len(t1) != len(t2) branch."""
+    count → fail-safe: NO signature stored. Exercises the len(t1) != len(t2) branch.
+
+    The first unknown-path GET returns a hex token (no dashes); the second returns a
+    UUID token (with dashes). Since the homepage is fetched BEFORE calibration, we
+    use a call counter that starts at the first CATCH-ALL response (not the homepage)."""
 
     def __init__(self) -> None:
         self.calls: list[str] = []
-        self._ctr = itertools.count()
+        self._catchall_ctr = itertools.count()
 
     def get(self, url: str, **kw: Any) -> FakeResponse:
         self.calls.append(url)
         path = urlparse(url).path
-        n = next(self._ctr)
+        # Homepage (path="/") gets a stable hex token — it's not a probe.
+        if path == "/":
+            return FakeResponse(200, "<html>real homepage</html>", {})
+        n = next(self._catchall_ctr)
         if n == 0:
-            token = f"{n:032x}"  # hex (no dashes)
+            token = f"{n:032x}"  # hex (no dashes) — probe a
         else:
             h = f"{n:032x}"
-            token = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"  # UUID (dashes)
+            token = f"{h[:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:]}"  # UUID — probe b
         body = f'<meta name="csrf" content="{token}"><title>404 {path}</title>{_PAD}'
         return FakeResponse(200, body, {"content-type": "text/html"})
 
