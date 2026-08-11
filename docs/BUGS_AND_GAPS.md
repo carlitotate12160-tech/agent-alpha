@@ -1544,7 +1544,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-034 — Entry-selection has no node-level reachability signal
 
-- **Status**: DEFERRED (registered from entry-selection slice-1; do NOT build in slice-1).
+- **Status**: DEFERRED = next slice after GAP-035. Design/status → docs/Session_Handoff.md.
 - **What**: `select_strike_entry` (conductor/router.py) picks Beta's entry_point by
   auth-surface-label presence on ASSET nodes (reuses `_AUTH_SURFACE_LABELS`). Label
   presence is used as a *reachability proxy* — you cannot fingerprint `http_basic_auth` /
@@ -1569,7 +1569,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-035 — Entry-selection strikes ONE candidate; multi-surface not iterated
 
-- **Status**: DEFERRED (entry-selection slice-2; do NOT build in slice-1).
+- **Status**: BUILT FRESH 2026-08-11 (own slice; multi-candidate dispatch loop). Build/status/seal detail → docs/Session_Handoff.md.
 - **What**: `select_strike_entry` returns a SINGLE best entry_point, and Beta's `run_strike`
   contract is single-entry_point. When a target exposes MORE than one in-scope auth surface
   (e.g. `hub` 401 basic-auth AND `pos` login-form), only the top-ranked one is struck; the

@@ -13,6 +13,7 @@ import secrets as stdlib_secrets
 from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Annotated, Any
+from urllib.parse import urlparse
 
 from celery import Celery
 from celery.exceptions import SoftTimeLimitExceeded
@@ -64,6 +65,7 @@ from agent_alpha.config.constants import (
     CELERY_TASK_HARD_LIMIT_SEC,
     CELERY_TASK_MAX_RETRIES,
     CELERY_TASK_SOFT_LIMIT_SEC,
+    MAX_STRIKE_CANDIDATES,
     SOW_MAX_FILE_SIZE_MB,
 )
 from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build_event_store
@@ -86,6 +88,7 @@ from agent_alpha.security.secrets import (
     SecretsVault,
     get_profile_signing_key,
 )
+from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
 from agent_alpha.tools.playbook import PlaybookEngine
 
 _log = logging.getLogger(__name__)
@@ -583,37 +586,110 @@ def run_agent_task(
                         "candidates_considered": strike_entry_selection.candidates_considered,
                     },
                 )
-                candidates = beta_web_applicators(beta_http)
-                applicators = build_applicators_for_engagement(
-                    engagement_id=engagement_id,
-                    auth=auth,
-                    graph_store=graph_store,
-                    web_target=strike_entry,
-                    candidates=candidates,
-                )
-                beta = Beta(
-                    authorization=auth,
-                    graph_store=graph_store,
-                    event_store=target_store,
-                    orchestrator=orchestrator,
-                    http_client=beta_http,
-                    secrets_manager=task_secrets,
-                    cred_applicators=applicators,
-                    session_store=session_store,
-                )
+                applicator_candidates = beta_web_applicators(beta_http)
+                # GAP-035: strike EVERY in-scope ranked auth-surface, not just the top
+                # one. The loop lives HERE at the dispatch seam — Beta's single-entry
+                # run_strike contract is untouched (anti #8/#10). Fallback (no ranked
+                # auth-surface) -> single default entry, back-compat.
+                ranked_candidates = strike_entry_selection.ranked_entries
 
                 def run_beta() -> ExecOutcome:
-                    handoff_msg = beta.run_strike(engagement_id, strike_entry)
-                    handoff_payload = a2a_pb2.HandoffPayload()
-                    handoff_payload.ParseFromString(handoff_msg.payload)
-                    if handoff_payload.status == a2a_pb2.COMPLETE:
-                        verify_access_nodes(graph_store, target_store, engagement_id)
+                    if ranked_candidates:
+                        plan = [(c.entry_url, c.host) for c in ranked_candidates]
+                    else:
+                        plan = [
+                            (
+                                strike_entry,
+                                urlparse(strike_entry).hostname or urlparse(strike_entry).netloc,
+                            )
+                        ]
+
+                    # #1: ONE credential-lockout governor for the whole engagement
+                    # (§12.22 D2). Shared across every candidate so the failed-login
+                    # budget is engagement-wide, NOT reset per candidate.
+                    engagement_lockout = CredentialLockoutGovernor()
+
+                    # #3: MAX_STRIKE_CANDIDATES caps IN-SCOPE strikes. Router returns the
+                    # full ranked list; the Conductor scope gate runs FIRST, then we stop
+                    # after MAX in-scope candidates — so out-of-scope entries ranked high
+                    # never consume the budget and starve in-scope surfaces.
+                    complete_next: int | None = None
+                    blocked_next: int | None = None
+                    struck = 0
+                    for entry_url, host in plan:
+                        if struck >= MAX_STRIKE_CANDIDATES:
+                            break
+                        # Per-host authoritative in-scope gate (stays in Conductor).
+                        if host and not auth.is_in_scope(engagement_id, host):
+                            target_store.append(
+                                event_type=EventType.STRIKE_CANDIDATE_SKIPPED,
+                                engagement_id=engagement_id,
+                                agent="CONDUCTOR",
+                                payload={
+                                    "entry": entry_url,
+                                    "host": host,
+                                    "reason": "out_of_scope",
+                                },
+                            )
+                            continue
+                        target_store.append(
+                            event_type=EventType.STRIKE_CANDIDATE_ATTEMPTED,
+                            engagement_id=engagement_id,
+                            agent="CONDUCTOR",
+                            payload={"entry": entry_url, "host": host},
+                        )
+                        applicators = build_applicators_for_engagement(
+                            engagement_id=engagement_id,
+                            auth=auth,
+                            graph_store=graph_store,
+                            web_target=entry_url,
+                            candidates=applicator_candidates,
+                            lockout=engagement_lockout,
+                        )
+                        beta = Beta(
+                            authorization=auth,
+                            graph_store=graph_store,
+                            event_store=target_store,
+                            orchestrator=orchestrator,
+                            http_client=beta_http,
+                            secrets_manager=task_secrets,
+                            cred_applicators=applicators,
+                            session_store=session_store,
+                        )
+                        handoff_msg = beta.run_strike(engagement_id, entry_url)
+                        handoff_payload = a2a_pb2.HandoffPayload()
+                        handoff_payload.ParseFromString(handoff_msg.payload)
+                        struck += 1
+                        if handoff_payload.status == a2a_pb2.COMPLETE:
+                            verify_access_nodes(graph_store, target_store, engagement_id)
+                            # First COMPLETE (highest-ranked surface) drives the chain.
+                            if complete_next is None:
+                                complete_next = handoff_payload.next_recommended
+                        elif handoff_payload.status == a2a_pb2.BLOCKED:
+                            if blocked_next is None:
+                                blocked_next = handoff_payload.next_recommended
+
+                    if struck == 0:
+                        return ExecOutcome(
+                            status=a2a_pb2.FAILED,
+                            next_recommended=a2a_pb2.OMEGA,
+                            reason="beta_no_in_scope_candidate",
+                        )
+                    # #2: status precedence COMPLETE > BLOCKED > FAILED. BLOCKED must
+                    # survive (execute_agent suppresses advance on BLOCKED) — never
+                    # collapse an all-blocked run into FAILED.
+                    if complete_next is not None:
+                        return ExecOutcome(
+                            status=a2a_pb2.COMPLETE, next_recommended=complete_next, reason="ok"
+                        )
+                    if blocked_next is not None:
+                        return ExecOutcome(
+                            status=a2a_pb2.BLOCKED,
+                            next_recommended=blocked_next,
+                            reason="beta_blocked",
+                        )
                     return ExecOutcome(
-                        status=handoff_payload.status,
-                        next_recommended=handoff_payload.next_recommended,
-                        reason="ok"
-                        if handoff_payload.status == a2a_pb2.COMPLETE
-                        else "beta_failed",
+                        status=a2a_pb2.FAILED, next_recommended=a2a_pb2.OMEGA, reason="beta_failed"
                     )
 
                 return run_beta

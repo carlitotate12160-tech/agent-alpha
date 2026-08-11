@@ -56,6 +56,19 @@ _AUTH_SURFACE_LABELS: frozenset[str] = frozenset(
 
 
 @dataclass(frozen=True)
+class StrikeCandidate:
+    """One ranked auth-surface Beta may strike (GAP-035 multi-candidate).
+
+    ``host`` is the already-normalised ASSET host used for the per-host in-scope
+    gate at the dispatch seam — the caller does NOT re-parse the URL.
+    """
+
+    entry_url: str
+    host: str
+    matched_label: str | None
+
+
+@dataclass(frozen=True)
 class StrikeEntrySelection:
     """Result of select_strike_entry — URL + observability metadata."""
 
@@ -63,6 +76,10 @@ class StrikeEntrySelection:
     matched_label: str | None
     fallback_to_default: bool
     candidates_considered: tuple[str, ...]
+    # GAP-035: full ranked candidate list (best-first, NOT capped — the Conductor
+    # caps in-scope strikes at MAX_STRIKE_CANDIDATES after its scope gate, #3).
+    # selected_entry stays == ranked_entries[0].entry_url for back-compat.
+    ranked_entries: tuple[StrikeCandidate, ...] = ()
 
 
 # ── Graph predicates (pure reads, no side effects) ─────────────────────────────
@@ -135,11 +152,18 @@ def select_strike_entry(graph_store: Any, *, default_target: str) -> StrikeEntry
 
     candidates.sort(key=lambda item: (item[0], item[1]))
     winner = candidates[0]
+    # Full ranked list (NOT capped here). The MAX_STRIKE_CANDIDATES budget is
+    # applied by the Conductor AFTER its scope gate (#3) — the router cannot see
+    # scope, so capping by rank here could starve in-scope surfaces ranked > MAX.
+    ranked_entries = tuple(
+        StrikeCandidate(entry_url=c[2], host=c[1], matched_label=c[3]) for c in candidates
+    )
     return StrikeEntrySelection(
         selected_entry=winner[2],
         matched_label=winner[3],
         fallback_to_default=False,
         candidates_considered=tuple(c[1] for c in candidates),
+        ranked_entries=ranked_entries,
     )
 
 

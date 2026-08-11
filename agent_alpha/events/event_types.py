@@ -82,6 +82,15 @@ class EventType(enum.StrEnum):
     # candidates_considered}. Emitted BEFORE build_applicators + run_strike so the audit
     # precedes the action.
 
+    # ── Phase 4 (GAP-035 multi-candidate entry-selection) ─────────
+    STRIKE_CANDIDATE_ATTEMPTED = "StrikeCandidateAttempted"
+    # ^ Conductor dispatched Beta at ONE ranked auth-surface candidate. Carries
+    # {entry, host}. One event per in-scope candidate struck — this is the per-host
+    # audit line proving the dispatch loop iterated (answers "agent repeats 2x").
+    STRIKE_CANDIDATE_SKIPPED = "StrikeCandidateSkipped"
+    # ^ Conductor skipped a ranked candidate that failed the per-host in-scope gate.
+    # Carries {entry, host, reason}. The authoritative scope gate stays in Conductor.
+
     # ── Phase 2.5 (passive recon — R2 subdomain discovery) ────────
     PASSIVE_DISCOVERY = "PassiveDiscovery"
     # ^ PassiveDiscovery.discover(): one event per passive crt.sh run.

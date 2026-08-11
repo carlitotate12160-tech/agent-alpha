@@ -639,3 +639,9 @@ ODOO_DBMANAGER_EXPOSURE_CVSS: float = 7.5
 # Only counts failures on hosts that previously succeeded, so it never fires on
 # many-dead-from-start subdomains (that is GAP-029's job). Single source (anti-#7).
 EGRESS_BLOCK_THRESHOLD: int = 5
+
+# GAP-035: entry-selection strikes EVERY in-scope auth-surface, bounded to avoid
+# Celery queue sprawl. When a target exposes multiple in-scope login surfaces
+# (e.g. hub 401 basic-auth AND pos login-form), Beta is dispatched once per
+# ranked candidate up to this cap. Single source (anti #7).
+MAX_STRIKE_CANDIDATES: int = 3

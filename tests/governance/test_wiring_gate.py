@@ -42,8 +42,15 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "PolicyEnforcer": ("conductor/advance.py",),  # OPSEC/blast-radius gate (GAP-005)
     "calculate_blast_radius": ("conductor/blast_gate.py",),  # Blast-radius evaluation (GAP-006)
     "engagement_profile": ("conductor/main.py",),  # §12.36: signed profile reaches Conductor
-    "select_strike_entry": ("conductor/main.py",),  # entry-selection: Beta strikes reachable auth-surface
+    "select_strike_entry": (
+        "conductor/main.py",
+    ),  # entry-selection: Beta strikes reachable auth-surface
     "STRIKE_ENTRY_SELECTED": ("conductor/main.py",),  # entry-selection observability event
+    # GAP-035 multi-candidate: consumed on the live dispatch path in main.py
+    # (NOT router.py — that is the definition; wiring = consumption on live path).
+    "ranked_entries": ("conductor/main.py",),
+    "STRIKE_CANDIDATE_ATTEMPTED": ("conductor/main.py",),
+    "STRIKE_CANDIDATE_SKIPPED": ("conductor/main.py",),
     "wp_fingerprint": (
         "agents/alpha/scout.py",
     ),  # WP battery auto-seeds from fingerprint (PR #274 wiring)
@@ -100,7 +107,6 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
         "recon/origin_resolver.py",
     ),  # GAP-018: LiveOriginDiscovery.candidates() seeds in-scope domains → discover_origin_ips
     # yields origin candidates even when crt.sh is down (T4 CF-bypass MOAT reachable)
-    "select_strike_entry": ("conductor/main.py",),
 }
 
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
