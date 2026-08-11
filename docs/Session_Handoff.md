@@ -88,7 +88,6 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 - GAP-026 stealth-by-default = **option A (product/SOP)**: a stealth toggle at engagement creation that sets `opsec_stealth=True` + the signed consent_item. NO server code (authorization.py hard-rejects a raw default flip). Product/onboarding decision.
 
 **Needs a log to diagnose (do NOT guess — anti-mis-fix):**
-- "Agent repeats the same thing 2×" — prime suspect = **double-recon at the compose boundary** (banked: Layer V discovery fingerprints host once, then delegated chain runs `Alpha.run_recon` AGAIN on same host). Paste the exact repeated operation from the log.
 - **Spectranet frontier cycling** (Bug #34) — run did not converge, repeated same paths across 3+ cycles. `_ran_campaigns` prevents duplicate findings but URL fetching still repeated.
 - **DeepSeek LLM orientation failures** — 512-token tool-selection budget + reasoning-model token consumption → `finish_reason="length"` before JSON. Models available (`deepseek-v4-flash`, `deepseek-v4-pro`), not a model-name mismatch. WordPress admin/login-gated pages repeatedly reach LLM tier (waste).
 
@@ -109,4 +108,4 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — soft-404 arc. GAP-048 two-probe differential PR #388 OPEN (5/5 Oracle, ruff+mypy clean, 67 related no regression). SUPERSEDES GAP-044 regex (#386 INCOMPLETE). Docs merged (1bfb3ed). PENDING: (1) add test ke-6 (same-token-count-different-skeleton) to PR #388, (2) merge after CI+CodeRabbit, (3) Tier-2 catchall.lab field-prove → closes BLOCKER. NEXT = Slice-2 GAP-034+035 (patch ready, GAP-034 unit-verified, GAP-035 needs integration test + Oracle make quality) OR §12.61 historical-DNS (highest leverage). Open: Spectranet frontier cycling (Bug #34), DeepSeek 512-token truncation, "agent repeats 2×" needs log. Do NOT build Gamma. ALWAYS git pull + re-verify first.
+> lanjut Agent-Alpha — soft-404 arc. GAP-048 two-probe differential PR #388 OPEN (5/5 Oracle, ruff+mypy clean, 67 related no regression). SUPERSEDES GAP-044 regex (#386 INCOMPLETE). Docs merged (1bfb3ed). PENDING: (1) add test ke-6 (same-token-count-different-skeleton) to PR #388, (2) merge after CI+CodeRabbit, (3) Tier-2 catchall.lab field-prove → closes BLOCKER. NEXT = Slice-2 GAP-034+035 (patch ready, GAP-034 unit-verified, GAP-035 needs integration test + Oracle make quality) OR §12.61 historical-DNS (highest leverage). Open: Spectranet frontier cycling (Bug #34), DeepSeek 512-token truncation. Do NOT build Gamma. ALWAYS git pull + re-verify first.
