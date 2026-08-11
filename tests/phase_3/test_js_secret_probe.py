@@ -24,6 +24,7 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
+from agent_alpha.recon.auth_surface import SPA_LOGIN_FORM
 from agent_alpha.recon.js_secret_probe import (
     discover_js_bundles,
     extract_api_endpoints,
@@ -231,3 +232,36 @@ def test_below_recon_tier_fail_closed() -> None:
     n = verify_js_secret_leak(**ctx2.args)
     assert n == 0
     assert ctx2.http.get_calls == []
+
+
+# ── GAP-030 1b: SPA login surface persisted from JS bundle (independent of secrets) ─
+
+
+def test_spa_login_surface_persisted_without_secret(js_ctx: JsTestContext) -> None:
+    """A pure SPA shell whose bundle renders a login input — but leaks NO secret —
+    still gets a spa-login-form label on its ASSET node (recon blindness closed)."""
+    js_ctx.serve_page('<div id="app">Loading…</div><script src="/assets/app.js"></script>')
+    js_ctx.serve_bundle('const f={type:"password",name:"password"};export const x=1;')
+
+    n = verify_js_secret_leak(**js_ctx.args)
+
+    assert n == 0
+    assert js_ctx.graph.nodes_by_type(NodeType.CREDENTIAL) == []
+    assets = [a for a in js_ctx.graph.nodes_by_type(NodeType.ASSET) if a.properties.host == _HOST]
+    labels: set[str] = set()
+    for a in assets:
+        labels |= set(getattr(a.properties, "tech_stack", None) or [])
+    assert SPA_LOGIN_FORM in labels
+
+
+def test_spa_login_label_not_added_when_no_login_input(js_ctx: JsTestContext) -> None:
+    """A bundle with no password input must NOT get the spa-login-form label."""
+    js_ctx.serve_page('<div id="app"></div><script src="/assets/app.js"></script>')
+    js_ctx.serve_bundle("export const add=(a,b)=>a+b;")
+
+    verify_js_secret_leak(**js_ctx.args)
+
+    labels: set[str] = set()
+    for a in js_ctx.graph.nodes_by_type(NodeType.ASSET):
+        labels |= set(getattr(a.properties, "tech_stack", None) or [])
+    assert SPA_LOGIN_FORM not in labels
