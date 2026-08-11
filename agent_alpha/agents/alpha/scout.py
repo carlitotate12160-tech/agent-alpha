@@ -2199,9 +2199,7 @@ class Alpha:
     def _soft404_probe_path(self, host: str) -> str:
         """Deterministic-per-(engagement, host) random-looking probe path: seeded-replay
         stable AND unpredictable to the target."""
-        return hashlib.sha256(
-            f"{self._engagement_id}:{host}:soft404".encode()
-        ).hexdigest()[:32]
+        return hashlib.sha256(f"{self._engagement_id}:{host}:soft404".encode()).hexdigest()[:32]
 
     def _soft404_strip(self, url: str, body: str) -> str:
         """Neutralise per-REQUEST variance so a catch-all served for DIFFERENT missing
