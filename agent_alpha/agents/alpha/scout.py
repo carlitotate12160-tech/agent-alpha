@@ -24,7 +24,7 @@ from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from agent_alpha.a2a import a2a_pb2
-from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
+from agent_alpha.agents.base import BoundedAutonomy, StopReason, run_cognitive_loop
 from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.agents.monologue import MonologueSink, NullMonologueSink, ThoughtFrame
 from agent_alpha.agents.planner import Planner
@@ -198,8 +198,8 @@ class Alpha:
         # cost of one skipped live host << 12× waste per dead host. No retries here.
         # The challenge-skip instinct (anti #6/#7) will populate this SAME set later.
         self._dead_hosts: set[str] = set()
-        # GAP-037: hosts that succeeded transport at least once this run, and the
-        # consecutive-transport-failure counter used to detect a mid-run egress block.
+        # GAP-037: hosts that succeeded transport >=1x this run + the consecutive-
+        # transport-failure counter used to detect a mid-run egress (IP) block.
         self._host_ok: set[str] = set()
         self._consecutive_transport_fail: int = 0
         self._egress_blocked: bool = False
@@ -290,7 +290,7 @@ class Alpha:
         policy = BoundedAutonomy(
             no_progress_threshold=constants.ALPHA_RECON_NO_PROGRESS_ITERS,
         )
-        run_cognitive_loop(
+        outcome = run_cognitive_loop(
             self,
             policy,
             session_store=self.session_store,
@@ -299,7 +299,11 @@ class Alpha:
         )
 
         # ── Determine status ────────────────────────────────────
-        if self._analyzable_probes == 0:
+        if outcome.stop_reason is StopReason.EGRESS_BLOCKED:
+            # Aborted mid-run by an egress IP block — reporting COMPLETE here would
+            # be false success to the Conductor (anti-Lyndon #3). (#2)
+            status = a2a_pb2.BLOCKED
+        elif self._analyzable_probes == 0:
             # Nothing could be analysed — no silent success (anti-Lyndon #3).
             status = a2a_pb2.FAILED
         else:
@@ -426,27 +430,12 @@ class Alpha:
                 self._emit("OBSERVE", f"{host} root unreachable → abandon its queue")
             else:
                 self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
-            # GAP-037: count failures ONLY on hosts we were already reaching. A
-            # brand-new dead host (never in _host_ok) is GAP-029's job, not a block.
-            if host in self._host_ok:
-                self._consecutive_transport_fail += 1
-                if (
-                    self._consecutive_transport_fail >= constants.EGRESS_BLOCK_THRESHOLD
-                    and not self._egress_blocked
-                ):
-                    self._egress_blocked = True
-                    self._persist_egress_blocked_event(host)
-                    self._emit(
-                        "OBSERVE",
-                        f"{self._consecutive_transport_fail} consecutive timeouts on "
-                        f"reached hosts -> egress IP blocked; aborting run",
-                    )
+            # GAP-037: feed the egress counter from the MAIN fetch path too.
+            self._note_transport_fail(host)
             return _finish(0, 0.0, f"OBSERVE: {url} unreachable")
 
         # GAP-037: transport worked -> host reachable; reset counter, remember host.
-        _ok_host = urlparse(url).hostname or urlparse(url).netloc
-        self._host_ok.add(_ok_host)
-        self._consecutive_transport_fail = 0
+        self._note_transport_ok(urlparse(url).hostname or urlparse(url).netloc)
 
         # Classify the response through the ONE canonical classifier so a WAF/CF
         # block on ANY recon path is recorded as evidence and never dressed as
@@ -1542,6 +1531,9 @@ class Alpha:
                 try:
                     probe_resp = self.http_client.get(probe_url, allow_redirects=False)
                 except HttpClientError:
+                    # GAP-037: the busonlineticket block hit exactly here (the
+                    # wp_config verify sweep) — feed the egress counter (#1).
+                    self._note_transport_fail(parsed_root.hostname or parsed_root.netloc)
                     continue  # transport failure = not provably accessible
                 if probe_resp.status_code != 200:
                     continue  # auth-gated (401/403) or absent (404) = no finding
@@ -1767,6 +1759,7 @@ class Alpha:
         try:
             root_resp = self.http_client.get(root, allow_redirects=False)
         except HttpClientError:
+            self._note_transport_fail(parsed.hostname or parsed.netloc)  # GAP-037 (#1)
             root_resp = None
         if root_resp is not None and not 300 <= getattr(root_resp, "status_code", 0) < 400:
             meta_version = self._extract_wp_version_meta(getattr(root_resp, "text", "") or "")
@@ -2178,10 +2171,33 @@ class Alpha:
             },
         )
 
+    def _note_transport_ok(self, host: str) -> None:
+        """GAP-037: a transport success on *host* -- mark it reachable and reset the
+        consecutive-failure counter. Single source called from every fetch path (#1/#7)."""
+        self._host_ok.add(host)
+        self._consecutive_transport_fail = 0
+
+    def _note_transport_fail(self, host: str) -> None:
+        """GAP-037: a transport FAILURE on an already-reached host counts toward a
+        mid-run egress (IP) block. A brand-new dead host (never in _host_ok) does NOT
+        count -- that is GAP-029's job. Trips the egress abort at the threshold.
+        Called from ALL HttpClientError catches (main + WP probes) so a block during
+        ANY operation is detected (#1, single source #7)."""
+        if host not in self._host_ok or self._egress_blocked:
+            return
+        self._consecutive_transport_fail += 1
+        if self._consecutive_transport_fail >= constants.EGRESS_BLOCK_THRESHOLD:
+            self._egress_blocked = True
+            self._persist_egress_blocked_event(host)
+            self._emit(
+                "OBSERVE",
+                f"{self._consecutive_transport_fail} consecutive timeouts on reached "
+                f"hosts -> egress IP blocked; aborting run",
+            )
+
     def _persist_egress_blocked_event(self, host: str) -> None:
-        """Append-only audit: egress IP blocked mid-run (transport failures piling
-        up on already-reached hosts). Mirrors _persist_host_abandoned_event -- same
-        event_store path (anti-#7). GAP-037."""
+        """Append-only audit: egress IP blocked mid-run. Mirrors
+        _persist_host_abandoned_event -- same event_store path (anti-#7). GAP-037."""
         self.event_store.append(
             EventType.EGRESS_BLOCKED,
             self._engagement_id,
