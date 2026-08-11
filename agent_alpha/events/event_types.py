@@ -101,6 +101,7 @@ class EventType(enum.StrEnum):
 
     # ── Phase 4 (dead-host short-circuit — GAP-029 instinct #2) ──
     HOST_ABANDONED = "HostAbandoned"
+    EGRESS_BLOCKED = "EgressBlocked"
     # ^ A host's ROOT probe raised HttpClientError (transport-unreachable:
     # DNS failure, connection refused, timeout). All queued paths for that
     # host are pruned and future enqueues are refused for this run. Carries

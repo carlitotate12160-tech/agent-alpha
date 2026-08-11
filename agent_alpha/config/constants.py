@@ -632,3 +632,10 @@ ODOO_VERSION_JSONRPC_BODY = {"jsonrpc": "2.0", "method": "call", "params": {}}
 # RECON tier; escalates to CRITICAL only once the master_pwd oracle proves it
 # (Improvement 2). Single source (anti-#7).
 ODOO_DBMANAGER_EXPOSURE_CVSS: float = 7.5
+
+# GAP-037: consecutive transport failures ON ALREADY-REACHED HOSTS that indicate the
+# egress IP is blocked mid-run -> abort the run instead of firing into a black hole
+# (busonlineticket: ~37 burst -> Sucuri IP-block -> 15+ timeouts @30s = ~7.5min waste).
+# Only counts failures on hosts that previously succeeded, so it never fires on
+# many-dead-from-start subdomains (that is GAP-029's job). Single source (anti-#7).
+EGRESS_BLOCK_THRESHOLD: int = 5
