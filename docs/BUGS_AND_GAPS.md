@@ -1407,12 +1407,11 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 - **Impact**: Cascade — no pacing → CF bot detection → wp-json challenged → origin-direct →
   homepage → 0 users → 0 credentials → Beta never dispatches. Root cause of "0 findings" on
   aggressive runs.
-- **Fix direction**: Flip the default. Either (a) `opsec_stealth: bool = True` in `main.py:152`
-  so the API defaults to stealth-on, OR (b) remove the gate entirely in `recon_runner.py:156`
-  so `StealthPacer` is always used (pacing is basic operational hygiene, not an elevated
-  capability). Option (b) is cleaner — `opsec_stealth` consent item should gate EVASION
-  techniques (browser solve, TLS impersonate), not pacing. Runner scripts do NOT need changes
-  if the default is flipped.
+- **Fix direction**: Option A — stealth toggle at engagement creation (consent_items +
+  signed_by[login] + signed_at[timestamp]). Do NOT flip the server default
+  (`authorization.py:583-591` hard-raises `ConsentRequiredError`). No server code change —
+  the operator sets `opsec_stealth=True` at engagement creation with signed consent.
+  Runner scripts should be updated to set `opsec_stealth=True` for field engagements.
 
 ## GAP-027 — Probing order: sensitive files before legitimate endpoints
 
@@ -1485,7 +1484,9 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-031 — Beta crashes on OriginUnreachableError when no origin binding exists
 
-- **Status**: OPEN.
+- **Status**: PARTIALLY FIXED 2026-08-09 (crash FIXED — graceful decline + Omega handoff,
+  verified ibudanbalita). Residual = CF ceiling (no origin → no strike surface), NOT a code
+  slice — see §12.61 Flank-when-CF-hard for the strategic answer.
 - **What**: Beta uses `OriginAwareHttpClient` which is fail-closed: if no proven/authorized
   origin exists for a host, it raises `OriginUnreachableError` instead of falling back to
   CF DIRECT. This crashes Beta's `step()` at `self.http_client.get(self._entry_point)`.
@@ -1499,12 +1500,11 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   reaching the target.
 - **Impact**: Beta dispatch (GAP-023 fix) is wasted if Beta crashes on entry. The deadlock
   is broken but Beta can't act.
-- **Fix direction**: Beta should fall back to CF DIRECT when no origin is bound, with
-  explicit logging "no origin binding — using CF DIRECT (may trigger challenge)". The
-  fail-closed behavior is correct for Alpha (recon shouldn't burn techniques), but Beta
-  is STRIKE — it MUST attempt the attack even via CDN. Alternatively: catch
-  `OriginUnreachableError` in Beta's `step()` and retry with plain HttpClient.
-- **Effort**: Medium (1-2 files — strike.py + possibly origin_aware_client.py).
+- **Fix direction**: ~~Beta should fall back to CF DIRECT when no origin is bound~~
+  REJECTED — violates banked doctrine ("stop beating full-CF apex from datacenter IP").
+  Crash is FIXED (graceful decline + Omega honest report). Residual = CF ceiling = §12.61
+  flank doctrine (find origin via side channels, not brute the edge).
+- **Effort**: Crash fix = DONE. Residual = doctrine (§12.61), not a code slice.
 
 ## GAP-032 — OTX timeout 30s blocks sequential OSINT chain
 
@@ -1602,7 +1602,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-037 — Mid-run host death not detected (consecutive-failure threshold)
 
-- **Status**: OPEN, HIGH priority (OPSEC + waste — root cause: GAP-026 pacer OFF).
+- **Status**: FIXED 2026-08-11 (merged PR #385). Stop-on-block egress death detection.
 - **What**: GAP-029 fix only marks a host dead on ROOT transport failure (path `/` or `""`).
   If the root succeeded early but the host goes unreachable MID-RUN (WAF rate-limit block,
   IP ban, transient network failure), non-root path failures emit "unreachable" but do NOT
@@ -1786,6 +1786,91 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
   hardcode all 20+ CDN vendors upfront (Lyndon #5 — scope creep). Generalize
   interface, add vendors incrementally as field-prove encounters them.
 
+## GAP-044 — Soft-404 false positives: exact-hash dedup misses reflected/varying error pages
+
+- **Status**: OPEN 2026-08-11 (BLOCKER — correctness, Lyndon #3 false positive).
+- **What**: The identical-body dedup (`test_identical_body_dedup.py`) uses exact body
+  hash to suppress repeated catch-all responses. But many targets serve VARYING error
+  pages — reflected path in body, dynamic timestamp, session token, CSRF nonce — so the
+  hash differs per request even though the page is a soft-404 catch-all. Result: every
+  non-existent path appears to be a "unique" response → analyzed as a real finding →
+  false positive. The agent cannot distinguish "200 with reflected path" from "200 with
+  real content."
+- **Evidence**: ingco.co.id + ibudanbalita — 93858-byte catch-all SPA shell served 200
+  for every path. Body varies slightly (reflected path in meta tag) → hash differs →
+  dedup does not fire → 10+ "findings" on non-existent paths. seven-retail.com
+  datalab.seven-retail.com — Vite React SPA, 1016-byte index.html for all paths (stable
+  hash → dedup DID fire → correct). The bug fires on DYNAMIC error pages, not static.
+- **Impact**: False positives in report (Lyndon #3). Wasted LLM tokens analyzing
+  catch-all bodies. OPSEC noise from probing "unique" paths that are all the same page.
+- **Fix direction**: Baseline calibration — probe a known-nonexistent path (e.g.
+  `/__gap044_baseline_xyz123__`) FIRST. Store its body hash + length + structural
+  signature (tag-stripped hash). For subsequent 200 responses, compare against baseline:
+  if body length within ±N% AND tag-stripped hash matches → soft-404 → suppress.
+  Reflected-path detection: strip the requested path from body before hashing. Dynamic
+  nonce/timestamp: tag-stripped hash ignores attribute values. Single source (anti-#7).
+- **Effort**: Medium (1-2 files: scout.py + response_classifier.py + test fixtures).
+- **Priority**: BLOCKER — false positives violate Lyndon #3. After GAP-043.
+
+## GAP-045 — CF-ceiling honest-outcome classification (Omega/Conductor)
+
+- **Status**: OPEN 2026-08-11. LOW effort, HIGH product value.
+- **What**: When a full-CF target yields NO exposed origin (crt.sh fails, VT/OTX empty,
+  no historical DNS), the engagement ends with `beta_failed` or `alpha_complete` —
+  neither communicates "CF ceiling reached, defensive-validation deliverable." Omega
+  has no classification for "edge held N techniques from datacenter-IP attacker." The
+  honest outcome (§12.61 product framing) is NOT wired into the report pipeline.
+- **Evidence**: ibudanbalita — Beta correctly declined (fail-closed), but the outcome
+  was logged as `beta_failed`, not `cf_ceiling_defensive_validation`. Client sees
+  "failed" instead of "your edge held."
+- **Impact**: SEA market product value lost. Client pays for "seberapa kuat proteksi
+  kami" but gets "failed" instead of a defensive-validation report.
+- **Fix direction**: Add `CF_CEILING` outcome classification in Conductor router
+  (BLOCKED + no origin binding → CF_CEILING, not generic BLOCKED). Omega report template
+  includes defensive-validation section when CF_CEILING. No auth gate change.
+- **Effort**: Low (1-2 files: router.py + omega template).
+- **Priority**: LOW effort, HIGH product value. After GAP-044.
+
+## GAP-046 — HTTP Basic Auth applicator absent (cred-acquisition breadth)
+
+- **Status**: OPEN 2026-08-11. Deferred (after §12.61 slices).
+- **What**: Beta's credential applicator handles form-login (POST username/password)
+  and session-cookie auth, but NOT HTTP Basic Auth (401 + WWW-Authenticate: Basic).
+  When Alpha discovers a basic-auth surface (e.g. `hub.niagamas.com` returns 401
+  Basic), Beta cannot apply harvested/default credentials to it — the auth surface
+  is detected but unattackable.
+- **Evidence**: niagamas.com field-prove — `hub.niagamas.com` returns 401 with
+  `WWW-Authenticate: Basic realm="Restricted"`. Alpha correctly detected auth_surface
+  (http_basic_auth). Beta dispatched but could not attempt credentials — no basic-auth
+  applicator in the cred application pipeline.
+- **Impact**: Basic-auth-protected surfaces are detected but never attacked. Cred-reuse
+  chain broken at the applicator step for basic-auth targets.
+- **Fix direction**: Add `BasicAuthApplicator` to Beta's cred application pipeline.
+  Constructs `Authorization: Basic <base64(user:pass)>` header. Governed by the
+  existing lockout-governor (per-host attempt cap). Distinct `Tool` implementation
+  (anti-#6, ToolRegistry §12.47).
+- **Effort**: Medium (1 new tool + test fixtures).
+- **Priority**: Deferred — after §12.61 historical DNS slice (origin discovery opens
+  more targets than basic-auth applicator).
+
+## GAP-047 — Username harvest WP-REST-only (producer breadth, non-WP surfaces)
+
+- **Status**: OPEN 2026-08-11. Deferred (relates to GAP-015).
+- **What**: Username harvesting (`user_derived_creds.py`) only enumerates users via
+  WP-REST API (`/wp-json/wp/v2/users`). Non-WP surfaces (Odoo, custom login forms,
+  email patterns from OSINT, breach data) are not harvested. Cred-reuse chain is
+  limited to WP-derived usernames.
+- **Evidence**: niagamas.com — `pos.niagamas.com` is a Vue.js login form (not WP).
+  Username harvest returned 0 users (WP-REST only). No cred-reuse possible without
+  usernames to pair with harvested/default passwords.
+- **Impact**: Cred-reuse chain broken at the username-producer step for non-WP targets.
+- **Fix direction**: Extend username harvesting beyond WP-REST: (1) Odoo user
+  enumeration via XML-RPC, (2) email-pattern derivation from OSINT (Hunter.io,
+  breach data), (3) form-field username extraction from login pages. Distinct
+  `Tool` implementations (anti-#6). Relates to GAP-015 (credential pattern mutation).
+- **Effort**: High (multiple producers + test fixtures).
+- **Priority**: Deferred — after GAP-046 (basic-auth applicator) and §12.61 slices.
+
 ## Summary: All open GAPs from field-prove (niagamas + bernofarm + ingco + bot)
 
 | GAP | Title | Severity | Effort | Field-prove source |
@@ -1802,16 +1887,32 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 034 | Entry-selection has no node-level reachability signal | Medium | Medium | niagamas/bernofarm (entry-selection slice-1) |
 | 035 | Entry-selection strikes ONE candidate; multi-surface not iterated | Medium | Medium | niagamas (hub + pos both reachable) |
 | 036 | LLM tool-pick fires on auth-surface pages (no deterministic RULE) | Low | Low | niagamas (pos.niagamas.com) |
-| 037 | Mid-run host death not detected (consecutive-failure threshold) | High | Low | busonlineticket.co.th (Sucuri WAF) |
+| 037 | Mid-run host death not detected (consecutive-failure threshold) | **FIXED** | Low | busonlineticket.co.th (Sucuri WAF) |
 | 038 | Cooperative mode short-circuits origin discovery (no binding proof) | High | Low | ibudanbalita (cooperative, 0 origin attempts) |
+| 039 | CompositeOriginDiscovery exact-host filter drops apex intel | **FIXED** | Low | niagamas (merged PR #382) |
+| 040 | Ownership gate rejects consented subdomains (origin-direct crash) | **FIXED** | Low | niagamas (merged PR #383) |
+| 041 | Cooperative soft-binding emits PROVEN for unprobed (stale) candidates | **FIXED** | Low | niagamas (merged PR #384) |
+| 042 | Origin probe bypasses stealth HttpClient (opsec debt) | Low | Low | registered (opsec debt) |
+| 043 | CDN edge IP filter only covers Cloudflare | Medium | Medium | busonlineticket (latent) |
+| 044 | Soft-404 false positives (exact-hash dedup misses varying error pages) | **BLOCKER** | Medium | ingco/ibudanbalita (Lyndon #3) |
+| 045 | CF-ceiling honest-outcome classification (Omega/Conductor) | Low | Low | ibudanbalita (product value) |
+| 046 | HTTP Basic Auth applicator absent | Medium | Medium | niagamas hub 401 |
+| 047 | Username harvest WP-REST-only (non-WP surfaces) | Medium | High | niagamas pos Vue login |
 
 ## Recommended fix order (one slice at a time)
 
-1. **GAP-029** (unreachable skip) — paling cepat, eliminasi waste massif, 1 file
-2. **GAP-030** (auth_surface regex) — 1 file, fix Vue.js detection
-3. **G26** (pacer default) — 2 baris, pacing ON by default
-4. **GAP-031** (Beta crash) — supaya Beta bisa jalan setelah dispatch
+1. **GAP-029** (unreachable skip) — **DONE** (merged)
+2. **GAP-030** (auth_surface regex) — **DONE** (merged)
+3. **GAP-026** (pacer default) — Option A: stealth toggle at engagement creation
+4. **GAP-031** (Beta crash) — **DONE** (graceful decline + Omega). Residual = §12.61
 5. **GAP-027** (probing order) — legitimate endpoints first
-6. **GAP-028** (origin homepage detection) — baseline comparison
+6. **GAP-028** (origin homepage detection) — baseline comparison (relates to GAP-044)
 7. **GAP-032** (OTX parallel/timeout) — performance, bukan correctness
 8. **GAP-033** (subdomain pivot) — design phase, bukan sekarang
+9. **GAP-037** (mid-run host death) — **DONE** (merged PR #385)
+10. **GAP-043** (CDN edge IP filter) — after GAP-037
+11. **GAP-044** (soft-404 baseline calibration) — **BLOCKER** (Lyndon #3 false positive)
+12. **GAP-045** (CF-ceiling honest outcome) — LOW effort, HIGH product value
+13. **§12.61 slice 1** (historical DNS origin discovery) — biggest missing passive signal
+14. **GAP-046** (basic-auth applicator) — after §12.61 slices
+15. **GAP-047** (username harvest non-WP) — after GAP-046
