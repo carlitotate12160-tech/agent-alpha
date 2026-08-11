@@ -21,7 +21,7 @@ import re
 import uuid
 from types import SimpleNamespace
 from typing import Any
-from urllib.parse import unquote, urljoin, urlparse
+from urllib.parse import urljoin, urlparse
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.base import BoundedAutonomy, StopReason, run_cognitive_loop
@@ -175,7 +175,7 @@ class Alpha:
         self._body_hashes: set[str] = set()
         # GAP-044: per-host soft-404 (catch-all) detection. FAIL-SAFE: a host WITHOUT
         # a catch-all gets no signature -> nothing is ever suppressed (anti-#3).
-        self._soft404_sig: dict[str, str] = {}
+        self._soft404_sig: dict[str, tuple[int, frozenset[int], str]] = {}
         self._soft404_calibrated: set[str] = set()
         self._current_objective: Any = None
         self._try_harder_fired: bool = False
@@ -2195,59 +2195,78 @@ class Alpha:
             },
         )
 
-    # ── GAP-044: soft-404 catch-all calibration (deterministic, fail-safe) ──────
-    def _soft404_probe_path(self, host: str) -> str:
-        """Deterministic-per-(engagement, host) random-looking probe path: seeded-replay
-        stable AND unpredictable to the target."""
-        return hashlib.sha256(f"{self._engagement_id}:{host}:soft404".encode()).hexdigest()[:32]
+    # ── GAP-048: soft-404 catch-all calibration (two-probe differential, format-agnostic) ──
+    _SOFT404_TOK = re.compile(r"(\W+)")
 
-    def _soft404_strip(self, url: str, body: str) -> str:
-        """Neutralise per-REQUEST variance so a catch-all served for DIFFERENT missing
-        paths compares equal: (1) reflected path/url/host, (2) HTML attribute VALUES
-        (CSRF/nonce/session token live here), (3) long digit runs (timestamps/epoch)."""
+    def _soft404_probe_path(self, host: str, salt: str) -> str:
+        """Deterministic-per-(engagement, host, salt) random MISSING path. Two salts = two
+        independent catch-all samples for differential calibration (GAP-048)."""
+        return hashlib.sha256(f"{self._engagement_id}:{host}:soft404:{salt}".encode()).hexdigest()[
+            :32
+        ]
+
+    def _soft404_tokens(self, url: str, body: str) -> list[str]:
+        """Structure-preserving tokens AFTER neutralising the reflected path (so paths of
+        different complexity keep a STABLE token count). Remaining per-request variance
+        (CSRF/session/timestamp) is left for the two-probe diff to locate."""
         p = urlparse(url)
         out = body
-        for tok in (url, p.path, unquote(p.path), p.netloc):
+        for tok in (url, p.path, p.netloc):
             if tok:
-                out = out.replace(tok, "\u00a7")
-        out = re.sub(r"=\s*\"[^\"]*\"|=\s*'[^']*'", '="\u00a7"', out)
-        out = re.sub(r"\d{6,}", "\u00a7", out)
-        return out
+                out = out.replace(tok, "\u00a7P\u00a7")
+        return self._SOFT404_TOK.split(out or "")
 
-    def _soft404_signature(self, url: str, body: str) -> str:
-        """Body-ONLY, path-stripped signature (ignores headers/content-type, which a
-        catch-all varies per extension)."""
-        return hashlib.sha256(self._soft404_strip(url, body).encode("utf-8")).hexdigest()
+    def _soft404_mask(self, tokens: list[str], volatile: frozenset[int]) -> str:
+        return "\x00".join("\u00a7" if i in volatile else t for i, t in enumerate(tokens))
 
     def _calibrate_soft404(self, host: str, parsed: Any) -> None:
-        """ONCE per host: probe a guaranteed-missing random path. 200 -> the host has a
-        catch-all -> store its path-stripped body signature. FAIL-SAFE: a transport error
-        or a proper 404/redirect stores NO signature (zero false-negative risk)."""
+        """GAP-048 two-probe DIFFERENTIAL calibration: fetch TWO independent missing paths.
+        Both 200 with equal token count -> catch-all; the token POSITIONS that DIFFER between
+        the samples ARE the per-request volatile tokens (CSRF, session, timestamp) — WHATEVER
+        their format (hex, base64, uuid). Mask exactly those -> format-agnostic signature.
+        FAIL-SAFE: transport error / proper 404 / unstable token count stores NO signature."""
         if host in self._soft404_calibrated:
             return
         self._soft404_calibrated.add(host)
-        probe_url = f"{parsed.scheme}://{parsed.netloc}/{self._soft404_probe_path(host)}"
-        try:
-            probe = self.http_client.get(probe_url)
-        except HttpClientError:
+        samples: list[list[str]] = []
+        for salt in ("a", "b"):
+            probe_url = f"{parsed.scheme}://{parsed.netloc}/{self._soft404_probe_path(host, salt)}"
+            try:
+                probe = self.http_client.get(probe_url)
+            except HttpClientError:
+                return
+            if getattr(probe, "status_code", 0) != 200:
+                return
+            samples.append(self._soft404_tokens(probe_url, getattr(probe, "text", "") or ""))
+        t1, t2 = samples
+        if len(t1) != len(t2):
             return
-        if getattr(probe, "status_code", 0) == 200:
-            self._soft404_sig[host] = self._soft404_signature(
-                probe_url, getattr(probe, "text", "") or ""
-            )
-            self._emit(
-                "OBSERVE",
-                f"{host} answers a random missing path with 200 -> soft-404 catch-all "
-                "calibrated; findings on this host now require a distinct body (anti-#3)",
-            )
+        volatile = frozenset(i for i, (a, b) in enumerate(zip(t1, t2, strict=False)) if a != b)
+        self._soft404_sig[host] = (
+            len(t1),
+            volatile,
+            hashlib.sha256(self._soft404_mask(t1, volatile).encode("utf-8")).hexdigest(),
+        )
+        self._emit(
+            "OBSERVE",
+            f"{host} soft-404 catch-all calibrated via 2-probe differential "
+            f"({len(volatile)} volatile token positions masked); format-agnostic (anti-#3)",
+        )
 
     def _is_soft404(self, host: str, url: str, resp: Any) -> bool:
-        """True iff *resp* matches the host's calibrated catch-all signature. False when
-        the host has no signature -> fail-safe: real content is never suppressed."""
+        """True iff *resp* has the host's calibrated catch-all skeleton (same token count,
+        same masked hash). Fail-safe: no signature or different structure -> False."""
         sig = self._soft404_sig.get(host)
         if sig is None:
             return False
-        return self._soft404_signature(url, getattr(resp, "text", "") or "") == sig
+        ntok, volatile, masked_hash = sig
+        toks = self._soft404_tokens(url, getattr(resp, "text", "") or "")
+        if len(toks) != ntok:
+            return False
+        return (
+            hashlib.sha256(self._soft404_mask(toks, volatile).encode("utf-8")).hexdigest()
+            == masked_hash
+        )
 
     def _note_transport_ok(self, host: str) -> None:
         """GAP-037: a transport success on *host* -- mark it reachable and reset the
