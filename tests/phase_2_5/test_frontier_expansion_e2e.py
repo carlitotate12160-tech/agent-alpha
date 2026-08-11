@@ -199,10 +199,10 @@ def test_run_recon_dead_end_seed_probes_only_seed() -> None:
     # growth beyond these constant seeds.
     from agent_alpha.agents.planner import Planner
 
-    _probe = f"https://{_SCOPE_HOST}/{agent._soft404_probe_path(_SCOPE_HOST)}"
+    _probe_a = f"https://{_SCOPE_HOST}/{agent._soft404_probe_path(_SCOPE_HOST, 'a')}"
     expected = (
         [dead]
-        + [_probe]  # GAP-044: one calibration probe per host
+        + [_probe_a]  # GAP-048: first calibration probe (404 → early return, no second probe)
         + [f"https://{_SCOPE_HOST}{p}" for p in Planner().select_leak_paths(labels=[])]
         + [f"https://{_SCOPE_HOST}{p}" for p in constants.SURFACE_DISCOVERY_PATHS]
     )
