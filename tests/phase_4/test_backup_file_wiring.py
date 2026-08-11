@@ -220,7 +220,8 @@ def test_run_recon_initial_seed_count_bounded() -> None:
         constants.SURFACE_DISCOVERY_PATHS
     )
     # Subtract 1 for the seed URL itself (not a leak/surface path).
-    actual_probe_count = len(http.get_calls) - 1  # -1 for _ROOT seed
+    # Subtract 1 for the GAP-044 soft-404 calibration probe (1 random path per host).
+    actual_probe_count = len(http.get_calls) - 2  # -1 _ROOT seed, -1 soft404 calibration
     assert actual_probe_count <= max_expected, (
         f"Initial seed sent {actual_probe_count} probe paths, expected <= {max_expected} "
         f"(select_leak_paths([]) + SURFACE_DISCOVERY_PATHS). "
