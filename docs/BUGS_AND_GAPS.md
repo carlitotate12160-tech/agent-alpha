@@ -2721,6 +2721,12 @@ Test contract: a wp-admin page with login form body matches the new rule
 - **Effort**: Low-Medium. 1 new handler + 1 frontier_seed + CVE lookup per
   extracted version. The system_status endpoint is already in scope (same host).
 
+- **Cross-reference**: §12.61 — WooCommerce version menentukan apakah axis B
+  (perimeter-skip via credential) atau axis A (origin discovery) lebih relevan.
+  Jika CVE-2026-3589 (CSRF → admin creation) applicable → axis B5 credential-
+  stuff tidak diperlukan — exploit langsung via unauthenticated CSRF. Tanpa
+  version (GAP-052), Agent-Alpha tidak tahu axis mana yang applicable.
+
 ---
 
 ## GAP-053 — WP plugin handler exists but never fires (LLM orient fails on wp-admin pages)
@@ -2775,6 +2781,12 @@ Test contract: a wp-admin page with login form body matches the new rule
 - **Effort**: Low. Move the regex extraction from `_handle_wp_plugins` into a
   body post-processing step that runs on every WP-host HTML response.
 
+- **Cross-reference**: §12.61 — plugin CVE menentukan flank strategy. Plugin
+  dengan unauthenticated RCE → skip-Beta (axis A tidak diperlukan, exploit
+  langsung). Plugin dengan authenticated CVE → butuh credential (axis B5).
+  Tanpa plugin list (GAP-053), Agent-Alpha tidak tahu plugin CVE mana yang
+  applicable → tidak bisa pilih flank axis.
+
 ---
 
 ## GAP-054 — WP REST user fields truncated (slug only, drops email/roles)
@@ -2823,6 +2835,12 @@ Test contract: a wp-admin page with login form body matches the new rule
   3. Email and roles are the P0 fields; others are P2
 
 - **Effort**: Low. Schema extension + JSON field extraction. No new HTTP requests.
+
+- **Cross-reference**: §12.61 axis B5 ("Leaked credentials — breach data for the
+  org email domain → credential-stuff the CF-fronted login"). Email dari GAP-054
+  adalah **prerequisite input** untuk §12.61 B5. Tanpa email di graph, breach
+  OSINT tidak punya apa-apa untuk dicari di Dehashed/HIBP. §12.61 B5 adalah
+  doctrine; GAP-054 adalah foundation yang membuat doctrine executable.
 
 ---
 
@@ -2947,6 +2965,12 @@ Test contract: a wp-admin page with login form body matches the new rule
 
 - **Effort**: Medium. JS URL extraction + fetch per JS file + secret grep.
   Budget: cap at N JS files per host (anti-#3 over-probe).
+
+- **Cross-reference**: §12.61 axis B6 ("Exposed secrets in public code — API
+  keys, DB creds, .env, hardcoded origin IPs"). GAP-058 extract secrets dari
+  target's own JS files — ini **complement** B6 (B6 = external GitHub/GitLab
+  repos, GAP-058 = target's served JS). Keduanya menghasilkan CREDENTIAL nodes
+  yang Beta pakai untuk cred-stuff login yang reachable through CF.
 
 ---
 
@@ -3075,5 +3099,12 @@ Test contract: a wp-admin page with login form body matches the new rule
 
 - **Effort**: Medium. DNS queries (dnspython) + TLS scan (ssl module) + node
   creation. All passive, zero target touch.
+
+- **Cross-reference**: §12.61 axis A2 ("Mail/MX/SPF — mail servers usually on
+  origin infra, not CF → origin netblock"). GAP-062 adalah **prerequisite data
+  source** untuk §12.61 A2. Alpha query MX records → mint SERVICE nodes untuk
+  mail servers → §12.61 A2 pakai IP mail server untuk origin netblock discovery.
+  Alpha kasih data, §12.61 pakai data untuk flank strategy. Pemisahan sesuai
+  ADR §5: Alpha = surface map, Beta/§12.61 = foothold strategy.
 
 
