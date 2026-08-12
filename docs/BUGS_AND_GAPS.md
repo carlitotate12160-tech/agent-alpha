@@ -48,7 +48,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 31 | Beta crashes on OriginUnreachableError when no origin binding | **High** | Medium | Beta dispatched (GAP-023 fix) but crashes on entry — can't strike |
 | 32 | OTX timeout 30s blocks sequential OSINT chain | Low | Medium | 30s wasted per engagement before VT runs |
 | 33 | Subdomain pivot path not designed (architectural gap) | Medium | High | Subdomain access not used as stepping stone to main domain |
-| 34 | Frontier queue re-enqueues already-probed URLs → infinite cycle | **High** | Medium | Run never converges; burns HTTP + LLM tokens re-probing identical URLs (spectranet: 3 full cycles in 5+ min, 0 new findings after cycle 1) |
+| 34 | `run_recon` resets `_probed` across targets → `try_harder` re-probes all previous URLs | **High** | Low | Run never converges on multi-target engagements; burns HTTP + LLM tokens re-probing identical URLs (spectranet: 3 full cycles in 600s, 0 new findings after cycle 1) |
 | 35 | `LLM_TOOL_SELECT_MAX_TOKENS=512` too small for reasoning model | **High** | Low | `deepseek-v4-flash` reasoning_content consumes token budget → intermittent `CompletionTruncatedError` → `OrientationError` on wp-admin pages (2/5 calls fail with 7KB body). Model is correct/available; token budget is the root cause |
 | 36 | `/wp-admin/*` login-gated pages enter frontier without rule match | Medium | Low | `update-core.php`, `upgrade.php`, `import.php` (login-gated WP admin pages) escalate to LLM tier → token burn for predictable non-findings. Add playbook rule for wp-admin login redirect body signature |
 
@@ -1954,21 +1954,63 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ---
 
-## Bug #34: Frontier Queue Re-enqueues Already-Probed URLs → Infinite Cycle
+## Bug #34: `run_recon` Resets `_probed` Across Targets → `try_harder` Re-Probes All Previous URLs
 
 - **Status**: OPEN
 - **Priority**: High
-- **Effort**: Medium
-- **Blocks**: Run never converges; burns HTTP + LLM tokens re-probing identical URLs
-- **Observed**: spectranet.com.ng live-fire run (2026-08-11) — 3 full cycles in 5+ min, 0 new findings after cycle 1
+- **Effort**: Low (remove 3 resets from `run_recon`, keep per-engagement cumulative)
+- **Blocks**: Run never converges on multi-target engagements; burns HTTP + LLM tokens re-probing identical URLs
+- **Observed**: spectranet.com.ng live-fire run (2026-08-11 + 2026-08-12) — 3 full cycles in 600s, 0 new findings after cycle 1
 
-### Root Cause
+### Root Cause (corrected 2026-08-12 — original diagnosis was wrong)
 
-The scout's frontier queue re-enqueues URLs that have already been fetched and
-analyzed. `_ran_campaigns` correctly prevents tool handlers from re-running
-(handler returns 0 on repeat), but the URL is still **fetched** (HTTP request)
-and **sent to the LLM** (token burn) before the handler no-ops. The frontier
-has no `seen_urls` dedup at the enqueue boundary.
+**Original (wrong) diagnosis:** "frontier queue re-enqueues already-probed URLs
+because `enqueue_discovered_url` has no seen-set check."
+
+**Actual root cause:** `enqueue_discovered_url` already has correct dedup
+(`url not in self._probed` and `url not in self._work_queue`). The bug is that
+`run_recon` **resets `_probed`, `_ran_campaigns`, and `_try_harder_fired`** at
+the start of every target, wiping memory of all previous probes in the same
+engagement.
+
+When the Conductor calls `run_recon` for multiple targets (main domain +
+passive-discovered subdomains), each call starts with a clean slate. If a
+subdomain is unreachable, `_try_harder_recovery()` fires (because
+`_try_harder_fired` was reset to `False`). `try_harder` reads the world_model
+(which still has nodes from the previous target) and returns URLs from the
+previous target. `enqueue_discovered_url` checks `url not in _probed` — but
+`_probed` was just reset to `set()`, so **every previous URL passes the check**
+and gets re-enqueued, re-fetched, and re-tooled.
+
+### The 3 resets that cause the bug (`scout.py:241-250`)
+
+```python
+def run_recon(self, engagement_id, target_url):
+    ...
+    self._work_queue = [target_url]
+    self._probed = set()              # ← RESET: previous probes forgotten
+    self._ran_campaigns = set()       # ← RESET: previous tool runs forgotten
+    self._try_harder_fired = False    # ← RESET: try_harder can fire again
+    ...
+```
+
+### Why spectranet cycles but niagamas/ingco do not
+
+The bug is always present, but cycling only manifests when **3 conditions
+are met simultaneously**:
+
+| Condition | Niagamas | Ingco | Spectranet |
+|-----------|----------|-------|------------|
+| Main host reachable (200 OK) | Yes, but CF challenge blocks most | **No** (all timeout) | **Yes** (200 OK, no WAF) |
+| Subdomains discovered & unreachable | Yes (pos.niagamas) | Yes (10 subdomains) | **Yes** (amazing-offer, amber) |
+| World model has enough nodes for `try_harder` to return candidates | Few (CF blocks) | **Zero** (all unreachable) | **Many** (11 URLs = 21 nodes) |
+
+- **Niagamas**: CF challenge blocks most probes → few graph nodes → `try_harder`
+  returns few candidates → cycling minimal (masked by CF, not absent).
+- **Ingco**: all 10 hosts unreachable → zero graph nodes → `try_harder` returns
+  `[]` → no re-enqueue (masked by total unreachability, not absent).
+- **Spectranet**: Apache, no WAF → all probes succeed → 21 graph nodes →
+  `try_harder` returns 15+ URLs from previous target → full cycling visible.
 
 ### Evidence (spectranet.com.ng, 2026-08-11 + 2026-08-12 rerun)
 
@@ -1980,6 +2022,11 @@ Cycle 3: `.git/config` → leak paths → wp-json → ... (identical, killed aft
 Each cycle: ~15 HTTP requests + ~4 LLM calls = 0 new findings after cycle 1.
 
 **2026-08-12 rerun with precise tool-call duplication data (600s timeout, 157 lines):**
+
+3 targets called by `recon_runner.py:451`:
+1. `spectranet.com.ng` → 11 URLs fetched (200 OK), 21 graph nodes
+2. `amazing-offer.spectranet.com.ng` → unreachable → `_probed` reset → `try_harder` fires → spectranet URLs re-enqueued (cycle 2)
+3. `amber.spectranet.com.ng` → unreachable → `_probed` reset → `try_harder` fires → spectranet URLs re-enqueued (cycle 3)
 
 Duplicate tool calls (same tool + same URL, ran N times):
 
@@ -2002,16 +2049,50 @@ with no rule match — 30 wasted HTTP requests for zero findings.
 
 ### Affected Files
 
-- `agent_alpha/agents/alpha/scout.py` — `enqueue_discovered_url` (no seen-set check)
-- `agent_alpha/agents/alpha/scout.py:636-641` — frontier expansion loop re-enqueues hrefs from re-fetched pages
+- `agent_alpha/agents/alpha/scout.py:241` — `self._probed = set()` (reset per target)
+- `agent_alpha/agents/alpha/scout.py:245` — `self._ran_campaigns = set()` (reset per target)
+- `agent_alpha/agents/alpha/scout.py:250` — `self._try_harder_fired = False` (reset per target)
+- `agent_alpha/agents/alpha/scout.py:2322-2345` — `_try_harder_recovery` reads world_model (has nodes from previous target)
+- `agent_alpha/agents/planner.py:43-101` — `try_harder` returns URLs from `world_model.all_beliefs()` filtered by `probed` (which was reset)
 
 ### Proposed Fix
 
-Add a `_seen_urls: set[str]` to the scout. `enqueue_discovered_url` checks
-`url in self._seen_urls` before adding to the queue. Deterministic catalog
-seeds (`WELL_KNOWN_LEAK_PATHS`, `wp_fingerprint.frontier_seeds`) also go through
-this check — they are first-time only. Test contract: a re-enqueued URL is a
-no-op (returns False), and the scout's `_step_once` never fetches a URL twice.
+**Remove the 3 resets from `run_recon`.** Make `_probed`, `_ran_campaigns`, and
+`_try_harder_fired` cumulative across targets within the same engagement. The
+Alpha instance is reused for all targets in `recon_runner.py:451-452`, so
+state should persist across targets.
+
+What stays per-target (correctly reset):
+- `_work_queue = [target_url]` — each target gets its own queue
+- `_dead_hosts` — per-target reachability
+- `_host_stack`, `_organic_crawl_count` — per-target crawl budget
+- `_soft404_sig`, `_soft404_calibrated` — per-host calibration
+- `_bound_origin`, `_reach_attempted`, `_reach_class` — per-host reach state
+
+What should become cumulative (remove the reset):
+- `_probed` — a URL probed for target A should not be re-probed for target B
+- `_ran_campaigns` — a tool already run on a URL should not re-run
+- `_try_harder_fired` — try_harder should fire once per engagement, not per target
+- `_findings`, `_analyzable_probes` — counters should accumulate
+- `_body_hashes` — body dedup should persist (same 200 page = same hash)
+
+Test contract:
+1. Two `run_recon` calls on same Alpha instance → URL probed in call 1 is NOT
+   re-fetched in call 2 (even if `try_harder` returns it).
+2. Tool run on URL in call 1 is NOT re-selected in call 2.
+3. `try_harder` fires at most once across all targets in an engagement.
+4. Single-target engagements (no subdomains) behave identically (no regression).
+
+### Anti-Lyndon
+
+- **#2 (dead code treated as done):** original Bug #34 diagnosis blamed
+  `enqueue_discovered_url` for "no seen-set check" — but the check exists
+  (`url not in self._probed`). The real bug was upstream (the reset).
+- **#3 (false success):** niagamas and ingco appeared to not have the bug,
+  but it was masked by CF blocking and total unreachability respectively.
+  "Works on target X" ≠ "bug is absent."
+- **#9 (wrong environment):** original diagnosis was based on 2026-08-11
+  output without code trace. 2026-08-12 code trace revealed the real cause.
 
 ---
 
