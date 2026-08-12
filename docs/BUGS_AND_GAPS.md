@@ -91,6 +91,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 18. **Bug #35** (LLM token budget too small) — one-line constant fix, stops intermittent `OrientationError` on wp-admin pages. **Do this FIRST** — it's the lowest effort + highest impact.
 19. **Bug #34** (frontier cycling) — add `seen_urls` dedup to `enqueue_discovered_url`. Without this, no run ever converges.
 20. **Bug #36** (wp-admin login-gated playbook) — add one playbook YAML. Quick win after #35 is fixed (reduces LLM calls that would otherwise truncate).
+21. **Bug #37** (non-WP crawl allowlist) — universal security-relevance filter for non-WP hosts. Alpha crawls 20+ content pages (product/blog/category) with 0 findings. Wastes HTTP + LLM tokens every non-WP engagement.
 
 ---
 
@@ -1944,6 +1945,10 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 060 | WooCommerce endpoint enumeration missing (orders, customers) | OPEN | P2 | `/wp-json/wc/v3` lists orders/customers/products endpoints. Not probed → cannot assess PII data exposure. |
 | 061 | WP REST other endpoints not probed (posts, pages, comments, media) | OPEN | P2 | Route index lists posts/pages/comments/media. Only users probed. Data harvest surface missed. |
 | 062 | TLS/MX/SPF/DMARC infrastructure recon missing | OPEN | P3 | Passive DNS: MX/SPF/DMARC (phishing), AAAA (IPv6 bypass), TLS (downgrade). Zero target touch, aligns §12.48 passive-first. |
+| 063 | Odoo database list not extracted from DB manager page | OPEN | P1 | `/web/database/manager` fetched (51KB) but DB names not parsed. DB names = Beta cred-stuff target selection. Same pattern as GAP-054 (data in hand, discarded). |
+| 064 | Odoo XML-RPC not checked (/xmlrpc/2/common, /xmlrpc/2/db) | OPEN | P1 | Odoo XML-RPC = parallel attack surface (like WP XML-RPC GAP-057). Beta uses it for cred reuse but Alpha doesn't discover it. 1 request to check. |
+| 065 | Odoo /website/info not fetched (version + module list) | OPEN | P2 | Odoo's equivalent of WC system_status (GAP-052). 1 endpoint gives version + modules + server info. Not fetched. |
+| 066 | Odoo database name from URL not captured (/web?db=erp) | OPEN | P2 | `/web?db=erp` fetched but `db=erp` param not captured as DATA node. DB name = Beta context. URL parse, 0 new requests. |
 
 ## Recommended fix order (one slice at a time)
 
@@ -1963,6 +1968,111 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 13. **§12.61 slice 1** (historical DNS origin discovery) — biggest missing passive signal
 14. **GAP-046** (basic-auth applicator) — after §12.61 slices
 15. **GAP-047** (username harvest non-WP) — after GAP-046
+
+---
+
+## Bug #37: Non-WP Hosts Have No Crawl Allowlist → Alpha Crawls 20+ Content Pages with 0 Security Relevance
+
+- **Status**: OPEN
+- **Priority**: High — wastes HTTP + LLM tokens on every non-WP engagement.
+- **Effort**: Low (universal security-relevance filter in `_frontier_expansion_allowed`)
+
+- **What**: `_frontier_expansion_allowed` (`scout.py:2045-2075`) has TWO modes:
+  1. **WP host**: only allow `WP_CRAWL_ALLOW_PATH_PREFIXES` (`/wp-admin/`, `/wp-json/`,
+     `/wp-content/plugins/`, `/wp-content/themes/`, `/xmlrpc.php`) — security surface only.
+  2. **Non-WP host (Odoo, Laravel, Spring, unknown)**: `return True` for ALL hrefs —
+     no filter. Alpha crawls every content page: product, blog, category, about, contact.
+
+  The `MAX_ORGANIC_CRAWL_PER_HOST = 25` backstop caps it at 25 pages, but 25 content
+  pages × (HTTP fetch + LLM orient decision) = ~5-10 min wasted per engagement, 0 findings.
+
+  `constants.py:628` acknowledges this: "Laravel/Odoo/unknown hosts had no backstop."
+  But the fix only added the budget cap — not a relevance filter.
+
+- **Evidence (quantum-laboratories.com, 2026-08-12)**: Alpha crawled 20+ content pages:
+  `/visi-misi`, `/total-quality`, `/ethicals`, `/generic`, `/otc`, `/medical-device`,
+  `/business`, `/manufacturing`, `/jobs`, `/article`, `/contactus`, `/dosage-form-ethical`,
+  `/therapeutic-class-ethical`, `/ethical`, `/dosage-form-generic`, `/therapeutic-class-generic`,
+  `/generik`, `/q-lab-hand-sanitizer-gel-100-ml`, `/q-lab-hand-sanitizer-gel-500-ml`,
+  `/q-lab-hand-sanitizer-gel-5-l`, `/gastrointestinal-and-hepatobiliary-system-ethical`,
+  `/cardiovascular-and-hematopoietic-system-ethical`, `/quality-control`.
+
+  Result: 0 findings from ALL 20+ pages. Each page burned 1 HTTP request + 1 LLM
+  orient call (DeepSeek tokens). Some pages: "LLM decision failed; non-analyzable"
+  (tokens burned, no decision). Others: `generic_http_probe` → 1 node each (junk node,
+  no security value).
+
+  Meanwhile, security-relevant Odoo paths NOT crawled:
+  - `/xmlrpc/2/common` (Odoo XML-RPC — user enum alternative)
+  - `/website/info` (Odoo info page — version + modules)
+  - `/jsonrpc` (Odoo JSON-RPC)
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Same pattern on WP — but WP allowlist
+  filtered most content pages. Only wp-admin/wp-json paths survived. The 8 duplicate
+  probes were all security-relevant (just duplicated by Bug #34 cycling).
+
+- **Evidence (SE-Asia e-commerce site, 2026-07-29)**: `constants.py:628` documents:
+  "20min / 30+ product-page probes / 0 findings from any of them." This was the
+  original field evidence that motivated `MAX_ORGANIC_CRAWL_PER_HOST` — but the budget
+  cap alone doesn't solve the relevance problem.
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py:2045-2075` — `_frontier_expansion_allowed` (non-WP `return True`)
+  - `agent_alpha/config/constants.py:386-392` — `WP_CRAWL_ALLOW_PATH_PREFIXES` (WP-only)
+  - `agent_alpha/config/constants.py:630` — `MAX_ORGANIC_CRAWL_PER_HOST = 25` (budget cap, not relevance)
+
+- **Proposed fix**: Universal security-relevance filter. Add `SECURITY_RELEVANT_PATH_PATTERNS`
+  to constants — paths that indicate security surface across ALL stacks:
+  ```python
+  SECURITY_RELEVANT_PATH_PATTERNS: tuple[str, ...] = (
+      # Auth surfaces
+      "/admin", "/login", "/auth", "/signin", "/register",
+      "/web/login", "/web/database", "/web/webclient",
+      "/manager/html", "/host-manager/html",
+      # API surfaces
+      "/api", "/wp-json", "/graphql", "/graphiql",
+      "/xmlrpc", "/jsonrpc", "/xmlrpc.php",
+      "/openapi", "/swagger", "/api-docs", "/v2/api-docs",
+      # Config/leak surfaces
+      "/.env", "/.git", "/config", "/debug", "/actuator",
+      "/website/info", "/telescope", "/horizon", "/debugbar",
+      # WP-specific (keep for backward compat)
+      "/wp-admin", "/wp-content",
+  )
+  ```
+  Update `_frontier_expansion_allowed`:
+  ```python
+  def _frontier_expansion_allowed(self, url: str) -> bool:
+      parsed = urlparse(url)
+      host = parsed.hostname or parsed.netloc
+      if self._organic_crawl_count.get(host, 0) >= constants.MAX_ORGANIC_CRAWL_PER_HOST:
+          return False
+      path = parsed.path.lower()
+      # WP: use existing allowlist (backward compatible)
+      if constants.STACK_WP in self._host_stack.get(host, ()):
+          return any(path.startswith(p) for p in constants.WP_CRAWL_ALLOW_PATH_PREFIXES)
+      # Non-WP: universal security-relevance filter
+      return any(pattern in path for pattern in constants.SECURITY_RELEVANT_PATH_PATTERNS)
+  ```
+
+  This is NOT a deny-list (fragile — every site has different content paths). It's an
+  ALLOW-list of security-relevant patterns. Content pages (product/blog/category/about/
+  contact) are implicitly denied because they don't match any pattern.
+
+- **Test contract**:
+  1. Odoo host + href `/visi-misi` → denied (no security pattern match)
+  2. Odoo host + href `/web/login` → allowed (matches `/web/login`)
+  3. Odoo host + href `/website/info` → allowed (matches `/website/info`)
+  4. WP host + href `/wp-admin/` → allowed (WP allowlist, backward compat)
+  5. WP host + href `/product-page` → denied (WP allowlist, existing behavior)
+  6. Unknown host + href `/admin panel` → allowed (matches `/admin`)
+  7. Unknown host + href `/about-us` → denied (no security pattern match)
+  8. Budget cap still applies (25 max per host, regardless of relevance)
+
+- **Anti-Lyndon check**:
+  - #5 (scope creep): No — this is a fix for existing waste, not new capability.
+  - #11 (per-target hardcoding): No — universal pattern list, not per-target.
+  - #3 (false success): No — content pages with 0 findings are correctly denied.
 
 ---
 
@@ -3106,5 +3216,155 @@ Test contract: a wp-admin page with login form body matches the new rule
   mail servers → §12.61 A2 pakai IP mail server untuk origin netblock discovery.
   Alpha kasih data, §12.61 pakai data untuk flank strategy. Pemisahan sesuai
   ADR §5: Alpha = surface map, Beta/§12.61 = foothold strategy.
+
+---
+
+## GAP-063 — Odoo database list not extracted from DB manager page
+
+- **Status**: OPEN.
+- **Priority**: P1 — database names are Beta ammo (cred-stuff target selection).
+- **What**: Alpha fetches `/web/database/manager` (51677 bytes on quantum) and
+  correctly mints `odoo_dbmanager_exposed` finding. But the page contains a
+  **database list** — every database name visible on the page. Alpha does NOT
+  extract this list.
+
+  Database names are high-value recon:
+  - Database name = Beta's target for cred-stuff (e.g. `erp`, `prod`, `test`)
+  - Database name = intelligence about the target's infrastructure
+  - Database name can be used in `/web?db=<name>` to pre-fill the login form
+  - Multiple databases = multiple attack surfaces (test DBs often have weaker
+    creds than prod)
+
+  The DB manager page HTML contains database names in a structured format
+  (Odoo's QWeb template renders them as `<option>` or `<tr>` elements). Alpha
+  has the HTML but only checks for action markers (create/backup/drop) — it
+  does not parse the database list.
+
+- **Evidence (quantum-laboratories.com, 2026-08-12)**: `/web/database/manager`
+  fetched (200, 51677 bytes) → `odoo_dbmanager_exposed` finding minted. But:
+  - Database list: NOT in graph
+  - Database name "erp" (visible from `/web?db=erp` URL): NOT captured as DATA node
+  - Alpha knows DB manager is exposed but doesn't know WHAT databases exist
+
+- **Affected files**:
+  - `agent_alpha/recon/odoo_dbmanager_probe.py:83-184` — `process_odoo_dbmanager_hit` (checks EXPOSED, doesn't parse DB list)
+  - `agent_alpha/graph/nodes.py` — no DATA node for database names
+
+- **Proposed fix**: After `EXPOSED` verdict, parse the HTML for database names
+  (Odoo renders them in a structured table/select). Mint DATA nodes per database
+  name. Also extract from `/web?db=<name>` URLs that Alpha already fetches.
+
+- **Effort**: Low. HTML parse (regex or BeautifulSoup) + DATA node creation.
+  No new HTTP requests — parse existing response body.
+
+- **Cross-reference**: §12.61 axis B5 — database names help Beta select cred-
+  stuff targets. `erp` DB likely has different cred policy than `test` DB.
+
+---
+
+## GAP-064 — Odoo XML-RPC not checked (/xmlrpc/2/common, /xmlrpc/2/db)
+
+- **Status**: OPEN.
+- **Priority**: P1 — XML-RPC is Odoo's parallel attack surface (like WP XML-RPC).
+- **What**: Odoo exposes XML-RPC endpoints that Alpha does not check:
+  - `/xmlrpc/2/common` — `version()` gives Odoo version without auth;
+    `authenticate()` is the cred-stuff endpoint (Beta territory)
+  - `/xmlrpc/2/db` — database list without auth (same data as GAP-063, different
+    vector)
+  - `/xmlrpc/2/object` — model access (requires auth, but endpoint existence
+    confirms XML-RPC is enabled)
+
+  XML-RPC is often left enabled even when the web UI is hardened. It's a
+  parallel attack surface — same as WP XML-RPC (GAP-057). Beta already uses
+  Odoo XML-RPC for cred reuse (proven on alpha-ai.web.id), but Alpha does NOT
+  probe it during recon.
+
+  If Alpha doesn't know XML-RPC is enabled, Beta can't be routed to it. The
+  cred-reuse chain on alpha-ai worked because the runner hardcoded XML-RPC —
+  but the autonomous path doesn't discover it.
+
+- **Evidence (quantum-laboratories.com, 2026-08-12)**: Not checked. Alpha does
+  not know if XML-RPC is enabled on quantum-laboratories.com.
+
+- **Affected files**:
+  - `agent_alpha/recon/capability_probe.py:72-74` — `odoo_fingerprint` CapabilitySpec (only `/web/database/manager` seed)
+  - `agent_alpha/agents/alpha/scout.py` — no XML-RPC handler for Odoo
+
+- **Proposed fix**: Add `/xmlrpc/2/common` as a frontier_seed in the
+  `odoo_fingerprint` CapabilitySpec. Handler: POST with XML-RPC `version()`
+  method. If 200 + XML response with Odoo version → SERVICE node
+  (name="odoo_xmlrpc", version="enabled") + VULNERABILITY node
+  (xmlrpc_enabled, low sev). 1 HTTP request.
+
+- **Effort**: Low. 1 request + XML parse + node creation. Same pattern as
+  GAP-057 (WP XML-RPC).
+
+- **Cross-reference**: Beta's cred-reuse chain uses Odoo XML-RPC
+  (`/xmlrpc/2/common` + `/xmlrpc/2/object`). Alpha discovering XML-RPC = Beta
+  can be routed to it autonomously (not just via runner hardcode).
+
+---
+
+## GAP-065 — Odoo /website/info not fetched (version + module list)
+
+- **Status**: OPEN.
+- **Priority**: P2 — version + module list for CVE lookup.
+- **What**: Odoo exposes `/website/info` (if website module is installed) which
+  returns:
+  - Odoo version (exact)
+  - Installed module list
+  - Server info (Python version, PostgreSQL version, OS)
+
+  This is Odoo's equivalent of WP's `/wp-json/wc/v3/system_status` (GAP-052) —
+  a single endpoint that gives full version info. Alpha does not fetch it.
+
+  Alpha already has `verify_odoo_version` which POSTs to
+  `/web/webclient/version_info` for version — but this only gives version, not
+  module list. `/website/info` gives both.
+
+- **Evidence (quantum-laboratories.com, 2026-08-12)**: `/website/info` fetched
+  by `curl` (manual check) returns 200 with HTML. Alpha does not fetch it.
+
+- **Affected files**:
+  - `agent_alpha/recon/capability_probe.py:72-74` — `odoo_fingerprint` CapabilitySpec (no `/website/info` seed)
+  - `agent_alpha/agents/alpha/scout.py` — no `/website/info` handler
+
+- **Proposed fix**: Add `/website/info` as a frontier_seed in `odoo_fingerprint`.
+  Handler: parse HTML for version + module list. Mint SERVICE nodes per module
+  with version. Cross-reference against CVE catalogue.
+
+- **Effort**: Low-Medium. 1 request + HTML parse + CVE lookup per module.
+
+---
+
+## GAP-066 — Odoo database name from URL not captured (/web?db=erp)
+
+- **Status**: OPEN.
+- **Priority**: P2 — database name is Beta context (cred-stuff target).
+- **What**: Alpha fetches `/web?db=erp` (200, 16576 bytes on quantum) and mints
+  an auth_surface finding. But the URL parameter `db=erp` is NOT captured as a
+  DATA node. The database name "erp" is visible in the URL but discarded.
+
+  This is the same pattern as GAP-054 (WP REST user fields truncated) — Alpha
+  fetches the right response but discards data that's in the URL itself.
+
+  Database name from URL is valuable because:
+  - It confirms which database the target uses for production
+  - Beta can pre-fill the login form with the correct DB name
+  - Multiple `db=` values across pages = multiple databases discovered
+
+- **Evidence (quantum-laboratories.com, 2026-08-12)**: `/web?db=erp` fetched
+  (200, 16576 bytes) → `auth_surface` finding. Database name "erp" NOT in graph.
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py:1329+` — `_detect_auth_surface` (doesn't parse URL params)
+
+- **Proposed fix**: In `_detect_auth_surface`, parse URL query params for `db=`
+  parameter. If present, mint DATA node (type="database_name", value="erp").
+  No new HTTP requests — parse the URL that Alpha already fetched.
+
+- **Effort**: Low. URL parse + DATA node creation. ~10 lines.
+
+
 
 
