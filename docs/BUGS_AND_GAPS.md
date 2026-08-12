@@ -1932,6 +1932,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 048 | Soft-404 signature format-fragile (regex whack-a-mole) | **FIXED** (#388) | Medium | ingco (CSRF-hex-in-JS-object leaked by GAP-044 regexes) — SUPERSEDES GAP-044 fix |
 | 049 | STEALTH_BROWSER header contradiction (UA=Windows, sec-ch-ua-platform=macOS) | **FIXED** (#396) | Small | tls.peet.ws verification — partial header override created fingerprint contradiction (§12.49 implementation gap) |
 | 050 | IntelligenceBase wiring gap: data exists but never reaches memory | OPEN | Medium | 3 wiring gaps: tech_stack in graph not bridged to events, target metadata not captured, outcome events defined but never emitted |
+| 051 | `try_harder` is path-recovery only, not strategic pivot (D2-c unbuilt) | OPEN | Medium | Alpha re-probes same paths on same hosts when stuck; no pivot to origin discovery, subdomain side-door, credential OSINT, or Beta handoff. APT operators use fallback strategies (MITRE T1008), not retry. Devin uses replan-on-failure, not retry. D2-c extension point empty since Phase 1. |
 
 ## Recommended fix order (one slice at a time)
 
@@ -2423,4 +2424,168 @@ Test contract: a wp-admin page with login form body matches the new rule
 - **Effort**: Medium (4 slices: runner wiring + record schema + projector
   branches + outcome emission). Slice 1 is trivial (one-line per runner).
   Slices 2-4 are self-contained and testable.
+
+---
+
+## GAP-051 — `try_harder` is path-recovery only, not strategic pivot (D2-c unbuilt)
+
+- **Status**: OPEN.
+- **What**: Alpha's `try_harder` (`planner.py:43-101`) is a **path-level
+  dead-end recovery**, not a **strategic pivot**. When Alpha exhausts its
+  frontier, `try_harder` only re-seeds leak paths on hosts already in the
+  graph — it never changes strategy. The D2-c extension point
+  (HTN-style replan) is explicitly marked "NOT built here" (`planner.py:13`).
+
+  Current `try_harder` behavior:
+  1. Read graph → list known hosts + tech_stack
+  2. For each host → select leak paths by tech_stack (wp→wp-config.bak, laravel→.env)
+  3. Filter already-probed URLs
+  4. Return remaining paths → Alpha re-probes same hosts
+
+  What `try_harder` does NOT do:
+  - "CF blocks all probes → pivot to origin IP discovery"
+  - "All paths 404 → pivot to credential breach OSINT (Dehashed/HIBP)"
+  - "Login found but no creds → pivot to Beta for default/derived credential attack"
+  - "Main domain fully blocked → pivot to accessible subdomain as side door"
+  - "All recon exhausted → hand off to Beta/Omega with honest partial state"
+
+  The ADR §7 line 220 describes the intended "Try Harder agent" as:
+  > "when stuck (e.g., RECON_EXHAUSTED), GenAI generates next-best-step
+  > hypothesis from graph facts (not web_search). Elegant resolution for
+  > dead-end."
+
+  This is a **GenAI-driven strategic replan from graph facts** — not a
+  deterministic path re-seed. The current implementation is D2-b (path
+  recovery), the intended design is D2-c (strategic replan). The gap is
+  the missing D2-c layer.
+
+- **Why it matters**: Without strategic pivot, Alpha has exactly two
+  outcomes: (a) find something on the first pass, or (b) re-probe the same
+  paths on the same hosts until timeout. There is no "I'm stuck, let me
+  try a completely different approach." This means:
+  - CF-protected targets: Alpha probes → CF blocks → try_harder re-probes
+    same paths → CF blocks again → timeout. No pivot to origin discovery
+    as a try_harder strategy (origin discovery only fires reactively in
+    `_handle_waf_block`, not proactively in try_harder).
+  - Targets with no leaks: Alpha probes all paths → all 404 → try_harder
+    re-probes same paths → all 404 → timeout. No pivot to credential OSINT
+    or subdomain enumeration as a try_harder strategy.
+  - Multi-vector targets: Alpha finds login but no creds → try_harder
+    re-probes paths → no pivot to Beta for credential attack.
+
+- **How APT operators handle this (from MITRE ATT&CK + red team tradecraft)**:
+  APT operators do NOT re-try the same vector when blocked. They pivot:
+  1. **T1008 (Fallback Channels)**: "If primary channel fails, switch to
+     alternate" — OilRig switches HTTP→DNS tunneling, JHUHUGIT switches
+     direct→proxy→browser-injection. Each fallback is a DIFFERENT strategy,
+     not a retry of the same one.
+  2. **Red team planning**: "Plan multiple initial access scenarios. If
+     phishing is detected early, have an alternative." (Red Team Operations
+     Guide 2026). Alternatives are structurally different vectors, not
+     the same vector with different parameters.
+  3. **Replan, don't retry** (agent design pattern): "The right default
+     for a tool error in an agent is not retry. It is replan." Error
+     recovery splits into: transient (retry) vs persistent (replan) vs
+     semantic (replan with different strategy). `try_harder` treats all
+     dead-ends as transient (retry same paths) when they are actually
+     persistent/semantic (need different strategy).
+
+- **How Devin handles this**: Devin uses a **replan-on-failure** pattern:
+  when a tool fails or a step doesn't produce expected results, Devin
+  doesn't retry the same approach. It re-evaluates the situation from
+  current state and generates a new plan. The key principles:
+  1. **Failure context is passed to the planner** — the new plan includes
+     lessons from the failed attempt (what was tried, what didn't work).
+  2. **Partial progress is preserved** — replan doesn't throw away graph
+     state; it builds on it.
+  3. **Replan triggers are explicit** — not every error triggers replan;
+     only persistent/semantic failures (not transient infra errors).
+  4. **Thrash prevention** — naive replan-on-every-error thrashes; the
+     system needs explicit triggers and a maximum replan budget.
+
+- **What `try_harder` SHOULD be (proposed design, not implementation)**:
+
+  ```
+  Dead-end detected (frontier empty)
+    ↓
+  Classify the dead-end:
+    ├─ RECON_EXHAUSTED: all paths probed, all 404/200-no-finding
+    │   → Pivot: credential breach OSINT (Dehashed/HIBP) for this domain
+    │   → Pivot: subdomain enumeration (if not already done)
+    │   → Hand off to Beta with "no creds found, try default/derived"
+    │
+    ├─ WAF_BLOCKED_ALL: CF/WAF blocks every probe
+    │   → Pivot: origin IP discovery (crt.sh, DNS history, VT)
+    │   → Pivot: subdomain side-door (if main domain fully blocked)
+    │   → If origin found: re-probe via origin (existing §12.33)
+    │   → If no origin: honest BLOCKED handoff to Conductor
+    │
+    ├─ LOGIN_FOUND_NO_CREDS: auth surface discovered, no credentials
+    │   → Hand off to Beta (Conductor routes ALPHA→BETA on auth surface)
+    │   → This is NOT a dead-end — it's a successful recon finding
+    │
+    └─ PARTIAL_SUCCESS: some findings, more surface possible
+        → Continue with expanded path set (current try_harder behavior)
+        → This is the ONLY case where path re-seed is correct
+  ```
+
+  The key insight: **current `try_harder` treats ALL dead-ends as
+  PARTIAL_SUCCESS** (re-seed paths). It should classify the dead-end and
+  choose a strategy appropriate to the classification.
+
+- **Affected files**:
+  - `agent_alpha/agents/planner.py:13` — D2-c extension point (empty)
+  - `agent_alpha/agents/planner.py:43-101` — `try_harder` (path recovery only)
+  - `agent_alpha/agents/alpha/scout.py:2322-2345` — `_try_harder_recovery`
+  - `agent_alpha/agents/alpha/scout.py:648-679` — `_handle_waf_block` (reactive only)
+  - `docs/ADR.md:220` — "Try Harder agent" described but not built
+  - `docs/ADR.md:616` — Phase 6 includes "Try Harder agent" (deferred)
+
+- **Related gaps**:
+  - GAP-033 (subdomain pivot — not built): `try_harder` should pivot to
+    subdomain side-door when main domain is blocked.
+  - §12.54 (credential breach OSINT — not implemented): `try_harder`
+    should pivot to credential OSINT when recon finds no leaks.
+  - §12.33 (adaptive evasion — partially built): origin discovery fires
+    reactively in `_handle_waf_block`, not proactively in `try_harder`.
+  - GAP-050 (IntelligenceBase wiring): cross-engagement TTPs would tell
+    `try_harder` "Laravel+CF → origin-direct worked last time, try that
+    first" instead of blindly re-seeding paths.
+
+- **Priority**: MEDIUM — after Bug #34 fix (reset) and Slice B (SPA-login).
+  The current `try_harder` is not broken (it works as designed for
+  PARTIAL_SUCCESS), but it's incomplete (no classification, no pivot).
+  Bug #34 fix will stop the cycling; GAP-051 will make Alpha actually
+  converge with a productive outcome instead of a timeout.
+
+- **Anti-Lyndon**:
+  - #1 (feature before foundation): D2-c was marked "will be added HERE"
+    in Phase 1, never built. The extension point is a placeholder that
+    looks like progress.
+  - #2 (dead code treated as done): `try_harder` is "implemented" but
+    only covers 1 of 4 dead-end classifications. The other 3 are silently
+    absent.
+  - #3 (false success): Alpha "completes" recon by timing out — the
+    timeout looks like "recon done, handing off" but it's actually
+    "recon stuck, no more ideas." The Conductor receives a FAILED status
+    but doesn't know it was a strategic dead-end, not a real failure.
+  - #5 (scope creep): building full D2-c (HTN replan with GenAI) is
+    Phase 6. But classifying dead-ends and pivoting to existing strategies
+    (origin discovery, subdomain enum, Beta handoff) is Phase 4 scope —
+    those capabilities already exist, they're just not wired into
+    `try_harder`.
+
+- **Effort**: Medium. The pivot strategies (origin discovery, subdomain
+  enum, Beta handoff) already exist as separate code paths. The work is:
+  (1) classify the dead-end type, (2) route to the appropriate existing
+  strategy, (3) only fall back to path re-seed for PARTIAL_SUCCESS. No
+  new capabilities needed — just wiring existing capabilities into the
+  `try_harder` decision point.
+
+- **What this is NOT**: This is NOT building the Phase 6 "Try Harder agent"
+  (GenAI-generated next-best-step hypothesis from graph facts). That is
+  a future capability. This gap is about wiring EXISTING pivot strategies
+  (origin discovery, subdomain enum, Beta handoff, credential OSINT)
+  into the CURRENT `try_harder` decision point, so Alpha doesn't just
+  re-probe the same paths when stuck.
 
