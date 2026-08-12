@@ -1932,7 +1932,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 048 | Soft-404 signature format-fragile (regex whack-a-mole) | **FIXED** (#388) | Medium | ingco (CSRF-hex-in-JS-object leaked by GAP-044 regexes) — SUPERSEDES GAP-044 fix |
 | 049 | STEALTH_BROWSER header contradiction (UA=Windows, sec-ch-ua-platform=macOS) | **FIXED** (#396) | Small | tls.peet.ws verification — partial header override created fingerprint contradiction (§12.49 implementation gap) |
 | 050 | IntelligenceBase wiring gap: data exists but never reaches memory | OPEN | Medium | 3 wiring gaps: tech_stack in graph not bridged to events, target metadata not captured, outcome events defined but never emitted |
-| 051 | `try_harder` is path-recovery only, not strategic pivot (D2-c unbuilt) | OPEN | Medium | Alpha re-probes same paths on same hosts when stuck; no pivot to origin discovery, subdomain side-door, credential OSINT, or Beta handoff. APT operators use fallback strategies (MITRE T1008), not retry. Devin uses replan-on-failure, not retry. D2-c extension point empty since Phase 1. |
+| 051 | `try_harder` is path-recovery only, not strategic pivot (D2-c unbuilt) | OPEN | Medium | Alpha re-probes same paths on same hosts when stuck. Only 2 genuine pivots needed: WAF_BLOCKED_ALL→proactive origin discovery (§12.33 reactive only), RECON_EXHAUSTED→credential OSINT (§12.54 not built). Subdomain enum already upfront in recon_runner; login routing already in Conductor. Corrected from original 4-classification design. |
 
 ## Recommended fix order (one slice at a time)
 
@@ -2442,13 +2442,6 @@ Test contract: a wp-admin page with login form body matches the new rule
   3. Filter already-probed URLs
   4. Return remaining paths → Alpha re-probes same hosts
 
-  What `try_harder` does NOT do:
-  - "CF blocks all probes → pivot to origin IP discovery"
-  - "All paths 404 → pivot to credential breach OSINT (Dehashed/HIBP)"
-  - "Login found but no creds → pivot to Beta for default/derived credential attack"
-  - "Main domain fully blocked → pivot to accessible subdomain as side door"
-  - "All recon exhausted → hand off to Beta/Omega with honest partial state"
-
   The ADR §7 line 220 describes the intended "Try Harder agent" as:
   > "when stuck (e.g., RECON_EXHAUSTED), GenAI generates next-best-step
   > hypothesis from graph facts (not web_search). Elegant resolution for
@@ -2459,19 +2452,77 @@ Test contract: a wp-admin page with login form body matches the new rule
   recovery), the intended design is D2-c (strategic replan). The gap is
   the missing D2-c layer.
 
+- **Correction (2026-08-12): original 4-classification design was wrong.**
+  The original GAP-051 proposed 4 dead-end types. After review, only 2
+  are genuinely `try_harder` responsibilities. The other 2 were
+  misattributed:
+
+  | Dead-end type | Originally proposed pivot | Actual owner | Status |
+  |---------------|--------------------------|--------------|--------|
+  | RECON_EXHAUSTED | credential breach OSINT | try_harder (genuinely new) | **§12.54 not built** |
+  | WAF_BLOCKED_ALL | origin IP discovery | try_harder (genuinely new) | **§12.33 built but reactive only** |
+  | LOGIN_FOUND_NO_CREDS | hand off to Beta | **Conductor router** (already does this) | **Already handled — not a try_harder gap** |
+  | PARTIAL_SUCCESS | path re-seed | **current try_harder** | **Already correct — no change needed** |
+
+  What was removed from the original proposal and why:
+  - **"Subdomain enumeration" as try_harder pivot**: REDUNDANT.
+    `recon_runner.py:327-449` already discovers subdomains via crt.sh/VT/OTX
+    BEFORE Alpha runs, and adds them to the targets list. Alpha already
+    probes all subdomains. try_harder re-doing this would be duplicate work.
+  - **"Subdomain side-door" as try_harder pivot**: MISATTRIBUTED.
+    This is GAP-033 (cross-host credential reuse: attack accessible
+    subdomain → use creds on blocked main domain). That is a graph
+    architecture problem (cross-host edge tracking), not a try_harder
+    decision problem. It belongs to GAP-033, not here.
+  - **"LOGIN_FOUND_NO_CREDS" as try_harder dead-end**: NOT A DEAD-END.
+    Finding a login surface IS a successful recon outcome. The Conductor
+    router (`router.py:227-234`) already routes ALPHA→BETA when
+    `has_web_auth_surface(graph_store)` is true. This is not a try_harder
+    gap — it's already wired.
+
+- **What `try_harder` SHOULD be (corrected — 2 pivots, not 4)**:
+
+  ```
+  Dead-end detected (frontier empty)
+    ↓
+  Classify the dead-end:
+    ├─ WAF_BLOCKED_ALL: CF/WAF blocks every probe on this host
+    │   → Pivot: PROACTIVE origin IP discovery (crt.sh, DNS history, VT)
+    │   → Currently origin discovery only fires REACTIVELY in
+    │     _handle_waf_block (per-path). try_harder should fire it
+    │     PROACTIVELY when the ENTIRE host is WAF-blocked, not per-path.
+    │   → If origin found: re-probe via origin (existing §12.33 mechanism)
+    │   → If no origin: honest BLOCKED handoff to Conductor
+    │
+    ├─ RECON_EXHAUSTED: all paths probed, all 404/200-no-finding, no WAF
+    │   → Pivot: credential breach OSINT (Dehashed/HIBP) for this domain
+    │   → This is genuinely new — §12.54 not yet implemented
+    │   → If creds found: hand off to Beta with harvested credentials
+    │   → If no creds: honest "no surface found" handoff to Conductor
+    │
+    └─ PARTIAL_SUCCESS: some findings, more surface possible
+        → Continue with expanded path set (CURRENT try_harder behavior)
+        → This is ALREADY correct — no change needed
+  ```
+
+  The key insight: **current `try_harder` treats ALL dead-ends as
+  PARTIAL_SUCCESS** (re-seed paths). It should classify the dead-end and
+  choose a strategy appropriate to the classification. But only 2
+  classifications need new behavior — the third already works.
+
 - **Why it matters**: Without strategic pivot, Alpha has exactly two
   outcomes: (a) find something on the first pass, or (b) re-probe the same
   paths on the same hosts until timeout. There is no "I'm stuck, let me
   try a completely different approach." This means:
   - CF-protected targets: Alpha probes → CF blocks → try_harder re-probes
-    same paths → CF blocks again → timeout. No pivot to origin discovery
-    as a try_harder strategy (origin discovery only fires reactively in
-    `_handle_waf_block`, not proactively in try_harder).
+    same paths → CF blocks again → timeout. Origin discovery only fires
+    per-path in `_handle_waf_block`, not as a proactive try_harder strategy
+    when the ENTIRE host is blocked.
   - Targets with no leaks: Alpha probes all paths → all 404 → try_harder
-    re-probes same paths → all 404 → timeout. No pivot to credential OSINT
-    or subdomain enumeration as a try_harder strategy.
-  - Multi-vector targets: Alpha finds login but no creds → try_harder
-    re-probes paths → no pivot to Beta for credential attack.
+    re-probes same paths → all 404 → timeout. No pivot to credential OSINT.
+  - Note: subdomain enumeration is NOT a try_harder gap — it already
+    happens upfront in `recon_runner.py`. And login-found is NOT a
+    dead-end — Conductor already routes to Beta.
 
 - **How APT operators handle this (from MITRE ATT&CK + red team tradecraft)**:
   APT operators do NOT re-try the same vector when blocked. They pivot:
@@ -2503,89 +2554,72 @@ Test contract: a wp-admin page with login form body matches the new rule
   4. **Thrash prevention** — naive replan-on-every-error thrashes; the
      system needs explicit triggers and a maximum replan budget.
 
-- **What `try_harder` SHOULD be (proposed design, not implementation)**:
-
-  ```
-  Dead-end detected (frontier empty)
-    ↓
-  Classify the dead-end:
-    ├─ RECON_EXHAUSTED: all paths probed, all 404/200-no-finding
-    │   → Pivot: credential breach OSINT (Dehashed/HIBP) for this domain
-    │   → Pivot: subdomain enumeration (if not already done)
-    │   → Hand off to Beta with "no creds found, try default/derived"
-    │
-    ├─ WAF_BLOCKED_ALL: CF/WAF blocks every probe
-    │   → Pivot: origin IP discovery (crt.sh, DNS history, VT)
-    │   → Pivot: subdomain side-door (if main domain fully blocked)
-    │   → If origin found: re-probe via origin (existing §12.33)
-    │   → If no origin: honest BLOCKED handoff to Conductor
-    │
-    ├─ LOGIN_FOUND_NO_CREDS: auth surface discovered, no credentials
-    │   → Hand off to Beta (Conductor routes ALPHA→BETA on auth surface)
-    │   → This is NOT a dead-end — it's a successful recon finding
-    │
-    └─ PARTIAL_SUCCESS: some findings, more surface possible
-        → Continue with expanded path set (current try_harder behavior)
-        → This is the ONLY case where path re-seed is correct
-  ```
-
-  The key insight: **current `try_harder` treats ALL dead-ends as
-  PARTIAL_SUCCESS** (re-seed paths). It should classify the dead-end and
-  choose a strategy appropriate to the classification.
-
 - **Affected files**:
   - `agent_alpha/agents/planner.py:13` — D2-c extension point (empty)
   - `agent_alpha/agents/planner.py:43-101` — `try_harder` (path recovery only)
   - `agent_alpha/agents/alpha/scout.py:2322-2345` — `_try_harder_recovery`
-  - `agent_alpha/agents/alpha/scout.py:648-679` — `_handle_waf_block` (reactive only)
+  - `agent_alpha/agents/alpha/scout.py:648-679` — `_handle_waf_block` (reactive only, not proactive)
   - `docs/ADR.md:220` — "Try Harder agent" described but not built
   - `docs/ADR.md:616` — Phase 6 includes "Try Harder agent" (deferred)
 
-- **Related gaps**:
-  - GAP-033 (subdomain pivot — not built): `try_harder` should pivot to
-    subdomain side-door when main domain is blocked.
-  - §12.54 (credential breach OSINT — not implemented): `try_harder`
-    should pivot to credential OSINT when recon finds no leaks.
+- **Related gaps (corrected — not all are try_harder dependencies)**:
   - §12.33 (adaptive evasion — partially built): origin discovery fires
-    reactively in `_handle_waf_block`, not proactively in `try_harder`.
+    reactively in `_handle_waf_block` per-path. GAP-051 would make it
+    fire proactively in `try_harder` when the entire host is blocked.
+    This is the genuine try_harder dependency.
+  - §12.54 (credential breach OSINT — not implemented): try_harder
+    should pivot to credential OSINT when RECON_EXHAUSTED. This is the
+    other genuine try_harder dependency.
+  - GAP-033 (subdomain pivot — NOT a try_harder dependency): cross-host
+    credential reuse is a graph architecture problem, not a try_harder
+    decision. Removed from try_harder scope.
   - GAP-050 (IntelligenceBase wiring): cross-engagement TTPs would tell
     `try_harder` "Laravel+CF → origin-direct worked last time, try that
-    first" instead of blindly re-seeding paths.
+    first" instead of blindly re-seeding paths. Enhancement, not dependency.
 
 - **Priority**: MEDIUM — after Bug #34 fix (reset) and Slice B (SPA-login).
   The current `try_harder` is not broken (it works as designed for
-  PARTIAL_SUCCESS), but it's incomplete (no classification, no pivot).
-  Bug #34 fix will stop the cycling; GAP-051 will make Alpha actually
-  converge with a productive outcome instead of a timeout.
+  PARTIAL_SUCCESS), but it's incomplete (no classification, no pivot for
+  WAF_BLOCKED_ALL and RECON_EXHAUSTED). Bug #34 fix will stop the cycling;
+  GAP-051 will make Alpha actually converge with a productive outcome
+  instead of a timeout.
 
 - **Anti-Lyndon**:
   - #1 (feature before foundation): D2-c was marked "will be added HERE"
     in Phase 1, never built. The extension point is a placeholder that
     looks like progress.
   - #2 (dead code treated as done): `try_harder` is "implemented" but
-    only covers 1 of 4 dead-end classifications. The other 3 are silently
+    only covers 1 of 3 dead-end classifications. The other 2 are silently
     absent.
   - #3 (false success): Alpha "completes" recon by timing out — the
     timeout looks like "recon done, handing off" but it's actually
     "recon stuck, no more ideas." The Conductor receives a FAILED status
     but doesn't know it was a strategic dead-end, not a real failure.
-  - #5 (scope creep): building full D2-c (HTN replan with GenAI) is
-    Phase 6. But classifying dead-ends and pivoting to existing strategies
-    (origin discovery, subdomain enum, Beta handoff) is Phase 4 scope —
-    those capabilities already exist, they're just not wired into
-    `try_harder`.
+  - #5 (scope creep): the ORIGINAL GAP-051 proposal had 4 classifications
+    including subdomain pivot and login-found — both already handled by
+    other code paths. Corrected to 2 genuine try_harder pivots to avoid
+    scope creep into GAP-033 and Conductor router territory.
+  - #7 (duplicate canonical types): the original proposal risked
+    duplicating subdomain enumeration (already in recon_runner) and
+    login routing (already in Conductor router) as try_harder
+    responsibilities. Corrected — each capability has ONE owner.
 
-- **Effort**: Medium. The pivot strategies (origin discovery, subdomain
-  enum, Beta handoff) already exist as separate code paths. The work is:
-  (1) classify the dead-end type, (2) route to the appropriate existing
-  strategy, (3) only fall back to path re-seed for PARTIAL_SUCCESS. No
-  new capabilities needed — just wiring existing capabilities into the
-  `try_harder` decision point.
+- **Effort**: Medium. The 2 pivot strategies:
+  - WAF_BLOCKED_ALL → proactive origin discovery: §12.33 origin discovery
+    already exists as `_handle_waf_block` + `LiveOriginDiscovery`. The
+    work is calling it from `try_harder` when the entire host is blocked,
+    not just per-path. Small wiring change.
+  - RECON_EXHAUSTED → credential OSINT: §12.54 not yet implemented. This
+    is a genuinely new capability (Dehashed/HIBP integration). Larger
+    effort, but self-contained.
+  - PARTIAL_SUCCESS → no change needed (current behavior is correct).
 
 - **What this is NOT**: This is NOT building the Phase 6 "Try Harder agent"
   (GenAI-generated next-best-step hypothesis from graph facts). That is
-  a future capability. This gap is about wiring EXISTING pivot strategies
-  (origin discovery, subdomain enum, Beta handoff, credential OSINT)
-  into the CURRENT `try_harder` decision point, so Alpha doesn't just
-  re-probe the same paths when stuck.
+  a future capability. This gap is about wiring 2 EXISTING/PLANNED pivot
+  strategies (proactive origin discovery, credential OSINT) into the
+  CURRENT `try_harder` decision point, so Alpha doesn't just re-probe
+  the same paths when stuck. Subdomain enumeration (already upfront in
+  recon_runner) and login-found routing (already in Conductor) are
+  explicitly NOT part of this gap.
 
