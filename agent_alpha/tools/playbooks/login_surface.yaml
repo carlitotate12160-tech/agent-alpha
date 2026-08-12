@@ -7,22 +7,22 @@
 # after EVERY probe) — this rule does NOT re-detect it (anti-Lyndon #6). It only
 # routes DECIDE to the lightweight generic recon handler.
 #
-# Indicators cover both static and dynamic (Vue/Alpine :type bindings) password
-# inputs. A Laravel/Ignition 500 debug page has no password <input>, so
-# laravel_debug_probe still wins there (disjoint). SPA shells (no HTML password
-# input) are already routed by js_secret.yaml. forget-password pages (email only,
-# no password) intentionally fall through.
+# Guard is the password-input indicator itself: a Laravel/Ignition 500 debug page
+# has no password <input>, so laravel_debug_probe still wins there (disjoint).
+# SPA shells (no HTML password input) are already routed by js_secret.yaml.
+# forget-password pages (email only, no password) intentionally fall through.
 name: login_surface_recon
 version: 1
 phase: recon
+# Quote-agnostic (single OR double; \x27 = single-quote, kept out of the YAML scalar).
+# These MIRROR the canonical detector recon/auth_surface.py password regexes — that
+# classifier stays the source of truth for the LABEL; this rule is only a coarse
+# DECIDE trigger to keep login pages off the LLM tier (keep them roughly in sync).
 match:
   any_indicator:
-    - body_contains: 'type="password"'
-    - body_contains: "type='password'"
-    - body_contains: 'name="password"'
-    - body_contains: 'id="password"'
-    - body_contains: 'autocomplete="current-password"'
-    - body_contains: 'autocomplete="new-password"'
+    - body_regex: '<input[^>]*type\s*=\s*["\x27]?password\b'
+    - body_regex: '<input[^>]*(?:name|id)\s*=\s*["\x27]?password'
+    - body_regex: 'autocomplete\s*=\s*["\x27](?:current-password|new-password)'
 action:
   tool: auth_surface_probe
   tier: rule

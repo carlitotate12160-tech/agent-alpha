@@ -75,3 +75,38 @@ def test_auth_surface_probe_registered_in_scout() -> None:
     block = src.split("self._dispatch_registry", 1)[1].split("}", 1)[0]
     keys = set(re.findall(r'"([a-z_]+)":', block))
     assert "auth_surface_probe" in keys
+
+
+# ── CodeRabbit PR#395: single-quoted attributes must also match (quote-agnostic) ─
+
+
+def test_single_quoted_name_password_matches() -> None:
+    engine = _recon_engine()
+    d = engine.match({"body": "<input name='password'>", "headers": {}})
+    assert d is not None and d.tool == "auth_surface_probe"
+
+
+def test_single_quoted_id_password_matches() -> None:
+    engine = _recon_engine()
+    d = engine.match({"body": "<input id='password' type='text'>", "headers": {}})
+    assert d is not None and d.tool == "auth_surface_probe"
+
+
+def test_single_quoted_autocomplete_matches() -> None:
+    engine = _recon_engine()
+    d = engine.match({"body": "<input autocomplete='current-password'>", "headers": {}})
+    assert d is not None and d.tool == "auth_surface_probe"
+
+
+def test_vue_single_quoted_binding_matches_via_name() -> None:
+    engine = _recon_engine()
+    body = "<input :type=\"showPassword ? 'text' : 'password'\" name='password'>"
+    d = engine.match({"body": body, "headers": {}})
+    assert d is not None and d.tool == "auth_surface_probe"
+
+
+def test_name_password_outside_input_tag_does_not_match() -> None:
+    """A JSON/JS body mentioning name:"password" (no <input>) must NOT fire."""
+    engine = _recon_engine()
+    d = engine.match({"body": '{"field":{"name":"password"}}', "headers": {}})
+    assert d is None or d.tool != "auth_surface_probe"
