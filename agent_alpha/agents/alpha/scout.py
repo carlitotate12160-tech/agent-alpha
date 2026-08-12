@@ -152,6 +152,7 @@ class Alpha:
             "actuator_probe": self._handle_path_probe,
             "tomcat_fingerprint": self._handle_capability_fingerprint,
             "http_basic_auth_fingerprint": self._handle_capability_fingerprint,
+            "auth_surface_probe": self._handle_auth_surface,
             "s3_bucket_fingerprint": self._handle_capability_fingerprint,
             "surface_discovery_probe": self._handle_surface_discovery,
             "graphql_fingerprint": self._handle_capability_fingerprint,
@@ -1381,6 +1382,18 @@ class Alpha:
             self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
         )
         return 1
+
+    def _handle_auth_surface(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
+        """GAP-036: deterministic RULE-tier target for a login/auth-surface page.
+
+        A login page (a real password <input>) matches ``login_surface_recon`` and
+        lands here instead of falling to the LLM tier, which picks the nearest
+        framework-vuln tool (laravel_debug_probe) and wastes a probe. The
+        auth-surface LABEL is recorded by ``_detect_auth_surface`` (runs after every
+        probe) — this handler does NOT re-detect it (anti-#6). It delegates to the
+        lightweight header-only generic probe so recon still records the host.
+        """
+        return self._handle_generic_probe(resp, url)
 
     def _handle_capability_fingerprint(self, resp: Any, decision: Any, url: str) -> int:  # noqa: ARG002
         """Persist a header-fingerprinted capability as a labeled ASSET node.

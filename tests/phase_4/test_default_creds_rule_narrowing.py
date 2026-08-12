@@ -74,14 +74,19 @@ def test_recon_phase_engine_never_loads_default_creds_rule() -> None:
     default_creds through a phase='recon' engine — the rule is not loaded,
     full stop. This is what build_recon_pipeline() actually constructs for
     Alpha; this test proves it without needing DEEPSEEK_API_KEY / a live
-    Celery task."""
+    Celery task.
+
+    GAP-036: a recon-phase login_surface_recon rule MAY fire on a login page
+    (that is its purpose), so the assertion is narrowed to: the matched tool
+    must NOT be default_creds (the access-phase rule that must stay out)."""
     recon_engine = _engine(phase="recon")
     login_page = '<html><body><form><input type="password" name="pwd"></form></body></html>'
     decision = recon_engine.match({"body": login_page, "headers": {}})
-    assert decision is None, (
-        "default_credentials_login (phase: access) was loaded into a "
-        "phase='recon' engine — Alpha must never be able to reach it"
-    )
+    if decision is not None:
+        assert decision.tool != "default_creds", (
+            "default_credentials_login (phase: access) was loaded into a "
+            "phase='recon' engine — Alpha must never be able to reach it"
+        )
 
 
 def test_access_phase_engine_still_has_the_rule() -> None:
