@@ -467,7 +467,7 @@ Initial access (ACTIVE_APPROVED), credential spray, chat-while-task-runs (§8a),
 
 **Status:** ACCEPTED (Natanael + Opus 4.8, 2026-07-10)
 **Amends:** `docs/ADR.md` §9 Roadmap Phases — inserts **Phase 2.5** between Phase 2
-and Phase 4. Governs `docs/OPERATIONAL_REFERENCE.md` "Priority 1 (Phase 2 Completion)".
+and Phase 4. Governs the retired `docs/OPERATIONAL_REFERENCE.md` "Priority 1 (Phase 2 Completion)" snapshot (now at `docs/archive/OPERATIONAL_REFERENCE_v3_PR147.md` — frozen, not a living doc).
 **Verified against:** repo `a9dcab7` (main).
 
 > **Legal & Authorization Notice.** All REACH behavior runs ONLY after the Conductor
@@ -492,7 +492,8 @@ nobody owns the wiring).
 - **No WAF/CF/403/challenge branch** exists in `agents/` or `tools/` — a blocked root
   dead-ends instead of pivoting.
 - Recon breadth (subdomain / port / dir / reverse-IP / JS) = NOT IMPLEMENTED
-  (`OPERATIONAL_REFERENCE.md`).
+  (per the retired `OPERATIONAL_REFERENCE.md` snapshot, now at
+  `docs/archive/OPERATIONAL_REFERENCE_v3_PR147.md`).
 
 Consequence: every field-proven chain (Odoo/WP/db) works **only because the live_fire
 runner hand-feeds the exact vulnerable entry_point**. Given a real CF-fronted root
@@ -1304,11 +1305,13 @@ time, not trusted from this doc.
 **Status:** PROPOSED → LOCK on merge. Extends §12.16 (tool layer) and the §5–§7 differentiators.
 
 Decides what Agent-Alpha builds internally vs wraps, the safety-critical revisions to
-OPERATIONAL_REFERENCE.md tools, and Cloudflare/WAF handling.
+the kill-chain tool catalog (formerly in `OPERATIONAL_REFERENCE.md`, now archived at
+`docs/archive/OPERATIONAL_REFERENCE_v3_PR147.md`), and Cloudflare/WAF handling.
 
 #### Context
 
-OPERATIONAL_REFERENCE.md lists ~40 tools across the kill chain. A review found: most are
+The retired `OPERATIONAL_REFERENCE.md` snapshot (now at
+`docs/archive/OPERATIONAL_REFERENCE_v3_PR147.md`) lists ~40 tools across the kill chain. A review found: most are
 COMMODITY (nmap/nuclei/sqlmap/feroxbuster/proxy/captcha/GSocket) — rebuilding them internally
 is Lyndon #1/#4 at scale (breadth-chasing). Competitors (XBOW web-app autonomy; CAI generic
 multi-agent + 300+ LLM) already out-breadth us on commodity tooling. We cannot win on
@@ -1339,7 +1342,8 @@ LEGAL/SAFETY landmines that must be gated before any further offensive work.
 
 #### Decision 2 — Safety/scope revisions (NON-NEGOTIABLE, gate before more offense)
 
-These OPERATIONAL_REFERENCE.md tools are revised to default-DENY without explicit, per-action
+These tools (cataloged in the retired `OPERATIONAL_REFERENCE.md` snapshot, now at
+`docs/archive/OPERATIONAL_REFERENCE_v3_PR147.md`) are revised to default-DENY without explicit, per-action
 SOW authorization, enforced by the Conductor scope gate:
 
 1. **`cohost_pivot.py` / `symlink.py` (Epsilon) — HIGHEST RISK.** Co-hosted domains have
@@ -1396,7 +1400,8 @@ bodies (templates/*) are DeepSeek's, behind `Template.verify()`.
 ```
 
 **Confidence ~85%** — the wrap-vs-build litmus + the safety revisions are well-grounded
-(competitor research + the OPERATIONAL_REFERENCE review). Residual: the exact scope-gate
+(competitor research + the retired `OPERATIONAL_REFERENCE.md` review, snapshot at
+`docs/archive/OPERATIONAL_REFERENCE_v3_PR147.md`). Residual: the exact scope-gate
 API on #61 (reuse `is_in_scope` / `is_db_endpoint_in_scope` patterns) and where the
 TransportResilience capability plugs into the HttpClient — confirm on #61 before building.
 
@@ -3238,6 +3243,20 @@ agent that produces scanner-like traffic is a bug, not a feature. #7: all timing
 single-source in `constants.py`. #11: pacing is not a static pattern — burst size adapts to
 navigation context (new host vs same-host follow-up).
 
+**Amendment (2026-08-10): Target-aware pacing profile.** `StealthPacer` accepts an optional
+`business_hours_profile` derived from the engagement target's timezone and industry. Recon
+traffic blends with target peak hours (more bursts during active period, longer pauses
+outside). Credential stuffing shifts to off-hours (SOC understaffed, alert fatigue peak).
+NOT hardcoded 09:00–17:00 — the profile is target-industry-aware:
+- E-commerce: weekend-active, extended evening hours
+- Government/corporate: weekday 09–17, sleep weekend
+- 24/7 services (hosting, fintech): always-active, blend with baseline
+
+This is a parameter on the existing `StealthPacer`, not a new module. The default (no
+`business_hours_profile` set) preserves current behavior — burst-and-pause without
+time-of-day awareness. Anti-Lyndon #7: single source — the profile is defined in
+`engagement.yaml` and consumed by `StealthPacer`; no second pacing module.
+
 ### 12.51 Gamma Exploit Generation — 3-Layer Hybrid Dual-Engine (PROPOSED)
 
 **Date:** 2026-08-04
@@ -3685,5 +3704,56 @@ reprioritization (a fronted-apex host with a discovered origin should re-enter t
 whose historical A-record points at a still-live origin IP, WHEN origin discovery runs, THEN the
 historical IP is surfaced as a candidate and (two-proof-bound) becomes strike-reachable — proven on
 a real full-CF target (Tier-2), not a lab.
+
+
+### 12.62 Human Interaction Simulation for browser_solve path (PROPOSED — DEFERRED)
+
+**Date:** 2026-08-10
+**Extends:** §12.49 (proactive evasion), §12.53 (deep evasion stack).
+**Related:** GAP-049 (header contradiction fix — PR #396).
+
+**Context.** Advanced bot detection systems (hCaptcha, Turnstile, DataDome,
+Akamai Bot Manager with interaction analysis) inspect not only TLS fingerprints
+and headers but also behavioral signals: mouse movement patterns, scroll
+behavior, click timing, and focus/blur events. curl_cffi defeats fingerprint-
+level detection (JA4/Akamai match), but cannot produce interaction signals
+because it does not execute JavaScript or render a page.
+
+**Decision.** DEFERRED. Human interaction simulation (random mouse paths, scroll
+patterns, click jitter) is a valid technique but is scoped to the `browser_solve`
+path ONLY — never the recon path. Building it now is premature:
+
+1. **Recon via browser destroys §12.49 stealth.** A real browser executes JS,
+   exposing canvas/WebGL/font fingerprints that curl_cffi does not. For recon
+   (the majority of requests), curl_cffi is STEALTHIER than a browser.
+2. **Browser path is exception, not default.** `browser_solve_viable` is a
+   fallback for CHALLENGE-class mitigation only. Most engagements never reach it.
+3. **Cost is disproportionate.** Browser automation with interaction simulation
+   is 100x slower than HTTP GET. Engagements that do not need it would pay the
+   cost for no benefit.
+4. **No target has required it yet.** Agent-Alpha's field targets (niagamas,
+   bernofarm, ibudanbalita, alpha-ai) were all handled by curl_cffi stealth or
+   origin-direct bypass. Building interaction simulation speculatively is
+   Lyndon #1 (feature before foundation).
+
+**Promotion gate.** This ADR becomes ACTIVE when a field engagement hits a target
+that:
+- Uses hCaptcha/Turnstile/DataDome with interaction analysis, AND
+- Cannot be bypassed via origin-direct (§12.46) or credential reuse (§12.61 axis B)
+
+Until then, it is recorded here to preserve the design intent without building
+dead code.
+
+**Scope when activated.**
+- `browser_solve` path only: Camoufox/Playwright with mouse movement simulation
+- Random bezier-curve mouse paths (not straight-line — straight lines are a bot signal)
+- Scroll patterns with variable speed and direction changes
+- Click timing with human-like jitter (200-800ms between action and click)
+- Never applied to recon probes — recon stays curl_cffi
+
+**Anti-Lyndon.** #1 (feature before foundation — deferred until a target requires
+it). #4 (generic architecture — scoped to browser_solve, not recon). #5 (scope
+creep — not built until promotion gate triggers). #7 (single source — interaction
+patterns defined in one module, not scattered).
 
 
