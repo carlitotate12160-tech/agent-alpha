@@ -21,8 +21,8 @@ from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
-from agent_alpha.events.event_types import EventType
 from agent_alpha.config.stores import build_event_store
+from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.live_fire.field_prove_common import credential_vaulted

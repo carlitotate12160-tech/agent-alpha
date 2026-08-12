@@ -41,8 +41,8 @@ from agent_alpha.conductor.engagement_profile import (
     load_signed_profile_from_dict,
 )
 from agent_alpha.conductor.policy import PolicyEnforcer
-from agent_alpha.events.event_types import EventType
 from agent_alpha.config.stores import build_event_store
+from agent_alpha.events.event_types import EventType
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 from agent_alpha.recon.origin_discovery import CompositeOriginDiscovery
 from agent_alpha.recon.origin_resolver import LiveOriginDiscovery

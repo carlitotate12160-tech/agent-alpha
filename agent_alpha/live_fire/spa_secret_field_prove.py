@@ -26,8 +26,8 @@ import yaml
 
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.events.event_types import EventType
 from agent_alpha.config.stores import build_event_store
+from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType

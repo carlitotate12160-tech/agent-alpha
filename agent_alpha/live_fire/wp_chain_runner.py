@@ -26,8 +26,8 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.events.event_types import EventType
 from agent_alpha.config.stores import build_event_store
+from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider, _scan_leak
