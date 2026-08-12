@@ -314,6 +314,31 @@ def test_derive_platform_from_ua_linux() -> None:
     assert _derive_platform_from_ua("Mozilla/5.0 (X11; Linux x86_64)") == '"Linux"'
 
 
+def test_derive_platform_from_ua_cros() -> None:
+    from agent_alpha.agents.http_client import _derive_platform_from_ua
+    assert _derive_platform_from_ua("Mozilla/5.0 (X11; CrOS x86_64)") == '"Chrome OS"'
+
+
+def test_derive_platform_from_ua_ios() -> None:
+    from agent_alpha.agents.http_client import _derive_platform_from_ua
+    assert _derive_platform_from_ua("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0)") == '"iOS"'
+
+
+def test_derive_platform_from_ua_android() -> None:
+    from agent_alpha.agents.http_client import _derive_platform_from_ua
+    assert _derive_platform_from_ua("Mozilla/5.0 (Linux; Android 14)") == '"Android"'
+
+
+def test_derive_platform_from_ua_unknown_returns_unknown(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    from agent_alpha.agents.http_client import _derive_platform_from_ua
+    caplog.set_level("WARNING")
+    result = _derive_platform_from_ua("Mozilla/5.0 (UnknownOS)")
+    assert result == '"Unknown"'
+    assert "DERIVE-PLATFORM-UNKNOWN" in caplog.text
+
+
 def test_validate_header_consistency_no_mismatch() -> None:
     from agent_alpha.agents.http_client import _validate_header_consistency
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0)", "sec-ch-ua-platform": '"Windows"'}
@@ -380,5 +405,24 @@ def test_inconsistent_headers_logged_as_warning(
             "user_agent": win_ua,
             "headers": {"sec-ch-ua-platform": '"Linux"'},
         },
+    )
+    assert "HEADER-INCONSISTENCY" in caplog.text
+
+
+def test_per_request_header_override_validates_consistency(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Per-call headers that introduce a UA/platform mismatch must be caught
+    by the per-request validation in _request, not just construction-time
+    validation in __init__."""
+    transport = httpx.MockTransport(lambda req: httpx.Response(200, text="ok"))
+    client = HttpClient(engagement_id="eng-per-call", transport=transport)
+    caplog.set_level("WARNING")
+    # Per-call override: set a macOS UA while the default sec-ch-ua-platform
+    # is "Windows" — this creates a contradiction that per-request validation
+    # must catch.
+    client.get(
+        "https://example.com",
+        headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"},
     )
     assert "HEADER-INCONSISTENCY" in caplog.text

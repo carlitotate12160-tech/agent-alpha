@@ -36,17 +36,31 @@ def _derive_platform_from_ua(ua: str) -> str:
     Chrome sends ``sec-ch-ua-platform`` as a quoted value (e.g. ``"Windows"``).
     This function inspects the UA OS token and returns the matching quoted
     platform so the two headers never contradict each other.
+
+    Order matters: CrOS and iOS are checked before the broader Macintosh/Linux
+    tokens because those substrings can appear in edge-case UAs.
     """
     if "Windows" in ua:
         return '"Windows"'
-    if "Macintosh" in ua or "Mac OS X" in ua:
-        return '"macOS"'
-    if "Linux" in ua and "Android" not in ua:
-        return '"Linux"'
+    if "CrOS" in ua:
+        return '"Chrome OS"'
     if "Android" in ua:
         return '"Android"'
-    # Safe fallback: match STEALTH_BROWSER default platform.
-    return str(constants.STEALTH_BROWSER["sec_ch_ua_platform"])
+    if "iPhone" in ua or "iPad" in ua or "iOS" in ua:
+        return '"iOS"'
+    if "Macintosh" in ua or "Mac OS X" in ua:
+        return '"macOS"'
+    if "Linux" in ua:
+        return '"Linux"'
+    # Unknown platform — log so the operator is alerted, and return a neutral
+    # value rather than silently falling back to STEALTH_BROWSER's platform
+    # (which could itself contradict the UA).
+    logger.warning(
+        "DERIVE-PLATFORM-UNKNOWN: could not infer sec-ch-ua-platform from UA='%s' "
+        "— returning '\"Unknown\"'; set sec-ch-ua-platform explicitly via opsec",
+        ua[:80],
+    )
+    return '"Unknown"'
 
 
 def _validate_header_consistency(headers: dict[str, str]) -> list[str]:
@@ -351,6 +365,12 @@ class HttpClient:
         # never drops (anti-Lyndon #3). Single chokepoint for every method (#7).
         self._rate_limiter.acquire(url)
         merged_headers = {**self._headers, **(headers or {})}
+        # Validate header consistency on the FINAL merged headers — per-call
+        # overrides (e.g. custom Accept, custom UA) could introduce a mismatch
+        # between User-Agent and sec-ch-ua-platform. Log warnings so the operator
+        # is alerted to fingerprint contradictions before egress.
+        for w in _validate_header_consistency(merged_headers):
+            logger.warning("HEADER-INCONSISTENCY: %s — WAF may detect bot fingerprint", w)
         # Per-call verify override: None → fall back to instance default (self._verify).
         effective_verify = self._verify if verify is None else verify
         response = self._fetcher(
