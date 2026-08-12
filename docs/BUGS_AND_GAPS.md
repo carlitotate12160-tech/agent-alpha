@@ -1933,6 +1933,17 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 049 | STEALTH_BROWSER header contradiction (UA=Windows, sec-ch-ua-platform=macOS) | **FIXED** (#396) | Small | tls.peet.ws verification — partial header override created fingerprint contradiction (§12.49 implementation gap) |
 | 050 | IntelligenceBase wiring gap: data exists but never reaches memory | OPEN | Medium | 3 wiring gaps: tech_stack in graph not bridged to events, target metadata not captured, outcome events defined but never emitted |
 | 051 | `try_harder` is path-recovery only, not strategic pivot (D2-c unbuilt) | OPEN | Medium | Alpha re-probes same paths on same hosts when stuck. Only 2 genuine pivots needed: WAF_BLOCKED_ALL→proactive origin discovery (§12.33 reactive only), RECON_EXHAUSTED→credential OSINT (§12.54 not built). Subdomain enum already upfront in recon_runner; login routing already in Conductor. Corrected from original 4-classification design. |
+| 052 | WooCommerce version not extracted (system_status not fetched) | OPEN | **P0** | CVE-2026-3589 affects WC 5.4.0-10.5.2 — without version, cannot assess. `/wp-json/wc/v3/system_status` gives PHP/MySQL/WP/plugin versions in 1 request. Not fetched. |
+| 053 | WP plugin handler exists but never fires (LLM orient fails on wp-admin) | OPEN | **P0** | `_handle_wp_plugins` regex + CVE lookup exists but never called in live path. wp-admin pages fetched but LLM decision fails → plugin list in HTML discarded. Lyndon #2 dead code. |
+| 054 | WP REST user fields truncated (slug only, drops email/roles) | OPEN | **P0** | `/wp-json/wp/v2/users` response has id/name/email/roles/avatar/url/description. Alpha extracts slug only. Email needed for breach OSINT (GAP-051), roles needed for admin targeting. |
+| 055 | Security headers not audited | OPEN | P1 | HSTS/X-Frame-Options/CSP/X-Content-Type-Options missing = attack surface. Detectable from existing homepage response, 0 new requests. |
+| 056 | robots.txt + sitemap.xml not fetched | OPEN | P1 | robots.txt = admin's hidden path map. sitemap.xml = full URL list. 2 requests, high discovery value. |
+| 057 | XML-RPC not checked | OPEN | P1 | `/xmlrpc.php` enabled = brute force multiplier (system.multicall = 1000 attempts/request). 1 request to check. |
+| 058 | JS secret extraction missing (api_key, nonce, ajaxurl) | OPEN | P1 | ADR charter says Alpha delivers `js_secrets` to Beta — not done. Homepage HTML has `<script src>` + `wp_localize_script` data. 0 extraction. |
+| 059 | Cookie audit missing (HttpOnly, Secure, SameSite) | OPEN | P2 | Cookie flags affect session theft/CSRF assessment. Parse from existing response, 0 new requests. |
+| 060 | WooCommerce endpoint enumeration missing (orders, customers) | OPEN | P2 | `/wp-json/wc/v3` lists orders/customers/products endpoints. Not probed → cannot assess PII data exposure. |
+| 061 | WP REST other endpoints not probed (posts, pages, comments, media) | OPEN | P2 | Route index lists posts/pages/comments/media. Only users probed. Data harvest surface missed. |
+| 062 | TLS/MX/SPF/DMARC infrastructure recon missing | OPEN | P3 | Passive DNS: MX/SPF/DMARC (phishing), AAAA (IPv6 bypass), TLS (downgrade). Zero target touch, aligns §12.48 passive-first. |
 
 ## Recommended fix order (one slice at a time)
 
@@ -2657,4 +2668,412 @@ Test contract: a wp-admin page with login form body matches the new rule
   the same paths when stuck. Subdomain enumeration (already upfront in
   recon_runner) and login-found routing (already in Conductor) are
   explicitly NOT part of this gap.
+
+---
+
+## GAP-052 — WooCommerce version not extracted (system_status endpoint not fetched)
+
+- **Status**: OPEN.
+- **Priority**: P0 — blocks CVE lookup (CVE-2026-3589 affects WooCommerce 5.4.0-10.5.2, range very wide).
+- **What**: Alpha detects WooCommerce API is exposed (`_handle_woocommerce` mints a
+  `woocommerce_exposed` VULNERABILITY node) but does NOT extract the WooCommerce
+  version. Without version, IntelligenceBase cannot check CVE-2026-3589 (CSRF →
+  admin creation, affects 5.4.0-10.5.2) or CVE-2026-8457 (Social Login auth bypass).
+
+  WooCommerce exposes `/wp-json/wc/v3/system_status` which returns (without auth
+  on many misconfigured installs):
+  - PHP version (exact)
+  - MySQL version
+  - WordPress version
+  - Active plugin list + version
+  - Theme list + version
+  - Server info (LiteSpeed version, Apache version)
+  - PHP config (memory_limit, max_execution_time, upload_max_filesize)
+
+  This is a SINGLE request that gives more version info than all other probes
+  combined. Alpha does not fetch it.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Alpha fetched `/wp-json/wc/v3`
+  (200, 178176 bytes) and minted `woocommerce_exposed` finding. But:
+  - WooCommerce version: NOT in graph
+  - Plugin list: NOT in graph
+  - PHP exact version: NOT in graph (only `php/7.4.33` from x-powered-by header)
+  - system_status: NOT fetched
+
+  CVE-2026-3589 affects WooCommerce 5.4.0-10.5.2. Without version, Agent-Alpha
+  cannot determine if solusibersama is vulnerable. This is a FALSE NEGATIVE risk:
+  the target may be vulnerable but Agent-Alpha reports "no known CVE."
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py:1714-1768` — `_handle_woocommerce` (mints finding, no version extraction)
+  - `agent_alpha/recon/capability_probe.py:104-107` — `woocommerce` CapabilitySpec (no system_status seed)
+  - `agent_alpha/graph/nodes.py:86-91` — `ServiceProperties` has `version` field but it's never populated for WooCommerce
+
+- **Proposed fix**: Add `/wp-json/wc/v3/system_status` as a `frontier_seed` in the
+  `woocommerce` CapabilitySpec. Add a `_handle_wc_system_status` handler that:
+  1. Parses the system_status JSON
+  2. Extracts WooCommerce version → SERVICE node (name="woocommerce", version=X)
+  3. Extracts PHP version → merge into ASSET tech_stack
+  4. Extracts plugin list → SERVICE nodes per plugin with version
+  5. Extracts MySQL version → SERVICE node
+  6. Cross-references each (name, version) against CVE catalogue
+
+- **Effort**: Low-Medium. 1 new handler + 1 frontier_seed + CVE lookup per
+  extracted version. The system_status endpoint is already in scope (same host).
+
+---
+
+## GAP-053 — WP plugin handler exists but never fires (LLM orient fails on wp-admin pages)
+
+- **Status**: OPEN.
+- **Priority**: P0 — plugin CVE is #1 WordPress attack vector.
+- **What**: `_handle_wp_plugins` (`scout.py:1844`) extracts plugin slug + version
+  from page HTML via regex `/wp-content/plugins/([a-z0-9\-]+)/[^\"']*?[?&]ver=([0-9][0-9.]*)`
+  and checks each against the CVE catalogue. The handler is CORRECT.
+
+  But it NEVER FIRES in live runs because:
+  1. The `wp_plugins` tool is never selected by the orient tier
+  2. wp-admin pages (`update-core.php`, `import.php`) are fetched but LLM
+     decision fails ("Could not orient on ...: LLM decision failed; non-analyzable")
+  3. The `auth_surface_probe` tool is selected instead, which only mints an
+     auth surface finding — it does NOT extract plugin list from the body
+  4. The homepage body (178852 bytes) ALSO contains `/wp-content/plugins/`
+     paths but `wp_fingerprint` handler does not extract plugins
+
+  Result: plugin list + versions are in the fetched HTML but never extracted.
+  This is Lyndon #2 (dead code treated as done): the handler exists, is tested,
+  but is never reached in the live autonomous path.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**:
+  - `update-core.php` fetched (200, 10695 bytes) → `auth_surface_probe` selected → plugin list NOT extracted
+  - `import.php` fetched (200, 10685 bytes) → `auth_surface_probe` selected → plugin list NOT extracted
+  - Homepage fetched (200, 178852 bytes) → `wp_fingerprint` selected → plugin list NOT extracted
+  - `_handle_wp_plugins` never called → 0 plugin nodes → 0 plugin CVE checks
+
+  APT operator view-source on any of these pages would see:
+  ```
+  /wp-content/plugins/contact-form-7/...?ver=5.x
+  /wp-content/plugins/litespeed-cache/...?ver=6.x
+  /wp-content/plugins/woocommerce/...?ver=9.x
+  ```
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py:1844-1896` — `_handle_wp_plugins` (exists, never called)
+  - `agent_alpha/recon/capability_probe.py:81-92` — `wp_fingerprint` CapabilitySpec (no `wp_plugins` follow-up)
+  - `agent_alpha/agents/base.py` — orient tier (LLM decision fails on wp-admin pages)
+
+- **Proposed fix**: Two options:
+  1. **Deterministic**: Run `_handle_wp_plugins` regex extraction on EVERY fetched
+     HTML body that contains `/wp-content/plugins/` — not just when `wp_plugins`
+     tool is selected. This is a body-side extraction, no new HTTP request.
+  2. **Tool-level**: Add `wp_plugins` as a `follow_up_tool` in the `wp_fingerprint`
+     CapabilitySpec so it fires deterministically after wp_fingerprint, not via
+     LLM orient.
+
+  Option 1 is preferred (no new HTTP, no LLM dependency, pure regex on existing body).
+
+- **Effort**: Low. Move the regex extraction from `_handle_wp_plugins` into a
+  body post-processing step that runs on every WP-host HTML response.
+
+---
+
+## GAP-054 — WP REST user fields truncated (slug only, drops email/roles)
+
+- **Status**: OPEN.
+- **Priority**: P0 — email is required for credential breach OSINT (GAP-051 RECON_EXHAUSTED pivot).
+- **What**: `_handle_wp_rest_users` (`scout.py:1639`) parses `/wp-json/wp/v2/users`
+  response and extracts ONLY the `slug` field → USER node with `username=slug`.
+
+  The WP REST users response contains much more:
+  ```json
+  {
+    "id": 1,
+    "name": "Site Admin",
+    "slug": "admin",
+    "email": "admin@example.com",        // sometimes exposed
+    "roles": ["administrator"],           // sometimes exposed
+    "avatar_urls": {"96": "...", "48": "..."},
+    "url": "https://personal-blog.com",
+    "description": "WordPress developer"
+  }
+  ```
+
+  Alpha drops: `id`, `name`, `email`, `roles`, `avatar_urls`, `url`, `description`.
+
+  Impact:
+  - `roles` missing → Beta cannot prioritize admin accounts for credential attack
+  - `email` missing → GAP-051 RECON_EXHAUSTED pivot to Dehashed/HIBP cannot fire
+    (breach OSINT needs email, not slug)
+  - `url` missing → personal site pivot (GAP-033 cross-host) loses a candidate
+  - `description` missing → OSINT context lost
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: 9 USER nodes created, all with
+  `username` only. 0 email, 0 roles, 0 avatar, 0 description. The 59198-byte
+  response was fetched but mostly discarded.
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py:1639-1712` — `_handle_wp_rest_users` (extracts slug only)
+  - `agent_alpha/graph/nodes.py:110-119` — `UserProperties` (has username + source only, no email/roles)
+
+- **Proposed fix**:
+  1. Extend `UserProperties` with: `email: str = ""`, `roles: list[str] = []`,
+     `display_name: str = ""`, `avatar_url: str = ""`, `profile_url: str = ""`,
+     `description: str = ""`
+  2. Update `_handle_wp_rest_users` to extract all available fields from JSON
+  3. Email and roles are the P0 fields; others are P2
+
+- **Effort**: Low. Schema extension + JSON field extraction. No new HTTP requests.
+
+---
+
+## GAP-055 — Security headers not audited
+
+- **Status**: OPEN.
+- **Priority**: P1 — missing headers = attack surface (clickjacking, XSS, MIME sniffing).
+- **What**: Alpha fetches the homepage (200) and parses `x-powered-by` for tech_stack
+  but does NOT audit security headers. Missing security headers are findings:
+  - `strict-transport-security` missing → no HSTS → SSL strip possible
+  - `x-frame-options` missing → clickjacking on login form
+  - `content-security-policy` missing → stored XSS easier
+  - `x-content-type-options` missing → MIME sniffing
+  - `referrer-policy` missing → referrer leak to third parties
+  - `permissions-policy` missing → feature abuse (camera, mic, geolocation)
+
+  These are detectable from the SAME response Alpha already fetches (homepage).
+  Zero additional HTTP requests.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Homepage fetched (200). Response
+  headers include `x-powered-by`, `cache-control`, `x-litespeed-cache` but NO
+  security headers visible. Alpha did not audit or report this.
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py` — no security header audit handler
+  - `agent_alpha/recon/capability_probe.py` — no security header CapabilitySpec
+
+- **Proposed fix**: Add a `_audit_security_headers` method that runs on every
+  homepage response. Mint a VULNERABILITY node per missing header (low severity).
+  No new HTTP requests — parse existing response headers.
+
+- **Effort**: Low. Header parsing + VULNERABILITY node creation. ~50 lines.
+
+---
+
+## GAP-056 — robots.txt + sitemap.xml not fetched
+
+- **Status**: OPEN.
+- **Priority**: P1 — robots.txt reveals hidden paths, sitemap reveals full URL list.
+- **What**: Alpha does not fetch `/robots.txt` or `/sitemap.xml`. These are:
+  - `robots.txt`: admin's "do not crawl" list → every `Disallow` is interesting
+  - `sitemap.xml`: complete URL list → endpoints Alpha might not discover otherwise
+
+  APT operators check robots.txt FIRST — it's a free map of what the admin
+  is trying to hide. `/wp-sitemap.xml` is WordPress's native sitemap (since 5.5).
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Neither fetched. Alpha discovered
+  URLs only through wp-json route index + leak path probes.
+
+- **Affected files**:
+  - `agent_alpha/recon/capability_probe.py` — no robots/sitemap CapabilitySpec
+  - `agent_alpha/agents/alpha/scout.py` — no robots/sitemap handler
+
+- **Proposed fix**: Add 2 frontier seeds to the `wp_fingerprint` CapabilitySpec:
+  `/robots.txt` and `/wp-sitemap.xml`. Add handlers that parse and enqueue
+  discovered URLs (in-scope guard applies). 2 HTTP requests total.
+
+- **Effort**: Low. 2 requests + XML/txt parsing + URL enqueue.
+
+---
+
+## GAP-057 — XML-RPC not checked
+
+- **Status**: OPEN.
+- **Priority**: P1 — XML-RPC is a brute force multiplier (system.multicall = 1000 attempts per request).
+- **What**: WordPress XML-RPC (`/xmlrpc.php`) is not checked by Alpha. If enabled:
+  - `system.listMethods` → enumerate all available methods
+  - `wp.getUsersBlogs` → username enumeration (alternative to REST API)
+  - `system.multicall` → 1 request = 1000 password attempts (bypass rate limit)
+  - Pingback → DDoS amplification vector
+  - `wp.getComments` → data harvest without auth
+
+  XML-RPC is often left enabled even when REST API user enumeration is disabled.
+  It's a parallel attack surface that Alpha completely ignores.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Not checked. Alpha does not
+  know if XML-RPC is enabled or disabled on solusibersama.
+
+- **Affected files**:
+  - `agent_alpha/recon/capability_probe.py` — no xmlrpc CapabilitySpec
+  - `agent_alpha/agents/alpha/scout.py` — no xmlrpc handler
+
+- **Proposed fix**: Add `/xmlrpc.php` as a frontier seed after wp_fingerprint.
+  Handler: POST with `system.listMethods` → if 200 + XML response with methods,
+  mint a SERVICE node (name="xmlrpc", version="enabled") + VULNERABILITY node
+  (xmlrpc_enabled, low sev). 1 HTTP request.
+
+- **Effort**: Low. 1 request + XML parse + node creation.
+
+---
+
+## GAP-058 — JS secret extraction missing (api_key, nonce, ajaxurl from homepage HTML)
+
+- **Status**: OPEN.
+- **Priority**: P1 — JS files often expose API keys, nonces, AJAX endpoints.
+- **What**: Alpha fetches the homepage HTML (178852 bytes for solusibersama) but
+  does NOT extract `<script src="...">` URLs or analyze JS content. JavaScript
+  files frequently contain:
+  - API keys (Google Maps, Stripe, reCAPTCHA, Firebase)
+  - WordPress `wp_localize_script` data (ajaxurl, nonce, rest_url)
+  - Hardcoded credentials (rare but happens)
+  - AJAX endpoint URLs (not in wp-json index)
+  - Third-party script URLs (deprecated/vulnerable libs like polyfill.io)
+
+  ADR charter says Alpha should deliver `js_secrets` to Beta. This is not done.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Homepage fetched (178852 bytes).
+  0 JS files extracted. 0 JS secrets. The HTML certainly contains `<script>` tags
+  with plugin/theme JS URLs and `wp_localize_script` inline data.
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py` — no JS extraction handler
+  - `agent_alpha/recon/capability_probe.py` — no JS CapabilitySpec
+  - ADR §5 line 153: "js_secrets" in Alpha→Beta handoff contract (not delivered)
+
+- **Proposed fix**:
+  1. Extract `<script src="...">` URLs from homepage HTML (regex, no new HTTP)
+  2. For each JS URL: fetch (in-scope, same host) + grep for
+     `api_key|secret|token|password|nonce|ajaxurl|rest_url`
+  3. Mint DATA nodes for extracted secrets
+  4. Mint SERVICE nodes for AJAX endpoints discovered
+
+- **Effort**: Medium. JS URL extraction + fetch per JS file + secret grep.
+  Budget: cap at N JS files per host (anti-#3 over-probe).
+
+---
+
+## GAP-059 — Cookie audit missing (HttpOnly, Secure, SameSite flags)
+
+- **Status**: OPEN.
+- **Priority**: P2 — cookie security flags affect session theft/CSRF assessment.
+- **What**: Alpha does not audit `Set-Cookie` response headers. Cookie flags
+  determine attack surface:
+  - `HttpOnly` missing → XSS can steal session via `document.cookie`
+  - `Secure` missing → cookie sent over HTTP (interceptable)
+  - `SameSite=None` → CSRF possible
+  - `SameSite=Lax` → partial CSRF protection
+  - `__Host-` prefix missing → cookie injection possible
+
+  WordPress sets `wp_woocommerce_session_*`, `woocommerce_cart_hash`,
+  `litespeed_hash`, `wordpress_test_cookie` etc. Their flag config is a finding.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Cookies not audited.
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py` — no cookie audit handler
+
+- **Proposed fix**: Parse `Set-Cookie` headers from homepage response. Mint
+  VULNERABILITY nodes for missing flags (low sev). No new HTTP requests.
+
+- **Effort**: Low. Header parsing + node creation. ~30 lines.
+
+---
+
+## GAP-060 — WooCommerce endpoint enumeration missing (orders, customers, products)
+
+- **Status**: OPEN.
+- **Priority**: P2 — data exposure assessment (customer PII, order data).
+- **What**: Alpha detects WooCommerce API is exposed but does NOT enumerate
+  individual endpoints. The `/wp-json/wc/v3` response lists available endpoints:
+  - `/wc/v3/orders` — customer order data (PII: name, email, address, payment)
+  - `/wc/v3/customers` — customer accounts (PII: name, email, billing address)
+  - `/wc/v3/products` — product catalog
+  - `/wc/v3/payment_gateways` — payment gateway config
+  - `/wc/v3/system_status` — server config (covered by GAP-052)
+
+  Without fetching these, Alpha cannot assess data exposure. A misconfigured
+  WooCommerce may return customer PII without auth.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: `/wp-json/wc/v3` fetched
+  (178176 bytes) but individual endpoints not probed.
+
+- **Affected files**:
+  - `agent_alpha/agents/alpha/scout.py:1714-1768` — `_handle_woocommerce` (no endpoint enumeration)
+
+- **Proposed fix**: After woocommerce detection, enqueue `/wc/v3/orders`,
+  `/wc/v3/customers`, `/wc/v3/products` as frontier seeds. Handler: if response
+  is JSON array with customer data → mint DATA nodes (PII exposure finding).
+  Budget: cap at N endpoints (anti-#3).
+
+- **Effort**: Medium. 3-5 requests + JSON parse + DATA node creation.
+
+---
+
+## GAP-061 — WP REST other endpoints not probed (posts, pages, comments, media)
+
+- **Status**: OPEN.
+- **Priority**: P2 — data harvest surface (post content, comments, media metadata).
+- **What**: Alpha fetches `/wp-json/` (route index) and `/wp-json/wp/v2/users`
+  but does NOT probe other WP REST endpoints that may expose data:
+  - `/wp-json/wp/v2/posts` — post content, author IDs, dates
+  - `/wp-json/wp/v2/pages` — page content (may include draft/private pages)
+  - `/wp-json/wp/v2/comments` — comment data (names, emails sometimes)
+  - `/wp-json/wp/v2/media` — media file URLs (directory listing possible)
+  - `/wp-json/wp/v2/taxonomies` — category/tag structure
+  - `/wp-json/wp/v2/users/<id>` — individual user detail (more fields than list)
+
+  These are listed in the route index that Alpha already fetches. They are
+  data-derived discoveries, not new probe paths.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: Route index fetched (969277
+  bytes) but only `wp/v2/users` was escalated (via `WP_REST_INTERESTING_ROUTES`).
+  Other endpoints not probed.
+
+- **Affected files**:
+  - `agent_alpha/constants.py` — `WP_REST_INTERESTING_ROUTES` (limited set)
+  - `agent_alpha/agents/alpha/scout.py:1632-1637` — route escalation logic
+
+- **Proposed fix**: Expand `WP_REST_INTERESTING_ROUTES` to include posts, pages,
+  comments, media. Add handlers that parse responses and mint DATA nodes for
+  exposed content. Budget: cap response size (anti-#3, some endpoints return
+  huge payloads).
+
+- **Effort**: Medium. 4-6 requests + JSON parse + DATA node creation.
+
+---
+
+## GAP-062 — TLS/MX/SPF/DMARC infrastructure recon missing
+
+- **Status**: OPEN.
+- **Priority**: P3 — infrastructure assessment (SSL downgrade, phishing, IPv6 bypass).
+- **What**: Alpha's recon_runner does subdomain enumeration via crt.sh/VT/OTX but
+  does NOT assess:
+  - **TLS config**: SSL/TLS version, cipher suites, cert SANs, cert validity.
+    Weak TLS = downgrade attack. Cert SANs = subdomain discovery alternative.
+  - **MX records**: mail server infrastructure. Missing MX = no email, present
+    MX = email server attack surface.
+  - **SPF/DMARC records**: email spoofing assessment. Missing SPF/DMARC =
+    phishing domain spoofing possible (attacker can send email as client domain).
+  - **AAAA records**: IPv6 attack surface. IPv6 often bypasses IPv4-only firewalls.
+  - **CAA records**: certificate authority authorization. Misconfigured CAA =
+    unauthorized cert issuance possible.
+
+  These are passive DNS queries (zero touch to target). They align with §12.48
+  passive-first doctrine.
+
+- **Evidence (solusibersama.co.id, 2026-08-12)**: DNS A record resolved
+  (45.80.182.6) but MX/SPF/DMARC/AAAA/TLS not assessed.
+
+- **Affected files**:
+  - `agent_alpha/conductor/recon_runner.py` — subdomain enum exists, infra recon does not
+  - `agent_alpha/agents/alpha/scout.py` — no TLS/MX/SPF handler
+
+- **Proposed fix**: Add a passive infrastructure recon phase to recon_runner
+  (before Alpha runs):
+  1. DNS lookup: MX, TXT (SPF/DMARC), AAAA, CAA
+  2. TLS scan: connect on 443, negotiate, extract cert + cipher info
+  3. Mint SERVICE nodes for mail servers, ASSET nodes for IPv6 addresses
+  4. Mint VULNERABILITY nodes for missing SPF/DMARC, weak TLS
+
+- **Effort**: Medium. DNS queries (dnspython) + TLS scan (ssl module) + node
+  creation. All passive, zero target touch.
+
 
