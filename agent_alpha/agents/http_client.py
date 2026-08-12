@@ -22,6 +22,53 @@ from agent_alpha.recon.reach_transport import cffi_requests, is_tls_impersonate_
 logger = logging.getLogger(__name__)
 
 
+# ── Browser-identity consistency (anti-fingerprint-contradiction) ────────────
+# curl_cffi's impersonate preset sends its own sec-ch-ua-platform (e.g. "macOS"
+# for chrome124). If we override User-Agent to Windows but leave
+# sec-ch-ua-platform at the curl_cffi default, a WAF/CDN sees a contradiction
+# (UA=Windows, platform=macOS) and can flag the request as bot. These helpers
+# ensure every header override stays internally consistent.
+
+
+def _derive_platform_from_ua(ua: str) -> str:
+    """Derive the ``sec-ch-ua-platform`` value that matches a User-Agent string.
+
+    Chrome sends ``sec-ch-ua-platform`` as a quoted value (e.g. ``"Windows"``).
+    This function inspects the UA OS token and returns the matching quoted
+    platform so the two headers never contradict each other.
+    """
+    if "Windows" in ua:
+        return '"Windows"'
+    if "Macintosh" in ua or "Mac OS X" in ua:
+        return '"macOS"'
+    if "Linux" in ua and "Android" not in ua:
+        return '"Linux"'
+    if "Android" in ua:
+        return '"Android"'
+    # Safe fallback: match STEALTH_BROWSER default platform.
+    return str(constants.STEALTH_BROWSER["sec_ch_ua_platform"])
+
+
+def _validate_header_consistency(headers: dict[str, str]) -> list[str]:
+    """Return a list of inconsistency warning strings (empty if consistent).
+
+    Checks that ``sec-ch-ua-platform`` matches the OS implied by the
+    ``User-Agent`` header. A mismatch is a fingerprint contradiction that
+    WAF/CDN bot detection can flag.
+    """
+    warnings: list[str] = []
+    ua = headers.get("User-Agent", "")
+    platform = headers.get("sec-ch-ua-platform", "")
+    if ua and platform:
+        expected = _derive_platform_from_ua(ua)
+        if platform != expected:
+            warnings.append(
+                f"sec-ch-ua-platform={platform} contradicts User-Agent OS "
+                f"(expected {expected} from UA)"
+            )
+    return warnings
+
+
 @dataclasses.dataclass(frozen=True)
 class HttpResponse:
     """HTTP response shape consumed by agents. ``headers`` carries set-cookie, so
@@ -112,12 +159,21 @@ class HttpClient:
             ua = opsec.get("user_agent")
             if isinstance(ua, str) and ua:
                 self._headers["User-Agent"] = ua
+                # Auto-derive sec-ch-ua-platform to match the overridden UA.
+                # Without this, curl_cffi's preset platform (e.g. "macOS")
+                # would contradict a Windows UA — a bot fingerprint signal.
+                self._headers["sec-ch-ua-platform"] = _derive_platform_from_ua(ua)
             extra = opsec.get("headers", {})
             if isinstance(extra, dict):
                 self._headers.update({str(k): str(v) for k, v in extra.items()})
             rps = float(opsec.get("rate_limit_rps", rate_limit_rps))
         else:
             rps = rate_limit_rps
+        # Validate header consistency (anti-fingerprint-contradiction).
+        # Log warnings for any UA/platform mismatch — does not block construction
+        # so that degraded configs still function, but surfaces the risk loudly.
+        for w in _validate_header_consistency(self._headers):
+            logger.warning("HEADER-INCONSISTENCY: %s — WAF may detect bot fingerprint", w)
         self._transport = transport
         self._rate_limiter = rate_limiter or RateLimiter(rps)
         if fetcher is not None:
@@ -188,7 +244,13 @@ class HttpClient:
             "User-Agent": str(constants.STEALTH_BROWSER["user_agent"]),
             "Accept": str(constants.STEALTH_BROWSER["accept"]),
             "Accept-Language": str(constants.STEALTH_BROWSER["accept_language"]),
+            "Accept-Encoding": str(constants.STEALTH_BROWSER["accept_encoding"]),
             "sec-ch-ua": str(constants.STEALTH_BROWSER["sec_ch_ua"]),
+            "sec-ch-ua-mobile": str(constants.STEALTH_BROWSER["sec_ch_ua_mobile"]),
+            "sec-ch-ua-platform": str(constants.STEALTH_BROWSER["sec_ch_ua_platform"]),
+            "upgrade-insecure-requests": str(
+                constants.STEALTH_BROWSER["upgrade_insecure_requests"]
+            ),
             "sec-fetch-site": "none",
             "sec-fetch-mode": "navigate",
             "sec-fetch-user": "?1",
