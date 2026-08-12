@@ -305,8 +305,11 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
 | `solusibersama.co.id` | WP + WooCommerce + LiteSpeed | dns-txt client-approved | WP gaps |
 | `quantum-laboratories.com` | Odoo + Cloudflare | dns-txt client-approved | Odoo gaps |
 | `bernofarm.com` | WP + WooCommerce | dns-txt client-approved | WP gaps (backup) |
+| `niagamas.com` | WP + Cloudflare | dns-txt client-approved | WP gaps (CF variant) |
+| `ingco.co.id` | CodeIgniter + PHP 7.4 + Hostinger | dns-txt client-approved | CodeIgniter gaps |
 | `wp.alpha-ai.web.id` | WP (self-owned) | dns-txt lab-proof | WP cred-reuse chain |
 | `alpha-ai.web.id` | Odoo (self-owned) | dns-txt lab-proof | Odoo cred-reuse chain |
+| `spectranet.com.ng` | WP + Apache (Nigeria ISP) | **PENDING** — client-approved but DNS-TXT not yet set | WP gaps (Africa variant) — NOT ACTIVE until DNS-TXT verified |
 
 - **How:** Run the Conductor runner script (e.g. `run_solusibersama_conductor.py`,
   `run_quantum_conductor.py`) on Oracle ARM64.
