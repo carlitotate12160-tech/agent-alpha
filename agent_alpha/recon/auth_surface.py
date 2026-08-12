@@ -60,13 +60,15 @@ STRIKABLE_AUTH_LABELS: frozenset[str] = frozenset({HTTP_BASIC_AUTH, LOGIN_FORM})
 SPA_LOGIN_FORM = "spa-login-form"
 
 _JS_LOGIN_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"""type\s*[:=]\s*['\"]password['\"]""", re.IGNORECASE),
+    # Quote char class includes backtick: Vite/esbuild minified bundles use
+    # template-literal quotes (type:`password`) instead of ' or ".
+    re.compile(r"""type\s*[:=]\s*['"`]password['"`]""", re.IGNORECASE),
     re.compile(
-        r"""autocomplete\s*[:=]\s*['\"](?:current-password|new-password)['\"]""",
+        r"""autocomplete\s*[:=]\s*['"`](?:current-password|new-password)['"`]""",
         re.IGNORECASE,
     ),
-    re.compile(r"""(?:name|id)\s*[:=]\s*['\"]password['\"]""", re.IGNORECASE),
-    re.compile(r"""<input[^>]*type\s*=\s*['\"]?password""", re.IGNORECASE),
+    re.compile(r"""(?:name|id)\s*[:=]\s*['"`]password['"`]""", re.IGNORECASE),
+    re.compile(r"""<input[^>]*type\s*=\s*['"`]?password""", re.IGNORECASE),
 )
 
 
