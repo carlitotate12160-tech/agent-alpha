@@ -1949,8 +1949,8 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 064 | Odoo XML-RPC not checked (/xmlrpc/2/common, /xmlrpc/2/db) | OPEN | P1 | Odoo XML-RPC = parallel attack surface (like WP XML-RPC GAP-057). Beta uses it for cred reuse but Alpha doesn't discover it. 1 request to check. |
 | 065 | Odoo /website/info not fetched (version + module list) | OPEN | P2 | Odoo's equivalent of WC system_status (GAP-052). 1 endpoint gives version + modules + server info. Not fetched. |
 | 066 | Odoo database name from URL not captured (/web?db=erp) | OPEN | P2 | `/web?db=erp` fetched but `db=erp` param not captured as DATA node. DB name = Beta context. URL parse, 0 new requests. |
-| 067 | Odoo JSON-RPC applicator missing (Beta can't login to Odoo) | OPEN | **P0** | Beta's applicator roster has WpLogin + HttpForm. Odoo login is JSON-RPC POST to `/web/session/authenticate`. No Odoo applicator = Beta can't login to ANY Odoo target. Root cause of Beta failure on quantum-laboratories. |
-| 068 | Odoo default credentials not in platform dict | OPEN | **P0** | `_DEFAULT_CREDENTIALS` has wp/tomcat/jenkins/phpmyadmin/grafana/joomla — no `odoo`. Trivial 1-line fix. Pairs with GAP-067. |
+| 067 | OdooAccessTool only speaks XML-RPC, no JSON-RPC fallback (CF-blocked targets fail) | OPEN | P1 | OdooAccessTool exists and is wired, but only uses XML-RPC. CF blocks XML-RPC → no fallback to JSON-RPC (/web/session/authenticate). Re-scoped from original "applicator missing" claim. |
+| 068 | ~~Odoo default creds not in platform dict~~ | **RETRACTED** | — | OdooAccessTool has own hardcoded candidates (admin/admin, admin/password). Does NOT use _DEFAULT_CREDENTIALS dict. No fix needed. |
 
 ## Recommended fix order (one slice at a time)
 
@@ -3369,119 +3369,74 @@ Test contract: a wp-admin page with login form body matches the new rule
 
 ---
 
-## GAP-067 — Odoo JSON-RPC applicator missing (Beta can't login to Odoo)
+## GAP-067 — OdooAccessTool only speaks XML-RPC, no JSON-RPC fallback (CF-blocked targets fail)
 
-- **Status**: OPEN.
-- **Priority**: P0 — blocks Beta on EVERY Odoo target (correct logic, wrong transport).
-- **What**: Beta's applicator roster has two applicators:
-  1. `WpLoginApplicator` — POSTs form fields to `wp-login.php` (WordPress)
-  2. `HttpFormApplicator` — POSTs form fields (`username=X&password=Y`) to login URL
+- **Status**: OPEN (re-scoped 2026-08-12 — original entry incorrectly
+  claimed "no Odoo applicator"; OdooAccessTool exists and is wired).
+- **Priority**: P1 — blocks Beta on CF-fronted Odoo targets (XML-RPC blocked).
+- **What**: `OdooAccessTool` (`odoo_access.py`, 480 lines) IS wired in
+  Beta's candidate list (`strike.py:337-341`) and speaks XML-RPC:
+  - `db.list()` via POST to `/xmlrpc/2/db`
+  - `authenticate(db, login, password)` via POST to `/xmlrpc/2/common`
+  - Hardcoded candidates: `admin/admin`, `admin/password` + harvested creds
+  - `applies_to()` returns 0.85 for Odoo (ranked above DefaultCredsTool 0.7)
 
-  Odoo's login is **JSON-RPC**, not form POST:
-  ```
-  POST /web/session/authenticate
-  Content-Type: application/json
-  {"jsonrpc":"2.0","method":"call","params":{"db":"erp","login":"admin","password":"X"}}
-  ```
+  **The gap:** OdooAccessTool only speaks XML-RPC. If Cloudflare blocks
+  XML-RPC POST (text/xml content-type, non-standard endpoint), there is
+  NO fallback to JSON-RPC (`/web/session/authenticate`). Odoo's web login
+  form uses JSON-RPC — that endpoint is reachable through CF because it's
+  the same endpoint the login form uses.
 
-  `HttpFormApplicator` sends form-encoded data — Odoo rejects it (wrong
-  content-type, wrong body format). `WpLoginApplicator` POSTs to
-  `wp-login.php` — wrong endpoint entirely.
+  Additionally, `DefaultCredsTool` (which runs second at 0.7) uses
+  `HttpFormApplicator` which POSTs form fields — Odoo web login expects
+  JSON-RPC, not form POST. So DefaultCredsTool also fails on Odoo.
 
-  Result: Beta tries `admin/admin` via form POST → Odoo returns error →
-  Beta marks it as failed → Beta FAILED → OMEGA (honest report).
+- **Evidence (quantum-laboratories.com, 2026-08-12)**: Beta FAILED (status=3).
+  OdooAccessTool ran first (0.85 rank) but XML-RPC POSTs to `/xmlrpc/2/*`
+  likely blocked by CF (or admin/admin wrong for production). DefaultCredsTool
+  ran second (0.7) but form POST to `/web/login` rejected by Odoo (expects
+  JSON-RPC). Both tools failed → Beta FAILED.
 
-  **This is why Beta failed on quantum-laboratories.com.** Alpha did its
-  job (detected Odoo, version, DB manager, auth surface). Router correctly
-  dispatched Beta. But Beta's applicator can't speak Odoo's auth protocol.
-
-- **Evidence (quantum-laboratories.com, 2026-08-12)**: Alpha detected
-  `tech_stack=["odoo"]`, `/web/login` auth surface, version via
-  `/web/webclient/version_info`. Router → `has_web_auth_surface` True →
-  Beta dispatched. Beta tried 2 hosts → FAILED (status=3).
-
-  Root cause trace:
-  - 0 CREDENTIAL nodes (no leak paths succeeded — `.env` 404, `.git` 404)
-  - 0 USER nodes (Odoo has no REST user enum — GAP-064 not built)
-  - `default_creds` tried `admin/admin` via `HttpFormApplicator` → wrong
-    transport for Odoo JSON-RPC → failed
-  - `user_derived_creds` has 0 USER nodes → nothing to derive → skipped
-  - Beta has NOTHING that can succeed → FAILED
+  Root cause trace (corrected):
+  - OdooAccessTool: XML-RPC POST → CF block OR admin/admin wrong → fail
+  - DefaultCredsTool: form POST → Odoo expects JSON-RPC → fail
+  - CredReuseTool: 0 CREDENTIAL nodes → skipped
+  - UserDerivedCredsTool: 0 USER nodes → skipped
+  - All 4 tools failed → Beta FAILED
 
 - **Affected files**:
-  - `agent_alpha/conductor/applicator_factory.py:57-69` — `beta_web_applicators` (no Odoo applicator)
-  - `agent_alpha/tools/internal/access/applicator.py` — no `OdooJsonRpcApplicator` class
-  - `agent_alpha/tools/internal/access/default_creds.py:62-95` — no `odoo` entry in `_DEFAULT_CREDENTIALS`
+  - `agent_alpha/tools/internal/access/odoo_access.py:120-211` — `run()` only uses XML-RPC, no JSON-RPC fallback
+  - `agent_alpha/tools/internal/access/default_creds.py:247-249` — `HttpFormApplicator` wrong for Odoo JSON-RPC
 
-- **Proposed fix**:
-  1. New `OdooJsonRpcApplicator` class — POSTs JSON-RPC to
-     `/web/session/authenticate` with `db`, `login`, `password` params.
-  2. Verify success: `session_id` cookie set (already in
-     `SESSION_COOKIE_NAMES` allowlist — `default_creds.py:143`).
-  3. Register in `beta_web_applicators` AFTER `WpLoginApplicator` but
-     BEFORE `HttpFormApplicator` (specific before generic, same ordering
-     principle as WP).
-  4. `applies_to(service, target)` returns True when target host's ASSET
-     has `tech_stack=["odoo"]`.
+- **Proposed fix**: Add JSON-RPC fallback to OdooAccessTool:
+  1. Try XML-RPC first (current behavior — `/xmlrpc/2/common`)
+  2. If XML-RPC fails (transport error or non-200), fall back to JSON-RPC:
+     POST to `/web/session/authenticate` with
+     `{"jsonrpc":"2.0","method":"call","params":{"db":db,"login":user,"password":pwd}}`
+  3. Verify: `session_id` cookie set (already in `SESSION_COOKIE_NAMES`)
+  4. Same candidate list, same db discovery — only transport changes
+
+  This is NOT a new applicator — it's adding a fallback transport to the
+  existing OdooAccessTool. Anti-#6 (no duplicate tool).
 
 - **Test contract**:
-  1. Odoo host + `admin/admin` → POST JSON-RPC to `/web/session/authenticate`
-     → `session_id` cookie set → `AuthResult(success=True)`.
-  2. Odoo host + `admin/wrongpassword` → no `session_id` → `AuthResult(success=False)`.
-  3. WP host + `admin/admin` → `WpLoginApplicator` tried first (not Odoo).
-  4. Unknown host + `admin/admin` → `HttpFormApplicator` (fallback).
+  1. Odoo + XML-RPC reachable → XML-RPC authenticate works (current behavior)
+  2. Odoo + XML-RPC blocked + JSON-RPC reachable → JSON-RPC fallback works
+  3. Odoo + both blocked → fail gracefully (no false success)
+  4. WP host → OdooAccessTool skipped (applies_to=0.15)
 
-- **Effort**: Medium. New applicator class (~100 lines) + register in
-  factory + test fixture with mock Odoo JSON-RPC endpoint.
-
-- **Cross-reference**: This is the Beta-side fix that pairs with Alpha-side
-  GAP-064 (Odoo XML-RPC discovery). GAP-067 = Beta can speak Odoo's auth
-  protocol. GAP-064 = Alpha discovers Odoo's XML-RPC surface. Both needed
-  for Beta to succeed on Odoo targets.
+- **Effort**: Medium. Add JSON-RPC transport to OdooAccessTool (~80 lines)
+  + test fixture with mock Odoo JSON-RPC endpoint.
 
 ---
 
-## GAP-068 — Odoo default credentials not in platform dict
+## GAP-068 — RETRACTED (OdooAccessTool already has hardcoded candidates)
 
-- **Status**: OPEN.
-- **Priority**: P0 — trivial fix, blocks Beta default-cred check on Odoo.
-- **What**: `_DEFAULT_CREDENTIALS` dict (`default_creds.py:62-95`) has
-  entries for: `generic`, `wp`, `tomcat`, `jenkins`, `phpmyadmin`,
-  `grafana`, `joomla`. **No `odoo` entry.**
-
-  `_build_credential_list` selects platform-specific creds by matching
-  tech_stack values. Odoo's tech_stack is `["odoo"]` — no match → only
-  `generic` creds tried. Odoo's default admin is `admin` / `admin` (fresh
-  install) — this IS in the generic list, but it's tried with the wrong
-  applicator (HttpFormApplicator, not OdooJsonRpcApplicator — GAP-067).
-
-  Even after GAP-067 fix, without an `odoo` entry, Beta won't try
-  Odoo-specific defaults like `admin` / `admin` with the Odoo applicator
-  (it would try generic `admin/admin` with the Odoo applicator, which
-  happens to work — but explicit is better than implicit, anti-#7).
-
-- **Evidence (quantum-laboratories.com, 2026-08-12)**: Beta tried generic
-  `admin/admin` via `HttpFormApplicator` → failed (wrong transport, not
-  wrong password). After GAP-067 fix, generic `admin/admin` via
-  `OdooJsonRpcApplicator` would work IF the target has default creds.
-  But explicit `odoo` entry is cleaner and allows Odoo-specific defaults
-  to be added later (e.g. `admin` / `admin` for specific Odoo versions).
-
-- **Affected files**:
-  - `agent_alpha/tools/internal/access/default_creds.py:62-95` — `_DEFAULT_CREDENTIALS` dict
-
-- **Proposed fix**: Add `"odoo": [("admin", "admin")]` to dict. 1 line.
-
-- **Test contract**:
-  1. `tech_stack={"odoo": "16.0"}` → `_build_credential_list` returns
-     generic + odoo entries (deduped).
-  2. `admin/admin` appears once (not duplicated between generic and odoo).
-
-- **Effort**: Trivial. 1 line.
-
-- **Cross-reference**: Pairs with GAP-067. GAP-068 = Beta knows WHAT
-  creds to try for Odoo. GAP-067 = Beta knows HOW to try them (JSON-RPC).
-  Both needed for Beta to succeed on Odoo targets.
+- **Status**: RETRACTED (2026-08-12). Original entry claimed Odoo default
+  creds missing from `_DEFAULT_CREDENTIALS` dict. But `OdooAccessTool`
+  has its own hardcoded candidates (`admin/admin`, `admin/password` at
+  `odoo_access.py:254-257`) — it does NOT use `_DEFAULT_CREDENTIALS`.
+  Adding `"odoo"` to that dict is irrelevant. No fix needed.
 
 
 
