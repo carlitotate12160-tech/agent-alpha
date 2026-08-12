@@ -579,3 +579,228 @@ Confidence ~85% on ordering. The shift from the original roadmap: Alpha recon
 was assumed "over-invested" (G17), but solusibersama evidence shows Alpha is
 INCOMPLETE in basic areas (worse than free scanner). Completing basic recon is
 a prerequisite for Beta enhancement and Gamma, not a competitor to them.
+
+---
+
+## 3-Layer Recon Matrix + Beta Failure Root Cause (2026-08-12, quantum-laboratories run)
+
+> **Trigger:** quantum-laboratories.com (Odoo behind Cloudflare) live run
+> 2026-08-12. Alpha detected Odoo + version + DB manager + auth surface, but
+> Beta FAILED. Question: Odoo version extraction works, so why did Beta fail?
+> Answer below + the 3-layer recon matrix that emerged from cross-stack
+> evidence (solusibersama WP + quantum Odoo).
+
+### Why Beta failed on quantum (Odoo) — root cause trace
+
+**Alpha DID its job for Odoo** (better than WP in some areas):
+- ✅ Odoo fingerprint → `tech_stack=["odoo"]` on ASSET node
+- ✅ Odoo version → `verify_odoo_version` POSTs to `/web/webclient/version_info`
+- ✅ DB manager exposed → `odoo_dbmanager_exposed` finding
+- ✅ Auth surface → `/web/login` detected, `auth_surface_probe` ran
+- ✅ Router → `has_web_auth_surface` returns True (odoo in `_AUTH_SURFACE_LABELS`)
+- ✅ Beta dispatched → `StrikeCandidateAttempted` on both hosts
+
+**Beta FAILED (status=3) because of 3 compounding gaps:**
+
+#### Gap A — No CREDENTIAL nodes in graph (root cause: no leak paths succeeded)
+
+Beta has TWO credential sources:
+1. **Harvested credentials** (from Alpha leak paths: `.env`, `.git/config`,
+   `wp-config.php.bak`, backup files) → `cred_reuse` tool
+2. **Default credentials** (`admin/admin`, `admin/password`, etc.) →
+   `default_creds` tool
+3. **Derived credentials** (username + domain stem → `user123`, etc.) →
+   `user_derived_creds` tool
+
+On quantum:
+- `.env` → 404 (not exposed)
+- `.git/config` → 404 (not exposed)
+- `wp-config.php.bak` → 403 (CF rule blocked — this is a WP path on an Odoo
+  target, cross-stack leak path mismatch)
+- `config/database.yml.bak` → 404 (not exposed)
+- → **0 CREDENTIAL nodes in graph → `cred_reuse` has nothing to try**
+
+#### Gap B — No USER nodes in graph (root cause: Odoo has no REST user enum)
+
+On solusibersama (WP), Alpha enumerated 9 users via `/wp-json/wp/v2/users`.
+On quantum (Odoo), there is NO equivalent REST user enumeration endpoint.
+
+Odoo user enumeration vectors that Alpha does NOT use:
+- `/xmlrpc/2/common` → `version()` works, but `list_services()` or
+  `authenticate()` is cred-stuff territory (Beta, not Alpha)
+- `/web/database/manager` → shows database names (GAP-063), NOT user names
+- Odoo has NO public user list endpoint (unlike WP REST)
+
+→ **0 USER nodes in graph → `user_derived_creds` has nothing to derive from**
+
+#### Gap C — Default creds tried but Odoo not in platform dict
+
+`_DEFAULT_CREDENTIALS` dict has: `generic`, `wp`, `tomcat`, `jenkins`,
+`phpmyadmin`, `grafana`, `joomla`. **No `odoo` entry.**
+
+`_build_credential_list` selects platform-specific creds by matching
+`tech_stack` values. Odoo's tech_stack is `["odoo"]` — no match → only
+`generic` creds tried: `admin/admin`, `admin/password`, `admin/admin123`,
+`root/root`, `root/toor`, `test/test`, `user/user`, `guest/guest`.
+
+Odoo's default admin is `admin` / `admin` (on a fresh install). BUT:
+1. Quantum is NOT a fresh install — it's a production Odoo with a real
+   admin password. `admin/admin` fails.
+2. Odoo login form POSTs to `/web/session/authenticate` with JSON-RPC
+   body, NOT a form POST. `HttpFormApplicator` POSTs form fields
+   (`username=X&password=Y`) — Odoo may reject the content-type.
+3. `WpLoginApplicator` POSTs to `wp-login.php` — wrong endpoint for Odoo.
+
+→ **Default creds tried with wrong applicator shape → all fail → Beta FAILED**
+
+#### The 3 gaps compound
+
+```
+Alpha: 0 CREDENTIAL nodes (no leak paths succeeded)
+  + 0 USER nodes (no Odoo user enum)
+  + Beta: default_creds tries generic admin/admin with HttpFormApplicator
+    (wrong shape for Odoo JSON-RPC login)
+  = Beta has NOTHING that can succeed → FAILED → OMEGA (honest report)
+```
+
+**This is NOT a Beta bug.** Beta's logic is correct — it tries what it has.
+The problem is Alpha gave insufficient ammo AND Beta's applicator roster
+doesn't have an Odoo-specific login shape.
+
+### What needs to happen for Beta to succeed on Odoo
+
+| Fix | Layer | Gap | Impact |
+|-----|-------|-----|--------|
+| Odoo XML-RPC discovery | Alpha recon | GAP-064 | Beta knows XML-RPC is enabled → can route cred-stuff there |
+| Odoo DB name extraction | Alpha recon | GAP-063 | Beta knows database name "erp" → pre-fills login form |
+| Odoo JSON-RPC applicator | Beta tooling | **GAP baru** | Beta can POST to `/web/session/authenticate` with JSON body |
+| Odoo default creds entry | Beta tooling | **GAP baru** | `admin/admin` tried with correct Odoo applicator |
+| Breach OSINT for Odoo | Beta enhancement | GAP-051 + GAP-054 | If email harvested, breach DB may have Odoo admin creds |
+
+**Two new Beta gaps emerged from this trace:**
+
+#### GAP-067 — Odoo JSON-RPC applicator missing (Beta can't login to Odoo)
+
+- **What:** `HttpFormApplicator` POSTs form fields. Odoo login is JSON-RPC:
+  POST `/web/session/authenticate` with body
+  `{"jsonrpc":"2.0","method":"call","params":{"db":"erp","login":"admin","password":"X"}}`.
+  `WpLoginApplicator` POSTs to `wp-login.php` — wrong endpoint.
+  No applicator in the roster speaks Odoo's auth protocol.
+- **Fix:** New `OdooJsonRpcApplicator` — POSTs JSON-RPC to
+  `/web/session/authenticate`. Verify: `session_id` cookie set (already in
+  `SESSION_COOKIE_NAMES` allowlist).
+- **Effort:** Medium. New applicator class + register in `beta_web_applicators`.
+
+#### GAP-068 — Odoo default credentials not in platform dict
+
+- **What:** `_DEFAULT_CREDENTIALS` has no `odoo` entry. Odoo fresh install
+  default is `admin` / `admin`. Production installs sometimes keep
+  `admin` / `admin` (common misconfiguration).
+- **Fix:** Add `"odoo": [("admin", "admin")]` to `_DEFAULT_CREDENTIALS`.
+- **Effort:** Trivial. 1 line.
+
+### 3-Layer Recon Matrix (cross-stack, from solusibersama + quantum evidence)
+
+**Layer 1: Universal recon** (fix once, works for all stacks)
+
+| Capability | Gap | WP evidence | Odoo evidence | Fix |
+|-----------|-----|-------------|---------------|-----|
+| Crawl allowlist | Bug #37 | WP has filter | Odoo crawls 20+ junk pages | Universal security-relevance filter |
+| Security headers | GAP-055 | Not audited | Not audited | Parse existing response |
+| robots.txt + sitemap | GAP-056 | Not fetched | Not fetched | 2 requests |
+| JS secrets | GAP-058 | Not extracted | Not extracted | Extract from homepage HTML |
+| Cookie audit | GAP-059 | Not audited | Not audited | Parse existing response |
+| TLS/MX/SPF/DMARC | GAP-062 | Not checked | Not checked | Passive DNS |
+
+**Layer 2: Stack-specific recon** (per-stack handlers)
+
+| Capability | WP gap | Odoo gap | Laravel gap | Spring gap |
+|-----------|--------|----------|-------------|------------|
+| Version extraction | GAP-052 (WC) + GAP-053 (plugin) | ✅ works (version_info POST) | GAP baru (composer/debug) | GAP baru |
+| User/email enum | GAP-054 (WP REST) | GAP-064 (XML-RPC) | N/A | N/A |
+| DB name/list | N/A | GAP-063 + GAP-066 | N/A | N/A |
+| XML-RPC | GAP-057 | GAP-064 | N/A | N/A |
+| Info endpoint | GAP-052 (system_status) | GAP-065 (/website/info) | GAP baru (Telescope) | GAP baru (Actuator breadth) |
+| API endpoints | GAP-060 + GAP-061 | GAP-065 | GAP baru | GAP baru |
+| Auth surface | ✅ (wp-admin) | ✅ (/web/login) | GAP baru (Nova/Filament) | GAP baru |
+| Crawl filter | ✅ (WP allowlist) | Bug #37 | Bug #37 | Bug #37 |
+| Leak paths | ✅ (wp-config, .env) | ✅ (.env, .git) — but 0 succeeded | ✅ (.env) | ✅ (actuator) |
+
+**Layer 3: Cross-stack CVE lookup** (universal, needs IntelligenceBase)
+
+| Capability | Gap | Status |
+|-----------|-----|--------|
+| Version → NVD → CVE | GAP-050 (IntelligenceBase wiring) | OPEN |
+| 1-Day Weaponizer | §12.55 | ACCEPTED, not built |
+| Plugin/module CVE | GAP-053 (WP) + GAP-065 (Odoo) | OPEN |
+
+### Beta freeze — refined (2026-08-12)
+
+**Beta existing logic stays running.** Cred attack via leak path is proven
+(alpha-ai.web.id). Default creds + derived creds are correct logic.
+
+**Beta enhancements FROZEN until prerequisites met:**
+
+| Beta enhancement | Frozen because | Prerequisite | New finding |
+|------------------|----------------|--------------|-------------|
+| Breach OSINT (Dehashed/HIBP) | Needs email | GAP-054 (WP) | Odoo has no email enum — needs GAP-064 (XML-RPC) |
+| Plugin auth surface | Needs plugin list | GAP-053 (WP) | Odoo has no plugin list — needs GAP-065 |
+| WC CSRF → admin | Needs WC version | GAP-052 (WP) | N/A for Odoo |
+| **Odoo JSON-RPC login** | **No Odoo applicator** | **GAP-067** | **NEW — Beta can't login to Odoo at all** |
+| **Odoo default creds** | **No Odoo entry in dict** | **GAP-068** | **NEW — trivial 1-line fix** |
+
+**Gamma stays STOP-gated** (non-negotiable).
+
+### Revised execution order (with Odoo gaps + Beta gaps)
+
+```
+Slice 1: Bug #34 + Bug #37 fix (stop cycling + stop junk crawl)
+  ↓
+Slice 2: GAP-053 (WP plugin list — fix dead code)
+  ↓
+Slice 3: GAP-052 (WooCommerce system_status — version + CVE)
+  ↓
+Slice 4: GAP-054 (WP REST user email + roles)
+  ↓
+[Beta enhancement unfreeze — WP axis]
+  ↓
+Slice 5: GAP-051 RECON_EXHAUSTED pivot (breach OSINT — needs email from Slice 4)
+  ↓
+Slice 6: GAP-067 + GAP-068 (Odoo JSON-RPC applicator + Odoo default creds)
+  ← NEW: unblock Beta for Odoo targets
+  ↓
+Slice 7: GAP-064 (Odoo XML-RPC discovery — Alpha finds it, Beta uses it)
+  ↓
+Slice 8: GAP-063 + GAP-066 (Odoo DB name extraction — Beta cred-stuff context)
+  ↓
+Slice 9: GAP-065 (Odoo /website/info — version + module list + CVE)
+  ↓
+Slice 10: GAP-055 (security headers — universal)
+  ↓
+Slice 11: GAP-056 (robots.txt + sitemap — universal)
+  ↓
+Slice 12: GAP-058 (JS secrets — universal)
+  ↓
+Slice 13: GAP-059 (cookie audit — universal)
+  ↓
+Slice 14: GAP-062 (TLS/MX/SPF/DMARC — universal passive)
+  ↓
+[P2 defer: GAP-060, GAP-061 (WC/WP REST depth)]
+[Gamma unfreeze: after P0 + CVE lookup + auth gate + client-pull]
+```
+
+**Why Slice 6 (Odoo Beta) is positioned after Slice 5 (WP breach OSINT):**
+- Slices 2-5 complete the WP axis (Alpha P0 → Beta enhancement).
+- Slice 6 starts the Odoo axis (Beta applicator + default creds).
+- Odoo Beta gaps (GAP-067, GAP-068) are independent of WP gaps — they can
+  be built in parallel with WP P1 gaps IF a second engineer exists. Solo:
+  sequential, WP first (more targets in SEA).
+
+**Why Slice 6 is BEFORE Odoo Alpha gaps (Slices 7-9):**
+- GAP-067 + GAP-068 unblock Beta for Odoo — even with Alpha's current
+  (incomplete) Odoo recon, Beta can at least try `admin/admin` with the
+  correct JSON-RPC shape.
+- Slices 7-9 (Odoo Alpha gaps) give Beta MORE ammo (XML-RPC, DB names,
+  module list) — but Beta can function without them.
+- Priority: make Beta functional for Odoo FIRST, then deepen Alpha's
+  Odoo recon.
