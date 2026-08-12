@@ -1970,13 +1970,35 @@ analyzed. `_ran_campaigns` correctly prevents tool handlers from re-running
 and **sent to the LLM** (token burn) before the handler no-ops. The frontier
 has no `seen_urls` dedup at the enqueue boundary.
 
-### Evidence (spectranet.com.ng, 2026-08-11)
+### Evidence (spectranet.com.ng, 2026-08-11 + 2026-08-12 rerun)
 
+**2026-08-11 initial observation:**
 Cycle 1: homepage → leak paths → wp-json → readme → wc/v3 → users → wp-admin pages
 Cycle 2: `.git/config` → leak paths → wp-json → readme → wc/v3 → users → wp-admin pages
 Cycle 3: `.git/config` → leak paths → wp-json → ... (identical, killed after 5+ min)
 
 Each cycle: ~15 HTTP requests + ~4 LLM calls = 0 new findings after cycle 1.
+
+**2026-08-12 rerun with precise tool-call duplication data (600s timeout, 157 lines):**
+
+Duplicate tool calls (same tool + same URL, ran N times):
+
+| Tool | URL | Runs | Waste | Tier |
+|------|-----|------|-------|------|
+| `wp_rest_users` | `wp-json/wp/v2/users` | 3x | 2 wasted LLM calls | single_llm |
+| `wp_rest_routes` | `wp-json/` | 3x | 2 wasted (1.4MB refetch + rule) | rule |
+| `woocommerce` | `wp-json/wc/v3` | 3x | 2 wasted LLM calls (251KB refetch) | single_llm |
+| `wp_version` | `readme.html` | 2x | 1 wasted (rule refetch) | rule |
+| `wp_fingerprint` | `.git/config` | 2x | 1 wasted (rule on 404) | rule |
+| `wp_config_probe` | `.env.bak` | 2x | 1 wasted (rule on 404) | rule |
+
+Summary: 21 ACT lines, only 9 unique tool+url combos = **12 duplicate tool calls**.
+91 OBSERVE lines, only 37 unique URLs = **54 duplicate HTTP fetches**.
+4 wasted LLM calls (wp_rest_users 2x, woocommerce 2x) on identical responses.
+Run timed out at 600s without reaching Beta strike — Alpha stuck cycling.
+
+15 leak-path URLs (`.env`, `wp-config.php.*`, `graphql`, etc.) fetched 3x each
+with no rule match — 30 wasted HTTP requests for zero findings.
 
 ### Affected Files
 
