@@ -42,7 +42,7 @@ from agent_alpha.conductor.engagement_profile import (
 )
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
 from agent_alpha.recon.origin_discovery import CompositeOriginDiscovery
 from agent_alpha.recon.origin_resolver import LiveOriginDiscovery
@@ -228,7 +228,7 @@ def run_integrated_field_prove(config: IntegratedConfig) -> list[Oracle]:
     for host in config.scope_domains:
         assert_lab_only_target(host)
 
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
 
     # ONE engagement, owned by the caller (no double-engagement — the profile,

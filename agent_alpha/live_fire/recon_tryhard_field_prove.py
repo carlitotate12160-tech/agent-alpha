@@ -22,7 +22,7 @@ from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.live_fire.field_prove_common import credential_vaulted
@@ -97,7 +97,7 @@ def run_recon_tryhard_field_prove(
 
     def _run_pass(try_harder_enabled: bool) -> tuple[int, bool, Any, Any, str]:
         """Run Alpha with the given try_harder_enabled flag, isolated state."""
-        event_store = InMemoryEventStore()
+        event_store = build_event_store()
         auth = AuthorizationStateMachine(event_store=event_store)
         secrets_manager = SecretsManager()
         graph_store = NetworkXGraphStore()

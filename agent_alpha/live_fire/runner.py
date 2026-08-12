@@ -27,7 +27,7 @@ from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.agents.omega.roaster import Omega
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config.constants import MAX_FP_RATE
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.scoring import TargetResult, score_findings
 from agent_alpha.llm.orchestrator import LLMOrchestrator
@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         assert_lab_only_target(target.host)
 
     # ── Build real dependencies ──────────────────────────────────
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
 
     # ── Build lab engagement profile with allow_evasion=True ─────────────────────

@@ -36,7 +36,7 @@ from agent_alpha.conductor.applicator_factory import (
 )
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.conductor.engagement_profile import EngagementProfile
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.llm.orchestrator import LLMOrchestrator
@@ -182,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     assert_lab_only_target(config.recon_url)
     assert_lab_only_target(config.entry_point)
 
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
     http_client = HttpClient(engagement_id=config.client_id)
     rec_domain = config.scope_domains[0]

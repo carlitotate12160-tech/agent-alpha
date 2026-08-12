@@ -29,7 +29,7 @@ from agent_alpha.agents.beta.strike import Beta
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.applicator_factory import build_applicators_for_engagement
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider, _scan_leak
@@ -174,7 +174,7 @@ def main(argv: list[str] | None = None) -> int:
     assert_lab_only_target(config.login_url)
     assert_lab_only_target(config.scope_domains[0])
 
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
     http_client = HttpClient(engagement_id=config.client_id)
     secrets_manager = SecretsManager()  # ONE shared instance (single-process)

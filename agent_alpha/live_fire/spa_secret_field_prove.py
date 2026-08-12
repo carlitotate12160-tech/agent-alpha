@@ -27,7 +27,8 @@ import yaml
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
+from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType, RelationshipType
 from agent_alpha.llm.redaction import redact_secrets
@@ -221,7 +222,7 @@ def _check_clause_4(
 
 
 def _check_clause_5(
-    event_store: InMemoryEventStore,
+    event_store: EventStore,
     engagement_id: str,
     expected: ExpectedGroundTruth,
 ) -> bool:
@@ -239,7 +240,7 @@ def _check_clause_5(
 
 
 def _check_clause_6(
-    event_store: InMemoryEventStore,
+    event_store: EventStore,
     engagement_id: str,
 ) -> bool:
     """Zero WAF_BLOCKED events for this run."""
@@ -248,7 +249,7 @@ def _check_clause_6(
 
 
 def _check_clause_7(
-    event_store: InMemoryEventStore,
+    event_store: EventStore,
     graph_store: NetworkXGraphStore,
     engagement_id: str,
 ) -> bool:
@@ -326,7 +327,7 @@ def main(argv: list[str] | None = None) -> int:
     expected = _load_expected(expected_path)
 
     # ── Build infrastructure (mirrors wp_chain_runner recon-only leg) ──────────
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
     http_client = HttpClient(engagement_id=config.client_id, verify=not args.no_verify)
     secrets_manager = SecretsManager()
