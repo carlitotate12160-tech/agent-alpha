@@ -1930,6 +1930,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 | 046 | HTTP Basic Auth applicator absent | Medium | Medium | niagamas hub 401 |
 | 047 | Username harvest WP-REST-only (non-WP surfaces) | Medium | High | niagamas pos Vue login |
 | 048 | Soft-404 signature format-fragile (regex whack-a-mole) | **FIXED** (#388) | Medium | ingco (CSRF-hex-in-JS-object leaked by GAP-044 regexes) — SUPERSEDES GAP-044 fix |
+| 049 | STEALTH_BROWSER header contradiction (UA=Windows, sec-ch-ua-platform=macOS) | **FIXED** (#396) | Small | tls.peet.ws verification — partial header override created fingerprint contradiction (§12.49 implementation gap) |
 
 ## Recommended fix order (one slice at a time)
 
@@ -2133,3 +2134,61 @@ Test contract: a wp-admin page with login form body matches the new rule
   tokens (JWT payloads) → unstable token count → fail-safe skip (no false positive), register
   as a follow-on only if seen. Deterministic (seeded probe paths) → seeded-replay stable.
 - **Effort**: Medium (1 file: scout.py — replaces the GAP-044 helper block). DONE.
+
+## GAP-049 — STEALTH_BROWSER header contradiction (UA=Windows, sec-ch-ua-platform=macOS)
+
+- **Status**: DONE (PR #396, merged `96f716d`).
+- **What**: `constants.STEALTH_BROWSER` set a Windows `User-Agent` but omitted
+  `sec-ch-ua-platform`. curl_cffi's `chrome124` impersonate preset sends
+  `sec-ch-ua-platform: "macOS"` by default. The result: every request carried
+  `User-Agent: ...Windows NT 10.0...` alongside `sec-ch-ua-platform: "macOS"` —
+  a fingerprint contradiction that WAF/CDN bot detection (Cloudflare, Akamai)
+  can flag as non-browser. Additionally, the custom `Accept` header was
+  stripped (missing `image/apng` and `application/signed-exchange;v=b3;q=0.7`
+  that real Chrome 124 sends), and `Accept-Encoding`, `upgrade-insecure-requests`,
+  and `sec-ch-ua-mobile` were not explicitly set — leaving curl_cffi defaults
+  that may diverge from the overridden UA.
+- **Root cause**: Partial header override. §12.49 mandates "realistic browser
+  headers as DEFAULT", but the implementation overrode SOME headers (UA, Accept,
+  sec-ch-ua) while leaving others (sec-ch-ua-platform, Accept-Encoding) at
+  curl_cffi preset defaults. A partial override is worse than no override — it
+  creates contradictions between overridden and non-overridden headers.
+- **Evidence**: Verified via `https://tls.peet.ws/api/all` (canonical TLS
+  fingerprint check). Before fix: `UA=Windows`, `sec-ch-ua-platform="macOS"`,
+  `Accept` stripped. After fix: `UA=Windows`, `sec-ch-ua-platform="Windows"`,
+  `Accept` complete. JA4 and Akamai HTTP/2 fingerprints matched Chrome 124 in
+  both cases (TLS layer was never the issue — header content was).
+- **Impact**: STEALTH-DEGRADED — any WAF that cross-checks `sec-ch-ua-platform`
+  against `User-Agent` OS (Cloudflare bot management, Akamai BMP) could flag
+  Agent-Alpha traffic as bot despite correct JA4/Akamai TLS fingerprints.
+  Not a false-positive/blocker like GAP-044/048, but a stealth erosion that
+  undermines §12.49's core promise (evasion-by-default from first request).
+- **Fix (MERGED #396 — hybrid header consistency)**:
+  1. `STEALTH_BROWSER` completed with all Chrome 124 Windows headers:
+     `sec_ch_ua_platform`, `sec_ch_ua_mobile`, `accept_encoding`,
+     `upgrade_insecure_requests`, and full `accept` matching real Chrome 124.
+  2. `_derive_platform_from_ua()` — auto-derives `sec-ch-ua-platform` from the
+     UA string when opsec overrides UA. Recognizes Windows, macOS, Linux,
+     Chrome OS, Android, iOS; returns `"Unknown"` with log warning for
+     unrecognized UAs (anti-silent-fallback).
+  3. `_validate_header_consistency()` — runs in `_request()` on the FINAL
+     merged headers (after per-call overrides), logging warnings on any
+     UA/platform mismatch. Catches contradictions introduced at construction
+     time AND per-request.
+  4. Explicit opsec `headers` dict still wins over auto-derivation — operator
+     takes responsibility for the override.
+- **Tests (ALL PASS on Oracle ARM64)**: 28 in `test_http_client.py` (15 new:
+  default platform match, derive Windows/macOS/Linux/CrOS/iOS/Android/Unknown,
+  consistency validation no-mismatch/mismatch, opsec UA auto-derive Windows/mac,
+  opsec explicit platform not clobbered, inconsistent warning logged, per-request
+  override validates consistency). Phase 2: 265 passed, 2 deselected. Phase 4:
+  489 passed, 1 skipped. `make check` clean.
+- **Anti-Lyndon**: #7 (single source — `STEALTH_BROWSER` is the canonical header
+  set, curl_cffi preset is the canonical TLS/H2 fingerprint, no duplication).
+  #3 (honest outcome — header contradiction is a real stealth bug, not cosmetic).
+  #6 (no duplicate canonical type — `_derive_platform_from_ua` is the single
+  platform derivation function, `_validate_header_consistency` is the single
+  validation function).
+- **Effort**: Small (3 files: constants.py, http_client.py, test_http_client.py).
+  DONE.
+
