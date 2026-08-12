@@ -263,3 +263,308 @@ Client-pull justifies Gamma, not speculative build.
 Confidence ~80% on ordering. The one shift vs the original brainstorm: autonomous-parity (item 1)
 was invisible until the island audit — it now precedes the moat-deepening, because a moat wired only
 into runners does not exist for real engagements.
+
+---
+
+## Alpha Recon Completion + Beta Freeze (2026-08-12 amendment)
+
+> **Trigger:** solusibersama.co.id live run (2026-08-12) — Alpha fetched correct
+> responses but discarded critical data. Beta failed not because Beta is weak,
+> but because Alpha gave insufficient ammo (0 plugin list, 0 WooCommerce version,
+> 0 email, 0 security headers, 0 JS secrets). GAP-052-062 registered.
+
+### Curator rule #1 — clarification (not amendment)
+
+Curator rule #1 ("recon depth is closed. Reject new recon as #5.") was created
+to stop **perfecting** recon to avoid exploitation work (G17). It does NOT mean
+"Alpha may skip basic recon that free scanners have."
+
+**"Perfecting" (rejected, #5):** deeper fingerprinting, more WAF backoff
+strategies, more crawl depth, softer soft-404 calibration — making what exists
+more sophisticated.
+
+**"Completing" (allowed, not #5):** basic recon capabilities that Alpha should
+already have — security headers, robots.txt, XML-RPC check, JS secret
+extraction, cookie audit, MX/SPF/DMARC. These are minimum viable recon. A
+scanner like Nuclei/nikto/wpscan checks these for free. Alpha NOT checking them
+= Alpha worse than a free scanner, which violates the success condition.
+
+**Rule:** GAP-052-059, 062 = completing (allowed). GAP-060, 061 = depth (defer).
+Curator rule #1 intent preserved: we are not perfecting recon, we are
+completing basic recon that should already exist.
+
+### Beta freeze rule
+
+**Beta's existing logic stays running** — credential attack via leak path is
+proven (alpha-ai.web.id: origin-exposure → wp-config.php.bak → DB password →
+cred reuse on Odoo → uid=2 admin, SELF_VERIFIED). Do NOT break what works.
+
+**Beta ENHANCEMENTS are FROZEN until Alpha P0 gaps are done:**
+
+| Beta enhancement | Frozen because | Unfreeze when |
+|------------------|----------------|---------------|
+| Breach OSINT (Dehashed/HIBP) | Needs email from WP REST users — Alpha only extracts slug (GAP-054) | GAP-054 done |
+| Plugin auth surface attack | Needs plugin list — Alpha has handler but never fires (GAP-053) | GAP-053 done |
+| WooCommerce CSRF → admin creation | Needs WC version — Alpha doesn't fetch system_status (GAP-052) | GAP-052 done |
+| JS secret → credential reuse | Needs JS extraction — Alpha doesn't extract (GAP-058) | GAP-058 done (P1, can wait) |
+
+**Gamma stays STOP-gated** (non-negotiable, per existing Gamma gating section).
+Gamma needs CVE lookup → CVE lookup needs version info → version info needs
+GAP-052 + GAP-053. Gamma is unfrozen only after: Alpha P0 done +
+IntelligenceBase CVE lookup wired + §12.36 auth gate live.
+
+### Execution order — step by step (the slice sequence)
+
+> ONE slice at a time. Each slice: branch → commit → PR → CI → CodeRabbit →
+> merge → field-prove on Oracle ARM64. No parallel slices.
+
+#### Slice 1 — Bug #34 fix (stop cycling)
+- **What:** Remove 3 resets from `run_recon` (`_probed`, `_ran_campaigns`,
+  `_try_harder_fired`). Make them cumulative across targets in same engagement.
+- **Files:** `agent_alpha/agents/alpha/scout.py:241-250` (remove 3 resets),
+  keep `_work_queue`, `_dead_hosts`, `_host_stack`, `_soft404_sig` per-target.
+- **Test contract:**
+  1. Two `run_recon` calls on same Alpha instance → URL probed in call 1 is
+     NOT re-fetched in call 2.
+  2. Tool run on URL in call 1 is NOT re-selected in call 2.
+  3. `try_harder` fires at most once per engagement, not per target.
+  4. Single-target engagements behave identically (no regression).
+- **Field-prove:** Re-run solusibersama — expect 0 duplicate tool calls in
+  cycle 2 (was 8 duplicates). Expect run time < 200s (was ~280s).
+- **Why first:** Cycling wastes HTTP + LLM tokens on identical re-probes. Every
+  subsequent slice's field-prove is polluted by cycling if this is not fixed.
+
+#### Slice 2 — GAP-053 fix (WP plugin list extraction)
+- **What:** `_handle_wp_plugins` exists but never fires because LLM orient fails
+  on wp-admin pages. Move the regex extraction (`/wp-content/plugins/(slug)/...?ver=(version)`)
+  into a body post-processing step that runs on EVERY WP-host HTML response,
+  not just when `wp_plugins` tool is selected.
+- **Files:** `agent_alpha/agents/alpha/scout.py:1844-1896` (move regex to body
+  post-processing), `agent_alpha/recon/capability_probe.py` (no change —
+  extraction is body-side, no new HTTP).
+- **Test contract:**
+  1. Homepage HTML with `/wp-content/plugins/contact-form-7/...?ver=5.8` →
+     SERVICE node (name="contact-form-7", version="5.8") + CVE lookup fires.
+  2. wp-admin page HTML with plugin paths → same extraction.
+  3. HTML with no plugin paths → 0 nodes (no false positives).
+  4. CVE hit → VULNERABILITY node with cve_id, cvss_score, exploit_available=True.
+- **Field-prove:** Re-run solusibersama — expect plugin SERVICE nodes (contact-
+  form-7, litespeed-cache, yoast-seo, woocommerce, mailchimp-for-wp) with
+  versions. Expect CVE checks to fire per plugin.
+- **Cross-ref:** §12.61 — plugin CVE determines flank axis (unauth CVE = skip-
+  Beta, auth CVE = axis B5 credential).
+- **Why P0:** Plugin CVE is #1 WordPress attack vector. Without plugin list,
+  IntelligenceBase cannot check CVEs, Gamma cannot know which exploit to
+  compose, Beta cannot know which plugin auth surface to attack.
+
+#### Slice 3 — GAP-052 (WooCommerce system_status)
+- **What:** Add `/wp-json/wc/v3/system_status` as a frontier_seed after
+  woocommerce detection. Add `_handle_wc_system_status` handler that extracts:
+  WooCommerce version, PHP version, MySQL version, plugin list + version,
+  theme list + version, server info. Mint SERVICE nodes per component with
+  version. Cross-reference each (name, version) against CVE catalogue.
+- **Files:** `agent_alpha/recon/capability_probe.py` (add system_status seed to
+  woocommerce CapabilitySpec), `agent_alpha/agents/alpha/scout.py` (new
+  `_handle_wc_system_status` handler).
+- **Test contract:**
+  1. WC detected + system_status returns 200 JSON → SERVICE node
+     (name="woocommerce", version=X) + SERVICE nodes per plugin/theme.
+  2. system_status returns 401/403 → no error, no node (graceful skip).
+  3. CVE hit for any extracted (name, version) → VULNERABILITY node.
+  4. PHP version from system_status merges into ASSET tech_stack.
+- **Field-prove:** Re-run solusibersama — expect WooCommerce version in graph.
+  Check CVE-2026-3589 (affects WC 5.4.0-10.5.2) applicability.
+- **Cross-ref:** §12.61 — WC version determines whether axis B (credential) or
+  direct exploit (unauth CVE) is the right flank.
+- **Why P0:** CVE-2026-3589 affects WC 5.4.0-10.5.2 (very wide range). Without
+  version, Agent-Alpha cannot determine if target is vulnerable. This is a
+  false-negative risk: target may be vulnerable but Agent-Alpha reports "no
+  known CVE."
+
+#### Slice 4 — GAP-054 (WP REST user full fields)
+- **What:** Extend `UserProperties` with `email`, `roles`, `display_name`,
+  `avatar_url`, `profile_url`, `description`. Update `_handle_wp_rest_users` to
+  extract all available fields from JSON, not just slug.
+- **Files:** `agent_alpha/graph/nodes.py:110-119` (extend UserProperties),
+  `agent_alpha/agents/alpha/scout.py:1639-1712` (extract all fields).
+- **Test contract:**
+  1. WP REST users JSON with `slug`, `roles`, `email` → USER node with all
+     fields populated.
+  2. JSON without `email` (some WP configs hide it) → USER node with
+     email="" (graceful, no error).
+  3. `roles` containing "administrator" → USER node with roles=["administrator"]
+     (Beta can prioritize admin).
+  4. 9 users in JSON → 9 USER nodes with all available fields.
+- **Field-prove:** Re-run solusibersama — expect 9 USER nodes with email +
+  roles (if exposed by this WP config). Admin account should have
+  roles=["administrator"].
+- **Cross-ref:** §12.61 axis B5 — email is the prerequisite input for breach
+  OSINT (Dehashed/HIBP). Without email, GAP-051 RECON_EXHAUSTED pivot cannot
+  fire. Roles let Beta prioritize admin accounts.
+- **Why P0:** Email is the bridge between Alpha recon and Beta's breach OSINT
+  enhancement. Without email in the graph, the entire §12.61 axis B5 doctrine
+  is unexecutable. Roles determine Beta's attack priority.
+
+#### [Beta enhancement unfreeze point]
+
+After Slice 4 (P0 complete), Beta enhancements may be built:
+- Breach OSINT (Dehashed/HIBP) — needs email from Slice 4.
+- Plugin auth surface attack — needs plugin list from Slice 2.
+- WooCommerce CSRF → admin creation — needs WC version from Slice 3.
+
+**Beta enhancement is NOT the next slice after P0.** The next slice after P0
+is GAP-051 RECON_EXHAUSTED pivot (which IS the breach OSINT integration — it
+is both a try_harder pivot AND a Beta enhancement). This is the natural
+junction where Alpha's dead-end pivot feeds Beta's new ammo source.
+
+#### Slice 5 — GAP-051 RECON_EXHAUSTED pivot (breach OSINT)
+- **What:** When Alpha classifies a dead-end as RECON_EXHAUSTED (all paths
+  probed, all 404/200-no-finding, no WAF), pivot to credential breach OSINT.
+  Query Dehashed/HIBP for emails harvested from WP REST users (GAP-054).
+  If creds found → hand off to Beta with harvested credentials.
+  If no creds → honest "no surface found" handoff to Conductor.
+- **Files:** `agent_alpha/agents/planner.py` (dead-end classification),
+  `agent_alpha/agents/alpha/scout.py` (`_try_harder_recovery` — add
+  RECON_EXHAUSTED branch), new module for breach OSINT integration.
+- **Test contract:**
+  1. RECON_EXHAUSTED + emails in graph → breach OSINT query fires.
+  2. Breach OSINT returns creds → CREDENTIAL nodes minted, Beta handoff.
+  3. Breach OSINT returns nothing → honest BLOCKED handoff, no false findings.
+  4. WAF_BLOCKED_ALL → does NOT fire breach OSINT (wrong pivot — should fire
+     proactive origin discovery instead).
+- **Field-prove:** Re-run solusibersama — if emails are in graph, breach OSINT
+  fires. Result depends on whether solusibersama domain has breach data.
+- **Prerequisite:** Slice 4 (GAP-054) must be done — breach OSINT needs email.
+- **Auth gate:** Breach OSINT is passive (query external DB, no target touch).
+  No auth tier escalation needed. But using harvested creds on target login
+  IS Beta's ACTIVE_APPROVED territory — existing gate applies.
+
+#### Slice 6 — GAP-055 (security headers audit)
+- **What:** Parse security headers from homepage response (already fetched).
+  Mint VULNERABILITY nodes for missing: HSTS, X-Frame-Options, CSP,
+  X-Content-Type-Options, Referrer-Policy, Permissions-Policy.
+- **Files:** `agent_alpha/agents/alpha/scout.py` (new `_audit_security_headers`
+  method, runs on every homepage response).
+- **Test contract:**
+  1. Homepage response with no security headers → 6 VULNERABILITY nodes (low sev).
+  2. Homepage response with HSTS + X-Frame-Options → 4 VULNERABILITY nodes
+     (only missing ones).
+  3. All headers present → 0 VULNERABILITY nodes.
+  4. 0 new HTTP requests (parse existing response).
+- **Field-prove:** Re-run solusibersama — expect VULNERABILITY nodes for
+  missing security headers. Compare with `curl -sI https://solusibersama.co.id/`.
+- **Why P1:** Missing security headers = attack surface (clickjacking on login
+  form, XSS, MIME sniffing). Free scanners check these. Alpha not checking =
+  Alpha worse than free scanner. But this is OMEGA report quality, not Beta
+  ammo — hence P1, not P0.
+
+#### Slice 7 — GAP-056 (robots.txt + sitemap.xml)
+- **What:** Fetch `/robots.txt` and `/wp-sitemap.xml` after wp_fingerprint.
+  Parse robots.txt for Disallow paths (enqueue in-scope). Parse sitemap for
+  URLs (enqueue in-scope). 2 HTTP requests total.
+- **Files:** `agent_alpha/recon/capability_probe.py` (add robots/sitemap
+  seeds to wp_fingerprint), `agent_alpha/agents/alpha/scout.py` (new
+  `_handle_robots_txt` + `_handle_sitemap_xml` handlers).
+- **Test contract:**
+  1. robots.txt with `Disallow: /wp-admin/` → enqueue `/wp-admin/` (in-scope
+     guard applies).
+  2. robots.txt with `Sitemap: https://x/sitemap.xml` → enqueue sitemap URL.
+  3. sitemap.xml with 50 URLs → enqueue all in-scope URLs (cap at N, anti-#3).
+  4. 404 on robots.txt → no error, no node (graceful).
+- **Field-prove:** Re-run solusibersama — expect robots.txt fetch + URL
+  discovery. Compare with `curl https://solusibersama.co.id/robots.txt`.
+
+#### Slice 8 — GAP-057 (XML-RPC check)
+- **What:** POST `/xmlrpc.php` with `system.listMethods` after wp_fingerprint.
+  If 200 + XML response with methods → SERVICE node (name="xmlrpc",
+  version="enabled") + VULNERABILITY node (xmlrpc_enabled, low sev).
+- **Files:** `agent_alpha/recon/capability_probe.py` (add xmlrpc seed),
+  `agent_alpha/agents/alpha/scout.py` (new `_handle_xmlrpc` handler).
+- **Test contract:**
+  1. xmlrpc.php returns 200 + XML with `<method>system.listMethods</method>` →
+     SERVICE + VULNERABILITY nodes.
+  2. xmlrpc.php returns 405 (method not allowed) → no node (disabled).
+  3. xmlrpc.php returns 404 → no node (not found).
+- **Field-prove:** Re-run solusibersama — check if XML-RPC is enabled.
+
+#### Slice 9 — GAP-058 (JS secret extraction)
+- **What:** Extract `<script src="...">` URLs from homepage HTML (no new HTTP
+  for extraction). For each JS URL (cap at N, anti-#3): fetch + grep for
+  `api_key|secret|token|password|nonce|ajaxurl|rest_url`. Mint DATA nodes for
+  extracted secrets. Mint SERVICE nodes for AJAX endpoints.
+- **Files:** `agent_alpha/agents/alpha/scout.py` (new `_extract_js_secrets`
+  method), `agent_alpha/recon/capability_probe.py` (JS fetch seeds).
+- **Test contract:**
+  1. Homepage HTML with `<script src="/wp-content/themes/x/main.js?ver=1">` →
+     JS URL extracted, JS fetched, secrets grepped.
+  2. JS with `var ajaxurl = "/wp-admin/admin-ajax.php"` → SERVICE node for
+     AJAX endpoint.
+  3. JS with `apiKey: "AIza..."` → DATA node (api_key exposed).
+  4. JS with no secrets → 0 nodes (no false positives).
+  5. Cap at N JS files per host (anti-#3 over-probe).
+- **Field-prove:** Re-run solusibersama — expect JS files extracted + checked.
+- **Cross-ref:** §12.61 axis B6 — JS secrets complement external repo OSINT.
+  Both produce CREDENTIAL/DATA nodes that Beta uses for cred-stuff.
+
+#### Slice 10 — GAP-059 (cookie audit)
+- **What:** Parse `Set-Cookie` headers from homepage response. Mint
+  VULNERABILITY nodes for missing: HttpOnly, Secure, SameSite, __Host- prefix.
+- **Files:** `agent_alpha/agents/alpha/scout.py` (new `_audit_cookies` method).
+- **Test contract:**
+  1. Cookie without HttpOnly → VULNERABILITY node (low sev).
+  2. Cookie with HttpOnly + Secure + SameSite=Lax → 0 nodes.
+  3. 0 new HTTP requests (parse existing response).
+- **Field-prove:** Re-run solusibersama — expect cookie audit findings.
+
+#### Slice 11 — GAP-062 (TLS/MX/SPF/DMARC passive recon)
+- **What:** Add passive infrastructure recon phase to recon_runner (before
+  Alpha runs): DNS lookup (MX, TXT/SPF/DMARC, AAAA, CAA), TLS scan (connect
+  443, negotiate, extract cert + cipher info). Mint SERVICE nodes for mail
+  servers, ASSET nodes for IPv6, VULNERABILITY nodes for missing SPF/DMARC/
+  weak TLS. All passive, zero target touch.
+- **Files:** `agent_alpha/conductor/recon_runner.py` (new passive infra recon
+  phase), `agent_alpha/agents/alpha/scout.py` (handlers for TLS/MX findings).
+- **Test contract:**
+  1. Domain with MX record → SERVICE node (mail server).
+  2. Domain without SPF → VULNERABILITY node (email spoofing possible).
+  3. Domain with AAAA record → ASSET node (IPv6 address).
+  4. TLS 1.0 supported → VULNERABILITY node (weak TLS).
+  5. All passive DNS — 0 HTTP requests to target.
+- **Field-prove:** Re-run solusibersama — expect MX/SPF/DMARC/TLS findings.
+- **Cross-ref:** §12.61 axis A2 — MX records → origin netblock discovery.
+  This is the prerequisite data source for §12.61 A2.
+
+#### [P2 — defer: GAP-060, GAP-061]
+
+GAP-060 (WooCommerce endpoint enumeration) and GAP-061 (WP REST other
+endpoints) are depth, not completing. They can be deferred without making
+Alpha "incomplete" — they add data harvest surface but don't block Beta or
+Gamma. Build when client-pull justifies data exposure assessment.
+
+#### [Gamma unfreeze point]
+
+Gamma may be built only after:
+1. Alpha P0 complete (Slices 2-4) — version info + plugin list + email in graph.
+2. IntelligenceBase CVE lookup wired (§12.55) — map (name, version) → NVD.
+3. GAP-051 RECON_EXHAUSTED + WAF_BLOCKED_ALL pivots done (Slice 5 + future).
+4. §12.36 OFFENSIVE_APPROVED auth gate live (non-negotiable, existing rule).
+5. Client-pull justifies destructive exploitation (existing Gamma gating).
+
+### Anti-Lyndon check for this sequence
+
+- **#1 (feature before foundation):** Beta enhancement before Alpha P0 = feature
+  before foundation. Freeze Beta enhancement until P0 done. ✓ enforced.
+- **#2 (dead code):** GAP-053 handler exists but never fires = dead code. Slice 2
+  fixes this. ✓ addressed.
+- **#3 (false success):** Alpha "completes" with 27 nodes but missing version,
+  plugin list, email = false success. Slices 2-4 fix this. ✓ addressed.
+- **#5 (scope creep):** One slice at a time, field-proven. No parallel slices.
+  P2 (060, 061) deferred. ✓ enforced.
+- **#17 (sophisticated avoidance):** Completing basic recon is not avoiding
+  exploitation — it's making exploitation possible (Gamma needs CVE, CVE needs
+  version, version needs GAP-052/053). ✓ clarified.
+
+Confidence ~85% on ordering. The shift from the original roadmap: Alpha recon
+was assumed "over-invested" (G17), but solusibersama evidence shows Alpha is
+INCOMPLETE in basic areas (worse than free scanner). Completing basic recon is
+a prerequisite for Beta enhancement and Gamma, not a competitor to them.
