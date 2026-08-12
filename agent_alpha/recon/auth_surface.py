@@ -61,14 +61,16 @@ SPA_LOGIN_FORM = "spa-login-form"
 
 _JS_LOGIN_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Quote char class includes backtick: Vite/esbuild minified bundles use
-    # template-literal quotes (type:`password`) instead of ' or ".
-    re.compile(r"""type\s*[:=]\s*['"`]password['"`]""", re.IGNORECASE),
+    # template-literal quotes (type:`password`) instead of ' or ". A named
+    # backreference (?P=quote) requires the closing delimiter to match the
+    # opening one, preventing mixed-quote false positives (type:'password"`).
+    re.compile(r"""type\s*[:=]\s*(?P<quote>['"`])password(?P=quote)""", re.IGNORECASE),
     re.compile(
-        r"""autocomplete\s*[:=]\s*['"`](?:current-password|new-password)['"`]""",
+        r"""autocomplete\s*[:=]\s*(?P<quote>['"`])(?:current-password|new-password)(?P=quote)""",
         re.IGNORECASE,
     ),
-    re.compile(r"""(?:name|id)\s*[:=]\s*['"`]password['"`]""", re.IGNORECASE),
-    re.compile(r"""<input[^>]*type\s*=\s*['"`]?password""", re.IGNORECASE),
+    re.compile(r"""(?:name|id)\s*[:=]\s*(?P<quote>['"`])password(?P=quote)""", re.IGNORECASE),
+    re.compile(r"""<input[^>]*type\s*=\s*(?P<quote>['"`]?)password""", re.IGNORECASE),
 )
 
 

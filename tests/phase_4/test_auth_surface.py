@@ -206,6 +206,13 @@ def test_js_scan_detects_backtick_quoted_password() -> None:
     assert scan_js_for_login_surface('{autocomplete:`current-password`}') is True
 
 
+def test_js_scan_rejects_mixed_quote_delimiters() -> None:
+    """Mismatched open/close delimiters (type:'password") must NOT trigger."""
+    assert scan_js_for_login_surface("type:'password\"") is False
+    assert scan_js_for_login_surface('type:"password`') is False
+    assert scan_js_for_login_surface('name:`password\'') is False
+
+
 def test_js_scan_bare_password_word_not_false_positive() -> None:
     """The bare word 'password' (e.g. a reset-email string) must NOT trigger."""
     assert scan_js_for_login_surface('const msg = "check your password reset email"') is False
