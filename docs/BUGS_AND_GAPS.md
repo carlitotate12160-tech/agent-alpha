@@ -48,7 +48,7 @@ The priority matrix, recommended fix order, GAP classification, and GAP build or
 | 31 | Beta crashes on OriginUnreachableError when no origin binding | **High** | Medium | Beta dispatched (GAP-023 fix) but crashes on entry — can't strike |
 | 32 | OTX timeout 30s blocks sequential OSINT chain | Low | Medium | 30s wasted per engagement before VT runs |
 | 33 | Subdomain pivot path not designed (architectural gap) | Medium | High | Subdomain access not used as stepping stone to main domain |
-| 34 | `run_recon` resets `_probed` across targets → `try_harder` re-probes all previous URLs | **High** | Low | Run never converges on multi-target engagements; burns HTTP + LLM tokens re-probing identical URLs (spectranet: 3 full cycles in 600s, 0 new findings after cycle 1) |
+| 34 | `run_recon` resets `_probed` across targets → `try_harder` re-probes all previous URLs | **High** | Low | Run never converges on multi-target engagements; burns HTTP + LLM tokens re-probing identical URLs (spectranet: 3 cycles timeout 600s; solusibersama: 2 cycles completed 280s, 8 duplicate tool calls, 9 WP users + WP version + WooCommerce exposed found in cycle 1, 0 new in cycle 2) |
 | 35 | `LLM_TOOL_SELECT_MAX_TOKENS=512` too small for reasoning model | **High** | Low | `deepseek-v4-flash` reasoning_content consumes token budget → intermittent `CompletionTruncatedError` → `OrientationError` on wp-admin pages (2/5 calls fail with 7KB body). Model is correct/available; token budget is the root cause |
 | 36 | `/wp-admin/*` login-gated pages enter frontier without rule match | Medium | Low | `update-core.php`, `upgrade.php`, `import.php` (login-gated WP admin pages) escalate to LLM tier → token burn for predictable non-findings. Add playbook rule for wp-admin login redirect body signature |
 
@@ -1961,7 +1961,7 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 - **Priority**: High
 - **Effort**: Low (remove 3 resets from `run_recon`, keep per-engagement cumulative)
 - **Blocks**: Run never converges on multi-target engagements; burns HTTP + LLM tokens re-probing identical URLs
-- **Observed**: spectranet.com.ng live-fire run (2026-08-11 + 2026-08-12) — 3 full cycles in 600s, 0 new findings after cycle 1
+- **Observed**: spectranet.com.ng (2026-08-11/12, 3 cycles, timeout 600s) + solusibersama.co.id (2026-08-12, 2 cycles, completed ~280s)
 
 ### Root Cause (corrected 2026-08-12 — original diagnosis was wrong)
 
@@ -1995,34 +1995,7 @@ def run_recon(self, engagement_id, target_url):
     ...
 ```
 
-### Why spectranet cycles but niagamas/ingco do not
-
-The bug is always present, but cycling only manifests when **3 conditions
-are met simultaneously**:
-
-| Condition | Niagamas | Ingco | Spectranet |
-|-----------|----------|-------|------------|
-| Main host reachable (200 OK) | Yes, but CF challenge blocks most | **No** (all timeout) | **Yes** (200 OK, no WAF) |
-| Subdomains discovered & unreachable | Yes (pos.niagamas) | Yes (10 subdomains) | **Yes** (amazing-offer, amber) |
-| World model has enough nodes for `try_harder` to return candidates | Few (CF blocks) | **Zero** (all unreachable) | **Many** (11 URLs = 21 nodes) |
-
-- **Niagamas**: CF challenge blocks most probes → few graph nodes → `try_harder`
-  returns few candidates → cycling minimal (masked by CF, not absent).
-- **Ingco**: all 10 hosts unreachable → zero graph nodes → `try_harder` returns
-  `[]` → no re-enqueue (masked by total unreachability, not absent).
-- **Spectranet**: Apache, no WAF → all probes succeed → 21 graph nodes →
-  `try_harder` returns 15+ URLs from previous target → full cycling visible.
-
-### Evidence (spectranet.com.ng, 2026-08-11 + 2026-08-12 rerun)
-
-**2026-08-11 initial observation:**
-Cycle 1: homepage → leak paths → wp-json → readme → wc/v3 → users → wp-admin pages
-Cycle 2: `.git/config` → leak paths → wp-json → readme → wc/v3 → users → wp-admin pages
-Cycle 3: `.git/config` → leak paths → wp-json → ... (identical, killed after 5+ min)
-
-Each cycle: ~15 HTTP requests + ~4 LLM calls = 0 new findings after cycle 1.
-
-**2026-08-12 rerun with precise tool-call duplication data (600s timeout, 157 lines):**
+### Evidence 1: spectranet.com.ng (2026-08-11 + 2026-08-12, timeout 600s)
 
 3 targets called by `recon_runner.py:451`:
 1. `spectranet.com.ng` → 11 URLs fetched (200 OK), 21 graph nodes
@@ -2047,6 +2020,65 @@ Run timed out at 600s without reaching Beta strike — Alpha stuck cycling.
 
 15 leak-path URLs (`.env`, `wp-config.php.*`, `graphql`, etc.) fetched 3x each
 with no rule match — 30 wasted HTTP requests for zero findings.
+
+### Evidence 2: solusibersama.co.id (2026-08-12, completed ~280s, CONDUCTOR chain reached BETA)
+
+2 targets called by `recon_runner.py:451`:
+1. `solusibersama.co.id` → 11 URLs fetched (200 OK), 27 graph nodes (incl. 9 WP users)
+2. `www.solusibersama.co.id` → reachable (200 OK), but `_probed` reset → `try_harder` fires → solusibersama URLs re-enqueued (cycle 2)
+
+**Bug #34 terjadi meskipun `www.` reachable** — bukan hanya saat subdomain
+unreachable. Root cause-nya tetap sama: `_probed` reset, jadi semua URL dari
+target 1 re-pass dedup check dan di-fetch ulang.
+
+Duplicate tool calls (same tool + same URL, ran 2x):
+
+| Tool | URL | Runs | Waste |
+|------|-----|------|-------|
+| `wp_rest_routes` | `wp-json/` | 2x | 1 wasted (969KB refetch + rule) |
+| `woocommerce` | `wp-json/wc/v3` | 2x | 1 wasted LLM call (178KB refetch) |
+| `wp_rest_users` | `wp-json/wp/v2/users` | 2x | 1 wasted (59KB refetch + rule) |
+| `wp_version` | `readme.html` | 2x | 1 wasted (rule refetch) |
+| `wp_config_probe` | `config/database.yml.bak` | 2x | 1 wasted (rule on 404) |
+| `auth_surface_probe` | `wp-admin/update-core.php` | 2x | 1 wasted (rule refetch) |
+| `auth_surface_probe` | `wp-admin/import.php` | 2x | 1 wasted (rule refetch) |
+
+Summary: 25 ACT lines, 17 unique = **8 duplicate tool calls**.
+171 OBSERVE lines, 59 WAF blocks (44 non-www + 15 www via origin direct).
+Run completed ~280s, reached BETA (failed — no creds), OMEGA dispatched.
+
+**11 temuan dari solusibersama.co.id (graph nodes dari cycle 1, sebelum cycling):**
+
+WP REST user enumeration (`/wp-json/wp/v2/users` → HTTP 200, 59KB) berhasil
+mengekstrak 9 username WordPress — ini adalah temuan paling signifikan:
+
+| # | Username | Source | Impact |
+|---|----------|--------|--------|
+| 1 | `admin` | wp_rest_users | Administrator account — target utama credential attack |
+| 2 | `ahmadsahbana` | wp_rest_users | User enumeration — valid username untuk brute force |
+| 3 | `vita` | wp_rest_users | User enumeration — valid username |
+| 4 | `inggit` | wp_rest_users | User enumeration — valid username |
+| 5 | `jodhi69` | wp_rest_users | User enumeration — valid username |
+| 6 | `kurniawan` | wp_rest_users | User enumeration — valid username |
+| 7 | `nanda` | wp_rest_users | User enumeration — valid username |
+| 8 | `dani` | wp_rest_users | User enumeration — valid username |
+| 9 | `sam` | wp_rest_users | User enumeration — valid username |
+| 10 | `wp_version_disclosure` | wp_version (readme.html) | WordPress 6.7.6 — version known, 1-day CVE lookup possible |
+| 11 | `woocommerce_exposed` | woocommerce (wp-json/wc/v3) | WooCommerce API exposed — data leakage surface |
+
+Plus 2 auth surface findings (`wp-admin/update-core.php`, `wp-admin/import.php`
+return 200 without auth → login-gated pages accessible).
+
+**Yang berharga dari temuan ini:** 9 username valid + 1 admin account = input
+yang langsung bisa dipakai Beta untuk credential attack (default/derived creds,
+credential breach OSINT via Dehashed/HIBP). Tapi Beta FAILED karena tidak ada
+credential yang ditemukan — ini terkait GAP-051 (RECON_EXHAUSTED → pivot ke
+credential OSINT belum dibangun).
+
+**Waste dari cycling:** 8 duplicate tool calls di cycle 2 = semua temuan di
+atas SUDAH ditemukan di cycle 1. Cycle 2 hanya re-fetch + re-tool yang sama,
+nol temuan baru. 59KB wp/v2/users di-fetch 2x, 969KB wp-json/ di-fetch 2x,
+178KB wc/v3 di-fetch 2x — total ~2.4MB bandwidth wasted untuk nol temuan.
 
 ### Affected Files
 
@@ -2089,11 +2121,14 @@ Test contract:
 - **#2 (dead code treated as done):** original Bug #34 diagnosis blamed
   `enqueue_discovered_url` for "no seen-set check" — but the check exists
   (`url not in self._probed`). The real bug was upstream (the reset).
-- **#3 (false success):** niagamas and ingco appeared to not have the bug,
-  but it was masked by CF blocking and total unreachability respectively.
-  "Works on target X" ≠ "bug is absent."
+- **#3 (false success):** spectranet appeared to "complete" recon by timing
+  out — the timeout looked like "recon done" but was actually "recon stuck
+  cycling." solusibersama completed without timeout BUT still cycled — the
+  completion masked the cycling because BETA was reached (and failed for
+  unrelated reasons). "Run completed" ≠ "no cycling occurred."
 - **#9 (wrong environment):** original diagnosis was based on 2026-08-11
-  output without code trace. 2026-08-12 code trace revealed the real cause.
+  spectranet output without code trace. 2026-08-12 code trace + solusibersama
+  run confirmed the real cause across two independent targets.
 
 ---
 
