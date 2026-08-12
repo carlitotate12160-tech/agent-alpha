@@ -272,6 +272,17 @@ into runners does not exist for real engagements.
 > responses but discarded critical data. Beta failed not because Beta is weak,
 > but because Alpha gave insufficient ammo (0 plugin list, 0 WooCommerce version,
 > 0 email, 0 security headers, 0 JS secrets). GAP-052-062 registered.
+>
+> **Scope: UNIVERSAL, not solusibersama-specific.** These are code-level
+> capability gaps in Alpha's handlers, not findings unique to one target.
+> Solusibersama is the EVIDENCE that exposed the gaps; the gaps affect EVERY
+> engagement. Every WordPress target loses plugin list (GAP-053). Every
+> WooCommerce target loses version info (GAP-052). Every WP REST users response
+> loses email + roles (GAP-054). Every target loses security headers audit
+> (GAP-055), robots.txt (GAP-056), XML-RPC (GAP-057), JS secrets (GAP-058),
+> cookie audit (GAP-059), TLS/MX/SPF (GAP-062). Fixing these means completing
+> Alpha's recon handlers so EVERY client engagement gets full surface map —
+> not hardcoding special cases for one target.
 
 ### Curator rule #1 — clarification (not amendment)
 
