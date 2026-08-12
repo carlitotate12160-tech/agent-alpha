@@ -1,0 +1,30 @@
+# RULE-tier (Opsi B). Pure data — no LLM. GAP-036: a login/auth-surface page with
+# a REAL password <input> on THIS page must get a DETERMINISTIC recon decision so
+# DECIDE never falls to the LLM tier, which picks the nearest framework-vuln tool
+# (laravel_debug_probe) and wastes a probe on a login page.
+#
+# The auth-surface LABEL is still recorded by scout._detect_auth_surface (runs
+# after EVERY probe) — this rule does NOT re-detect it (anti-Lyndon #6). It only
+# routes DECIDE to the lightweight generic recon handler.
+#
+# Guard is the password-input indicator itself: a Laravel/Ignition 500 debug page
+# has no password <input>, so laravel_debug_probe still wins there (disjoint).
+# SPA shells (no HTML password input) are already routed by js_secret.yaml.
+# forget-password pages (email only, no password) intentionally fall through.
+name: login_surface_recon
+version: 1
+phase: recon
+# Quote-agnostic (single OR double; \x27 = single-quote, kept out of the YAML scalar).
+# These MIRROR the canonical detector recon/auth_surface.py password regexes — that
+# classifier stays the source of truth for the LABEL; this rule is only a coarse
+# DECIDE trigger to keep login pages off the LLM tier (keep them roughly in sync).
+match:
+  any_indicator:
+    - body_regex: '<input[^>]*type\s*=\s*["\x27]?password\b'
+    - body_regex: '<input[^>]*(?:name|id)\s*=\s*["\x27]?password'
+    - body_regex: 'autocomplete\s*=\s*["\x27](?:current-password|new-password)'
+action:
+  tool: auth_surface_probe
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
+  rationale: "Login/auth surface (password input) detected; record surface, skip framework-vuln probe."
