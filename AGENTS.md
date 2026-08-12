@@ -48,6 +48,56 @@ If a command is complex, write it inline in the `ssh oracle-alpha '...'` string
 or use a heredoc inside WSL. Creating `.git/check_*.sh` files in the Windows repo
 just to scp them to Oracle is dead weight (Lyndon #2-adjacent).
 
+## PostgreSQL Query Procedure (Oracle)
+
+Agent-Alpha uses PostgreSQL 16 with **Row-Level Security (RLS)** enabled with
+`FORCE` on all 3 tables (`agent_events`, `engagement_memory`, `vault_secrets`).
+Every query MUST set `app.tenant_id` first, or RLS silently filters all rows
+and you see 0 results — this is NOT an empty database, it is RLS scoping.
+
+### Quick query (tenant = "default")
+
+```bash
+wsl -e bash -lic "ssh oracle-alpha 'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; export PGPASSWORD=\$(grep AGENT_ALPHA_PG_DSN ~/Agent-Alpha/.env | sed \"s/.*:\([^@]*\)@.*/\1/\"); psql -h 127.0.0.1 -U agent_alpha_app -d agent_alpha -c \"SET app.tenant_id = \\x27default\\x27; SELECT event_type, COUNT(*) FROM agent_events GROUP BY event_type ORDER BY COUNT(*) DESC;\"'"
+```
+
+### Rules
+
+- **ALWAYS** `SET app.tenant_id = 'default';` before any SELECT. Without it,
+  RLS returns 0 rows silently.
+- **NEVER** print the database password in commands or docs. The password is
+  sourced from `.env` via `AGENT_ALPHA_PG_DSN` — extract it with grep/sed,
+  do not hardcode it.
+- `SET row_security = off` does NOT work — RLS is `FORCE`d, even the table
+  owner cannot bypass it. You MUST set `app.tenant_id`.
+- `sudo -u postgres psql` does NOT work — PostgreSQL listens on TCP 127.0.0.1,
+  not Unix socket. Use `psql -h 127.0.0.1 -U agent_alpha_app`.
+- Tables: `agent_events` (event stream), `engagement_memory` (projected
+  records), `vault_secrets` (encrypted harvested secrets).
+
+### Useful queries
+
+```sql
+-- Event type distribution
+SET app.tenant_id = 'default';
+SELECT event_type, COUNT(*) FROM agent_events GROUP BY event_type ORDER BY COUNT(*) DESC;
+
+-- Per-engagement event counts
+SET app.tenant_id = 'default';
+SELECT engagement_id, COUNT(*) FROM agent_events GROUP BY engagement_id ORDER BY COUNT(*) DESC LIMIT 20;
+
+-- Distinct hosts discovered
+SET app.tenant_id = 'default';
+SELECT DISTINCT payload->'properties'->>'host' FROM agent_events
+WHERE event_type = 'NodeDiscovered' AND payload->'properties'->>'host' IS NOT NULL
+ORDER BY 1;
+
+-- Check for outcome events (GAP-050)
+SET app.tenant_id = 'default';
+SELECT event_type, COUNT(*) FROM agent_events
+WHERE event_type IN ('ExploitConfirmed', 'ExploitFailed') GROUP BY event_type;
+```
+
 ## Oracle Lab State (as of 2026-08-09)
 
 - **Kali Docker container: REMOVED.** `kali-agent-alpha` (kalilinux/kali-rolling)

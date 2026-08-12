@@ -2198,19 +2198,19 @@ Test contract: a wp-admin page with login form body matches the new rule
 - **Status**: OPEN.
 - **What**: `IntelligenceBase` Protocol (`memory/intelligence.py`) has 4 query
   methods locked since Phase 1, but 3 of 4 always return `InsufficientData`
-  against live records. Root cause is NOT "Phase 6 feature" — it is 3 wiring
+  against live records. Root cause is NOT "Phase 6 feature" — it is 4 wiring
   gaps where data exists in the live path but never bridges to
   `EngagementMemoryRecord`:
 
-  1. **tech_stack — data in graph, not in events.** `scout.py` fingerprints
-     tech_stack for every host (17+ `merge_asset_node` calls with
-     `tech_stack_add=["laravel"]`, `["wp"]`, `["openapi"]`, etc.) and stores
-     it in `AssetProperties.tech_stack` in the graph. But
-     `EngagementMemoryProjector._build_record` only reads from the event
-     stream — it never reads the graph. No event carries tech_stack. Result:
+  1. **tech_stack — data in events, not extracted by projector.** `scout.py`
+     fingerprints tech_stack for every host (17+ `merge_asset_node` calls)
+     and emits `NodeDiscovered` events that carry `tech_stack` in the payload
+     properties. PostgreSQL confirms **1,289 events with tech_stack** in
+     `agent_events`. But `EngagementMemoryProjector._build_record` does not
+     extract tech_stack from `NodeDiscovered` payloads, and
+     `EngagementMemoryRecord` has no `tech_stack` field. Result:
      `what_worked_for_similar_targets(tech_stack, target_type)` always
-     returns `InsufficientData` because `EngagementMemoryRecord` has no
-     `tech_stack` field.
+     returns `InsufficientData`.
 
   2. **target_type / industry / region — not captured anywhere.**
      `EngagementProfile` has `targets`, `scope_targets`, `client_id` but NO
@@ -2224,76 +2224,100 @@ Test contract: a wp-admin page with login form body matches the new rule
   3. **Outcome tags — event types defined but never emitted (dead events).**
      `EXPLOIT_CONFIRMED` and `EXPLOIT_FAILED` exist in `EventType` enum and
      are handled in `_build_record`, but grep confirms ZERO emit sites in
-     the entire codebase. Beta strike results (e.g. default creds valid on
-     alpha-ai Odoo) are saved as graph findings but never emit
-     `EXPLOIT_CONFIRMED` events. `tool_success_rates` is always `{}`.
-     `tool_reliability()` and `false_positive_rate()` always return
-     `InsufficientData`. This is Lyndon #2 — dead code treated as done.
+     the entire codebase. PostgreSQL confirms **0 rows** for both event
+     types. Beta strike results (e.g. default creds valid on alpha-ai
+     Odoo) are saved as graph findings but never emit `EXPLOIT_CONFIRMED`
+     events. `tool_success_rates` is always `{}`. `tool_reliability()` and
+     `false_positive_rate()` always return `InsufficientData`. This is
+     Lyndon #2 — dead code treated as done.
 
-- **Evidence**: Verified by grep:
-  - `tech_stack_add=` appears 17+ times in `scout.py` (data flows to graph).
-  - `EngagementMemoryRecord` has no `tech_stack`/`target_type`/`industry`/
-    `region` field (line 40-51 of `engagement.py`).
-  - `emit.*EXPLOIT_CONFIRMED` returns 0 matches (event never emitted).
-  - `tool_success_rates: dict[str, float] = {}` hardcoded at line 187 of
-    `engagement.py` with comment "will return {} until outcome-tagging
-    events exist".
-  - Field engagements (alpha-ai, niagamas, bernofarm) produced real
-    findings in the graph but zero memory records that IntelligenceBase
-    can consume.
+  4. **Runner path uses InMemoryEventStore — field-prove data lost on exit.**
+     All 15 runners in `live_fire/` hardcode `InMemoryEventStore()` instead
+     of calling `build_event_store()` (which routes to `PostgresEventStore`
+     when `AGENT_ALPHA_PG_DSN` is set). Field-prove engagements (niagamas,
+     alpha-ai chain, bernofarm, ibudanbalita) run via runner path — their
+     events are lost when the process exits. PostgreSQL only has data from
+     the API/Celery path (`conductor/main.py` which correctly uses
+     `build_event_store()`). Verified: `niagamas.com` does NOT appear in
+     any `agent_events` row, while `bernofarm.com` and `hashmicro.com` DO
+     (they were run via API path at some point).
+
+- **Evidence**: Verified against PostgreSQL on Oracle ARM64 (tenant='default'):
+  - `agent_events`: 6,994 rows (API/Celery path only).
+  - `NodeDiscovered` events with `tech_stack` in payload: 1,289.
+  - `ExploitConfirmed` / `ExploitFailed`: **0 rows** (dead events).
+  - `engagement_memory`: **0 rows** (projector never runs or has no output).
+  - `vault_secrets`: 258 rows (secrets ARE persisted via API path).
+  - Hosts in PostgreSQL: bernofarm.com, hashmicro.com, ibudanbalita.com,
+    gamota.com, luminaaesthetics.com, platinumcredit.co.ke, pyfa.co.id,
+    quantum-laboratories.com, senyumworldhotel.com, solusibersama.co.id,
+    unibis.co.id, www.megajaya.co.id, www.omegahms.com, balijiwa.com.
+  - `niagamas.com`: **NOT in PostgreSQL** (ran via runner path, lost).
+  - `EngagementCreated` events in PostgreSQL: all test fixtures
+    (`target=10.0.0.0/24, client_id=client_a`), NOT real client engagements.
+  - 15 runners in `live_fire/` all hardcode `InMemoryEventStore()`.
+  - `build_event_store()` in `config/stores.py` correctly routes to
+    `PostgresEventStore` when DSN is set — but runners never call it.
 
 - **Impact**: Agent-Alpha cannot learn across engagements. Every engagement
   starts from zero — no "Laravel+CF → origin-direct worked last time"
   recall. This is the core differentiator (§4, ADR line 121: "governance +
   cross-engagement memory + regional templates. NOT toolkit breadth.")
   and it is structurally non-functional. The moat is defined in doctrine
-  but not wired in code.
+  but not wired in code. Additionally, field-prove engagements (the most
+  valuable test data) are lost because runners use in-memory storage.
 
 - **Architecture gap (the bridge)**:
   ```
-  Recon → graph_store (tech_stack, findings, assets)
-           ↓ (NO BRIDGE — graph not read by projector)
-  Events → event_store (EXPLOIT_CONFIRMED defined, never emitted)
-           ↓
-  Memory → EngagementMemoryRecord (from events only, always empty
-           for tech_stack + tool_success_rates)
-           ↓
+  API/Celery path → PostgresEventStore → PostgreSQL (6,994 events saved)
+                    ↓
+  EngagementMemoryProjector (never runs — 0 memory records)
+                    ↓
   IntelligenceBase → InsufficientData (3 of 4 methods)
+
+  Runner path → InMemoryEventStore (RAM, lost on exit)
+                ↓
+  PostgreSQL: 0 events from runner path (niagamas, alpha-ai chain, etc.)
   ```
 
-- **Fix (3 wiring slices, not 3 new features)**:
-  1. **tech_stack bridge**: Either (a) emit `TECH_STACK_IDENTIFIED` event
-     when `merge_asset_node` adds tech_stack labels, OR (b) have
-     `EngagementMemoryProjector` read graph_store at projection time.
-     Option (a) is more consistent with event-sourcing doctrine (§8o-1:
-     "anything reconstructable from the event log MAY be volatile" —
-     tech_stack IS reconstructable from events if we emit them). Add
-     `tech_stack: list[str]` field to `EngagementMemoryRecord`.
-  2. **target metadata capture**: Add `target_type`, `industry`, `region`
+- **Fix (4 wiring slices, not 4 new features)**:
+  1. **Runner EventStore wiring**: Replace `InMemoryEventStore()` with
+     `build_event_store()` in all 15 `live_fire/` runners. This is a
+     one-line change per runner — `build_event_store()` already exists and
+     already routes to `PostgresEventStore` when DSN is set. After this,
+     all field-prove engagements automatically persist to PostgreSQL
+     without any runner-specific logic. Anti-Lyndon #7: `build_event_store()`
+     is the single source — runners just call it.
+  2. **tech_stack extraction**: Add `tech_stack: list[str]` field to
+     `EngagementMemoryRecord`. In `_build_record`, extract tech_stack from
+     `NodeDiscovered` event payloads (1,289 events already have it). No
+     new event type needed — data is already in the event stream.
+  3. **target metadata capture**: Add `target_type`, `industry`, `region`
      to `EngagementProfile` (sourced from `engagement.yaml`). Add same
      fields to `EngagementMemoryRecord`. Projector copies from
      `ENGAGEMENT_CREATED` event payload.
-  3. **outcome event emission**: Emit `EXPLOIT_CONFIRMED` / `EXPLOIT_FAILED`
+  4. **outcome event emission**: Emit `EXPLOIT_CONFIRMED` / `EXPLOIT_FAILED`
      from Beta strike path when credential validation succeeds/fails.
      `cred_finding_catalog.py` already defines
      `validated_event_type="default_credential_validated"` — wire this to
      emit the canonical `EXPLOIT_CONFIRMED` event. Projector then populates
      `tool_success_rates` from the event payload.
 
-- **Priority**: HIGH — after Slice B (SPA-login applicator). This is the
-  foundation for cross-engagement learning, which is the product's stated
-  moat. Without it, every engagement is amnesia. Three wiring slices, not
-  a Phase 6 mega-feature.
+- **Priority**: HIGH — after Slice B (SPA-login applicator). Slice 1
+  (runner wiring) is the highest leverage: it ensures all future
+  field-prove data is automatically persisted without any manual step.
+  Slices 2-4 build the memory bridge on top of the persisted data.
 
 - **Anti-Lyndon**: #2 (dead code — event types defined but never emitted,
   treated as "done" because the enum exists). #3 (false success —
   IntelligenceBase "implemented" but always returns InsufficientData,
   giving the appearance of cross-engagement learning without any). #7
-  (single source — tech_stack canonical in graph, but memory has no
-  bridge to it; fix by emitting events, not duplicating graph reads).
+  (single source — `build_event_store()` is the canonical store factory,
+  runners should call it instead of hardcoding `InMemoryEventStore()`).
   #9 (this gap was masked by "Phase 6" label — in reality the data exists
   today and the bridge is the missing piece, not a future feature).
 
-- **Effort**: Medium (3 slices: event emission + record schema + projector
-  branches). Each slice is self-contained and testable.
+- **Effort**: Medium (4 slices: runner wiring + record schema + projector
+  branches + outcome emission). Slice 1 is trivial (one-line per runner).
+  Slices 2-4 are self-contained and testable.
 
