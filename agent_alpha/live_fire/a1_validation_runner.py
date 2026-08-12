@@ -33,7 +33,7 @@ from agent_alpha.conductor.engagement_profile import (
     assert_origin_authorized,
     load_signed_profile,
 )
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.live_fire.browser_solve import DeepSeekBrowserSolve
 from agent_alpha.live_fire.lab_guard import assert_lab_only_target
@@ -549,7 +549,7 @@ def main(argv: list[str] | None = None) -> int:
     # These are the SAME types used by sibling field-prove runners (actuator, backup_file).
     secrets_manager = SecretsManager()
     graph_store = NetworkXGraphStore()
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
 
     try:
         result = run_a1_validation(

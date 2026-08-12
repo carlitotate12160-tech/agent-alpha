@@ -210,7 +210,7 @@ def test_cli_wires_chain_dependencies(monkeypatch, tmp_path) -> None:
     The test FAILS if any dependency is None, PASSING only after main() correctly
     constructs and passes all three.
     """
-    from agent_alpha.events.store import InMemoryEventStore
+    from agent_alpha.events.store import EventStore
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
     from agent_alpha.security.secrets import SecretsManager
 
@@ -239,4 +239,4 @@ def test_cli_wires_chain_dependencies(monkeypatch, tmp_path) -> None:
     assert captured["graph_store"] is not None
     assert isinstance(captured["graph_store"], NetworkXGraphStore)
     assert captured["event_store"] is not None
-    assert isinstance(captured["event_store"], InMemoryEventStore)
+    assert isinstance(captured["event_store"], EventStore)

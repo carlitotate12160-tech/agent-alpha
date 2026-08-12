@@ -19,7 +19,7 @@ import yaml
 from agent_alpha.agents.alpha.scout import Alpha
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     for domain in config.scope_domains:
         assert_lab_only_target(domain)
 
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
     http_client = HttpClient(engagement_id=config.client_id)
     secrets_manager = SecretsManager()

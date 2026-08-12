@@ -99,14 +99,14 @@ def run_agent_alpha(config: OdooChainConfig) -> OdooChainResult:
     """
     from agent_alpha.agents.http_client import HttpClient
     from agent_alpha.conductor.authorization import AuthorizationStateMachine
-    from agent_alpha.events.store import InMemoryEventStore
+    from agent_alpha.config.stores import build_event_store
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
     from agent_alpha.live_fire.beta_runner import _NoLLMProvider
     from agent_alpha.llm.orchestrator import LLMOrchestrator
     from agent_alpha.security.secrets import SecretsManager
     from agent_alpha.tools.playbook import PlaybookEngine
 
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
     http_client = HttpClient(engagement_id=config.client_id)
     secrets_manager = SecretsManager()

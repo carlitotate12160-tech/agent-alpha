@@ -18,8 +18,8 @@ from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
 from agent_alpha.agents.http_client import HttpClient
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.config import constants
+from agent_alpha.config.stores import build_event_store
 from agent_alpha.events.event_types import EventType
-from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.live_fire.beta_runner import _NoLLMProvider
@@ -286,7 +286,7 @@ def main(argv: list[str] | None = None) -> int:
 
     assert_lab_only_target(f"https://{config.root_domain}/")
 
-    event_store = InMemoryEventStore()
+    event_store = build_event_store()
     auth = AuthorizationStateMachine(event_store=event_store)
     # TLS verification is opt-out ONLY for self-owned lab_guard targets with self-signed certs;
     # production recon uses the secure default (verify=True).
