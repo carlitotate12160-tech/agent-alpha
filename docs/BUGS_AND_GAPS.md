@@ -1473,20 +1473,41 @@ Verified by grep on the live path (RUNNER-SEAL != AUTONOMOUS-WIRED), not by doc 
 
 ## GAP-030 — auth_surface regex misses Vue.js / framework-bound password inputs
 
-- **Status**: OPEN.
+- **Status**: DONE (PR #391 Slice 1a merged `2b85fed` + PR #392 Slice 1b merged `5554e8d`).
 - **What**: `detect_auth_surface_labels` regex `<input[^>]*type\s*=\s*['\"]?password\b['\"]?>`
   matches only static `type="password"`. Modern frameworks (Vue, React, Alpine) use dynamic
   bindings: `:type="showPassword ? 'text' : 'password'"` or `:type="password"`. These do NOT
   match the regex, so login forms with framework-bound password inputs are not detected.
+  Additionally, the pre-fix classifier unconditionally labeled ANY `401` as `http_basic_auth`
+  regardless of whether `WWW-Authenticate: Basic` was present.
 - **Evidence**: niagamas.com field-prove — `pos.niagamas.com/admin/login` has
   `<input :type="showPassword ? 'text' : 'password'" name="password">`. Regex does not match.
   `pos.niagamas.com` never persisted as ASSET with `login-form` label. Router never saw it.
+- **Root cause of stale `http_basic_auth` on hub.niagamas.com** (investigated 2026-08-12):
+  The pre-#391 `detect_auth_surface_labels` had `if status_code == 401 or has_www_auth:
+  labels.append("http_basic_auth")` — ANY 401 was mislabeled `http_basic_auth`. The hub API
+  (`https://hub.niagamas.com/api/`) returns `401` JSON `{"message":"Unauthorized","statusCode":401}`
+  with NO `WWW-Authenticate` header, so the old code misclassified it as `http_basic_auth`.
+  The capability fingerprint path (`http_basic_auth_fingerprint`) was NOT the source: its
+  playbook (`http_basic_auth.yaml`) requires `WWW-Authenticate: Basic` regex match, which the
+  hub API does not send, so that rule never fired. Provenance = stale pre-#391 classifier only.
+  Current `main` (`5554e8d`) correctly produces `api_auth` for the hub API (401 JSON, no
+  challenge) and `login-form` for pos.niagamas.com. No code defect remains; no regression test
+  needed because the fix is already in place and covered by `tests/phase_4/test_auth_surface.py`.
 - **Impact**: Login forms using Vue/React/Alpine bindings are invisible to the agent.
-  Beta never dispatches for these targets. Missed attack surface.
-- **Fix direction**: Add fallback signal — `name="password"` or `id="password"` as secondary
-  indicator when `type="password"` regex fails. This is still universal (any framework uses
-  name/id="password" for password fields), not per-framework catalog (anti-Lyndon #11).
-- **Effort**: Low (1 file, auth_surface.py — add fallback regex + test).
+  Beta never dispatches for these targets. Missed attack surface. (Pre-fix: bare 401 also
+  routed a basic-auth strike at a non-basic surface — false positive routing, NOT a false
+  positive vulnerability finding; no credential/access/proof was minted in the prior run.)
+- **Fix direction**: DONE. Slice 1a (PR #391): header-aware 401 classification (Basic/Digest/
+  Bearer/api_auth/unknown_auth) + dynamic password-input detection + strikable split. Slice 1b
+  (PR #392): SPA login-from-JS detection via `scan_js_for_login_surface` (classify-only
+  `spa-login-form`, reuses existing JS fetch, no second network round-trip). Slice 1b backtick
+  fix (PR #393): Vite/esbuild minified bundles use backtick template-literal quotes
+  (`type:`password``) instead of `['"]`; the regex character class was extended to `['"\`]` so
+  SPA login forms in Vite-minified bundles (e.g. hub.niagamas.com) are now detected.
+- **Effort**: DONE. Slice 1a = `auth_surface.py` + tests. Slice 1b = `auth_surface.py` +
+  `js_secret_probe.py` + tests. Slice 1b backtick fix = `auth_surface.py` + tests (1 regex
+  character class change + 3 regression tests).
 
 ## GAP-031 — Beta crashes on OriginUnreachableError when no origin binding exists
 
