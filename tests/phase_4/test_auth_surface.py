@@ -199,6 +199,13 @@ def test_js_scan_detects_template_input_password() -> None:
     assert scan_js_for_login_surface('render(`<input type="password">`)') is True
 
 
+def test_js_scan_detects_backtick_quoted_password() -> None:
+    """Vite/esbuild minified bundles use backtick template-literal quotes."""
+    assert scan_js_for_login_surface('jsx("input",{type:`password`})') is True
+    assert scan_js_for_login_surface('{name:`password`}') is True
+    assert scan_js_for_login_surface('{autocomplete:`current-password`}') is True
+
+
 def test_js_scan_bare_password_word_not_false_positive() -> None:
     """The bare word 'password' (e.g. a reset-email string) must NOT trigger."""
     assert scan_js_for_login_surface('const msg = "check your password reset email"') is False
