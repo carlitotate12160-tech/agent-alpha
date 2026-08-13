@@ -154,6 +154,10 @@
 | 113 | Password reset abuse (host header injection, token prediction) | OPEN | Med | SS | Med | Reset endpoint abuse to change password without knowing old password |
 | 114 | OAuth/SAML/JWT token theft and forgery | OPEN | Med | SS | High | Token-based auth bypass via open redirect, weak signing key, JWT crack |
 | 115 | Historical DNS origin discovery (SecurityTrails/DNSHistory) | OPEN | High | RG | Med | ADR §12.61 A1 — biggest missing signal; crt.sh/VT/OTX failed on full-CF targets |
+| 116 | Authenticated crawl / post-access re-recon implementation (§12.32) | OPEN | High | RG | Med | ADR LOCKED but code NOT BUILT; 0 auth-vs-unauth diff in codebase |
+| 117 | Credential pattern mutation implementation (§12.34) | OPEN | Med | SS | Med | ADR LOCKED but CredentialPatternMutator NOT BUILT; cred_reuse literal only |
+| 118 | Proof standard oracle — auth-vs-unauth diff (§12.43) | OPEN | High | RG | Med | CredReuseAttestor is provenance check, NOT independent oracle per §12.43 |
+| 119 | Credential-result semantics — negative outcome classification (§12.45) | OPEN | Med | RG | Low | Beta reports FAILED without methodology caveat per §12.45 |
 
 ## Category Legend
 
@@ -264,6 +268,13 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 75. **GAP-076** — Cloud storage / shadow-IT discovery (MED — ADR §12.61 B7, S3/GCS, no CF protection)
 76. **GAP-075** — Subdomain takeover check (LOW — ADR §12.61 A4+B8, dangling CNAME, DNS only)
 77. **GAP-062** — TLS/MX/SPF/DMARC (LOW — ADR §12.61 A2, MX = origin netblock, passive)
+
+### ADR-LOCKED Implementation Gaps (NEW — design decided, code NOT built)
+
+78. **GAP-116** — Authenticated crawl / post-access re-recon (HIGH — §12.32 LOCKED, code NOT BUILT, 0 auth-vs-unauth diff in codebase)
+79. **GAP-117** — Credential pattern mutation (MED — §12.34 LOCKED, CredentialPatternMutator NOT BUILT, cred_reuse literal only)
+80. **GAP-118** — Proof standard oracle — auth-vs-unauth diff (HIGH — §12.43, CredReuseAttestor is provenance not oracle, findings NOT payable per §12.43)
+81. **GAP-119** — Credential-result semantics — negative outcome (MED — §12.45, Beta reports FAILED without methodology caveat, false assurance risk)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -422,6 +433,10 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - GAP-113 — Password reset abuse (host header injection, token prediction) (OPEN.)
 - GAP-114 — OAuth/SAML/JWT token theft and forgery (OPEN.)
 - GAP-115 — Historical DNS origin discovery / ADR §12.61 A1 (OPEN.)
+- GAP-116 — Authenticated crawl / post-access re-recon implementation (§12.32 ADR LOCKED, code NOT BUILT) (OPEN.)
+- GAP-117 — Credential pattern mutation implementation (§12.34 ADR LOCKED, code NOT BUILT) (OPEN.)
+- GAP-118 — Proof standard oracle — auth-vs-unauth diff (§12.43) (OPEN.)
+- GAP-119 — Credential-result semantics — negative outcome classification (§12.45) (OPEN.)
 
 ### Trust Graph & Organizational Intelligence (NEW)
 
@@ -1085,14 +1100,14 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-011 — Authenticated Crawl / Post-Access Re-Discovery — Moved to ADR §12.32
-- Status: LOCKED in ADR §12.32 (2026-07-15)
+- Status: ADR LOCKED in §12.32 (2026-07-15). Implementation = OPEN (see GAP-116).
 - Priority: Medium
 - Category: —
 - Stack: Cognition
 - What: After Beta obtains `valid_credentials`, re-crawl with an active session; diff unauth vs auth surfaces. Exploitation remains Gamma-gated.
-- Cross-ref: `docs/ADR.md` §12.32 *"Post-access authenticated re-recon"*
+- Cross-ref: `docs/ADR.md` §12.32 *"Post-access authenticated re-recon"*, **GAP-116** (implementation gap — ADR is design decision, code is NOT BUILT)
 - Effort: —
-- Note: Full boundary rules are now in ADR §12.32.
+- Note: Full boundary rules are now in ADR §12.32. **MOVED ≠ IMPLEMENTED.** ADR is locked (design decided) but `grep "AuthenticatedCrawl" ` = 0 results in codebase. Implementation tracked as GAP-116.
 - Prerequisites: GAP-004 (planner), GAP-010 (next-objective handling).
 
 ---
@@ -1111,14 +1126,14 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-013 — Credential Pattern Mutation Within Engagement — Moved to ADR §12.34
-- Status: LOCKED in ADR §12.34 (2026-07-15)
+- Status: ADR LOCKED in §12.34 (2026-07-15). Implementation = OPEN (see GAP-117).
 - Priority: Low-Medium
 - Category: —
 - Stack: Cognition
 - What: `CredentialPatternMutator` extracts patterns from harvested credentials, generates bounded variants, and tries them only after literal reuse fails and under the lockout governor.
-- Cross-ref: `docs/ADR.md` §12.34 *"Within-engagement credential mutation"*
+- Cross-ref: `docs/ADR.md` §12.34 *"Within-engagement credential mutation"*, **GAP-117** (implementation gap — ADR is design decision, code is NOT BUILT)
 - Effort: —
-- Note: Full mutation and gating rules are now in ADR §12.34.
+- Note: Full mutation and gating rules are now in ADR §12.34. **MOVED ≠ IMPLEMENTED.** ADR is locked (design decided) but `grep "CredentialPatternMutator" ` = 0 results in codebase. Implementation tracked as GAP-117.
 - Prerequisites: ~~GAP-002 (scratchpad pattern tracking)~~ ✅ CLOSED #192.
 
 ---
@@ -2072,6 +2087,72 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - Impact: 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket) are full-CF apex where origin discovery FAILED. Without historical DNS, Agent-Alpha cannot find the origin and cannot flank. The entire §12.61 axis A is blocked at the first step. This is the single highest-leverage GAP for the full-CF target class.
 - Effort: MED (SecurityTrails API client + DNSHistory/ViewDNS fallback + historical A-record extraction + origin candidate emission. ~150 lines. Needs SecurityTrails API key (free tier: 50 queries/month, paid: $50/month for 5000). Fallback: ViewDNS.info free API (1 query/minute, no key). Must compose with existing two-proof origin binding (§12.46) — historical IP is a CANDIDATE, not a proven origin).
 - Constraint: Historical IP is a CANDIDATE only — must pass two-proof binding (domain ownership + origin binding, §12.46) before Beta can strike. Passive, 0 target touch (query external DNS history API, not target). SecurityTrails free tier sufficient for low-volume engagements. Open question (ADR §12.61): external API dependency/cost policy — keyless fallback (ViewDNS) + budget tracking.
+
+---
+
+
+# ADR-LOCKED Implementation Gaps (design decided, code NOT built)
+
+## GAP-116 — Authenticated crawl / post-access re-recon implementation (§12.32)
+- Status: OPEN — ADR §12.32 LOCKED but code NOT BUILT.
+- Priority: HIGH — without authenticated crawl, Beta cannot discover post-access surfaces (IDOR, admin panels, API endpoints visible only after login). The most valuable vulnerabilities (OWASP A01: Broken Access Control) are invisible without this.
+- Category: RG
+- Stack: Universal
+- What: ADR §12.32 "Post-access authenticated re-recon" is LOCKED (2026-07-15) but NOT IMPLEMENTED. After Beta obtains valid credentials, there is no authenticated re-crawl to discover new surfaces. The ADR specifies: (1) AuthenticatedCrawlMode — re-crawl with active session, diff unauth vs auth (new endpoints/menus/APIs). (2) Boundary: DISCOVERING authenticated surfaces = recon (DETECT), EXPLOITING (testing IDOR, priv-esc) = Gamma-gated. (3) Wiring: post-access sub-objective in Planner (§12.29). GAP-011 was "MOVED to ADR §12.32" in the ledger, but MOVED ≠ IMPLEMENTED — the ADR is a design decision, not code. `grep "AuthenticatedCrawl|authenticated.*crawl|auth.*vs.*unauth.*diff" ` in `agent_alpha/` = 0 results. The `http_client` has a `cookies` kwarg but no authenticated-crawl mode.
+- Evidence: `agents/beta/strike.py:335-337` — after successful auth, Beta persists nodes and returns. No re-crawl. `grep "AuthenticatedCrawl" ` = 0 results. `http_client.py` — has `cookies` kwarg but no crawl mode. ADR §12.32: "After Beta obtains `valid_credentials` there is no active-session re-discovery."
+- Files: `agent_alpha/agents/beta/strike.py:335-337` — no post-access re-crawl; `agent_alpha/agents/http_client.py` — no authenticated crawl mode; no `authenticated_crawl.py` module
+- Cross-ref: ADR §12.32 (LOCKED, design decision), GAP-011 (MOVED to ADR — this GAP clarifies implementation is OPEN), GAP-079 (post-access validation — related but different: validation = prove access level, crawl = discover new surfaces), GAP-080 (session management — needs stable session for crawl), GAP-118 (proof standard oracle — auth-vs-unauth diff is the oracle, authenticated crawl is how you get the diff), ADR §12.29 (Planner — post-access sub-objective wiring, STOP-gated Gamma).
+- Impact: Without authenticated crawl, Beta finds access but cannot discover what the access reveals. Admin panel, API endpoints, user data — all invisible post-login. The most payable findings (IDOR, broken access control, priv-esc path) require authenticated crawl to discover. Agent-Alpha stops at "I logged in" but never asks "what can I see now that I couldn't before?"
+- Effort: MED (authenticated crawl mode: re-fetch known URLs with session cookie → diff vs unauth responses → mint new ASSET/SERVICE nodes for auth-only surfaces. ~200 lines. Must stay RECON_ONLY — discovery, not exploitation. Boundary: IDOR testing = Gamma-gated. Needs stable session (GAP-080). Needs Planner wiring (§12.29, STOP-gated Gamma) — OR can run as Beta post-access step without Planner if scoped correctly.)
+- Constraint: RECON_ONLY tier (discovery, not exploitation). Authenticated crawl = DETECT. Testing IDOR/priv-esc = ACT = Gamma-gated (OFFENSIVE_APPROVED). Must use existing session cookie from Beta success. Must not test state-changing endpoints (POST/DELETE) — GET only for discovery.
+
+---
+
+## GAP-117 — Credential pattern mutation implementation (§12.34)
+- Status: OPEN — ADR §12.34 LOCKED but code NOT BUILT.
+- Priority: MEDIUM — literal cred-reuse misses pattern variants. If `Company2025!` works on service A but B uses `Company2026!`, Beta won't find it.
+- Category: SS
+- Stack: Universal
+- What: ADR §12.34 "Within-engagement credential mutation" is LOCKED (2026-07-15) but NOT IMPLEMENTED. `cred_reuse.py` only does literal reuse — it takes the harvested credential as-is and tries it. `default_creds.py` uses a static list. There is no `CredentialPatternMutator` — no analysis of harvested credentials to extract patterns (company+year+suffix) and generate variants (increment year, swap separator, case, common suffix). GAP-013 was "MOVED to ADR §12.34" but MOVED ≠ IMPLEMENTED. `grep "CredentialPatternMutator|pattern.*mutator|credential.*mutation" ` in `agent_alpha/` = 0 results.
+- Evidence: `cred_reuse.py:82-100` — `run()` iterates CREDENTIAL nodes, delegates to applicator. No mutation, no pattern extraction. `default_creds.py` — static list, no mutation. `grep "CredentialPatternMutator" ` = 0 results. ADR §12.34: "If `Company2025!` works on service A but B uses `Company2026!`, the agent will not find it — a human would automatically try pattern variants."
+- Files: `agent_alpha/tools/internal/access/cred_reuse.py:82-100` — literal reuse only; `agent_alpha/tools/internal/access/default_creds.py` — static list; no `cred_mutator.py` module
+- Cross-ref: ADR §12.34 (LOCKED, design decision), GAP-013 (MOVED to ADR — this GAP clarifies implementation is OPEN), GAP-104 (breach creds — complementary: breach data has real passwords, mutation generates variants), GAP-112 (offline crack — complementary: crack produces plaintext, mutation generates variants), ADR §12.22 D2 (lockout governor — mutation is credential spray, must be bounded).
+- Impact: Beta misses credential variants that a human would try. `Niagamas2024!` harvested from wp-config → `Niagamas2025!` not tried on Odoo. Pattern mutation is the simplest cred-reuse enhancement and is ADR-LOCKED but unbuilt.
+- Effort: MED (CredentialPatternMutator: analyze harvested creds → extract pattern (company+year+suffix) → generate bounded variants (±1 year, swap separator, case, common suffix) → try via existing applicator roster under lockout governor. ~150 lines. Must be ACTIVE_APPROVED + lockout-governed. Used only after literal reuse fails.)
+- Constraint: ACTIVE_APPROVED + lockout governor (§12.22 D2). Bounded variants (≤4 per harvested cred, anti-Lyndon #7). Used only after literal reuse fails (sequential, not parallel). Successful patterns tracked in scratchpad for reuse within engagement (GAP-002).
+
+---
+
+
+# Proof Standard & Outcome Classification Gaps
+
+## GAP-118 — Proof standard oracle — auth-vs-unauth diff (§12.43)
+- Status: OPEN — CredReuseAttestor is provenance check, NOT independent oracle per §12.43.
+- Priority: HIGH — per §12.43, Beta's access findings are NOT payable without independent oracle. Current CROSS_VERIFIED promotion is provenance-based, not oracle-based.
+- Category: RG
+- Stack: Universal
+- What: ADR §12.43 "Proof Standard" requires: "The zero-FP GATE for an access/login-class finding = with the harvested credential, an INDEPENDENT fresh session obtains an authenticated-only ground-truth marker the unauthenticated session did NOT (auth-vs-unauth diff §12.32)." The current `CredReuseAttestor` (`attestation/attestor.py:50-79`) checks PROVENANCE: (1) node is ACCESS_LEVEL, (2) ENABLES edge from CREDENTIAL exists, (3) credential has non-empty secret_ref, (4) proof_artifacts contain "authenticated_request", (5) does not rely on node.verified. This is NOT the §12.43 oracle — it checks that proof artifacts EXIST and are BOUND, but does NOT independently re-authenticate or obtain an auth-vs-unauth diff. A bug in the tool that produces a false "authenticated_request" proof artifact would pass provenance check but fail the §12.43 oracle. The attestor code explicitly says: "Perform live re-authentication (Phase-6, Conductor-auth-gated, credential-keyed lockout — NOT wired here)."
+- Evidence: `attestation/attestor.py:9-15` — "This module does NOT: Perform live re-authentication (Phase-6, Conductor-auth-gated, credential-keyed lockout — NOT wired here)." `attestation/attestor.py:50-79` — CredReuseAttestor checks provenance (proof exists + bound), not independent oracle. `conductor/verification.py:20` — `verify_access_nodes` runs CredReuseAttestor → promotes to CROSS_VERIFIED. But this is provenance promotion, not oracle promotion. ADR §12.43: "A screenshot can render a login page, a cached page, or a soft-200 — pixels prove nothing alone."
+- Files: `agent_alpha/attestation/attestor.py:9-15,50-79` — CredReuseAttestor (provenance, not oracle); `agent_alpha/conductor/verification.py:20` — verify_access_nodes (promotes based on provenance); `agent_alpha/agents/beta/strike.py:458,488,538` — all nodes minted as SELF_VERIFIED
+- Cross-ref: ADR §12.43 (PROPOSED — proof standard), ADR §12.32 (authenticated crawl — the oracle mechanism), GAP-116 (authenticated crawl implementation — prerequisite for oracle), GAP-079 (post-access validation — related but different: validation = prove access level, oracle = prove access is real via independent signal), ADR §12.31 (verification tiers — SELF_VERIFIED vs CROSS_VERIFIED).
+- Impact: Beta's access findings are promoted to CROSS_VERIFIED via provenance, not via independent oracle. Per §12.43, this does NOT meet the payable floor. A false-positive in the tool (soft-200, cached page, login form misclassified as dashboard) would pass provenance check but fail independent oracle. The entire proof chain is weaker than §12.43 mandates. Findings may be reported as "proven" when they are only "provenance-checked."
+- Effort: HIGH (independent oracle: (1) fresh session re-authenticate with harvested credential, (2) fetch authenticated-only marker (user account ID, admin DOM element, session-bound CSRF token), (3) fetch same URL without session → compare diff, (4) if diff exists → CONFIRMED, if no diff → REFUTED. Needs live re-auth = ACTIVE_APPROVED + lockout governor. Needs authenticated crawl (GAP-116) for marker discovery. ~300 lines. Conductor-auth-gated per attestor.py:13.)
+- Constraint: ACTIVE_APPROVED (live re-authentication). Lockout-governed (§12.22 D2 — re-auth counts as attempt). Must use FRESH session (not Beta's original session — different failure mode). Must obtain auth-vs-unauth diff (§12.32 authenticated crawl). Phase-6 per attestor.py:13 — but §12.43 is PROPOSED, not LOCKED. If §12.43 locks, this GAP becomes the implementation track.
+
+---
+
+## GAP-119 — Credential-result semantics — negative outcome classification (§12.45)
+- Status: OPEN — Beta reports FAILED without methodology caveat per §12.45.
+- Priority: MEDIUM — false assurance risk: negative reported as "failed" without context could be misread as "password is safe."
+- Category: RG
+- Stack: Universal
+- What: ADR §12.45 "Credential-result semantics" requires: (1) Positive only is a finding — no "credential_safe" node ever. (2) Negatives carry a methodology caveat, never a verdict — "bounded online derivation (≤4 candidates/user, lockout-safe) found no reusable credential for user X — this is NOT a password-strength assessment; offline cracking, credential stuffing, and large wordlists were out of engagement scope." (3) Methodology transparency — every credential section states what WAS and WAS NOT tested. Beta currently reports `status=FAILED` when cred-spray doesn't work, with no methodology caveat. Omega could misread this as "password is safe" — a credibility-destroying false assurance per §12.45.
+- Evidence: `agents/beta/strike.py:356-357` — `if result is None or not result.success: return {"discovered_nodes": 0, "cost_usd": cost_usd}`. No methodology caveat in the return. No "what was tested" metadata. No "what was NOT tested" disclaimer. The A2A handoff carries status + findings_count but no methodology context.
+- Files: `agent_alpha/agents/beta/strike.py:356-357` — FAILED return (no methodology caveat); `agent_alpha/agents/beta/strike.py:564-592` — _build_handoff_message (no methodology context in handoff)
+- Cross-ref: ADR §12.45 (PROPOSED — credential-result semantics), GAP-079 (post-access validation — related but different: validation = prove access, semantics = classify negative), GAP-099 (MFA detection — similar honest-outcome pattern: "first factor valid, MFA required" not "FAILED"), GAP-098a (CAPTCHA detection — similar: "BLOCKED, captcha protected" not "FAILED"), ADR §12.60 (two-tier proof — honest blocked outcome principle).
+- Impact: Without methodology caveat, Omega report could phrase a negative as "password is safe" — false assurance. If a real attacker later cracks it, the report was falsely reassuring. §12.45 explicitly forbids this: "Omega is FORBIDDEN from emitting 'safe/secure/strong/not predictable' from a negative credential result." But Beta doesn't provide the methodology context that Omega needs to comply.
+- Effort: LOW (add methodology metadata to Beta's FAILED return: what was tested (cred_reuse, default_creds, user_derived), what was NOT tested (offline crack, breach data, large wordlist), attempt count, lockout status. ~40 lines. Omega consumes this metadata to generate the methodology caveat in the report.)
+- Constraint: No code change to Omega yet (§12.45 is PROPOSED, not LOCKED). Beta should emit the methodology metadata NOW so when §12.45 locks, Omega can consume it. The metadata is: `{"tested": ["cred_reuse", "default_creds", "user_derived"], "not_tested": ["offline_crack", "breach_data", "large_wordlist"], "attempts": N, "lockout_governor_limit": M}`.
 
 ---
 
