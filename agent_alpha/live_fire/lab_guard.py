@@ -76,14 +76,28 @@ class LabHost:
                     f"'acme:' proof, got {self.ownership_proof!r}"
                 )
         else:
-            # Routable domains must use dns-txt or acme proof (no prose)
+            # Routable domains must use dns-txt, acme, or public-test proof.
+            # - dns-txt/acme: self-owned or client-approved (cryptographic proof).
+            # - public-test: platform that explicitly authorizes security testing
+            #   in its ToS (e.g. PortSwigger Academy, Acunetix vulnweb, OWASP
+            #   Juice Shop). Authorization comes from the platform's ToS, not
+            #   from client consent — so no DNS-TXT needed. The proof string
+            #   MUST name the platform (e.g. "public-test:portswigger-academy")
+            #   so provenance is auditable.
             if not (
                 self.ownership_proof.startswith("dns-txt:")
                 or self.ownership_proof.startswith("acme:")
+                or self.ownership_proof.startswith("public-test:")
             ):
                 raise ValueError(
-                    f"LabHost {self.host!r}: routable domains must use 'dns-txt:' or "
-                    f"'acme:' proof (prose-only proofs rejected), got {self.ownership_proof!r}"
+                    f"LabHost {self.host!r}: routable domains must use 'dns-txt:', "
+                    f"'acme:', or 'public-test:' proof (prose-only proofs rejected), "
+                    f"got {self.ownership_proof!r}"
+                )
+            if self.ownership_proof == "public-test:":
+                raise ValueError(
+                    f"LabHost {self.host!r}: public-test proof must name the platform "
+                    f"(e.g. 'public-test:portswigger-academy'), got {self.ownership_proof!r}"
                 )
 
 
@@ -212,6 +226,54 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "natanael",
         "dns-txt:agent-alpha=client-approved",
         "#378",
+    ),
+    # -----------------------------------------------------------------------
+    # Public test targets — platforms that EXPLICITLY authorize security
+    # testing in their ToS. Authorization comes from the platform, not from
+    # client consent. Used for T3-lite (real internet, no WAF/CF) testing of
+    # GAP-001 (new stack playbooks) and handler logic against real responses.
+    # Does NOT replace docker-compose lab stacks (T2) or self-owned CF domains
+    # (T3-real). Cannot test WAF/CF evasion, origin discovery, or cred-reuse.
+    # -----------------------------------------------------------------------
+    # PortSwigger Academy — explicitly for learning/testing (ToS permits).
+    LabHost(
+        "demo.testfire.net",
+        "public-test",
+        "public-test:ibm-alfresco-demo",
+        "#TBD",
+    ),
+    # Acunetix vulnweb test sites — explicitly for testing (Acunetix ToS).
+    LabHost(
+        "testaspnet.vulnweb.com",
+        "public-test",
+        "public-test:acunetix-vulnweb",
+        "#TBD",
+    ),
+    LabHost(
+        "testasp.vulnweb.com",
+        "public-test",
+        "public-test:acunetix-vulnweb",
+        "#TBD",
+    ),
+    LabHost(
+        "testphp.vulnweb.com",
+        "public-test",
+        "public-test:acunetix-vulnweb",
+        "#TBD",
+    ),
+    # OWASP Juice Shop — OWASP project, explicitly for testing.
+    LabHost(
+        "juice-shop.herokuapp.com",
+        "public-test",
+        "public-test:owasp-juice-shop",
+        "#TBD",
+    ),
+    # Google Gruyere — Google Code University, explicitly for learning.
+    LabHost(
+        "google-gruyere.appspot.com",
+        "public-test",
+        "public-test:google-gruyere",
+        "#TBD",
     ),
 )
 

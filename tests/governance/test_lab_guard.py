@@ -57,6 +57,26 @@ class TestLabHostProvenance:
                 expires=_dt.date(2026, 12, 31),
             )
 
+    def test_public_test_proof_accepted_for_routable_domain(self) -> None:
+        """Routable domains with public-test: proof (named platform) are accepted."""
+        host = LabHost(
+            "demo.testfire.net",
+            "public-test",
+            "public-test:ibm-alfresco-demo",
+            "#999",
+        )
+        assert host.host == "demo.testfire.net"
+
+    def test_public_test_proof_rejects_empty_platform_name(self) -> None:
+        """public-test: proof must name the platform (no bare 'public-test:')."""
+        with pytest.raises(ValueError, match="must name the platform"):
+            LabHost(
+                "demo.testfire.net",
+                "public-test",
+                "public-test:",
+                "#999",
+            )
+
 
 class TestSingleSourceOfTruth:
     def test_allowlist_derived_from_lab_hosts(self) -> None:
@@ -114,3 +134,41 @@ def test_direct_alpha_ai_sibling_is_owned_lab_host() -> None:
     # passes the fail-closed gate (no raise) for both bare host and URL forms
     assert_lab_only_target("direct.alpha-ai.web.id")
     assert_lab_only_target("https://direct.alpha-ai.web.id/")
+
+
+class TestPublicTestTargets:
+    """Public test targets (PortSwigger, Acunetix, OWASP) are explicitly
+    authorized by their platform ToS — no DNS-TXT needed. Used for T3-lite
+    testing of new stack playbooks (GAP-001) against real internet responses."""
+
+    def test_testfire_net_is_allowlisted(self) -> None:
+        """demo.testfire.net (IBM/Alfresco JSP demo) is a public-test target."""
+        assert "demo.testfire.net" in LAB_TARGET_ALLOWLIST
+        assert_lab_only_target("https://demo.testfire.net/")
+
+    def test_vulnweb_targets_are_allowlisted(self) -> None:
+        """Acunetix vulnweb test sites are public-test targets."""
+        assert "testaspnet.vulnweb.com" in LAB_TARGET_ALLOWLIST
+        assert "testasp.vulnweb.com" in LAB_TARGET_ALLOWLIST
+        assert "testphp.vulnweb.com" in LAB_TARGET_ALLOWLIST
+
+    def test_juice_shop_is_allowlisted(self) -> None:
+        """OWASP Juice Shop (SPA/Angular) is a public-test target."""
+        assert "juice-shop.herokuapp.com" in LAB_TARGET_ALLOWLIST
+        assert_lab_only_target("https://juice-shop.herokuapp.com/")
+
+    def test_google_gruyere_is_allowlisted(self) -> None:
+        """Google Gruyere (Python/App Engine) is a public-test target."""
+        assert "google-gruyere.appspot.com" in LAB_TARGET_ALLOWLIST
+
+    def test_public_test_targets_pass_assert(self) -> None:
+        """All public-test targets must pass the fail-closed gate."""
+        for host in [
+            "demo.testfire.net",
+            "testaspnet.vulnweb.com",
+            "testasp.vulnweb.com",
+            "testphp.vulnweb.com",
+            "juice-shop.herokuapp.com",
+            "google-gruyere.appspot.com",
+        ]:
+            assert_lab_only_target(f"https://{host}/")
