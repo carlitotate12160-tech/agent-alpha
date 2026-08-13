@@ -149,6 +149,8 @@
 | 108 | Password reset flow user enumeration | OPEN | Med | RM | Med | Reset endpoint reveals valid emails; not probed by Beta |
 | 109 | Beta entry selection ignores WAF capability | OPEN | Med | RG | Low | Beta strikes WAF-protected surface without considering WAF mode (GAP-073) |
 | 110 | Beta credential prioritization lacks graph edges | OPEN | Med | RG | Med | cred_reuse iterates all creds × all surfaces; no graph-based priority (GAP-070) |
+| 111 | DB dump hash extraction (MySQL/wp_users/phpass) | OPEN | Med | RG | Med | Alpha finds db.sql leak but doesn't parse hash from mysql.user/wp_users |
+| 112 | Offline hash cracking tool (hashcat/john integration) | OPEN | High | SS | High | No offline crack capability; online spray risks lockout |
 
 ## Category Legend
 
@@ -240,6 +242,8 @@
 61. **GAP-108** — Password reset flow user enumeration (MED — reset endpoint = enum vector)
 62. **GAP-109** — Beta entry selection ignores WAF capability (MED — strike WAF-protected first)
 63. **GAP-110** — Beta credential prioritization lacks graph edges (MED — graph-based cred priority)
+64. **GAP-111** — DB dump hash extraction (MED — prerequisite for offline crack)
+65. **GAP-112** — Offline hash cracking tool (HIGH — avoids lockout, 0 target touch, but HIGH effort)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -393,6 +397,8 @@
 - GAP-108 — Password reset flow user enumeration (OPEN.)
 - GAP-109 — Beta entry selection ignores WAF capability (OPEN.)
 - GAP-110 — Beta credential prioritization lacks graph edges (OPEN.)
+- GAP-111 — DB dump hash extraction (MySQL/wp_users/phpass) (OPEN.)
+- GAP-112 — Offline hash cracking tool (hashcat/john integration) (OPEN.)
 
 ### Trust Graph & Organizational Intelligence (NEW)
 
@@ -1755,8 +1761,8 @@
 - What: `CredentialLockoutGovernor` (§12.22 D2) prevents Beta from making too many attempts per (host, username). But it does NOT detect when the TARGET has locked the account. If the target locks after 3 failed attempts and returns "Account locked due to too many failed attempts" or "Too many login attempts, try again in 15 minutes", Beta continues trying (governor allows up to its limit) — wasting attempts on a locked account. Worse: Beta may interpret the lockout page as "login form still present = failed" without understanding the account is locked, missing the opportunity to switch to a different username.
 - Evidence: `cred_lockout.py` — governor tracks attempts per (host, username) but does not parse target responses for lockout indicators. `default_creds.py:148-179` — `_has_positive_auth_signal` returns False for lockout page (no session cookie, no redirect) — but doesn't classify WHY it failed.
 - Files: `agent_alpha/tools/internal/access/cred_lockout.py` — governor (prevents, doesn't detect); `agent_alpha/tools/internal/access/default_creds.py:148-179` — no lockout response parsing
-- Cross-ref: GAP-078 (user enumeration — lockout response is also a username enumeration vector: "account locked" = valid username).
-- Impact: Beta wastes attempts on locked accounts. May trigger permanent lockout. Doesn't switch strategy (try different username, wait for unlock, report lockout as finding).
+- Cross-ref: GAP-078 (user enumeration — lockout response is also a username enumeration vector: "account locked" = valid username), GAP-111 + GAP-112 (offline hash cracking — avoids lockout entirely; when hashes are available, offline crack is preferred over online spray. GAP-100 lockout detection is the fallback for when no hashes are available and online spray is the only option).
+- Impact: Beta wastes attempts on locked accounts. May trigger permanent lockout. Doesn't switch strategy (try different username, wait for unlock, report lockout as finding). Note: offline hash cracking (GAP-112) avoids lockout entirely — when hashes are available, online spray should NOT be used. GAP-100 is the safety net for when offline crack is not possible (no hash source).
 - Effort: LOW (parse response body for "locked", "too many attempts", "try again later", "account suspended" → classify as `LOCKED_OUT`, stop attempts on that username, report as finding. ~40 lines).
 
 ---
@@ -1902,6 +1908,40 @@
 - Cross-ref: GAP-070 (credential-to-asset correlation — creates the edges this GAP consumes), GAP-072 (entry-vector ranking — related ranking concept), GAP-078 (user enumeration — pre-filtering reduces cred attempts).
 - Impact: Beta wastes attempts on wrong credential/asset pairs. 10 credentials × 3 surfaces = 30 attempts, when graph edges would reduce to 3 targeted attempts. Lockout risk + WAF trigger + time waste.
 - Effort: MED (read `CREDENTIAL → ENABLES → ASSET` edges from graph, sort credential attempts by edge existence (edge = high priority, no edge = low priority). ~60 lines. Depends on GAP-070).
+
+---
+
+
+# Offline Credential Recovery (NEW)
+
+## GAP-111 — DB dump hash extraction (MySQL/wp_users/phpass)
+- Status: OPEN.
+- Priority: MEDIUM — prerequisite for offline hash cracking (GAP-112). Without hash extraction, offline crack is impossible.
+- Category: RG
+- Stack: Universal (MySQL, WordPress, Laravel, custom)
+- What: When Alpha discovers a database dump leak (`db.sql`, `dump.sql`, `backup.sql` — GAP-087), it does NOT parse the dump to extract password hashes. A MySQL dump contains `CREATE TABLE` + `INSERT INTO` statements with hashed passwords: `mysql.user` table has `authentication_string` (SHA1-based), WordPress `wp_users` table has `user_pass` (phpass MD5-based), Laravel `users` table has `password` (bcrypt). These hashes are the input for offline cracking (GAP-112). Without extracting them, offline crack cannot fire. Alpha currently treats `db.sql` as a generic leak file (proof artifact) but does not parse its contents for credential hashes.
+- Evidence: `recon/path_probe.py` — probes `db.sql` path but only records existence + proof artifact. No SQL dump parser. `grep "mysql.user|wp_users|phpass|authentication_string|password.*hash" ` in `agent_alpha/` = 0 results. No hash extraction module.
+- Files: `agent_alpha/recon/path_probe.py` — records leak existence, no content parse; `agent_alpha/graph/nodes.py:78-83` — CredentialProperties (no `hash_type`, `hash_value` fields); no SQL dump parser module
+- Cross-ref: GAP-087 (backup file patterns — `db.sql` is the source), GAP-112 (offline hash cracking — consumer of extracted hashes), GAP-070 (credential-to-asset correlation — hashes need asset edges), GAP-054 (WP REST users — usernames pair with hashes from wp_users table).
+- Impact: Without hash extraction, offline crack (GAP-112) cannot fire. Alpha finds `db.sql` but doesn't know it contains password hashes. The entire offline-crack chain is broken at the extraction step.
+- Effort: MED (SQL dump parser: regex/SQL parser for `INSERT INTO mysql.user`, `INSERT INTO wp_users`, `INSERT INTO users` → extract (username, hash, hash_type) tuples. New `hash_type` + `hash_value` fields in CredentialProperties. ~150 lines. Must handle multiple SQL dialects — mysqldump, pg_dump, raw SQL).
+- Constraint: Hash extraction is RECON tier (passive — reading a leaked file, not touching target). Offline crack (GAP-112) is OFFENSIVE tier (active — running hashcat). Extraction and cracking are separate phases with separate auth gates.
+
+---
+
+## GAP-112 — Offline hash cracking tool (hashcat/john integration)
+- Status: OPEN.
+- Priority: HIGH — offline crack avoids lockout entirely; 0 target requests. But HIGH effort (infra + tool integration).
+- Category: SS
+- Stack: Universal
+- What: Agent-Alpha has no offline hash cracking capability. When hashes are extracted (GAP-111), they should be cracked offline using hashcat or John the Ripper — no target interaction, no lockout risk, no WAF trigger. Offline crack is the safest credential recovery method: 0 requests to target, unlimited attempts, no rate limit. A real external red team always cracks offline when hashes are available. Online cred-spray (current Beta) is the LAST resort, not the first — because online spray risks lockout (GAP-100), triggers WAF (GAP-073), and is rate-limited. Offline crack has none of these constraints.
+- Evidence: `grep "hashcat|john.*ripper|hash.*crack|offline.*crack" ` in `agent_alpha/` = 0 results. No hash cracking module. No hashcat/john subprocess call. Per §8g, nmap/hashcat/john are operator-side tools, NOT Agent-Alpha dependencies — but Agent-Alpha should integrate with them via subprocess or API, not reimplement.
+- Files: No hash cracking module. `agent_alpha/tools/internal/access/` — all tools are online (HTTP/TCP). No offline tool.
+- Cross-ref: GAP-111 (hash extraction — prerequisite: must have hashes to crack), GAP-100 (lockout detection — offline crack avoids lockout entirely, making GAP-100 less critical when hashes available), GAP-104 (breach creds — complementary: breach data has plaintext, offline crack produces plaintext from hashes), GAP-087 (backup files — source of DB dumps), §8g (operator-side tools — hashcat/john available on Oracle lab, not Agent-Alpha dependency).
+- Impact: Without offline crack, Beta must online-spray even when hashes are available. Online spray risks lockout, triggers WAF, rate-limited. Offline crack = unlimited attempts, 0 target touch, no lockout. Misses the safest credential recovery path.
+- Effort: HIGH (hashcat/john subprocess integration + hash type detection (phpass, bcrypt, SHA1, MD5, argon2) + wordlist management + result parsing. ~300 lines + hashcat installed on Oracle (already per §8g). Must be OFFENSIVE_APPROVED tier — running hashcat is active processing, though 0 target touch. Or: RECON_ONLY tier since 0 target interaction — tier decision needed).
+- Constraint: hashcat/john run on Oracle lab (§8g — already installed). NOT a new Agent-Alpha dependency. Wordlist: use existing rockyou.txt + generated wordlist from user_derived patterns. No GPU required for phpass/bcrypt/SHA1 — CPU crack sufficient for these hash types. GPU only needed for fast hashes (MD5) with large wordlists — defer GPU cracking.
+- Tier question: Is offline hash cracking RECON_ONLY (0 target touch) or OFFENSIVE_APPROVED (active processing of harvested data)? ADR §12.26 says "DETECT=recon / ACT=Gamma" — but cracking a hash is neither detect nor act against target. Recommend: RECON_ONLY+ (passive processing, no target touch, but requires harvested hash from leak). Conductor decision needed.
 
 ---
 
