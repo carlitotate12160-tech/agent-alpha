@@ -294,11 +294,22 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
 #### Tier 3 — Field-prove (real authorized target)
 
 - **What:** Run the full Conductor autonomous path against a REAL authorized
-  target with real WAF/CF/infrastructure. Does the fix work when the target
-  is not a controlled lab?
-- **Where:** Authorized targets in `lab_guard.py` (client-approved + DNS-TXT
-  verified).
-- **Authorized real targets (as of 2026-08-12):**
+  target that is NOT a controlled lab. T3 has three sub-tiers:
+
+  - **T3-real:** real WAF/CF/infrastructure (client-approved or self-owned).
+    This is the authoritative field-prove for all WAF/CF and cred-reuse work.
+  - **T3-lite:** public internet test platforms with no WAF/CF. Used ONLY for
+    GAP-001 new-stack playbook validation (ASP.NET, JSP, SPA, etc.).
+  - **T3-origin:** multi-IP lab targets (Vercel edge, direct origin). Used ONLY
+    for origin-discovery / multi-IP field-prove (GAP-018, GAP-038, GAP-042).
+
+- **Where:** Authorized targets in `lab_guard.py`:
+  `client-approved + DNS-TXT verified` (T3-real),
+  `public-test:` platform (T3-lite), or
+  `dns-txt lab-proof` self-owned multi-IP (T3-origin).
+- **Authorized real targets (as of 2026-08-13):
+
+##### T3-real (real WAF/CF, client-approved or self-owned)
 
 | Target | Stack | Auth | Use for |
 |--------|-------|------|---------|
@@ -311,9 +322,34 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
 | `alpha-ai.web.id` | Odoo (self-owned) | dns-txt lab-proof | Odoo cred-reuse chain |
 | `spectranet.com.ng` | WP + Apache (Nigeria ISP) | **PENDING** — client-approved but DNS-TXT not yet set | WP gaps (Africa variant) — NOT ACTIVE until DNS-TXT verified |
 
-- **How:** Run the Conductor runner script (e.g. `run_solusibersama_conductor.py`,
-  `run_quantum_conductor.py`) on Oracle ARM64.
-- **Speed:** 5-15 minutes. Real HTTP, real LLM, real WAF responses.
+##### T3-lite (real internet, no WAF/CF) — for new-stack playbook testing
+
+| Target | Stack | Auth | Use for |
+|--------|-------|------|---------|
+| `demo.testfire.net` | JSP/Tomcat | public-test (IBM Alfresco demo) | GAP-001 JSP playbook |
+| `testaspnet.vulnweb.com` | ASP.NET/IIS | public-test (Acunetix) | GAP-001 ASP.NET playbook |
+| `testasp.vulnweb.com` | Classic ASP | public-test (Acunetix) | GAP-001 Classic ASP playbook |
+| `testphp.vulnweb.com` | PHP | public-test (Acunetix) | GAP-001 PHP playbook |
+| `juice-shop.herokuapp.com` | SPA/Angular | public-test (OWASP) | GAP-001 SPA playbook |
+| `google-gruyere.appspot.com` | Python/App Engine | public-test (Google) | GAP-001 Python stack |
+
+##### T3-origin (multi-IP / origin discovery lab)
+
+| Target | Stack | Auth | Use for |
+|--------|-------|------|---------|
+| `direct.alpha-ai.web.id` | direct origin (Oracle) | dns-txt lab-proof | origin-direct reach |
+| `vercel-lab.alpha-ai.web.id` | Vercel edge (static) | dns-txt lab-proof | GAP-018/038/042 multi-IP origin discovery |
+
+- **How:**
+  - **T3-real:** run the Conductor runner script (e.g. `run_solusibersama_conductor.py`,
+    `run_quantum_conductor.py`) on Oracle ARM64.
+  - **T3-lite/T3-origin:** run targeted handler probes against the public or
+    multi-IP target to validate the specific GAP fix. These are NOT full
+    Conductor runs and do NOT prove WAF/CF evasion.
+- **Speed:**
+  - T3-real: 5-15 minutes. Real HTTP, real LLM, real WAF responses.
+  - T3-lite: 1-2 minutes. Real HTTP, no LLM, no WAF.
+  - T3-origin: 1-2 minutes. Real DNS + HTTP, no WAF.
 - **Pass criteria:**
   1. Fix produces expected finding on real target (not just lab).
   2. No new bugs introduced (check for cycling, junk crawl, false positives).

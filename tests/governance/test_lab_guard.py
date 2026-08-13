@@ -172,3 +172,11 @@ class TestPublicTestTargets:
             "google-gruyere.appspot.com",
         ]:
             assert_lab_only_target(f"https://{host}/")
+
+
+def test_vercel_lab_is_owned_and_passes_gate() -> None:
+    """vercel-lab.alpha-ai.web.id is a Vercel-hosted multi-IP origin lab.
+    It must be in the allowlist and pass the fail-closed gate.
+    """
+    assert "vercel-lab.alpha-ai.web.id" in LAB_TARGET_ALLOWLIST
+    assert_lab_only_target("https://vercel-lab.alpha-ai.web.id/")

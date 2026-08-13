@@ -175,6 +175,17 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
         "#364",
     ),
+    # Vercel edge lab — same alpha-ai.web.id proof, but hosted on Vercel edge
+    # (IP 216.198.79.65 / 64.29.17.65) which differs from Oracle (168.110.192.62).
+    # Used for multi-origin / origin-discovery field-prove (GAP-018, GAP-038, GAP-042).
+    # TLS is managed by Vercel via ACME; the DNS-TXT proof is on the alpha-ai.web.id
+    # apex and inherited for all subdomains.
+    LabHost(
+        "vercel-lab.alpha-ai.web.id",
+        "natanael",
+        "dns-txt:agentalpha-lab-proof=bc90b41d578cbf3c66512495d2e9aaaa",
+        "#399",
+    ),
     # Cloudflare quick tunnel — ephemeral, expires. Changes per tunnel start.
     LabHost(
         "responding-yards-adaptation-floors.trycloudflare.com",
