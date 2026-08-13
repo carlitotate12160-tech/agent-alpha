@@ -171,7 +171,7 @@
 | 130 | OAuth app enumeration (trust boundary mapping) | OPEN | Med | RM | Med | Target's OAuth apps (Slack/Google/GitHub) = trust boundary; APT29 Nobelium pattern |
 | 131 | Refresh token abuse (OAuth session persistence) | OPEN | Med | SS | Low | No refresh token handling; expired OAuth session = dead; APT uses refresh to persist |
 | 132 | Mobile app attack surface (APK/IPA decompile) | OPEN | High | RM | High | SEA = mobile-first; APK = hardcoded origin IP, API keys, Firebase; bypass CF |
-| 133 | Business logic flaws (price/qty/IDOR/coupon race) | OPEN | High | SS | High | Scanner cannot find this = MOAT; client pays for "how much can we lose" |
+| 133 | Business logic RISK detection (DETECTION only, NOT exploitation) | OPEN | High | RM | Med | Flag cart price/qty params, IDOR candidate, role param, coupon race; EXPLOITATION = §12.51 Gamma DEFERRED Phase 5/6; this = Phase 4 surface risk for Gamma |
 | 134 | API enumeration beyond login (REST endpoint discovery) | OPEN | High | RM | Med | GAP-097 = login only; /api/v1/users, /api/internal/*, Swagger as discovery target |
 | 135 | GraphQL introspection + field suggestion | OPEN | Med | RM | Med | /graphql in soft-404 suppression list = SUPPRESSED not probed; __schema = full API map |
 | 136 | SSRF + cloud metadata (IMDS) exposure | OPEN | Med | SS | Med | Image proxy / URL fetch → 169.254.169.254 = AWS IAM creds; #1 cloud vector |
@@ -358,7 +358,7 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 #### A. Genuinely missing — must be built for APT parity
 
 94. **GAP-132** — Mobile app attack surface (HIGH — SEA = mobile-first; APK/IPA decompile via apktool/jadx reveals hardcoded origin IPs, API keys, Firebase config, OAuth client secrets; bypasses CF entirely; Play Store/App Store = public, 5-min reverse)
-95. **GAP-133** — Business logic flaws (HIGH — price manipulation, negative quantity, coupon race, IDOR on order_id, parameter tampering role=admin; scanner CANNOT find this = MOAT; client pays for "how much can we lose")
+95. **GAP-133** — Business logic RISK detection (Phase 4 recon — DETECTION only, NOT exploitation; HIGH — flag cart endpoint accepts price/qty params, sequential order IDs = IDOR candidate, role parameter in POST = priv-esc candidate, coupon endpoint = race candidate; scanner CANNOT find this = MOAT; EXPLOITATION = §12.51 Gamma ExploitSynthesizer, DEFERRED to Phase 5/6 per doctrine line 2521; this GAP = surface risk for Gamma, does NOT change state)
 96. **GAP-134** — API enumeration beyond login (HIGH — /api/v1/users, /api/v1/admin, /api/internal/*; GAP-097 = login only, not endpoint enumeration; Swagger/OpenAPI spec as discovery target, not soft-404 suppression)
 97. **GAP-135** — GraphQL introspection + field suggestion (MED-HIGH — /graphql with introspection = full schema dump; currently /graphql is in soft-404 suppression list = SUPPRESSED not probed; __schema/__type queries)
 98. **GAP-136** — SSRF + cloud metadata (IMDS) exposure (MED-HIGH — image proxy / URL fetch / PDF generator → 169.254.169.254 = AWS IAM creds; #1 cloud attack vector; not in any existing GAP)
