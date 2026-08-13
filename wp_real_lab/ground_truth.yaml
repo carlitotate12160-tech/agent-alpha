@@ -1,0 +1,46 @@
+# WP Real-World Lab — ground truth for wp.alpha-ai.web.id
+# Scored against the autonomous Conductor path (not a runner script).
+#
+# This is a REAL-WORLD lab: Cloudflare-proxied, real TLS, real WAF.
+# The chain must survive real CF managed challenge / rate rules.
+# If CF blocks the leak path → chain FAILS at the WAF layer = honest result
+# (not a code bug, an infra ceiling — same doctrine as bernofarm apex).
+
+host: wp.alpha-ai.web.id
+stack: wordpress
+waf: cloudflare
+dns: proxied (orange cloud)
+tls: cf_origin_cert
+
+chain:
+  leak_vector:
+    path: /wp-config.php.bak
+    type: backup_file_exposure
+    creds_leaked:
+      - DB_USER
+      - DB_PASSWORD
+    expected_status: 200 (if CF allows) or 403/503 (if CF managed challenge blocks)
+
+  access_vector:
+    type: wp_login
+    cred_reuse: DB_PASSWORD == WP admin password (seeded via wp-cli)
+    expected_result: wp-admin access (cookie + redirect to /wp-admin/)
+
+  proven_via: autonomous Conductor path (conductor/main.py → Alpha → Beta)
+  proof_standard: SELF_VERIFIED → CROSS_VERIFIED (§12.43)
+
+true_negative:
+  description: >
+    If CF managed challenge blocks /wp-config.php.bak, the chain cannot
+    complete via front-door. This is an INFRA ceiling (§12.44), NOT a code
+    bug. The agent should attempt origin-direct reach (§12.33) to bypass
+    CF and hit the origin directly. If origin-direct also fails (origin
+    hidden), the engagement reports "WAF-blocked, origin unreachable" —
+    an honest negative, not a false success (anti-#3).
+
+expected_events:
+  - ASSET_DISCOVERED (wp.alpha-ai.web.id)
+  - PROTECTION_DETECTED (cloudflare, via response headers)
+  - LEAK_DETECTED (wp-config.php.bak, if reachable)
+  - CREDENTIAL_HARVESTED (DB_USER + DB_PASSWORD)
+  - ACCESS_PROVEN (wp-admin login, if cred-reuse succeeds)

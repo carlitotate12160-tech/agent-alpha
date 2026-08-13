@@ -10,4 +10,12 @@ secret:
     - "tests/phase_4/test_wp_recon.py"
     - "recon_lab/exposed/late/.env.bak"
     - "recon_lab/exposed/decoy/.env.bak"
+    # Real-world alpha-ai.web.id lab stacks — hardcoded non-secrets for
+    # intentionally vulnerable or intentionally hardened target fixtures.
+    - "laravel_real_lab/.env.example"
+    - "laravel_real_lab/seed.sh"
+    - "odoo_hardened_lab/docker-compose.yml"
+    - "odoo_hardened_lab/odoo.conf"
+    - "wp_real_lab/.env.example"
+    - "wp_real_lab/seed.sh"
 

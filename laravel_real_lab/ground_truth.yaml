@@ -1,0 +1,46 @@
+# Laravel Real-World Lab — ground truth for laravel.alpha-ai.web.id
+# Scored against the autonomous Conductor path.
+#
+# Chain: APP_DEBUG=true → Whoops debug page leaks DB creds → cred-reuse.
+# Real Laravel (not mock) — the Whoops page format must match what
+# agent_alpha/security/laravel_env.py expects.
+
+host: laravel.alpha-ai.web.id
+stack: laravel
+waf: cloudflare
+dns: proxied (orange cloud)
+tls: cf_origin_cert
+
+chain:
+  leak_vector:
+    path: /trigger-error (or any route that throws an exception)
+    type: laravel_debug_exposure
+    creds_leaked:
+      - DB_USERNAME
+      - DB_PASSWORD
+      - APP_KEY
+      - REDIS_PASSWORD (if set)
+    expected_status: 500 (Whoops debug page, HTML with env table)
+    parser: agent_alpha/security/laravel_env.py (iter_env_leaks)
+
+  access_vector:
+    type: db_access_or_cross_service_cred_reuse
+    cred_reuse: DB_PASSWORD may be reused on WP (wp.alpha-ai.web.id) or Odoo
+    expected_result: DB access or cross-service login
+
+  proven_via: autonomous Conductor path
+  proof_standard: SELF_VERIFIED → CROSS_VERIFIED (§12.43)
+
+true_negative:
+  description: >
+    If CF blocks /trigger-error (managed challenge), the leak page is
+    unreachable via front-door. Agent should attempt origin-direct.
+    If APP_DEBUG=false (hardened), the 500 page returns generic error
+    (no env table) → parser mints 0 creds = honest negative (anti-#3).
+
+expected_events:
+  - ASSET_DISCOVERED (laravel.alpha-ai.web.id)
+  - PROTECTION_DETECTED (cloudflare)
+  - LEAK_DETECTED (Whoops debug page, if reachable)
+  - CREDENTIAL_HARVESTED (DB_USERNAME + DB_PASSWORD, via laravel_env.py)
+  - ACCESS_PROVEN (DB or cross-service login, if cred-reuse succeeds)

@@ -1,0 +1,35 @@
+# Odoo Hardened Lab — TRUE-NEGATIVE for odoo.alpha-ai.web.id
+# list_db=False, unique admin password, no leak vector.
+services:
+  odoo:
+    image: odoo:17.0
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+      - odoo_hardened_data:/var/lib/odoo
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes:
+      - odoo_hardened_db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "odoo"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  odoo_hardened_data:
+  odoo_hardened_db:
