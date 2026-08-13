@@ -158,6 +158,12 @@
 | 117 | Credential pattern mutation implementation (§12.34) | OPEN | Med | SS | Med | ADR LOCKED but CredentialPatternMutator NOT BUILT; cred_reuse literal only |
 | 118 | Proof standard oracle — auth-vs-unauth diff (§12.43) | OPEN | High | RG | Med | CredReuseAttestor is provenance check, NOT independent oracle per §12.43 |
 | 119 | Credential-result semantics — negative outcome classification (§12.45) | OPEN | Med | RG | Low | Beta reports FAILED without methodology caveat per §12.45 |
+| 120 | IPv6 attack surface recon (forgotten hardening) | OPEN | Med | RG | Low | Many targets forget to harden IPv6 stack; Alpha is IPv4-only implicit |
+| 121 | DNSSEC zone walking (NSEC record enumeration) | OPEN | Low | RG | Low | NSEC records leak subdomains without brute force; passive, 0 target touch |
+| 122 | SMTP bounce-back analysis (internal infra leak) | OPEN | Low | RG | Low | SMTP 550 error messages leak Exchange version, internal routing, mail config |
+| 123 | Certificate Transparency delay analysis (post-CF origin leak) | OPEN | Med | RG | Med | Certs issued 2 days after apex CF fronting often leak origin IP in SAN history |
+| 124 | Job posting / tech stack mining (infrastructure inference) | OPEN | Low | RG | Low | Job descriptions reveal stack (nginx, Kafka, Kubernetes) = attack surface intel |
+| 125 | Deception detection (honeypot / canary token / sinkhole) | OPEN | Low | RG | Med | APT detects honeypot before touching; Alpha has no deception awareness |
 
 ## Category Legend
 
@@ -275,6 +281,15 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 79. **GAP-117** — Credential pattern mutation (MED — §12.34 LOCKED, CredentialPatternMutator NOT BUILT, cred_reuse literal only)
 80. **GAP-118** — Proof standard oracle — auth-vs-unauth diff (HIGH — §12.43, CredReuseAttestor is provenance not oracle, findings NOT payable per §12.43)
 81. **GAP-119** — Credential-result semantics — negative outcome (MED — §12.45, Beta reports FAILED without methodology caveat, false assurance risk)
+
+### APT Emulation Gaps (NEW — from APT architect assessment 2026-08-13)
+
+82. **GAP-120** — IPv6 attack surface recon (MED — forgotten IPv6 hardening, AAAA record bypass CF)
+83. **GAP-121** — DNSSEC zone walking (LOW — passive NSEC subdomain enum, DNSSEC-only zones)
+84. **GAP-122** — SMTP bounce-back analysis (LOW — 550 error leaks Exchange version, internal infra)
+85. **GAP-123** — Certificate Transparency delay analysis (MED — pre-CF certs leak origin IP in SAN)
+86. **GAP-124** — Job posting / tech stack mining (LOW — passive OSINT, low value for SEA market)
+87. **GAP-125** — Deception detection (LOW-MED — honeypot/canary/sinkhole awareness, APT-grade)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -437,6 +452,12 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - GAP-117 — Credential pattern mutation implementation (§12.34 ADR LOCKED, code NOT BUILT) (OPEN.)
 - GAP-118 — Proof standard oracle — auth-vs-unauth diff (§12.43) (OPEN.)
 - GAP-119 — Credential-result semantics — negative outcome classification (§12.45) (OPEN.)
+- GAP-120 — IPv6 attack surface recon (forgotten hardening) (OPEN.)
+- GAP-121 — DNSSEC zone walking (NSEC record enumeration) (OPEN.)
+- GAP-122 — SMTP bounce-back analysis (internal infra leak) (OPEN.)
+- GAP-123 — Certificate Transparency delay analysis (post-CF origin leak) (OPEN.)
+- GAP-124 — Job posting / tech stack mining (infrastructure inference) (OPEN.)
+- GAP-125 — Deception detection (honeypot / canary token / sinkhole) (OPEN.)
 
 ### Trust Graph & Organizational Intelligence (NEW)
 
@@ -2153,6 +2174,96 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - Impact: Without methodology caveat, Omega report could phrase a negative as "password is safe" — false assurance. If a real attacker later cracks it, the report was falsely reassuring. §12.45 explicitly forbids this: "Omega is FORBIDDEN from emitting 'safe/secure/strong/not predictable' from a negative credential result." But Beta doesn't provide the methodology context that Omega needs to comply.
 - Effort: LOW (add methodology metadata to Beta's FAILED return: what was tested (cred_reuse, default_creds, user_derived), what was NOT tested (offline crack, breach data, large wordlist), attempt count, lockout status. ~40 lines. Omega consumes this metadata to generate the methodology caveat in the report.)
 - Constraint: No code change to Omega yet (§12.45 is PROPOSED, not LOCKED). Beta should emit the methodology metadata NOW so when §12.45 locks, Omega can consume it. The metadata is: `{"tested": ["cred_reuse", "default_creds", "user_derived"], "not_tested": ["offline_crack", "breach_data", "large_wordlist"], "attempts": N, "lockout_governor_limit": M}`.
+
+---
+
+
+# APT Emulation Gaps (NEW — from APT architect assessment 2026-08-13)
+
+## GAP-120 — IPv6 attack surface recon (forgotten hardening)
+- Status: OPEN.
+- Priority: MEDIUM — many targets forget to harden IPv6 stack; Alpha is IPv4-only (implicit).
+- Category: RG
+- Stack: Universal
+- What: Alpha's HTTP client and origin discovery implicitly assume IPv4. Many targets have AAAA records and IPv6 infrastructure that is less hardened than IPv4 (WAF rules often IPv4-only, origin firewall often IPv4-only, rate limiting often IPv4-only). APT operators check IPv6 as a flank: if target has AAAA record, the IPv6 stack may bypass Cloudflare (CF proxies IPv4 by default, AAAA may point direct to origin). Alpha does not query AAAA records, does not probe IPv6 endpoints, does not check if WAF rules cover IPv6.
+- Evidence: `grep "AAAA|ipv6|AF_INET6" ` in `agent_alpha/` = 0 results for IPv6 handling. `origin_resolver.py` — A-record only, no AAAA. `http_client.py` — no IPv6 option.
+- Files: `agent_alpha/recon/origin_resolver.py` — A-record only; `agent_alpha/agents/http_client.py` — no IPv6; `agent_alpha/recon/passive_discovery.py` — no AAAA query
+- Cross-ref: GAP-062 (TLS/MX/SPF — AAAA should be queried alongside A), GAP-115 (historical DNS — historical AAAA may reveal origin), ADR §12.61 A4 (grey-cloud subdomains — IPv6 may be DNS-only/grey-cloud).
+- Impact: Missed flank vector. Target behind CF on IPv4 but origin exposed on IPv6. WAF rules IPv4-only = IPv6 bypass. Common in SEA (many hosting providers default-enable IPv6 but admins forget to harden).
+- Effort: LOW (query AAAA record alongside A, probe IPv6 endpoint if AAAA exists, check if WAF/CF covers IPv6. ~40 lines. dnspython supports AAAA natively.)
+
+---
+
+## GAP-121 — DNSSEC zone walking (NSEC record enumeration)
+- Status: OPEN.
+- Priority: LOW — passive, 0 target touch, but only works on DNSSEC-signed zones.
+- Category: RG
+- Stack: Universal
+- What: DNSSEC-signed zones use NSEC records to prove non-existence of a name. These NSEC records contain the next valid hostname in the zone — walking the NSEC chain enumerates ALL subdomains without brute force. This is passive (DNS query only, 0 target touch) and cannot be rate-limited by the target (DNS server responds to standard queries). Alpha currently uses brute-force subdomain enumeration (wordlist + crt.sh). NSEC walking is more comprehensive and stealthier.
+- Evidence: `grep "NSEC|DNSSEC|zone.*walk" ` in `agent_alpha/` = 0 results. Subdomain enumeration uses wordlist + crt.sh/VT, not NSEC walking.
+- Files: `agent_alpha/recon/passive_discovery.py` — no NSEC walking; `agent_alpha/recon/subdomain_enum.py` — wordlist-based
+- Cross-ref: GAP-094 (DNS AXFR — related DNS enumeration, but AXFR is active and often blocked; NSEC walking is passive and works on DNSSEC zones), GAP-075 (subdomain takeover — NSEC walking discovers more subdomains to check).
+- Impact: Missed passive subdomain enumeration vector. NSEC walking finds subdomains that wordlist misses (internal hostnames, random subdomains). Only works on DNSSEC-signed zones (~10% of domains), but when it works, it's comprehensive and stealthy.
+- Effort: LOW (NSEC walking: query DNSSEC records, parse NSEC chain, extract subdomains. ~80 lines. dnspython supports DNSSEC. Must check if zone is DNSSEC-signed first — if not, skip.)
+
+---
+
+## GAP-122 — SMTP bounce-back analysis (internal infra leak)
+- Status: OPEN.
+- Priority: LOW — passive (send email, analyze bounce), but requires email interaction.
+- Category: RG
+- Stack: Universal (Exchange, Postfix, Sendmail, custom SMTP)
+- What: SMTP bounce-back messages (550 errors) often leak internal infrastructure details: Exchange version (`Microsoft ESMTP MAIL Service ready at...`), internal routing headers (`Received: from internal-mail.corp.local`), internal hostnames, mail server software/version, internal IP addresses in headers. APT operators send emails to non-existent addresses (`aaaaaaa@target.com`) and analyze the bounce response for internal infra intelligence. Alpha does not send emails or analyze bounce responses.
+- Evidence: `grep "SMTP|smtp|bounce|550|EHLO" ` in `agent_alpha/` = 0 results for bounce analysis. No SMTP client module for recon.
+- Files: No SMTP recon module. `agent_alpha/recon/` — no smtp_probe.py
+- Cross-ref: GAP-082 (SMTP enumeration — related but different: GAP-082 is about user enum via SMTP VRFY/EXPN, this is about infra leak via bounce analysis), GAP-062 (MX/SPF — prerequisite: must know MX records to know where to send).
+- Impact: Missed internal infra intelligence. Bounce messages reveal Exchange version (CVE matching), internal hostnames (origin discovery), internal IP ranges (network mapping). Passive — 1 email, no active probe.
+- Effort: LOW (send email to non-existent address, parse bounce response for version/host/IP leaks. ~60 lines. smtplib standard library. Must use engagement-controlled email sender, not target's domain.)
+- Constraint: RECON_ONLY (send 1 email, analyze response). Must NOT spam (1 bounce per target). Must use engagement-controlled sender address. Bounce analysis is passive intelligence, not active exploitation.
+
+---
+
+## GAP-123 — Certificate Transparency delay analysis (post-CF origin leak)
+- Status: OPEN.
+- Priority: MEDIUM — complement to GAP-093 (cert SAN) and GAP-115 (historical DNS).
+- Category: RG
+- Stack: Universal
+- What: GAP-093 extracts SAN from current certificates. But Certificate Transparency logs contain HISTORICAL certificates — certs issued BEFORE the target fronted Cloudflare. These pre-CF certs often contain the origin IP or internal hostname in SAN. The timing is key: if a cert was issued 2 days before the apex moved behind CF, the SAN from that cert likely contains the origin IP (the cert was issued for the origin, not the CF edge). Alpha's crt.sh query (in origin_resolver) fetches current certs but does not analyze the TIMING of cert issuance relative to CF fronting.
+- Evidence: `origin_resolver.py` — queries crt.sh for SAN extraction but does not analyze cert issuance date vs CF fronting date. No temporal analysis of CT logs. `grep "not_before|not_after|cert.*date|issuance.*date" ` in `agent_alpha/` = 0 results for temporal cert analysis.
+- Files: `agent_alpha/recon/origin_resolver.py` — crt.sh query (no temporal analysis); no CT log temporal analysis module
+- Cross-ref: GAP-093 (cert SAN extraction — this GAP adds temporal dimension), GAP-115 (historical DNS — complementary: historical DNS + historical cert = origin discovery pre-CF), ADR §12.61 A3 (cert pivot — temporal analysis enhances cert pivot).
+- Impact: Missed origin discovery vector. Pre-CF certs in CT logs may contain origin IP in SAN. Without temporal analysis, Alpha sees the SAN but doesn't know which cert is pre-CF (origin-bearing) vs post-CF (CF-edge-bearing). Timing is the differentiator.
+- Effort: MED (query CT logs, parse cert issuance dates, compare with CF fronting date (from historical DNS GAP-115), flag pre-CF certs for SAN origin extraction. ~100 lines. crt.sh API returns cert issuance dates. Must compose with GAP-115 for CF fronting date.)
+
+---
+
+## GAP-124 — Job posting / tech stack mining (infrastructure inference)
+- Status: OPEN.
+- Priority: LOW — passive OSINT, but low value for SEA market (job postings rarely reveal infra detail).
+- Category: RG
+- Stack: Universal
+- What: Job postings often reveal technology stack: "Looking for DevOps engineer with experience in Kubernetes, Kafka, Redis, PostgreSQL" = target uses K8s + Kafka + Redis + Postgres. "Looking for WordPress developer" = target uses WP. Senior-level postings reveal more: "Experience with Cloudflare Workers, AWS S3, Lambda" = target uses CF Workers + AWS. APT operators mine job postings to build a tech stack profile before touching the target. Alpha does not mine job postings.
+- Evidence: `grep "job.*posting|job.*board|linkedin.*job|glassdoor|tech.*stack.*mining" ` in `agent_alpha/` = 0 results. No job posting OSINT module.
+- Files: No job posting OSINT module. `agent_alpha/recon/` — no job_probe.py
+- Cross-ref: GAP-069 (Trust Graph — job postings reveal org structure: who's hiring, what team), GAP-091 (GitHub/GitLab — related OSINT, but code-focused not hiring-focused), GAP-095 (social media — related org intel).
+- Impact: Low for SEA market. Indonesian job postings (JobStreet, Kalibrr) rarely reveal specific infra detail. Higher value for enterprise/US targets. Passive, 0 target touch.
+- Effort: LOW (scrape job postings from LinkedIn/JobStreet for target company, extract tech keywords, mint ASSET tech_stack hints. ~80 lines. LinkedIn API or scraping. Legal: public job postings are public data.)
+- Constraint: RECON_ONLY. Public job postings only. No personal data collection (no candidate profiles, no recruiter names). Company-level tech stack inference only.
+
+---
+
+## GAP-125 — Deception detection (honeypot / canary token / sinkhole)
+- Status: OPEN.
+- Priority: LOW-MEDIUM — APT detects deception before touching; Alpha has no deception awareness.
+- Category: RG
+- Stack: Universal
+- What: Advanced targets deploy deception: honeypots (fake services that alert on touch), canary tokens (fake .env files, fake API keys that alert when accessed), sinkholes (DNS that redirects to analyst sandbox). APT operators test for deception before interacting: check if a discovered .env file is too convenient (canary), check if an open port behaves like a real service or a honeypot, check if a discovered subdomain resolves to a known sandbox IP range. Alpha has no deception awareness — it treats all discovered surfaces as real and touches them, potentially alerting the target's SOC.
+- Evidence: `grep "honeypot|canary|deception|sinkhole|tripwire" ` in `agent_alpha/` = 0 results. No deception detection module. Alpha treats all findings as real.
+- Files: No deception detection module. `agent_alpha/recon/` — no deception_check.py
+- Cross-ref: GAP-028 (origin-direct response validation — related: validate that origin is real, not sandbox), ADR §12.58 (strategic situation reasoning — deception detection is part of adversarial reasoning), ADR §12.59 (hybrid cognition — LLM advisor may help with deception detection).
+- Impact: Alpha may touch honeypots/canaries and alert target SOC. In a real APT emulation, this burns the engagement. For SaaS red team (engagement is announced), this is less critical — but for "stealth assessment" engagements, deception detection is valuable.
+- Effort: MED (canary token detection: check if .env file contains canary patterns (Canarytokens.org patterns, Thinkst patterns). Honeypot detection: check if open port behaves like real service (banner analysis, protocol fingerprinting). Sinkhole detection: check if resolved IP is in known sandbox/analyst IP ranges. ~150 lines. Needs canary pattern database + sandbox IP range list.)
+- Constraint: RECON_ONLY (detection, not avoidance — Alpha should REPORT deception detected, not silently avoid it. The engagement report should include "deception infrastructure detected: honeypot on port X, canary token in .env file" as a finding.)
 
 ---
 
