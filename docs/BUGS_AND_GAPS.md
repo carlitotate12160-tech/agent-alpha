@@ -107,6 +107,18 @@
 | 066 | Odoo database name from URL not captured | OPEN | P2 | DD | Low | `/web?db=erp` fetched, "erp" not in graph |
 | 067 | OdooAccessTool only XML-RPC, no JSON-RPC fallback | OPEN | P1 | TM | Med | CF blocks XML-RPC → no fallback → Beta fails |
 | 068 | ~~Odoo default creds not in dict~~ | RETRACTED | — | — | — | OdooAccessTool has own candidates. No fix needed |
+| 069 | Trust Graph — organizational intelligence nodes missing | OPEN | High | RG | High | Beta gets technical graph only, no people/vendor/trust context |
+| 070 | Credential-to-Asset correlation missing | OPEN | High | RG | Med | Breach credentials not mapped to discovered assets via graph edges |
+| 071 | Recon freshness / liveness check missing | OPEN | Med | RG | Med | Beta uses stale recon data; no temporal validation policy |
+| 072 | Entry-vector ranking + strategic approach not in graph | OPEN | Med | RG | Med | Beta gets raw nodes, no ranked entry vectors or approach recommendation |
+| 073 | WAF/CDN capability fingerprinting (beyond vendor hint) | OPEN | High | RM | Med | Alpha knows vendor but not rule set, bot management mode, rate limit threshold |
+| 074 | Authentication mechanism fingerprinting (form/JWT/SAML/OAuth) | OPEN | High | RM | Med | Auth-surface label is binary; Beta can't attack what it doesn't understand mechanistically |
+| 075 | Subdomain takeover check (dangling DNS CNAME) | OPEN | Med | SS | Low | Classic external finding; dangling CNAME to deleted service not checked |
+| 076 | Cloud storage / shadow-IT discovery (S3/GCP/Azure) | OPEN | Med | SS | Med | S3 buckets, GCP storage associated with target domain not discovered |
+| 077 | Authentication bypass testing (SQLi/NoSQLi/LDAPi in login) | OPEN | High | SS | Med | Beta only tries cred-reuse + default-creds; no injection-based auth bypass |
+| 078 | User enumeration via auth response differential | OPEN | Med | RM | Low | Login error messages leak valid vs invalid usernames; not captured |
+| 079 | Post-access validation (agentless — access level proof) | OPEN | High | RG | Med | Beta reports "login OK" but doesn't prove what access level was achieved |
+| 080 | Session management analysis (post-login stability) | OPEN | Med | RM | Low | After login: cookie attrs, fixation, timeout, concurrency not analyzed |
 
 ## Category Legend
 
@@ -147,6 +159,21 @@
 19. **GAP-057** — WP XML-RPC (stack-specific, 1 request)
 20. **GAP-060** — WC endpoint enumeration (P2, data harvest surface)
 21. **GAP-061** — WP REST other endpoints (P2, data harvest surface)
+
+### Agentless APT-Style External Red Team (NEW — post current slice)
+
+22. **GAP-074** — Auth mechanism fingerprinting (HIGH — root cause of GAP-067, GAP-046, GAP-047; prerequisite for GAP-077)
+23. **GAP-073** — WAF/CDN capability fingerprinting (HIGH — Beta strategy depends on WAF mode, not just vendor)
+24. **GAP-078** — User enumeration via auth response differential (MED — 2 requests, reduces cred-stuff waste 90%)
+25. **GAP-075** — Subdomain takeover check (MED — DNS only, classic finding, 0 target HTTP touch)
+26. **GAP-079** — Post-access validation (HIGH — "login OK" → "admin access proven" = payable report)
+27. **GAP-077** — Auth bypass testing (HIGH — 1-day SQLi/NoSQLi payloads, gated by GAP-074)
+28. **GAP-070** — Credential-to-Asset correlation (HIGH — graph edges for cred-reuse prioritization)
+29. **GAP-071** — Recon freshness / liveness check (MED — pre-Beta validation, stops stale data)
+30. **GAP-072** — Entry-vector ranking (MED — strategic entry selection, not label-binary)
+31. **GAP-080** — Session management analysis (MED — post-login stability for Gamma)
+32. **GAP-076** — Cloud storage / shadow-IT discovery (MED — S3/GCP, passive, scoped)
+33. **GAP-069** — Trust Graph / organizational intelligence (HIGH effort — v1 public OSINT only, defer LinkedIn/vishing/phishing)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -281,6 +308,24 @@
 - GAP-035 — Entry-selection strikes ONE candidate; multi-surface not iterated (BUILT FRESH 2026-08-11 (own slice; multi-candidate dispatch loop). Build/status/seal detail → docs/Session_Handoff.md.)
 - GAP-067 — OdooAccessTool only speaks XML-RPC, no JSON-RPC fallback (CF-blocked targets fail) (OPEN (re-scoped 2026-08-12 — original entry incorrectly)
 - GAP-068 — RETRACTED (OdooAccessTool already has hardcoded candidates) (RETRACTED (2026-08-12). Original entry claimed Odoo default)
+- GAP-077 — Authentication bypass testing (SQLi/NoSQLi/LDAPi in login) (OPEN.)
+- GAP-078 — User enumeration via auth response differential (OPEN.)
+- GAP-079 — Post-access validation (agentless — access level proof without implant) (OPEN.)
+- GAP-080 — Session management analysis (post-login stability for Gamma handoff) (OPEN.)
+
+### Trust Graph & Organizational Intelligence (NEW)
+
+- GAP-069 — Trust Graph — organizational intelligence nodes missing (OPEN.)
+- GAP-070 — Credential-to-Asset correlation missing (OPEN.)
+- GAP-071 — Recon freshness / liveness check missing (OPEN.)
+- GAP-072 — Entry-vector ranking + strategic approach not in graph (OPEN.)
+
+### External Attack Surface (NEW)
+
+- GAP-073 — WAF/CDN capability fingerprinting (beyond vendor hint) (OPEN.)
+- GAP-074 — Authentication mechanism fingerprinting (form/JWT/SAML/OAuth) (OPEN.)
+- GAP-075 — Subdomain takeover check (dangling DNS CNAME) (OPEN.)
+- GAP-076 — Cloud storage / shadow-IT discovery (S3/GCP/Azure) (OPEN.)
 
 ### Cognition & Planning (ADR-locked)
 
@@ -1105,6 +1150,187 @@
 - Evidence: niagamas.com — `pos.niagamas.com` is a Vue.js login form (not WP). Username harvest returned 0 users (WP-REST only). No cred-reuse possible without usernames to pair with harvested/default passwords.
 - Impact: Cred-reuse chain broken at the username-producer step for non-WP targets.
 - Effort: High (multiple producers + test fixtures).
+
+---
+
+
+# Trust Graph & Organizational Intelligence
+
+## GAP-069 — Trust Graph — organizational intelligence nodes missing
+- Status: OPEN.
+- Priority: HIGH — Beta receives technical graph only; no people, vendor, or trust-relationship context for strategic entry selection.
+- Category: RG
+- Stack: Universal
+- What: `graph/nodes.py` defines 7 node types (ASSET, VULNERABILITY, CREDENTIAL, SERVICE, DATA, ACCESS_LEVEL, USER). `USER` is a WP-REST slug, not an organizational persona. There are no node types for `EMPLOYEE` (LinkedIn/GitHub persona, role, department), `VENDOR` (SaaS/CDN/third-party with access to target infrastructure), or `TRUST_RELATIONSHIP` (employee→asset access, vendor→asset integration). An agentless APT-style red team needs to know **who** has access, **what** they trust, and **how** they connect — not just **what** is exposed. Without this, Beta can only attempt technical cred-reuse, never strategic entry via trust paths (e.g. vendor admin portal, employee SSO, third-party API key).
+- Evidence: `graph/nodes.py:13-21` — NodeType enum has no EMPLOYEE, VENDOR, or TRUST_RELATIONSHIP. `scout.py` emits no organizational intelligence events. All 6,994 rows in `agent_events` are technical (NodeDiscovered, WAF_BLOCKED, ORIGIN_DIRECT_ATTEMPT, etc.) — 0 rows for people or vendor relationships.
+- Files: `agent_alpha/graph/nodes.py:13-21` — NodeType enum; `agent_alpha/events/event_types.py` — no EMPLOYEE_DISCOVERED or VENDOR_RELATIONSHIP event types; `agent_alpha/agents/alpha/scout.py` — no organizational OSINT handler
+- Cross-ref: GAP-007 (OSINT), GAP-070 (Credential-to-Asset correlation). ADR §12.48 (Passive-First Recon) — organizational intelligence is passive, zero target touch.
+- Impact: Beta's entry selection is purely technical (auth-surface label + reachability). No "path of least resistance" via human/vendor trust. Agent-Alpha cannot emulate APT-style strategic entry.
+- Effort: HIGH (new node types + event types + OSINT sources + graph projection). Must be event-sourced — NOT a handoff DTO (anti-Lyndon #4, #7). Defer LinkedIn/vishing/phishing to client-authorized slice; v1 = public sources only (GitHub, WHOIS, public CT, job postings).
+- Constraint: LinkedIn scraping, vishing, phishing, dark web = DEFERRED to client-authorized social-engineering slice with legal review. v1 uses only public OSINT (GitHub commits, WHOIS registrant, public CT SANs, job posting tech stack).
+
+---
+
+## GAP-070 — Credential-to-Asset correlation missing
+- Status: OPEN.
+- Priority: HIGH — breach credentials exist in vault but are not mapped to specific assets via graph edges.
+- Category: RG
+- Stack: Universal
+- What: `CredentialProperties` has a `service: str` field (free-text), but there is no graph edge `CREDENTIAL -> ENABLES -> ASSET`. Breach data from Dehashed/HIBP (§12.54, not yet wired) and harvested credentials from leak files (`wp-config.php.bak`, `.env`) are stored as CREDENTIAL nodes with `secret_ref` in the vault, but the graph does not encode **which asset** those credentials are valid for. Beta's cred-reuse logic (`cred_reuse.py`) iterates all credentials against all auth surfaces — it does not use a graph edge to prioritize "this credential was harvested from WP config → try it on WP login first, then Odoo XML-RPC". The correlation is implicit in tool logic, not explicit in the graph.
+- Evidence: `graph/nodes.py:78-83` — CredentialProperties has `username`, `secret_ref`, `service`, `access_level` — no `valid_for_asset_id` or graph edge. `tools/internal/access/cred_reuse.py:84` — iterates credentials × surfaces without graph-based prioritization. `security/credential_assembly.py` — assembles credentials but does not emit `CREDENTIAL -> ENABLES -> ASSET` edges.
+- Files: `agent_alpha/graph/nodes.py:78-83` — CredentialProperties; `agent_alpha/graph/nodes.py:29-36` — RelationshipType (no ENABLES_FOR or VALID_ON); `agent_alpha/tools/internal/access/cred_reuse.py`; `agent_alpha/security/credential_assembly.py`
+- Cross-ref: GAP-054 (WP REST user email — prerequisite for breach OSINT correlation), GAP-069 (Trust Graph — credentials are part of trust graph), §12.54 (Dehashed/HIBP breach integration, not yet wired).
+- Impact: Beta's cred-reuse is brute-force-ish (try all creds on all surfaces). No graph-based "credential X was leaked from asset Y → try Y first, then trust-relationship Z". Misses strategic cred-reuse paths; wastes attempts on irrelevant credential/asset pairs.
+- Effort: MEDIUM (new RelationshipType + edge emission in credential_assembly + Beta reads edge for prioritization). Event-sourced: Alpha emits `CREDENTIAL_CORRELATED` event, Beta reads projection.
+
+---
+
+## GAP-071 — Recon freshness / liveness check missing
+- Status: OPEN.
+- Priority: MEDIUM — Beta uses stale recon data without temporal validation.
+- Category: RG
+- Stack: Universal
+- What: Each `AttackNode` has `timestamp_utc` and `VerificationTier` (UNVERIFIED / SELF_VERIFIED / CROSS_VERIFIED), but there is no **freshness policy** — no rule that says "if recon data is older than X minutes, re-validate before Beta uses it". A real APT operator checks: is the port still open? Is the credential still valid? Has the WAF rule changed since recon? Agent-Alpha has no `FreshnessScore`, no `last_validation` timestamp, no `LivenessProbe` that runs between Alpha completion and Beta dispatch. Beta trusts Alpha's data blindly.
+- Evidence: `graph/nodes.py:136-140` — `timestamp_utc` and `verified` exist but no `last_validated` or `freshness_score`. `conductor/main.py` — no liveness probe between Alpha handoff and Beta dispatch. `VerificationTier` is about proof quality (self vs cross-verified), NOT about temporal freshness.
+- Files: `agent_alpha/graph/nodes.py:122-153` — AttackNode (no freshness fields); `agent_alpha/conductor/main.py` — no pre-Beta validation step; `agent_alpha/events/event_types.py` — no FRESHNESS_CHECKED event
+- Cross-ref: GAP-017 (PassiveIntelMap consumer not wired — protection_detected could change between recon and strike). §12.49 (stealth by default — liveness probe must be stealthy).
+- Impact: Beta may attempt cred-reuse on a login form that was removed. Beta may target an origin IP that was rotated. Beta may hit a WAF rule that was tightened since recon. False negatives from stale data, not from logic errors.
+- Effort: MEDIUM (freshness field in AttackNode + FRESHNESS_CHECKED event + micro-interaction probe: HTTP banner grab, DNS re-resolution, single credential check — NOT brute force). Must be stealthy (§12.49): 1-3 requests max, long delay, curl_cffi.
+
+---
+
+## GAP-072 — Entry-vector ranking + strategic approach not in graph
+- Status: OPEN.
+- Priority: MEDIUM — Beta receives raw nodes without ranked entry vectors or approach recommendation.
+- Category: RG
+- Stack: Universal
+- What: Alpha emits nodes (ASSET, VULNERABILITY, CREDENTIAL, USER, etc.) into the graph. Beta's `select_strike_entry` (`conductor/router.py`) picks an entry point by auth-surface label presence. But there is no **ranked entry-vector list** in the graph — no node or edge that says "vector 1: cred-reuse via WP login (ease=0.8, stealth=0.9, impact=0.7), vector 2: origin-direct bypass (ease=0.5, stealth=0.3, impact=0.9), vector 3: Odoo XML-RPC default cred (ease=0.6, stealth=0.8, impact=0.5)". A real APT operator ranks entry vectors by ease + stealth + impact before choosing. Agent-Alpha's entry selection is label-presence binary, not strategic.
+- Evidence: `conductor/router.py` — `select_strike_entry` ranks by auth-surface label, not by multi-factor vector scoring. No `EntryVector` node type or `RECOMMENDS_VECTOR` edge in graph. `strategic_gaps_roadmap.md` G5 — "No adversary emulation / threat-actor TTP modeling."
+- Files: `agent_alpha/graph/nodes.py` — no EntryVector node; `agent_alpha/conductor/router.py` — select_strike_entry (label-based, not vector-ranked); `agent_alpha/events/event_types.py` — no ENTRY_VECTOR_RANKED event
+- Cross-ref: GAP-034 (entry-selection reachability signal), GAP-035 (multi-surface iteration), GAP-069 (Trust Graph — trust paths are input to vector ranking), GAP-070 (credential correlation — cred-asset edges feed vector scoring). ADR §12.58 (Strategic Entry Selection).
+- Impact: Beta may strike the "most visible" entry (login form) instead of the "most strategic" entry (origin bypass + cred-reuse chain). Suboptimal entry selection = wasted attempts + missed chains.
+- Effort: MEDIUM (new EntryVector concept in graph + scoring algorithm + Beta reads ranked vectors). Event-sourced: Alpha emits `ENTRY_VECTOR_RANKED` event with score breakdown. NOT a handoff DTO (anti-Lyndon #7).
+- Constraint: Scoring must be deterministic (rule-based), NOT LLM-generated. LLM may suggest vectors but scoring is rule-tier (anti-#3 false success).
+
+---
+
+
+# External Attack Surface
+
+## GAP-073 — WAF/CDN capability fingerprinting (beyond vendor hint)
+- Status: OPEN.
+- Priority: HIGH — Alpha knows WAF vendor but not capability; Beta's strategy depends on capability, not just vendor.
+- Category: RM
+- Stack: Universal
+- What: `passive_intel.py:classify_protection()` maps NS records to a vendor hint ("cloudflare", "akamai", "sucuri", "imperva"). But this is a **vendor label**, not a **capability fingerprint**. A real external red team needs to know: Is Cloudflare Bot Management with ML enabled? Is it just rate limiting? Is there a JS challenge? Is there a CAPTCHA? What is the rate limit threshold (10 req/min? 100 req/min?)? Is there an IP reputation block? Alpha's `response_classifier.py` detects CF challenge responses (200 interstitial, 403, 503) but does not fingerprint the **WAF rule set** or **bot management mode**. Without this, Beta cannot choose between "slow cred-spray with long delays" vs "origin-direct bypass" vs "JS challenge solve".
+- Evidence: `passive_intel.py:173-193` — `classify_protection` returns vendor string only. `recon/response_classifier.py` — classifies challenge responses but does not fingerprint WAF mode. niagamas.com field-prove — Run 1 (natural pacing) → wp-json accessible via CF. Run 2 (aggressive) → CF challenge. Alpha did not detect the mode change or record the WAF's rate-limit threshold.
+- Files: `agent_alpha/recon/passive_intel.py:173-193` — classify_protection (vendor only); `agent_alpha/recon/response_classifier.py` — challenge detection (no capability fingerprint); `agent_alpha/graph/nodes.py:52-66` — AssetProperties (no `waf_capability` field)
+- Cross-ref: GAP-026 (StealthPacer gate inverted — stealth not default), GAP-027 (probing order triggers WAF), §12.49 (proactive evasion), §12.33 (adaptive evasion — LOCKED).
+- Impact: Beta's access strategy is chosen blind to WAF capability. On a CF Bot Management target, cred-spray triggers IP ban. On a rate-limit-only target, slow cred-spray works. Alpha doesn't tell Beta which mode is active.
+- Effort: MEDIUM (WAF capability probe: 3-5 calibrated requests to measure response pattern + rate limit threshold + challenge type. Must be stealthy — low rate, curl_cffi. New `waf_capability` field in AssetProperties + WAF_CAPABILITY_FINGERPRINTED event).
+
+---
+
+## GAP-074 — Authentication mechanism fingerprinting (form/JWT/SAML/OAuth)
+- Status: OPEN.
+- Priority: HIGH — auth-surface label is binary; Beta can't attack what it doesn't understand mechanistically.
+- Category: RM
+- Stack: Universal
+- What: Alpha's `_detect_auth_surface` (`scout.py`) labels auth surfaces as `login-form` or `http_basic_auth`. But this is too coarse for Beta to choose the right attack tool. A real red team fingerprints the auth mechanism: Is it form-based POST? JSON-RPC? JWT bearer? SAML SSO? OAuth 2.0? OpenID Connect? Session cookie? CSRF token structure (synchronizer token, double-submit, encrypted)? Does it use a nonce? Is there a CAPTCHA? Is there a "remember me" token? Beta's `OdooAccessTool` speaks XML-RPC, `DefaultCredsTool` speaks form POST, `cred_reuse.py` tries form POST — but none of these know **what mechanism the target actually uses** until they fail. GAP-067 (Odoo JSON-RPC fallback) is a symptom of this root cause: Beta tried XML-RPC on a JSON-RPC target because Alpha didn't fingerprint the mechanism.
+- Evidence: `scout.py:1329+` — `_detect_auth_surface` returns labels (`login-form`, `http_basic_auth`), not mechanism details. `graph/nodes.py:52-66` — AssetProperties has no `auth_mechanism` field. niagamas.com — `pos.niagamas.com/admin/login` is a Vue.js SPA login (likely JSON/REST POST with CSRF token), but Alpha labelled it `login-form` only. Beta tried form POST → failed.
+- Files: `agent_alpha/agents/alpha/scout.py:1329+` — _detect_auth_surface (label only, no mechanism); `agent_alpha/graph/nodes.py:52-66` — AssetProperties (no auth_mechanism); `agent_alpha/recon/capability_probe.py` — no auth-mechanism probe
+- Cross-ref: GAP-030 (Vue.js :type password regex — fixed for detection, but mechanism still not fingerprinted), GAP-067 (Odoo JSON-RPC fallback — symptom of missing mechanism fingerprint), GAP-046 (HTTP Basic Auth applicator — another mechanism Beta can't handle), GAP-047 (username harvest WP-REST-only — mechanism-specific harvesting).
+- Impact: Beta attempts the wrong tool for the target's auth mechanism. XML-RPC tool on JSON-RPC target. Form POST on SAML SSO target. Every mismatch = wasted attempt + potential WAF trigger + no access. This is the root cause of multiple Beta failures across stacks.
+- Effort: MEDIUM (auth mechanism probe: parse login form action/method/enctype, check for JWT/SAML/OAuth indicators in response headers and JS, detect CSRF token structure. New `auth_mechanism` field in AssetProperties + AUTH_MECHANISM_FINGERPRINTED event).
+
+---
+
+## GAP-075 — Subdomain takeover check (dangling DNS CNAME)
+- Status: OPEN.
+- Priority: MEDIUM — classic external red team finding; not checked at all.
+- Category: SS
+- Stack: Universal
+- What: Alpha enumerates subdomains via crt.sh/VT/OTX but does NOT check for **subdomain takeover** — a dangling CNAME record pointing to a deleted/deprovisioned service (Heroku, GitHub Pages, S3, Azure, etc.). This is a textbook external finding: `sub.example.com CNAME example.herokuapp.com` where the Heroku app has been deleted → attacker registers the Heroku app name → controls `sub.example.com`. The check is passive (DNS CNAME lookup + HTTP response pattern), zero target touch beyond the subdomain itself.
+- Evidence: `recon/passive_discovery.py` — enumerates subdomains but does not resolve CNAME records or check for dangling references. `recon/origin_resolver.py` — resolves A records for origin discovery, not CNAME for takeover. No takeover check in any recon module. `strategic_gaps_roadmap.md` G19 — "Passive Supply Chain Attack (Subdomain takeover) is deferred" — but it has no GAP entry.
+- Files: `agent_alpha/recon/passive_discovery.py` — subdomain enumeration only; `agent_alpha/recon/origin_resolver.py` — A record focus; `agent_alpha/graph/nodes.py` — no VULNERABILITY type for subdomain takeover
+- Cross-ref: GAP-007 (OSINT), GAP-016 (Wayback — historical CNAME records can reveal past takeover). Strategic roadmap G19.
+- Impact: Missed payable finding. Subdomain takeover is a high-severity finding that conventional scanners (Nuclei) DO detect — if Agent-Alpha misses it, it fails the success condition ("finds something a scanner missed" — but also must not miss what a scanner finds).
+- Effort: LOW (CNAME resolution per subdomain + check against known dangling-service patterns: Heroku, GitHub Pages, S3, Azure, Tumblr, Shopify. ~100 lines + pattern list. 0 target HTTP touch — DNS only).
+
+---
+
+## GAP-076 — Cloud storage / shadow-IT discovery (S3/GCP/Azure)
+- Status: OPEN.
+- Priority: MEDIUM — cloud storage misconfiguration is a common external finding.
+- Category: SS
+- Stack: Universal
+- What: Alpha does not discover cloud storage assets associated with the target domain. Real external red teams check: S3 buckets named after the target (`niagamas-backups`, `niagamas-assets`), GCP storage buckets, Azure blob containers, DigitalOcean Spaces. These are often misconfigured (public read, public write) and contain sensitive data (backups, database dumps, customer PII). The check is passive (DNS + bucket name guessing + HTTP HEAD), zero target infrastructure touch.
+- Evidence: No cloud storage discovery in any recon module. `recon/passive_intel.py` — no cloud asset discovery. `recon/osint_sources.py` — no S3/GCP/Azure enumeration. `strategic_gaps_roadmap.md` — not mentioned.
+- Files: `agent_alpha/recon/passive_intel.py` — no cloud asset enrichment; `agent_alpha/recon/osint_sources.py` — no cloud storage source; `agent_alpha/graph/nodes.py` — no CLOUD_ASSET node type
+- Cross-ref: GAP-007 (OSINT), GAP-069 (Trust Graph — cloud assets are shadow IT nodes). §12.48 (Passive-First Recon — cloud storage discovery is passive).
+- Impact: Missed data exposure finding. S3 bucket with public read = direct data harvest without any access attempt. This is a finding a client would pay for that Agent-Alpha currently cannot discover.
+- Effort: MEDIUM (bucket name generation from domain + HTTP HEAD check + public-read verification. Must be scoped — only check buckets derived from in-scope domain, not brute-force mass enumeration. Legal: checking bucket ACL is not an attack, it's a configuration audit).
+- Constraint: Only check buckets derived from in-scope domain stems (`niagamas-*`, `*-niagamas`). No mass brute-force. Bucket existence check = HTTP HEAD, not data download. Public-read confirmation = 1 request, not data exfiltration.
+
+---
+
+
+# Beta Access Strategy (NEW)
+
+## GAP-077 — Authentication bypass testing (SQLi/NoSQLi/LDAPi in login)
+- Status: OPEN.
+- Priority: HIGH — Beta only tries cred-reuse + default-creds; no injection-based auth bypass.
+- Category: SS
+- Stack: Universal
+- What: Beta's access tools are: `OdooAccessTool` (XML-RPC cred-stuff), `DefaultCredsTool` (form POST cred-stuff), `cred_reuse.py` (form POST cred-reuse), `UserDerivedCredsTool` (derived cred-spray). ALL are credential-based. A real external red team also tests **authentication bypass**: SQL injection in login form (`admin'--`, `' OR 1=1--`), NoSQL injection (`{"$ne": null}`), LDAP injection (`*)(uid=*`), parameter pollution (`user=admin&user=guest`), HTTP verb tampering (GET instead of POST), URL path normalization (`/admin/login/../dashboard`), auth bypass via race condition. These are **not credential attacks** — they bypass the auth mechanism entirely. Agent-Alpha has ZERO capability for this.
+- Evidence: `tools/internal/access/` — all tools are cred-based. No injection payload generator. No auth bypass tool. `strategic_gaps_roadmap.md` G10 — "High-value vuln classes absent: IDOR, business logic, SSRF, injection, auth-flow, API fuzzing" — but no GAP entry for auth bypass specifically.
+- Files: `agent_alpha/tools/internal/access/` — all tools cred-based; `agent_alpha/agents/beta/strike.py` — no auth bypass dispatch; `agent_alpha/tools/playbooks/` — no auth bypass playbook
+- Cross-ref: GAP-074 (auth mechanism fingerprinting — prerequisite: must know mechanism to craft bypass), strategic roadmap G10 (injection absent). ADR §12.55 (1-Day Weaponizer — auth bypass via known CVE is in scope; novel injection is Gamma-gated).
+- Impact: Auth bypass is a primary external red team technique. If a login form is SQLi-vulnerable, cred-reuse is unnecessary — bypass gives direct access. Agent-Alpha cannot find this. Misses high-severity findings that conventional scanners (SQLMap) DO find.
+- Effort: MEDIUM (new AuthBypassTool: SQLi/NoSQLi/LDAPi payload set + form/JSON-RPC transport + response differential detection. Must be gated by auth mechanism fingerprint from GAP-074. Payloads = known 1-day patterns, NOT novel injection — §12.55).
+- Constraint: 1-day payloads only (known SQLi patterns from public cheat sheets). No novel injection research. No data exfiltration via injection — proof = auth bypass response (redirect to dashboard, session cookie set). Gamma-gated for deeper injection exploitation.
+
+---
+
+## GAP-078 — User enumeration via auth response differential
+- Status: OPEN.
+- Priority: MEDIUM — login error messages leak valid vs invalid usernames; not captured.
+- Category: RM
+- Stack: Universal
+- What: Many login forms reveal whether a username exists via **response differential**: valid username + wrong password → "Invalid password" (or different response time, different redirect, different error code). Invalid username → "User not found". This is a classic username enumeration vector. Alpha does not capture this, and Beta does not exploit it. Beta's cred-reuse tries all harvested usernames blindly — but if the target reveals which usernames are valid, Beta can **filter** the username list to only valid accounts before attempting passwords, reducing attempts by 90%+ and avoiding lockout.
+- Evidence: `agents/alpha/scout.py` — no auth response differential probe. `tools/internal/access/cred_reuse.py` — tries all usernames × all passwords, no pre-filtering. `tools/internal/access/cred_lockout.py` — lockout governor exists but doesn't benefit from username pre-filtering.
+- Files: `agent_alpha/agents/alpha/scout.py` — no auth differential handler; `agent_alpha/tools/internal/access/cred_reuse.py` — no username pre-filter; `agent_alpha/graph/nodes.py:110-119` — UserProperties (no `validated_on_target` field)
+- Cross-ref: GAP-054 (WP REST user fields — email/roles needed for breach correlation, but username validation is separate), GAP-047 (username harvest WP-REST-only — this GAP extends harvesting to auth-response differential), GAP-070 (credential correlation — validated usernames feed the credential map).
+- Impact: Beta wastes attempts on invalid usernames. On a target with 9 harvested usernames where only 3 are valid, Beta tries 9×N passwords instead of 3×N. 6×N wasted attempts = lockout risk + WAF trigger + time waste.
+- Effort: LOW (2 probe requests: valid-looking username + invalid-looking username → compare response. 1 handler + UserProperties field update. Must be stealthy — 2 requests only, long delay).
+
+---
+
+## GAP-079 — Post-access validation (agentless — access level proof without implant)
+- Status: OPEN.
+- Priority: HIGH — Beta reports "login OK" but doesn't prove what access level was achieved.
+- Category: RG
+- Stack: Beta
+- What: When Beta successfully authenticates (cred-reuse, default-cred, or auth bypass), it reports `status=COMPLETE` with a `CREDENTIAL` node and proof artifact (screenshot). But it does NOT validate **what access level was achieved**: Can I access the admin dashboard? Can I see other users' data? Can I modify settings? Can I create/delete content? Is the session read-only or full-admin? This is the boundary between Beta (access) and Gamma (exploitation), but the **validation step** is missing — Beta claims access but doesn't prove the access is meaningful. A real red team validates: "I logged in as admin → I can see /wp-admin/admin.php → I can create a new admin user → proof." Agent-Alpha stops at "I logged in."
+- Evidence: `agents/beta/strike.py` — on successful auth, reports COMPLETE with screenshot. No post-access probe. No access-level validation. `graph/nodes.py:102-107` — AccessLevelProperties exists (`level`, `user_context`, `shell_type`, `interactive`) but is never populated by Beta. `conductor/main.py` — no post-Beta validation step before Gamma dispatch.
+- Files: `agent_alpha/agents/beta/strike.py` — no post-access validation; `agent_alpha/graph/nodes.py:102-107` — AccessLevelProperties (never populated); `agent_alpha/conductor/main.py` — no validation between Beta and Gamma
+- Cross-ref: ADR §12.32 (Authenticated Crawl / Post-Access Re-Discovery — LOCKED, but this GAP is about validation, not re-crawl). GAP-080 (session management — related post-access analysis). §12.43 (screenshot proof — current proof, but screenshot of login ≠ proof of access level).
+- Impact: Client receives "login successful" but no proof of what the attacker can DO with that access. Report is weak. "I logged in as admin" is not a payable finding — "I logged in as admin and could create a new admin user" is. This is the difference between a scanner report and a red team report.
+- Effort: MEDIUM (post-access probe: 3-5 authenticated requests to known admin endpoints + response analysis + AccessLevelProperties population. Agentless — HTTP requests only, no code execution on target. Must stay within Beta scope — no data modification, no exploitation. Proof = screenshot of admin dashboard + AccessLevel node).
+
+---
+
+## GAP-080 — Session management analysis (post-login stability for Gamma handoff)
+- Status: OPEN.
+- Priority: MEDIUM — after login, session stability is not analyzed; Gamma may inherit an unstable session.
+- Category: RM
+- Stack: Beta
+- What: After Beta achieves authenticated access, it does not analyze the **session management characteristics** that determine whether the access is stable enough for Gamma to use: Session cookie attributes (HttpOnly, Secure, SameSite — GAP-059 is pre-auth, this is post-auth), session fixation potential (can I set the session ID before login?), session timeout (how long until the session expires?), concurrent session policy (does a second login invalidate the first?), session token format (sequential? predictable? JWT with weak secret?). A real red team analyzes these before deciding whether to escalate to Gamma — an unstable session (5-minute timeout, single-session) makes Gamma exploitation impractical.
+- Evidence: `agents/beta/strike.py` — no post-auth session analysis. `graph/nodes.py` — no session management fields in AccessLevelProperties or CredentialProperties. GAP-059 (cookie audit) is pre-auth from response headers; this GAP is post-auth session behavior analysis.
+- Files: `agent_alpha/agents/beta/strike.py` — no session analysis; `agent_alpha/graph/nodes.py:78-107` — CredentialProperties + AccessLevelProperties (no session fields)
+- Cross-ref: GAP-059 (cookie audit — pre-auth, this is post-auth), GAP-079 (post-access validation — related, but access-level vs session-stability), ADR §12.32 (authenticated crawl — needs stable session).
+- Impact: Gamma may be dispatched on a session that expires in 5 minutes, or that is invalidated by a second request. Gamma's exploitation fails not because the exploit is wrong, but because the session died mid-exploit. No diagnostic data to explain the failure.
+- Effort: LOW (parse post-auth Set-Cookie headers + 1-2 timed re-requests to measure timeout + session token format analysis. ~50 lines. Agentless — HTTP only).
 
 ---
 
