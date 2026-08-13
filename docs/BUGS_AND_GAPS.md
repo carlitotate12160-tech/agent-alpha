@@ -1954,18 +1954,74 @@
 
 # Alternative Access Vectors (NEW — beyond cred-spray and offline crack)
 
-## GAP-113 — Password reset abuse (host header injection, token prediction)
-- Status: OPEN.
+## GAP-113 — Password reset abuse (host header injection, token prediction, param pollution)
+- Status: OPEN (split into 4 vectors with different autonomy profiles).
 - Priority: MEDIUM — change password without knowing old password; bypasses cred-spray entirely.
 - Category: SS
 - Stack: Universal
-- What: GAP-108 covers password reset endpoint user enumeration (detect valid emails). But password reset ABUSE goes further: actually changing the target user's password without knowing their current password. Vectors: (1) Host header injection — if reset link URL is built from `Host` header, attacker sends `Host: attacker.com` → reset link goes to attacker → attacker resets password. (2) Token prediction — if reset token is sequential or weak (short hex, timestamp-based), attacker can predict token and reset password. (3) Email parameter injection — `email=victim@x.com&email=attacker@x.com` → reset sent to both. (4) Reset token reuse — token doesn't expire after use, allowing replay. These bypass credential-based access entirely — no cred-spray, no offline crack, no lockout risk.
-- Evidence: No password reset abuse tool in `tools/internal/access/`. GAP-108 (reset enum) is detection-only. No host header injection test, no token prediction, no email parameter injection.
-- Files: `agent_alpha/tools/internal/access/` — no reset abuse tool; `agent_alpha/agents/beta/strike.py` — no reset abuse dispatch
-- Cross-ref: GAP-108 (reset enum — prerequisite: must know reset endpoint exists), GAP-077 (auth bypass — related: both bypass credential auth), GAP-074 (auth mechanism fingerprinting — must know reset flow to abuse it).
-- Impact: Missed access vector that bypasses credentials entirely. No lockout risk, no WAF trigger (reset is normal functionality). Host header injection = 1 request to change admin password. Classic finding that conventional scanners (Nuclei) detect via templates.
-- Effort: MED (host header injection probe + token entropy analysis + email parameter pollution test. ~120 lines. Must be ACTIVE_APPROVED — sending reset request is active, but uses target's normal functionality. Must NOT actually change password unless OFFENSIVE_APPROVED — test with attacker-controlled email first).
-- Constraint: v1 = detect vulnerability (host header injection possible, token is predictable) WITHOUT actually changing the victim's password. Report as finding. Actual password change = OFFENSIVE_APPROVED + client explicit approval (destructive: changes target state).
+- What: GAP-108 covers password reset endpoint user enumeration (detect valid emails). But password reset ABUSE goes further: actually changing the target user's password without knowing their current password. This bypasses credential-based access entirely — no cred-spray, no offline crack, no lockout risk. The reset flow works: (1) attacker triggers reset for victim email, (2) target generates token and emails reset link, (3) whoever has the token can set a new password. The abuse is in capturing or predicting the token. 4 vectors, each with different autonomy profile.
+
+### Vector 1 — Host Header Injection (DEFERRED — requires admin interaction)
+- Status: DEFERRED to social-engineering slice.
+- Autonomy: NO — requires admin to open email and click link. Not autonomous.
+- What: Target builds reset URL from `Host` header instead of server config. Attacker sends `Host: attacker.com` in reset request → reset link in email points to `attacker.com/reset?token=abc123` → admin clicks link → browser goes to attacker.com → attacker server logs token → attacker has token → attacker sets new password.
+- Flow: `POST /forgot-password Host: attacker.com email=admin@niagamas.com` → target sends email with link `https://attacker.com/reset?token=abc123` → admin clicks → attacker captures token → `POST /reset?token=abc123 password=NewPass` → access.
+- Why deferred: Attacker cannot capture token without admin clicking the link. This is social engineering, not autonomous. Agent-Alpha does not send phishing emails or wait for admin interaction. v1 = detect only (send Host: attacker.com, check if response or email template uses attacker.com — but cannot verify email content without inbox access). Detection-only is low value without exploitation.
+- Google Workspace impact: Google Workspace does NOT protect from this. Email from niagamas.com (domain itself) passes Google spam filter. Link to attacker.com appears in Gmail inbox. Admin clicks → token captured. Google only protects from DNS-level email intercept (MX hijack), not application-level Host header bugs.
+
+### Vector 2 — Token in Response Body (AUTONOMOUS — 2 requests, 0 admin interaction)
+- Status: OPEN — autonomous-capable.
+- Autonomy: YES — 2 requests, 0 admin interaction, 0 lockout risk.
+- What: Target returns reset token in HTTP response body instead of only in email. Implementation bug: `{"status": "ok", "reset_token": "abc123xyz"}` in response to `POST /forgot-password`. Attacker reads token directly from response — no email access needed, no admin interaction needed.
+- Flow: `POST /forgot-password email=admin@niagamas.com` → response body contains `reset_token: abc123xyz` → attacker has token → `POST /reset?token=abc123xyz password=NewPass` → access.
+- Detection (v1, ACTIVE_APPROVED): POST reset request → parse response body for `token`, `reset_token`, `reset_link`, `url` fields → if token found, report as finding "Password reset token disclosed in response body." Do NOT use token to change password.
+- Exploitation (v2, OFFENSIVE_APPROVED + client approval): Use token from response → set new password → login → proof. Destructive: changes admin password.
+- Google Workspace impact: None. Vector 2 does not involve email at all. Token is in HTTP response, not email. Google Workspace is irrelevant.
+- Rarity: Uncommon in modern implementations (most frameworks return only `{"status": "ok"}`). But found in custom PHP apps, legacy CodeIgniter, and junior-developer code — common in SEA market.
+
+### Vector 3 — Token Prediction (AUTONOMOUS — 2 requests, 0 admin interaction)
+- Status: OPEN — autonomous-capable.
+- Autonomy: YES — 2 requests, 0 admin interaction, 0 lockout risk.
+- What: Reset token is generated from predictable inputs: `MD5(timestamp + email)`, `substr(sha1(time()), 0, 8)`, sequential counter, or short hex (6-8 chars). Attacker knows timestamp (from response `Date` header), knows email (from GAP-078/108 enumeration), computes token independently.
+- Flow: `POST /forgot-password email=admin@niagamas.com` → response `Date: Wed, 13 Sep 2026 10:38:10 GMT` → attacker converts to timestamp 1694567890 → attacker computes `MD5("1694567890admin@niagamas.com")` = `a1b2c3d4...` → `POST /reset?token=a1b2c3d4... password=NewPass` → access.
+- Detection (v1, ACTIVE_APPROVED): POST reset request → extract token from response (if in body) or request reset for attacker-controlled email → compare token with timestamp-based prediction → if match, report "Reset token predictable (timestamp-based)." Also test token entropy: request 2-3 tokens, check if sequential or time-derived.
+- Exploitation (v2, OFFENSIVE_APPROVED + client approval): Predict token for victim email → set new password → login → proof.
+- Google Workspace impact: None. Vector 3 does not involve email. Token is predicted from timestamp + email, not from email content.
+- Rarity: Found in legacy PHP apps, custom frameworks, and implementations that don't use `secrets.token_urlsafe()`. Modern frameworks (Laravel, Django) use cryptographically secure tokens — not vulnerable.
+
+### Vector 4 — Email Parameter Pollution (AUTONOMOUS — 2 requests, 0 admin interaction)
+- Status: OPEN — autonomous-capable.
+- Autonomy: YES — 2 requests, 0 admin interaction, 0 lockout risk.
+- What: Target parses duplicate email parameters ambiguously: `email=admin@niagamas.com&email=attacker@gmail.com`. Framework takes first email for user lookup, second email for sending reset link. Reset link sent to attacker's email → attacker has token.
+- Flow: `POST /forgot-password email=admin@niagamas.com&email=attacker@gmail.com` → target finds admin user → sends reset link to attacker@gmail.com (second param) → attacker opens own email → has token → `POST /reset?token=abc123 password=NewPass` → access.
+- Detection (v1, ACTIVE_APPROVED): POST reset with duplicate email params (victim + attacker-controlled) → check if reset email arrives at attacker-controlled email → if yes, report "Password reset vulnerable to email parameter pollution." Requires attacker-controlled email inbox (e.g. test Gmail account).
+- Exploitation (v2, OFFENSIVE_APPROVED + client approval): Receive token at attacker email → set new password → login → proof.
+- Google Workspace impact: None for victim. Attacker's email (attacker@gmail.com) is also Gmail — Google delivers it normally. Google does not inspect the reset request, only the email. Bug is in target's parameter parsing, not in email infrastructure.
+- Rarity: Framework-dependent. PHP `$_POST['email']` takes last value. Some frameworks merge duplicate params. Found in custom PHP apps and misconfigured frameworks.
+
+### Google Workspace analysis (all vectors)
+- Google Workspace (Gmail for custom domain) changes WHO receives email, not HOW the reset flow works. All 4 vectors attack the TARGET SERVER's reset implementation, not the email infrastructure.
+- Vector 1: Email passes Google spam filter (from own domain). Admin sees link in Gmail. Clicks → token captured. Google does NOT protect.
+- Vector 2-3: No email involved. Token in response body or predicted. Google irrelevant.
+- Vector 4: Attacker's email (attacker@gmail.com) receives reset link normally. Google does NOT inspect reset request content.
+- Google Workspace ONLY protects from DNS-level email intercept (MX record hijack → redirect all email to attacker). Google validates domain ownership via TXT record before accepting MX changes. This is infrastructure-level protection, not application-level.
+- Conclusion: Google Workspace does not mitigate application-level password reset bugs (GAP-113). It only mitigates DNS hijack-based email intercept (out of scope for GAP-113).
+
+### Summary table
+
+| Vector | Admin Interaction? | Autonomous? | Tier (detect) | Tier (exploit) | Google Workspace Protects? |
+|--------|-------------------|-------------|----------------|-----------------|---------------------------|
+| 1 (Host header) | YES (click link) | NO | ACTIVE_APPROVED (low value) | DEFERRED (social eng) | NO |
+| 2 (Token in body) | NO | YES | ACTIVE_APPROVED | OFFENSIVE_APPROVED | NO (no email) |
+| 3 (Token prediction) | NO | YES | ACTIVE_APPROVED | OFFENSIVE_APPROVED | NO (no email) |
+| 4 (Param pollution) | NO | YES | ACTIVE_APPROVED | OFFENSIVE_APPROVED | NO |
+
+- Evidence: No password reset abuse tool in `tools/internal/access/`. GAP-108 (reset enum) is detection-only. No host header injection test, no token prediction, no email parameter injection. `grep "reset.*token|forgot.*password|host.*header.*inject" ` in `agent_alpha/` = 0 results for abuse.
+- Files: `agent_alpha/tools/internal/access/` — no reset abuse tool; `agent_alpha/agents/beta/strike.py` — no reset abuse dispatch; `agent_alpha/recon/auth_surface.py` — no reset endpoint classification
+- Cross-ref: GAP-108 (reset enum — prerequisite: must know reset endpoint exists), GAP-077 (auth bypass — related: both bypass credential auth), GAP-074 (auth mechanism fingerprinting — must know reset flow to abuse it), GAP-075 (subdomain takeover — vector 1 deferred for same reason: requires human interaction).
+- Impact: Missed access vector that bypasses credentials entirely. No lockout risk, no WAF trigger (reset is normal functionality). Vectors 2-4 are fully autonomous (2 requests, 0 admin interaction). Classic finding that conventional scanners (Nuclei) detect via templates. Common in SEA market (custom PHP, legacy CodeIgniter, junior developer code).
+- Effort: MED (vector 2: parse response body for token fields ~30 lines. Vector 3: token entropy analysis + timestamp prediction ~60 lines. Vector 4: duplicate email param test + attacker inbox check ~50 lines. Vector 1: deferred. Total v1 detect: ~140 lines. v2 exploit: +60 lines per vector).
+- Constraint: v1 = DETECT only (ACTIVE_APPROVED): trigger reset, check for token disclosure / predictability / param pollution. Do NOT change victim password. Report as finding. v2 = EXPLOIT (OFFENSIVE_APPROVED + client explicit approval): use token to set new password → login → proof. Destructive: changes target state (admin password). Client must agree to password change and must reset admin password after engagement. Vector 1 = DEFERRED to social-engineering slice (requires admin to click link — not autonomous).
 
 ---
 
