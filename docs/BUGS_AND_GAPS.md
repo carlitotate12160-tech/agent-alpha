@@ -1692,18 +1692,44 @@
 
 ---
 
-## GAP-098 — reCAPTCHA / hCaptcha solving for login forms
-- Status: OPEN.
-- Priority: MEDIUM — only CF Turnstile handled; reCAPTCHA v2/v3 + hCaptcha not solved.
+## GAP-098 — reCAPTCHA / hCaptcha detection and solving for login forms
+- Status: OPEN (split into two slices — 098a code-only, 098b infra+cost).
+- Priority: MEDIUM — only CF Turnstile handled; reCAPTCHA v2/v3 + hCaptcha not detected or solved.
 - Category: RM
 - Stack: Universal
-- What: `browser_solve_service.py` handles Cloudflare Turnstile (clicks checkbox via Playwright frame_locator). But reCAPTCHA v2 ("I'm not a robot" checkbox), reCAPTCHA v3 (invisible score-based), and hCaptcha are NOT handled. Many login forms use reCAPTCHA to prevent automated login attempts. When Beta encounters a reCAPTCHA-protected login form, the POST fails with "reCAPTCHA verification required" — Beta reports FAILED even with valid credentials. This is a false-negative.
+- What: `browser_solve_service.py` handles Cloudflare Turnstile (clicks checkbox via Playwright frame_locator). But reCAPTCHA v2 ("I'm not a robot" checkbox), reCAPTCHA v3 (invisible score-based), and hCaptcha are NOT handled. Many login forms use reCAPTCHA to prevent automated login attempts. When Beta encounters a reCAPTCHA-protected login form, the POST fails with "reCAPTCHA verification required" — Beta reports FAILED even with valid credentials. This is a false-negative. This GAP has two distinct slices with different effort/cost profiles.
+
+### Slice 098a — CAPTCHA detection + honest blocked outcome (PURE CODE, ~40 lines)
+- Status: OPEN — do first.
+- Priority: HIGH (within 098) — menutup false negative tanpa infra.
+- What: Detect reCAPTCHA/hCaptcha presence in login form HTML (`<script src=".../recaptcha.js">`, `class="g-recaptcha"`, `data-sitekey`, `class="h-captcha"`). Classify as `CAPTCHA_PROTECTED` outcome. Beta reports BLOCKED with reason `captcha_protected` instead of FAILED. Conductor routes to Omega for honest report: "credential may be valid, but CAPTCHA blocks automated verification." This is the honest-blocked principle (§12.60): a blocked target produces a classified outcome, not a bare "FAILED."
+- Effort: LOW (~40 lines, pure code. Parse HTML for reCAPTCHA/hCaptcha indicators → new `CAPTCHA_PROTECTED` status → Beta handoff with `reason=captcha_protected`. No external service, no GPU, no cost.)
+- Constraint: Tidak menyelesaikan captcha. Hanya deteksi + klasifikasi honest. Beta give up pada captcha-protected target tapi dengan outcome yang benar (BLOCKED + reason), bukan false FAILED.
+
+### Slice 098b — CAPTCHA solving via paid service (INFRA + RECURRING COST, client opt-in)
+- Status: OPEN — deferred, client opt-in.
+- Priority: MEDIUM (within 098) — akses ke captcha-protected target, tapi butuh biaya.
+- What: Setelah 098a mendeteksi captcha, jika `engagement.config.captcha_solving_enabled = true`, Beta mengirim sitekey + page URL ke 2Captcha API (atau Anti-Captcha/CapMonster). Service return `g-recaptcha-response` token (15-30 detik). Beta submit login form dengan token. Cost: ~$3/1000 captcha (2Captcha), ~$2/1000 (Anti-Captcha).
+- Effort: MED (~80 lines code + API key infra + cost tracking). Butuh: 2Captcha API key (engagement config), HTTP client ke 2Captcha endpoint, polling untuk result (15-30s), cost tracking di engagement budget, timeout handling.
+- Infra dependency: 2Captcha/Anti-Captcha account + API key + recurring cost ($3/1000). Tidak ada GPU. Tidak ada ML model. Service external.
+- Legal: 2Captcha ToS mengizinkan automated solving. Google reCAPTCHA ToS melarang automated solving — ini adalah risiko legal yang harus di-disclose ke klien sebelum enable. Client opt-in via engagement config.
+- Constraint: Feature flag `captcha_solving_enabled` default FALSE. Hanya aktif jika klien eksplisit setuju di SOW. Cost tracking wajib (engagement budget). Tidak boleh aktif untuk engagement tanpa explicit opt-in.
+
+### Slice 098c — reCAPTCHA v3 score manipulation (CODE + Playwright, unreliable)
+- Status: OPEN — low priority, unreliable.
+- What: reCAPTCHA v3 tidak ada checkbox. Google beri score 0.0-1.0 berdasarkan browser behavior. Score tinggi = human. Untuk dapat score tinggi: `curl_cffi` TLS fingerprint (sudah ada) + header ordering (sudah ada) + human-like pacing (StealthPacer, sudah ada) + `grecaptcha.execute()` via Playwright. Tapi Google terus update model deteksi — score manipulation unreliable (40-60% success).
+- Effort: MED (~150 lines + Playwright browser). Tidak butuh GPU atau paid service. Tapi unreliable — Google update model, score manipulation break.
+- Constraint: Low priority. Tidak reliable untuk SaaS production. Skip sampai ada breakthrough di browser fingerprinting.
+
+### Slice 098d — ML self-hosted captcha solver (INFRA BERAT, skip)
+- Status: RETRACTED — tidak praktis untuk SaaS.
+- What: YOLOv8 + ResNet untuk klasifikasi gambar captcha. Butuh GPU server, model training, maintenance saat Google update.
+- Constraint: Skip. Infra berat, maintenance tinggi, reliability 60-80%. Tidak praktis untuk SaaS startup. Jika dibutuhkan di masa depan, gunakan 098b (paid service) sebagai alternative yang lebih murah dan lebih reliable.
+
 - Evidence: `browser_solve_service.py:159` — `.cf-turnstile` selector. No reCAPTCHA or hCaptcha selectors or solving logic. `grep "recaptcha|hcaptcha"` in `agent_alpha/` = 0 results outside browser_solve.
-- Files: `agent_alpha/live_fire/browser_solve_service.py:156-162` — `_CHALLENGE_SELECTORS` only has CF selectors; no reCAPTCHA/hCaptcha solving
-- Cross-ref: GAP-073 (WAF capability fingerprinting — CAPTCHA type is part of WAF capability), GAP-074 (auth mechanism fingerprinting — CAPTCHA is part of auth mechanism).
-- Impact: Beta cannot log into reCAPTCHA/hCaptcha-protected login forms. Many enterprise targets use reCAPTCHA. False negative with valid credentials.
-- Effort: HIGH (reCAPTCHA v2 solving requires either: 2Captcha/API anti-captcha service, or audio challenge solving, or ML-based image classification. reCAPTCHA v3 requires score manipulation. hCaptcha similar. This is a significant capability gap — may need to be deferred or use a paid captcha-solving service. Legal: using captcha-solving services may violate ToS).
-- Constraint: Consider whether captcha-solving is in scope for an agentless red team. Alternative: detect reCAPTCHA, classify as "CAPTCHA-protected, cred-reuse blocked" = honest blocked outcome (not false FAILED).
+- Files: `agent_alpha/live_fire/browser_solve_service.py:156-162` — `_CHALLENGE_SELECTORS` only has CF selectors; `agent_alpha/tools/internal/access/applicator.py` — no CAPTCHA detection in applicators; `agent_alpha/agents/beta/strike.py` — no CAPTCHA_PROTECTED status
+- Cross-ref: GAP-073 (WAF capability fingerprinting — CAPTCHA type is part of WAF capability), GAP-074 (auth mechanism fingerprinting — CAPTCHA is part of auth mechanism), GAP-099 (MFA detection — similar "first factor valid but blocked" pattern), §12.60 (honest blocked outcome principle).
+- Impact: Beta cannot log into reCAPTCHA/hCaptcha-protected login forms. Many enterprise targets use reCAPTCHA. False negative with valid credentials. Slice 098a menutup false negative (honest BLOCKED). Slice 098b memberi akses (paid, opt-in).
 
 ---
 
