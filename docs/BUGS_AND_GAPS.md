@@ -134,6 +134,21 @@
 | 093 | Certificate SAN extraction (live cert, not CT log) | OPEN | Med | RM | Low | TLS handshake SANs reveal internal hostnames not in CT log |
 | 094 | DNS zone transfer attempt (AXFR) | OPEN | Low | SS | Low | Rarely succeeds but jackpot when it does; 1 DNS query |
 | 095 | Social media company page recon (FB/IG/Twitter) | OPEN | Med | RG | Med | Company page admin list, post history, employee comments = org intel |
+| 096 | CSRF token extraction for form-login applicators | OPEN | High | RM | Med | Laravel/Spring/Django login POST fails without CSRF token; not extracted |
+| 097 | JSON API login applicator (SPA/REST login) | OPEN | High | SS | Med | Vue/React SPA login via JSON POST /api/login; no applicator exists |
+| 098 | reCAPTCHA / hCaptcha solving for login forms | OPEN | Med | RM | High | Only CF Turnstile handled; reCAPTCHA v2/v3 + hCaptcha not solved |
+| 099 | MFA/2FA challenge detection and honest classification | OPEN | High | RG | Med | Beta reports FAILED on MFA; no "first factor valid, MFA required" outcome |
+| 100 | Account lockout detection (target-side) | OPEN | Med | RM | Low | Governor prevents over-attempts but doesn't detect target lockout response |
+| 101 | API key authentication applicator | OPEN | Med | SS | Med | api_auth label exists but no applicator; leaked API keys not tried |
+| 102 | Session cookie riding (harvested cookie reuse) | OPEN | Med | SS | Low | Alpha may harvest session cookies from leaks; Beta can't ride them |
+| 103 | Cross-service credential reuse (SSH/Redis/SMTP) | OPEN | Med | SS | Med | Harvested DB creds not tried on SSH/Redis; MySqlApplicator is SOW-gated only |
+| 104 | Breach credential tool (Dehashed/HIBP integration) | OPEN | High | RG | Med | §12.54 breach data not wired; no tool to try breach creds |
+| 105 | Beta CVE consumption for exploit-based entry | OPEN | Med | RG | Med | Alpha finds CVE but Beta only tries cred-based access; no exploit entry |
+| 106 | Login redirect chain following | OPEN | Med | RM | Low | Multi-hop login redirects (SSO/callback) not followed to verify final landing |
+| 107 | First-login password change detection | OPEN | Low | RM | Low | Forced password change on first login = Beta reports FAILED, not "change required" |
+| 108 | Password reset flow user enumeration | OPEN | Med | RM | Med | Reset endpoint reveals valid emails; not probed by Beta |
+| 109 | Beta entry selection ignores WAF capability | OPEN | Med | RG | Low | Beta strikes WAF-protected surface without considering WAF mode (GAP-073) |
+| 110 | Beta credential prioritization lacks graph edges | OPEN | Med | RG | Med | cred_reuse iterates all creds × all surfaces; no graph-based priority (GAP-070) |
 
 ## Category Legend
 
@@ -207,6 +222,24 @@
 46. **GAP-083** — Virtual host discovery (LOW — niche, origin IP only)
 47. **GAP-094** — DNS zone transfer AXFR (LOW — rarely succeeds, jackpot when it does)
 48. **GAP-095** — Social media company page recon (MED — overlaps GAP-069 Trust Graph)
+
+### Beta Initial-Access Completeness (NEW — Alpha findings → Beta consumption)
+
+49. **GAP-096** — CSRF token extraction (HIGH — Laravel/Spring/Django login fails without it)
+50. **GAP-097** — JSON API login applicator (HIGH — SPA/Vue/React login via JSON POST)
+51. **GAP-099** — MFA/2FA challenge detection (HIGH — false negative: valid cred reported as FAILED)
+52. **GAP-104** — Breach credential tool (HIGH — real leaked passwords, highest-value cred-reuse)
+53. **GAP-098** — reCAPTCHA / hCaptcha solving (MED — or detect + honest blocked outcome)
+54. **GAP-100** — Account lockout detection (MED — stop wasting attempts on locked accounts)
+55. **GAP-101** — API key authentication applicator (MED — leaked API keys not tried)
+56. **GAP-102** — Session cookie riding (MED — harvested cookie = instant access)
+57. **GAP-103** — Cross-service cred reuse SSH/Redis (MED — DB password = SSH password)
+58. **GAP-105** — Beta CVE consumption for exploit entry (MED — Alpha finds CVE, Beta ignores)
+59. **GAP-106** — Login redirect chain following (MED — SSO multi-hop redirect misclassified)
+60. **GAP-107** — First-login password change detection (LOW — honest outcome classification)
+61. **GAP-108** — Password reset flow user enumeration (MED — reset endpoint = enum vector)
+62. **GAP-109** — Beta entry selection ignores WAF capability (MED — strike WAF-protected first)
+63. **GAP-110** — Beta credential prioritization lacks graph edges (MED — graph-based cred priority)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -345,6 +378,21 @@
 - GAP-078 — User enumeration via auth response differential (OPEN.)
 - GAP-079 — Post-access validation (agentless — access level proof without implant) (OPEN.)
 - GAP-080 — Session management analysis (post-login stability for Gamma handoff) (OPEN.)
+- GAP-096 — CSRF token extraction for form-login applicators (OPEN.)
+- GAP-097 — JSON API login applicator (SPA/REST login) (OPEN.)
+- GAP-098 — reCAPTCHA / hCaptcha solving for login forms (OPEN.)
+- GAP-099 — MFA/2FA challenge detection and honest classification (OPEN.)
+- GAP-100 — Account lockout detection (target-side) (OPEN.)
+- GAP-101 — API key authentication applicator (OPEN.)
+- GAP-102 — Session cookie riding (harvested cookie reuse) (OPEN.)
+- GAP-103 — Cross-service credential reuse (SSH/Redis/SMTP) (OPEN.)
+- GAP-104 — Breach credential tool (Dehashed/HIBP integration) (OPEN.)
+- GAP-105 — Beta CVE consumption for exploit-based entry (OPEN.)
+- GAP-106 — Login redirect chain following (OPEN.)
+- GAP-107 — First-login password change detection (OPEN.)
+- GAP-108 — Password reset flow user enumeration (OPEN.)
+- GAP-109 — Beta entry selection ignores WAF capability (OPEN.)
+- GAP-110 — Beta credential prioritization lacks graph edges (OPEN.)
 
 ### Trust Graph & Organizational Intelligence (NEW)
 
@@ -1610,6 +1658,224 @@
 - Impact: Missed organizational intelligence. Social media admin = potential WP admin = cred-reuse target. Post history may reveal internal tooling. Employee comments may reveal tech stack and IT complaints.
 - Effort: MED (FB/IG Graph API for company page metadata + post history + admin detection. Twitter API for company handle. Needs API tokens. Legal: company page data is public, NOT personal profile scraping).
 - Constraint: Company page ONLY. No personal profile scraping. No vishing, no phishing, no social engineering. v1 = metadata + post history only. Deferred items (per GAP-069 constraint): LinkedIn scraping, vishing, phishing = client-authorized slice with legal review.
+
+---
+
+
+# Beta Access — Alpha Finding Consumption Gaps
+
+## GAP-096 — CSRF token extraction for form-login applicators
+- Status: OPEN.
+- Priority: HIGH — Laravel/Spring/Django login POST fails with 419/403 without CSRF token, even with valid credentials.
+- Category: RM
+- Stack: Universal (Laravel, Spring, Django, Express, custom)
+- What: `HttpFormApplicator.apply()` and `WpLoginApplicator.apply()` POST username/password directly to the login endpoint. Many modern frameworks require a CSRF token in the POST body or header (Laravel: `_token` field from `<meta name="csrf-token">`, Spring: `_csrf` from session, Django: `csrfmiddlewaretoken` from form). Without extracting and including the CSRF token, the login POST returns 419 (Laravel), 403 (Spring/Django), or similar — even with VALID credentials. Beta reports FAILED when the credential is actually correct. This is a false-negative failure mode.
+- Evidence: `applicator.py:116-191` — `HttpFormApplicator.apply()` does GET baseline then POST username/password. No CSRF token extraction from baseline response. `WpLoginApplicator.apply()` — same pattern, no CSRF extraction. WP doesn't use CSRF on login (uses nonce differently), but Laravel/Spring/Django DO.
+- Files: `agent_alpha/tools/internal/access/applicator.py:92-191` — HttpFormApplicator (no CSRF); `agent_alpha/tools/internal/access/applicator.py:194-290` — WpLoginApplicator (no CSRF, but WP doesn't need it)
+- Cross-ref: GAP-074 (auth mechanism fingerprinting — CSRF structure is part of mechanism), GAP-097 (JSON API login — JSON login may also need CSRF). laravel_real_lab — Laravel login requires `_token` field.
+- Impact: Beta cannot log into ANY Laravel/Spring/Django target even with valid credentials. Login POST returns 419/403. False negative. The entire cred-reuse chain breaks for non-WP, non-Odoo frameworks.
+- Effort: MED (extract CSRF token from baseline GET: parse `<meta name="csrf-token">`, `<input name="_token">`, `<input name="csrfmiddlewaretoken">`, or cookie `XSRF-TOKEN` → include in POST body/header. ~80 lines. Must be framework-aware: Laravel uses `_token`, Django uses `csrfmiddlewaretoken`, Spring uses `_csrf`).
+
+---
+
+## GAP-097 — JSON API login applicator (SPA/REST login)
+- Status: OPEN.
+- Priority: HIGH — Vue/React SPA login via JSON POST; no applicator exists.
+- Category: SS
+- Stack: Universal (Vue, React, Angular, custom REST API)
+- What: `SPA_LOGIN_FORM` label exists in `auth_surface.py:60` but is NOT in `STRIKABLE_AUTH_LABELS` — Beta cannot strike it. The comment says "striking it needs a future SPA-login applicator." SPA login works via JSON POST to `/api/login` or `/api/auth/login` with `{"username": "...", "password": "..."}` body, NOT form-encoded POST. `HttpFormApplicator` sends `application/x-www-form-urlencoded` — wrong content type for JSON API. niagamas.com `pos.niagamas.com/admin/login` is a Vue.js SPA that logs in via JSON API. Beta tried form POST → failed.
+- Evidence: `auth_surface.py:50` — `STRIKABLE_AUTH_LABELS = {HTTP_BASIC_AUTH, LOGIN_FORM}` — SPA_LOGIN_FORM excluded. `auth_surface.py:56-59` — comment: "needs a future SPA-login applicator." No `JsonLoginApplicator` in `applicator.py` or `applicator_factory.py`.
+- Files: `agent_alpha/recon/auth_surface.py:50,60` — SPA_LOGIN_FORM not strikable; `agent_alpha/tools/internal/access/applicator.py` — no JSON applicator; `agent_alpha/conductor/applicator_factory.py:57-69` — beta_web_applicators only has WP + HttpForm
+- Cross-ref: GAP-030 (SPA login detection — DONE for detection, but no applicator), GAP-074 (auth mechanism fingerprinting — JSON API is a mechanism), GAP-096 (CSRF — JSON login may also need CSRF via header).
+- Impact: Beta cannot log into ANY SPA target (Vue, React, Angular). All modern web apps increasingly use JSON API login. Misses a growing category of targets.
+- Effort: MED (new `JsonLoginApplicator`: POST `{"username": "...", "password": "..."}` with `Content-Type: application/json`, parse JSON response for `token`/`session`/`access_level`. ~100 lines. Must be added to `STRIKABLE_AUTH_LABELS` and `beta_web_applicators`).
+
+---
+
+## GAP-098 — reCAPTCHA / hCaptcha solving for login forms
+- Status: OPEN.
+- Priority: MEDIUM — only CF Turnstile handled; reCAPTCHA v2/v3 + hCaptcha not solved.
+- Category: RM
+- Stack: Universal
+- What: `browser_solve_service.py` handles Cloudflare Turnstile (clicks checkbox via Playwright frame_locator). But reCAPTCHA v2 ("I'm not a robot" checkbox), reCAPTCHA v3 (invisible score-based), and hCaptcha are NOT handled. Many login forms use reCAPTCHA to prevent automated login attempts. When Beta encounters a reCAPTCHA-protected login form, the POST fails with "reCAPTCHA verification required" — Beta reports FAILED even with valid credentials. This is a false-negative.
+- Evidence: `browser_solve_service.py:159` — `.cf-turnstile` selector. No reCAPTCHA or hCaptcha selectors or solving logic. `grep "recaptcha|hcaptcha"` in `agent_alpha/` = 0 results outside browser_solve.
+- Files: `agent_alpha/live_fire/browser_solve_service.py:156-162` — `_CHALLENGE_SELECTORS` only has CF selectors; no reCAPTCHA/hCaptcha solving
+- Cross-ref: GAP-073 (WAF capability fingerprinting — CAPTCHA type is part of WAF capability), GAP-074 (auth mechanism fingerprinting — CAPTCHA is part of auth mechanism).
+- Impact: Beta cannot log into reCAPTCHA/hCaptcha-protected login forms. Many enterprise targets use reCAPTCHA. False negative with valid credentials.
+- Effort: HIGH (reCAPTCHA v2 solving requires either: 2Captcha/API anti-captcha service, or audio challenge solving, or ML-based image classification. reCAPTCHA v3 requires score manipulation. hCaptcha similar. This is a significant capability gap — may need to be deferred or use a paid captcha-solving service. Legal: using captcha-solving services may violate ToS).
+- Constraint: Consider whether captcha-solving is in scope for an agentless red team. Alternative: detect reCAPTCHA, classify as "CAPTCHA-protected, cred-reuse blocked" = honest blocked outcome (not false FAILED).
+
+---
+
+## GAP-099 — MFA/2FA challenge detection and honest classification
+- Status: OPEN.
+- Priority: HIGH — Beta reports FAILED on MFA; no "first factor valid, MFA required" outcome.
+- Category: RG
+- Stack: Universal
+- What: When Beta successfully submits username+password but the target requires MFA (OTP, TOTP, SMS, email code, push notification), Beta's `_has_positive_auth_signal` returns False (no session cookie, no redirect to dashboard — instead redirect to `/mfa/verify` or `/2fa/enter`). Beta reports FAILED. But the first factor WAS valid — the credential IS correct. This is a critical false negative: Beta had a valid credential but reports failure. A real red team classifies this as "first factor valid, MFA challenge issued" — this is itself a payable finding (valid credential confirmed) and routes to Gamma (MFA bypass) or reports as "credential valid, MFA blocks access."
+- Evidence: `default_creds.py:148-179` — `_has_positive_auth_signal` checks for session cookie, 302 redirect, or login form disappearance. MFA challenge: 302 to `/mfa/verify` → signal 2 (redirect) returns True, BUT the redirect is to MFA page, not dashboard. No MFA detection logic. No `MFA_CHALLENGE` outcome in A2A status.
+- Files: `agent_alpha/tools/internal/access/default_creds.py:148-179` — _has_positive_auth_signal (no MFA detection); `agent_alpha/agents/beta/strike.py:241-244` — status COMPLETE only if access_level != NONE (MFA = no access = FAILED)
+- Cross-ref: GAP-079 (post-access validation — MFA is pre-access validation), GAP-074 (auth mechanism fingerprinting — MFA type is part of mechanism).
+- Impact: Beta has a valid credential but reports FAILED. Client never learns the credential was valid. Misses payable finding ("we confirmed your admin password is `X` — MFA is the only barrier"). False negative.
+- Effort: MED (detect MFA challenge: 302 to `/mfa/*`, `/2fa/*`, `/otp/*`, `/verify*`, or JSON response `{"mfa_required": true}`. New outcome: `MFA_CHALLENGED` with `first_factor_valid=True`. Route to Conductor for Gamma MFA-bypass decision or honest report. ~60 lines).
+
+---
+
+## GAP-100 — Account lockout detection (target-side)
+- Status: OPEN.
+- Priority: MEDIUM — governor prevents over-attempts but doesn't detect target lockout response.
+- Category: RM
+- Stack: Universal
+- What: `CredentialLockoutGovernor` (§12.22 D2) prevents Beta from making too many attempts per (host, username). But it does NOT detect when the TARGET has locked the account. If the target locks after 3 failed attempts and returns "Account locked due to too many failed attempts" or "Too many login attempts, try again in 15 minutes", Beta continues trying (governor allows up to its limit) — wasting attempts on a locked account. Worse: Beta may interpret the lockout page as "login form still present = failed" without understanding the account is locked, missing the opportunity to switch to a different username.
+- Evidence: `cred_lockout.py` — governor tracks attempts per (host, username) but does not parse target responses for lockout indicators. `default_creds.py:148-179` — `_has_positive_auth_signal` returns False for lockout page (no session cookie, no redirect) — but doesn't classify WHY it failed.
+- Files: `agent_alpha/tools/internal/access/cred_lockout.py` — governor (prevents, doesn't detect); `agent_alpha/tools/internal/access/default_creds.py:148-179` — no lockout response parsing
+- Cross-ref: GAP-078 (user enumeration — lockout response is also a username enumeration vector: "account locked" = valid username).
+- Impact: Beta wastes attempts on locked accounts. May trigger permanent lockout. Doesn't switch strategy (try different username, wait for unlock, report lockout as finding).
+- Effort: LOW (parse response body for "locked", "too many attempts", "try again later", "account suspended" → classify as `LOCKED_OUT`, stop attempts on that username, report as finding. ~40 lines).
+
+---
+
+## GAP-101 — API key authentication applicator
+- Status: OPEN.
+- Priority: MEDIUM — api_auth label exists but no applicator; leaked API keys not tried.
+- Category: SS
+- Stack: Universal
+- What: `auth_surface.py:37` defines `API_AUTH = "api_auth"` label, and `detect_auth_surface_labels` classifies JSON 401 responses as `api_auth`. But `STRIKABLE_AUTH_LABELS` does NOT include `api_auth` — Beta cannot strike it. Many targets expose API endpoints authenticated via API keys (`Authorization: Bearer <key>`, `X-API-Key: <key>`, `?api_key=<key>`). If Alpha harvests API keys from leaked `.env` files (`STRIPE_API_KEY=sk_live_...`, `AWS_ACCESS_KEY_ID=...`), Beta should try them against the target's API. No applicator exists for API key auth.
+- Evidence: `auth_surface.py:50` — `STRIKABLE_AUTH_LABELS = {HTTP_BASIC_AUTH, LOGIN_FORM}` — API_AUTH excluded. No `ApiKeyApplicator` in any module. Alpha harvests API keys via `js_secret_probe.py` and `.env` leak but Beta has no tool to apply them.
+- Files: `agent_alpha/recon/auth_surface.py:37,50` — API_AUTH defined but not strikable; `agent_alpha/tools/internal/access/` — no API key applicator
+- Cross-ref: GAP-058 (JS secret extraction — Alpha finds API keys), GAP-070 (credential-to-asset correlation — API keys need asset edges), GAP-074 (auth mechanism fingerprinting — API key is a mechanism).
+- Impact: Alpha harvests API keys from leaked `.env` but Beta can't use them. Missed access via API key. Many SaaS targets are API-first — the API key IS the access.
+- Effort: MED (new `ApiKeyApplicator`: try harvested API keys as `Authorization: Bearer <key>`, `X-API-Key: <key>`, `?api_key=<key>` against classified `api_auth` endpoints. Verify via 200 response (not 401/403). ~80 lines).
+
+---
+
+## GAP-102 — Session cookie riding (harvested cookie reuse)
+- Status: OPEN.
+- Priority: MEDIUM — Alpha may harvest session cookies from leaks; Beta can't ride them.
+- Category: SS
+- Stack: Universal
+- What: Alpha's `js_secret_probe.py` and `.env` leak probes may harvest session cookies from leaked files (`.env` with `SESSION_SECRET=...`, backup files with browser cookie dumps, JS with embedded `document.cookie`). But Beta has no tool to "ride" a harvested session cookie — to send it as `Cookie: session=<harvested_value>` and verify if the session is still valid. This is the simplest access path: no login needed, just reuse a valid session. A real red team always tries harvested cookies first.
+- Evidence: No `SessionRidingTool` or `CookieApplicator` in `tools/internal/access/`. `cred_reuse.py` only handles username+password credentials, not session cookies. `CredentialProperties` has no `cookie_value` field.
+- Files: `agent_alpha/tools/internal/access/` — no session riding tool; `agent_alpha/graph/nodes.py:78-83` — CredentialProperties (no cookie field)
+- Cross-ref: GAP-058 (JS secret extraction — may find cookies), GAP-087 (backup files — may contain cookie dumps), GAP-070 (credential-to-asset correlation — cookies need asset edges).
+- Impact: Missed easiest access path. A valid session cookie = instant access without login. If Alpha finds `session=abc123` in a leaked `.env` and the session is still valid, Beta should ride it. Currently impossible.
+- Effort: LOW (new `SessionRidingTool`: read harvested cookie from vault, send as `Cookie:` header to target, verify via 200 response on authenticated endpoint. ~50 lines. Must check cookie freshness — sessions expire).
+
+---
+
+## GAP-103 — Cross-service credential reuse (SSH/Redis/SMTP)
+- Status: OPEN.
+- Priority: MEDIUM — harvested DB creds not tried on SSH/Redis; MySqlApplicator is SOW-gated only.
+- Category: SS
+- Stack: Universal
+- What: Beta's `MySqlApplicator` exists but only binds to SOW-declared DB endpoints (`applicator_factory.py:191` — `_DB_SERVICES` check). If Alpha discovers port 22 (SSH, GAP-081) or port 6379 (Redis, GAP-081) open, and Alpha harvested DB credentials from `.env` leak, Beta should try those credentials on SSH and Redis too — credential reuse across services is a classic red team technique. A DB password `P@ssw0rd123` might be the same as the SSH password or Redis AUTH password. No applicator for SSH, Redis, PostgreSQL, SMTP, or FTP cred-reuse exists.
+- Evidence: `applicator_factory.py:54` — `_DB_SERVICES = {"mysql", "mariadb"}` — only MySQL. No SSH, Redis, PostgreSQL, SMTP, FTP applicators. `cred_reuse.py` iterates applicators but only HttpForm + WpLogin + MySql are available.
+- Files: `agent_alpha/conductor/applicator_factory.py:54` — _DB_SERVICES (MySQL only); `agent_alpha/tools/internal/access/` — no SSH/Redis/Postgres/SMTP applicator
+- Cross-ref: GAP-081 (port scanning — prerequisite: must discover non-HTTP ports first), GAP-070 (credential-to-asset correlation — creds should be tried on all services with trust edges), GAP-046 (HTTP Basic Auth applicator — another missing applicator).
+- Impact: Missed cross-service cred-reuse. DB password = SSH password = full server access. Classic finding that Agent-Alpha cannot discover.
+- Effort: MED (new applicators: `SshApplicator` via paramiko, `RedisApplicator` via redis-py AUTH check, `PostgresApplicator` via psycopg2, `SmtpApplicator` via smtplib AUTH. Each ~50 lines. Must be OFFENSIVE_APPROVED tier — direct service connection. Scope-gated).
+- Constraint: OFFENSIVE_APPROVED tier required. Each service connection is an active auth attempt against a non-HTTP service. Must respect scope gate and lockout governor.
+
+---
+
+## GAP-104 — Breach credential tool (Dehashed/HIBP integration)
+- Status: OPEN.
+- Priority: HIGH — §12.54 breach data not wired; no tool to try breach creds.
+- Category: RG
+- Stack: Universal
+- What: ADR §12.54 references Dehashed/HIBP breach data integration, but it is not wired. No tool exists to: (1) query breach databases for emails associated with the target domain, (2) extract leaked passwords from breach data, (3) try those passwords against the target's login form. This is the highest-value cred-reuse path: real leaked passwords from real breaches, not derived guesses. A real external red team always checks breach data. Beta's `UserDerivedCredsTool` derives passwords from username+domain stem (`niagamas123`) — but breach data has REAL passwords (`P@ssw0rd2024!`) that no derivation would guess.
+- Evidence: `grep "dehashed|hibp|breach.*cred|breach.*password"` in `agent_alpha/` = 0 results. No breach data client module. `UserDerivedCredsTool` derives from patterns, not breach data.
+- Files: No breach data module. `agent_alpha/tools/internal/access/user_derived_creds.py` — derives from patterns only.
+- Cross-ref: GAP-054 (WP REST user email — prerequisite: need emails to query breach DB), GAP-090 (email pattern inference — generates candidate emails for breach query), GAP-070 (credential-to-asset correlation — breach creds need asset edges), §12.54 (Dehashed/HIBP — ADR reference, not wired).
+- Impact: Missed highest-value cred-reuse path. Breach data has real passwords that no pattern derivation would guess. Without breach integration, Beta's cred-reuse is limited to: harvested creds (from leaks), default creds (admin/admin), derived creds (username123). Breach creds are the 4th and most powerful source.
+- Effort: MED (Dehashed API client + email-to-breach query + password extraction + new `BreachCredTool` that tries breach passwords against target login. ~200 lines. Needs Dehashed API key. Legal: querying breach data is legal; using found credentials is SOW-gated).
+- Constraint: Dehashed/HIBP API key required. Must be scoped: only query breach data for emails derived from in-scope domain. No mass breach scraping.
+
+---
+
+## GAP-105 — Beta CVE consumption for exploit-based entry
+- Status: OPEN.
+- Priority: MEDIUM — Alpha finds CVE but Beta only tries cred-based access; no exploit entry.
+- Category: RG
+- Stack: Universal
+- What: Alpha's `plugin_cve_catalog.py` (after GAP-089) maps versions to CVEs and creates VULNERABILITY nodes. But Beta's `_project_target_context` only reads CREDENTIAL, VULNERABILITY (as string label), and ACCESS_LEVEL nodes — it does NOT use CVE findings to choose an exploit-based entry. Beta always tries cred-based access (cred_reuse, default_creds, user_derived, odoo_access). If Alpha finds "WordPress 6.4 has CVE-2023-XXXX RCE" or "Spring Boot Actuator env disclosure", Beta doesn't use that to attempt exploit-based initial access. The CVE → exploit → access chain is broken at the Beta step.
+- Evidence: `strike.py:100-115` — `_project_target_context` reads VULNERABILITY nodes as string labels in `prior_findings`, but `step()` only dispatches cred-based tools. No exploit tool in `candidates` list (strike.py:321-342). CVE findings are informational to Beta, not actionable.
+- Files: `agent_alpha/agents/beta/strike.py:100-115,321-342` — prior_findings includes CVEs but tool list is cred-only; `agent_alpha/recon/plugin_cve_catalog.py` — CVE catalog (feeds Alpha, not Beta)
+- Cross-ref: GAP-089 (CVE catalog — prerequisite: must have CVE data first), GAP-077 (auth bypass — a type of exploit-based entry), §12.55 (1-Day Weaponizer — Beta should weaponize 1-day CVEs for initial access).
+- Impact: Alpha finds CVE but Beta ignores it. The entire version→CVE→exploit→access chain is broken at Beta. Misses exploit-based initial access that doesn't require credentials (e.g., unauthenticated RCE, auth bypass via CVE).
+- Effort: MED (new `ExploitEntryTool`: read VULNERABILITY nodes with CVE IDs, match against 1-day exploit catalog (§12.55), attempt exploit-based access. Must be gated by CVE type: unauthenticated exploits = Beta scope, authenticated RCE = Gamma scope. ~150 lines + exploit catalog data).
+- Constraint: 1-day exploits only (§12.55). Unauthenticated exploits (auth bypass, info disclosure → access) = Beta. Authenticated exploits (RCE, priv-esc) = Gamma. Must not attempt novel/0-day exploits.
+
+---
+
+## GAP-106 — Login redirect chain following
+- Status: OPEN.
+- Priority: MEDIUM — multi-hop login redirects (SSO/callback) not followed to verify final landing.
+- Category: RM
+- Stack: Universal
+- What: `HttpFormApplicator.apply()` and `WpLoginApplicator.apply()` check for 302 redirect as a positive auth signal. But some login flows redirect through MULTIPLE hops: login → SSO redirect → callback URL → dashboard. The HTTP client may follow redirects but the applicator only checks the FIRST response. If the first redirect goes to an SSO intermediary (not the dashboard), the applicator may misclassify: (a) false positive — 302 to SSO = "access" when actually SSO challenge pending, or (b) false negative — redirect chain doesn't end at dashboard so "login form disappeared" check fails.
+- Evidence: `applicator.py:177-179` — `if auth_resp.status_code in (301, 302): return True` — checks first response only. No redirect chain following to final landing page. `http_client.get()` may or may not follow redirects (depends on client config).
+- Files: `agent_alpha/tools/internal/access/applicator.py:116-191` — HttpFormApplicator (first response only); `agent_alpha/tools/internal/access/applicator.py:194-290` — WpLoginApplicator (same)
+- Cross-ref: GAP-074 (auth mechanism fingerprinting — SSO redirect is a mechanism), GAP-099 (MFA detection — MFA may redirect through multiple hops).
+- Impact: False positive (302 to SSO = "access" when SSO challenge pending) or false negative (redirect chain not followed to dashboard). Misclassification of SSO-based login flows.
+- Effort: LOW (follow redirect chain to final response, check final URL for dashboard indicators (`/admin`, `/dashboard`, `/home`) and login form absence. ~40 lines).
+
+---
+
+## GAP-107 — First-login password change detection
+- Status: OPEN.
+- Priority: LOW — forced password change on first login = Beta reports FAILED, not "change required".
+- Category: RM
+- Stack: Universal
+- What: Some targets force a password change on first login: after successful username+password, the target redirects to `/password/change` or `/set-password` instead of the dashboard. Beta's `_has_positive_auth_signal` sees a 302 redirect → returns True (signal 2), but the redirect is to password change page, not dashboard. Beta may report COMPLETE with `access_level=user` when actually no dashboard access was achieved — the user is forced to change password first. Alternatively, Beta may report FAILED if the password change page has a password field (login form "still present"). Neither outcome is correct — the honest classification is "first factor valid, password change required."
+- Evidence: `default_creds.py:177-179` — 302 = positive signal, but doesn't check WHERE the redirect goes. No password-change page detection. No `PASSWORD_CHANGE_REQUIRED` outcome.
+- Files: `agent_alpha/tools/internal/access/default_creds.py:148-179` — no password change detection; `agent_alpha/agents/beta/strike.py:241-244` — no PASSWORD_CHANGE_REQUIRED status
+- Cross-ref: GAP-079 (post-access validation — password change is a post-first-factor validation), GAP-099 (MFA detection — similar "first factor valid but blocked" pattern), GAP-106 (redirect chain following — password change is a redirect destination).
+- Impact: False positive (reports COMPLETE when no dashboard access) or false negative (reports FAILED when first factor was valid). Misclassification of first-login password change flow.
+- Effort: LOW (detect redirect to `/password/change`, `/set-password`, `/reset-password`, `/first-login` → classify as `PASSWORD_CHANGE_REQUIRED`. ~30 lines).
+
+---
+
+## GAP-108 — Password reset flow user enumeration
+- Status: OPEN.
+- Priority: MEDIUM — reset endpoint reveals valid emails; not probed by Beta.
+- Category: RM
+- Stack: Universal
+- What: Password reset endpoints (`/forgot-password`, `/password-reset`, `/wp-login.php?action=lostpassword`) often reveal whether an email/username exists: "If that email exists, we've sent a reset link" (same message for all = no enum) vs "No account found with that email" (differential = enum). Some endpoints reveal more: "Reset link sent to y***@niagamas.com" (partial email disclosure). Beta has no tool to probe reset endpoints for user enumeration. This is distinct from GAP-078 (login response differential) — reset endpoints have different response patterns and are often less protected than login forms.
+- Evidence: No password reset probe in `tools/internal/access/`. `cred_reuse.py` and `default_creds.py` only target login forms. No reset endpoint handler.
+- Files: `agent_alpha/tools/internal/access/` — no password reset tool; `agent_alpha/agents/beta/strike.py` — no reset endpoint dispatch
+- Cross-ref: GAP-078 (user enumeration via auth response — login form, this is reset form), GAP-047 (username harvest — reset endpoint is another harvest source), GAP-054 (WP REST user email — emails feed reset endpoint probe).
+- Impact: Missed username enumeration vector. Reset endpoints often have weaker protection than login forms (no rate limit, no CAPTCHA). Valid emails from reset = cred-spray targets = potential access.
+- Effort: MED (new `PasswordResetEnumTool`: POST email to reset endpoint, parse response differential ("sent" vs "not found"), extract partial email if disclosed. Must be stealthy — 1 request per email, long delay. ~80 lines).
+- Constraint: Must NOT actually trigger password reset emails to real users (use non-existent email as control, then compare with candidate). Only enumerate, never reset.
+
+---
+
+## GAP-109 — Beta entry selection ignores WAF capability
+- Status: OPEN.
+- Priority: MEDIUM — Beta strikes WAF-protected surface without considering WAF mode.
+- Category: RG
+- Stack: Universal
+- What: `select_strike_entry` (`conductor/router.py:117`) ranks entries by auth-surface label priority and reachability. It does NOT consider WAF capability (GAP-073). If the top-ranked entry is behind Cloudflare Bot Management with ML (aggressive), Beta's cred-spray will trigger IP ban. If a lower-ranked entry is behind rate-limit-only WAF (lenient), Beta's cred-spray would succeed. Beta strikes the "most visible" entry, not the "most accessible" entry. This is a subset of GAP-072 (entry-vector ranking) but specifically about WAF capability as a ranking factor.
+- Evidence: `router.py:117-176` — `select_strike_entry` sorts by (unreachable, label_priority, host). No WAF capability in sort key. `applicator_factory.py` — no WAF-aware applicator selection.
+- Files: `agent_alpha/conductor/router.py:117-176` — select_strike_entry (no WAF factor); `agent_alpha/conductor/main.py:600-676` — run_beta (no WAF-aware dispatch)
+- Cross-ref: GAP-073 (WAF capability fingerprinting — prerequisite: must know WAF mode), GAP-072 (entry-vector ranking — general ranking, this is WAF-specific), GAP-026 (StealthPacer gate inverted — stealth not default).
+- Impact: Beta may strike an aggressively-WAF-protected entry and get IP-banned, when a less-protected entry would have succeeded. Wasted strike budget + potential engagement failure (IP ban = no further access possible).
+- Effort: LOW (add WAF capability as sort key in `select_strike_entry`: entries behind aggressive WAF ranked lower. Read `waf_capability` field from AssetProperties after GAP-073. ~20 lines. Depends on GAP-073).
+
+---
+
+## GAP-110 — Beta credential prioritization lacks graph edges
+- Status: OPEN.
+- Priority: MEDIUM — cred_reuse iterates all creds × all surfaces; no graph-based priority.
+- Category: RG
+- Stack: Universal
+- What: `cred_reuse.py` iterates ALL CREDENTIAL nodes and tries each against ALL applicable surfaces via `select_applicator`. There is no graph-based prioritization: no "this credential was harvested from WP config → try WP login first" or "this credential has a TRUST_RELATIONSHIP edge to this asset → try that asset first." The credential-to-asset correlation (GAP-070) would create `CREDENTIAL → ENABLES → ASSET` edges, but `cred_reuse.py` does not read these edges for prioritization. Result: Beta tries DB password on WP login (wrong), WP password on Odoo (wrong), before trying the right combination. Wasted attempts + lockout risk.
+- Evidence: `cred_reuse.py:82-100` — iterates all CREDENTIAL nodes, delegates to `select_applicator` by service field only. No graph edge traversal for prioritization. `CredentialProperties.service` is free-text, not a graph edge.
+- Files: `agent_alpha/tools/internal/access/cred_reuse.py:82-100` — iterates all creds (no graph priority); `agent_alpha/graph/nodes.py:78-83` — CredentialProperties (service field, no edge)
+- Cross-ref: GAP-070 (credential-to-asset correlation — creates the edges this GAP consumes), GAP-072 (entry-vector ranking — related ranking concept), GAP-078 (user enumeration — pre-filtering reduces cred attempts).
+- Impact: Beta wastes attempts on wrong credential/asset pairs. 10 credentials × 3 surfaces = 30 attempts, when graph edges would reduce to 3 targeted attempts. Lockout risk + WAF trigger + time waste.
+- Effort: MED (read `CREDENTIAL → ENABLES → ASSET` edges from graph, sort credential attempts by edge existence (edge = high priority, no edge = low priority). ~60 lines. Depends on GAP-070).
 
 ---
 
