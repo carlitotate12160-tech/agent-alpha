@@ -153,6 +153,7 @@
 | 112 | Offline hash cracking tool (hashcat/john integration) | OPEN | High | SS | High | No offline crack capability; online spray risks lockout |
 | 113 | Password reset abuse (host header injection, token prediction) | OPEN | Med | SS | Med | Reset endpoint abuse to change password without knowing old password |
 | 114 | OAuth/SAML/JWT token theft and forgery | OPEN | Med | SS | High | Token-based auth bypass via open redirect, weak signing key, JWT crack |
+| 115 | Historical DNS origin discovery (SecurityTrails/DNSHistory) | OPEN | High | RG | Med | ADR §12.61 A1 — biggest missing signal; crt.sh/VT/OTX failed on full-CF targets |
 
 ## Category Legend
 
@@ -248,6 +249,21 @@
 65. **GAP-112** — Offline hash cracking tool (HIGH — avoids lockout, 0 target touch, but HIGH effort)
 66. **GAP-113** — Password reset abuse (MED — bypass cred entirely, host header injection + token prediction)
 67. **GAP-114** — OAuth/SAML/JWT token theft and forgery (MED — modern auth bypass, HIGH effort)
+
+### ADR §12.61 Flank-when-CF-hard (NEW — origin discovery + perimeter skip)
+
+Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivot → (3) leaked-cred stuffing."
+
+68. **GAP-115** — Historical DNS origin discovery (HIGH — ADR §12.61 A1, biggest missing signal, 4 field targets failed without it)
+69. **GAP-093** — Certificate SAN extraction (MED — ADR §12.61 A3, cert pivot, 0 new requests)
+70. **GAP-086** — Favicon hash fingerprinting (LOW — ADR §12.61 A3, favicon pivot via Shodan/Censys)
+71. **GAP-104** — Breach credential tool (HIGH — ADR §12.61 B5, #1 real-APT vector, valid creds walk through CF)
+72. **GAP-054** — WP REST user email/roles (LOW — ADR §12.61 B5 prerequisite, email = breach query input)
+73. **GAP-090** — Email pattern inference (LOW — ADR §12.61 B5 prerequisite, generate candidates)
+74. **GAP-091** — GitHub/GitLab public code search (MED — ADR §12.61 B6, exposed secrets in public repos)
+75. **GAP-076** — Cloud storage / shadow-IT discovery (MED — ADR §12.61 B7, S3/GCS, no CF protection)
+76. **GAP-075** — Subdomain takeover check (LOW — ADR §12.61 A4+B8, dangling CNAME, DNS only)
+77. **GAP-062** — TLS/MX/SPF/DMARC (LOW — ADR §12.61 A2, MX = origin netblock, passive)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -405,6 +421,7 @@
 - GAP-112 — Offline hash cracking tool (hashcat/john integration) (OPEN.)
 - GAP-113 — Password reset abuse (host header injection, token prediction) (OPEN.)
 - GAP-114 — OAuth/SAML/JWT token theft and forgery (OPEN.)
+- GAP-115 — Historical DNS origin discovery / ADR §12.61 A1 (OPEN.)
 
 ### Trust Graph & Organizational Intelligence (NEW)
 
@@ -2037,6 +2054,81 @@
 - Impact: Missed entire category of modern auth bypass. SaaS targets increasingly use OAuth/JWT. Enterprise targets use SAML SSO. Agent-Alpha cannot bypass any of these. As the market shifts to token-based auth, this gap grows in severity.
 - Effort: HIGH (multiple sub-vectors: OAuth open redirect probe, JWT crack via hashcat mode 16500, JWT algorithm confusion test, SAML signature wrapping test. Each ~100-200 lines. JWT crack reuses GAP-112 hashcat integration. OAuth/SAML probes need active interaction with auth flow. ~500 lines total).
 - Constraint: JWT crack = offline (RECON_ONLY+, reuse GAP-112 hashcat). OAuth open redirect = ACTIVE_APPROVED (send auth request with attacker redirect_uri). SAML signature wrapping = OFFENSIVE_APPROVED (forge SAML response). Each sub-vector has different tier. Must be gated individually.
+
+---
+
+
+# ADR §12.61 Flank-when-CF-hard Implementation
+
+## GAP-115 — Historical DNS origin discovery (SecurityTrails/DNSHistory)
+- Status: OPEN.
+- Priority: HIGH — ADR §12.61 A1 explicitly calls this "the biggest missing signal."
+- Category: RG
+- Stack: Universal
+- What: ADR §12.61 axis A1: "Historical DNS — the A-record BEFORE CF was fronted; origin IP often unchanged. HIGHEST leverage, passive." Agent-Alpha's current origin discovery uses crt.sh/VT/OTX (certificate transparency + threat intel) — which FAILED on 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket). All 4 are full-Cloudflare apex targets where crt.sh yielded 0 origin candidates. Historical DNS (SecurityTrails, DNSHistory, DNSDB, ViewDNS) queries the A-record history BEFORE the domain was fronted by Cloudflare — the origin IP is often unchanged and still live. This is the #1 technique for origin discovery on full-CF targets, and it is completely absent.
+- Evidence: `recon/origin_resolver.py` — uses crt.sh/VT/OTX composite. No historical DNS query. `grep "securitytrails|dnshistory|dnsdb|viewdns" ` in `agent_alpha/` = 0 results. ADR §12.61: "Agent today: only crt.sh/VT/OTX — which FAILED on these targets. This is the biggest missing signal."
+- Files: `agent_alpha/recon/origin_resolver.py` — no historical DNS source; `agent_alpha/recon/passive_discovery.py` — no historical DNS; no SecurityTrails/DNSHistory client module
+- Cross-ref: ADR §12.61 A1 (HIGHEST leverage per ADR), GAP-042 (origin binding — historical IP needs two-proof binding), GAP-062 (MX/SPF — axis A2 complement), GAP-093 (cert SAN — axis A3 complement), GAP-086 (favicon hash — axis A3 complement), GAP-075 (subdomain takeover — axis A4/B8 complement). niagamas.com + bernofarm.com field-prove: both full-CF, crt.sh failed, historical DNS is the missing technique.
+- Impact: 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket) are full-CF apex where origin discovery FAILED. Without historical DNS, Agent-Alpha cannot find the origin and cannot flank. The entire §12.61 axis A is blocked at the first step. This is the single highest-leverage GAP for the full-CF target class.
+- Effort: MED (SecurityTrails API client + DNSHistory/ViewDNS fallback + historical A-record extraction + origin candidate emission. ~150 lines. Needs SecurityTrails API key (free tier: 50 queries/month, paid: $50/month for 5000). Fallback: ViewDNS.info free API (1 query/minute, no key). Must compose with existing two-proof origin binding (§12.46) — historical IP is a CANDIDATE, not a proven origin).
+- Constraint: Historical IP is a CANDIDATE only — must pass two-proof binding (domain ownership + origin binding, §12.46) before Beta can strike. Passive, 0 target touch (query external DNS history API, not target). SecurityTrails free tier sufficient for low-volume engagements. Open question (ADR §12.61): external API dependency/cost policy — keyless fallback (ViewDNS) + budget tracking.
+
+---
+
+
+# ADR §12.61 Cross-Reference Index (NEW)
+
+The following GAPs are implementations of ADR §12.61 "Flank-when-CF-hard" axes. This index maps each §12.61 technique to its GAP entry for traceability.
+
+## Axis A — Find the ORIGIN (go around CF)
+
+| §12.61 Technique | GAP | Status | Notes |
+|------------------|-----|--------|-------|
+| A1: Historical DNS (SecurityTrails/DNSHistory) | **GAP-115** | OPEN | Biggest missing signal per ADR. crt.sh/VT/OTX failed on 4 field targets. |
+| A2: Mail/MX/SPF → origin netblock | **GAP-062** | OPEN | MX records reveal origin infrastructure (mail servers on origin, not CF). |
+| A3: Cert/favicon pivot (Shodan/Censys) | **GAP-093** + **GAP-086** | OPEN | Cert SAN reveals internal hostnames. Favicon hash matches origin via Shodan/Censys. |
+| A4: Grey-cloud/forgotten subdomains | **GAP-075** | OPEN | Subdomain takeover checks dangling CNAME. Grey-cloud subdomains bypass CF. |
+
+## Axis B — Skip the perimeter (login reachable THROUGH CF)
+
+| §12.61 Technique | GAP | Status | Notes |
+|------------------|-----|--------|-------|
+| B5: Leaked credentials (breach data) | **GAP-104** | OPEN | Breach data → cred-stuff CF-fronted login. Valid creds walk through CF. #1 real-APT vector. |
+| B5 prerequisite: email harvest | **GAP-054** | OPEN | WP REST user email = input for breach data query. Without email, no breach correlation. |
+| B5 prerequisite: email pattern inference | **GAP-090** | OPEN | Infer email pattern from known email → generate candidates for breach query. |
+| B6: Exposed secrets in public code (GitHub/GitLab) | **GAP-091** | OPEN | Developers commit .env/API keys to public repos. Passive OSINT. |
+| B6 complement: JS secret extraction | **GAP-058** | OPEN | Target's own JS files may contain API keys, origin IPs. Complements B6 (external repos). |
+| B7: Public cloud storage (S3/GCS/Azure) | **GAP-076** | OPEN | S3 buckets named after target, often public read. No CF protection. |
+| B8: Subdomain takeover (dangling CNAME) | **GAP-075** | OPEN | Passive-discoverable, claimable. Same GAP as A4 (takeover is both origin discovery and access). |
+
+## §12.61 flank strategy inputs
+
+| Input | GAP | Status | Notes |
+|-------|-----|--------|-------|
+| CVE determines flank axis | **GAP-052** + **GAP-053** + **GAP-088** + **GAP-089** | OPEN | Unauth CVE → skip Beta (exploit entry). Auth CVE → need credential (axis B5). |
+| WAF capability determines flank axis | **GAP-073** | OPEN | Aggressive WAF → skip cred-spray, flank via origin (axis A). Lenient WAF → cred-spray OK (axis B5). |
+| Auth mechanism determines transport | **GAP-074** | OPEN | Must know auth mechanism to choose correct cred-stuff transport through CF. |
+| DB names for cred-stuff target selection | **GAP-063** | OPEN | `erp` DB likely has different cred policy than `test` DB. |
+| Origin binding (two-proof) | **GAP-042** | FIXED | Historical IP / cert pivot / favicon pivot candidates must pass two-proof binding. |
+
+## §12.61 deferred items
+
+| Item | GAP | Reason |
+|------|-----|--------|
+| Brute CF edge (challenge-solve, IP-rep evasion) | — | INFRA ceiling: residential/mobile proxy = procurement, not code. ADR §12.61 rejected. |
+| Human interaction simulation | — | ADR §12.62 DEFERRED. Promotion gate: target with hCaptcha/DataDome + no origin bypass + no cred reuse. |
+| HTTP Basic Auth applicator | **GAP-046** | Deferred after §12.61 slices. |
+| Username harvest non-WP | **GAP-047** | Deferred after §12.61 slices. |
+
+## §12.61 recommended order (per ADR)
+
+ADR §12.61 recommends: "Do NOT build all of A1–B8. Recommended order by leverage:
+**(1) Historical DNS origin discovery** (passive, extends the moat, most likely to open niagamas/bernofarm) → **(2) cert/favicon pivot** → **(3) leaked-cred stuffing** (axis B)."
+
+Mapped to GAPs:
+1. GAP-115 (historical DNS) — HIGHEST priority per ADR
+2. GAP-093 (cert SAN) + GAP-086 (favicon hash) — cert/favicon pivot
+3. GAP-104 (breach cred) + GAP-054 (email) + GAP-090 (email pattern) — leaked-cred stuffing
 
 ---
 
