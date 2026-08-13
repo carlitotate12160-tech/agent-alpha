@@ -1,0 +1,63 @@
+# Laravel Real-World Lab — laravel.alpha-ai.web.id
+# Deploy on Oracle ARM64. Cloudflare-proxied (real WAF/TLS).
+#
+# Topology:
+#   Internet → CF → Oracle:443 (front nginx) → 127.0.0.1:8444 (this stack)
+#
+# Chain: Laravel debug mode (APP_DEBUG=true) → Whoops page leaks DB creds
+# → cred-reuse on DB or cross-service (WP/Odoo).
+#
+# This is a REAL Laravel installation (not mock_laravel_debug.py).
+# APP_DEBUG=true → /trigger-error returns Whoops page with env table.
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "127.0.0.1:8444:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - laravel
+    restart: unless-stopped
+
+  laravel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_DEBUG: "true"
+      APP_ENV: "local"
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_DATABASE: ${DB_DATABASE}
+      DB_USERNAME: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - laravel_app:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  laravel_app:
+  mysql_data:

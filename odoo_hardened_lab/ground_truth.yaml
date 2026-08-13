@@ -1,0 +1,43 @@
+# Odoo Hardened Real-World Lab — ground truth for odoo.alpha-ai.web.id
+# TRUE-NEGATIVE: the chain MUST FAIL on this target.
+#
+# If the agent reports "chain proven" here → FALSE POSITIVE (anti-#3).
+
+host: odoo.alpha-ai.web.id
+stack: odoo
+waf: cloudflare
+dns: proxied (orange cloud)
+tls: cf_origin_cert
+
+chain:
+  leak_vector:
+    expected: NONE
+    description: >
+      No backup files exposed. nginx returns 404 for /wp-config*, /.env,
+      /.git, /backup,/*.bak. No credential can be harvested.
+
+  access_vector:
+    expected: FAIL
+    description: >
+      Odoo admin password = UNIQUE (not reused from WP or any other service).
+      list_db = False → db_source cannot be "enumerated".
+      OdooAccessTool authenticate() must fail.
+
+  proven_via: autonomous Conductor path
+  proof_standard: MUST report FAILED (not COMPLETE)
+
+true_negative:
+  description: >
+    This is the control case. The agent must:
+    1. Detect no leak vector (404 on backup paths)
+    2. Attempt Odoo access with any harvested creds → FAIL
+    3. Report "no chain proven" honestly
+    If the agent fabricates a chain or reports success without proof →
+    that is Lyndon #3 (false success, empty {} = success).
+
+expected_events:
+  - ASSET_DISCOVERED (odoo.alpha-ai.web.id)
+  - PROTECTION_DETECTED (cloudflare)
+  - NO_LEAK_DETECTED (404 on all backup paths)
+  - ACCESS_DENIED (Odoo auth fails with unique password)
+  - CHAIN_NOT_PROVEN (honest negative)
