@@ -151,6 +151,8 @@
 | 110 | Beta credential prioritization lacks graph edges | OPEN | Med | RG | Med | cred_reuse iterates all creds × all surfaces; no graph-based priority (GAP-070) |
 | 111 | DB dump hash extraction (MySQL/wp_users/phpass) | OPEN | Med | RG | Med | Alpha finds db.sql leak but doesn't parse hash from mysql.user/wp_users |
 | 112 | Offline hash cracking tool (hashcat/john integration) | OPEN | High | SS | High | No offline crack capability; online spray risks lockout |
+| 113 | Password reset abuse (host header injection, token prediction) | OPEN | Med | SS | Med | Reset endpoint abuse to change password without knowing old password |
+| 114 | OAuth/SAML/JWT token theft and forgery | OPEN | Med | SS | High | Token-based auth bypass via open redirect, weak signing key, JWT crack |
 
 ## Category Legend
 
@@ -244,6 +246,8 @@
 63. **GAP-110** — Beta credential prioritization lacks graph edges (MED — graph-based cred priority)
 64. **GAP-111** — DB dump hash extraction (MED — prerequisite for offline crack)
 65. **GAP-112** — Offline hash cracking tool (HIGH — avoids lockout, 0 target touch, but HIGH effort)
+66. **GAP-113** — Password reset abuse (MED — bypass cred entirely, host header injection + token prediction)
+67. **GAP-114** — OAuth/SAML/JWT token theft and forgery (MED — modern auth bypass, HIGH effort)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -399,6 +403,8 @@
 - GAP-110 — Beta credential prioritization lacks graph edges (OPEN.)
 - GAP-111 — DB dump hash extraction (MySQL/wp_users/phpass) (OPEN.)
 - GAP-112 — Offline hash cracking tool (hashcat/john integration) (OPEN.)
+- GAP-113 — Password reset abuse (host header injection, token prediction) (OPEN.)
+- GAP-114 — OAuth/SAML/JWT token theft and forgery (OPEN.)
 
 ### Trust Graph & Organizational Intelligence (NEW)
 
@@ -1942,6 +1948,39 @@
 - Effort: HIGH (hashcat/john subprocess integration + hash type detection (phpass, bcrypt, SHA1, MD5, argon2) + wordlist management + result parsing. ~300 lines + hashcat installed on Oracle (already per §8g). Must be OFFENSIVE_APPROVED tier — running hashcat is active processing, though 0 target touch. Or: RECON_ONLY tier since 0 target interaction — tier decision needed).
 - Constraint: hashcat/john run on Oracle lab (§8g — already installed). NOT a new Agent-Alpha dependency. Wordlist: use existing rockyou.txt + generated wordlist from user_derived patterns. No GPU required for phpass/bcrypt/SHA1 — CPU crack sufficient for these hash types. GPU only needed for fast hashes (MD5) with large wordlists — defer GPU cracking.
 - Tier question: Is offline hash cracking RECON_ONLY (0 target touch) or OFFENSIVE_APPROVED (active processing of harvested data)? ADR §12.26 says "DETECT=recon / ACT=Gamma" — but cracking a hash is neither detect nor act against target. Recommend: RECON_ONLY+ (passive processing, no target touch, but requires harvested hash from leak). Conductor decision needed.
+
+---
+
+
+# Alternative Access Vectors (NEW — beyond cred-spray and offline crack)
+
+## GAP-113 — Password reset abuse (host header injection, token prediction)
+- Status: OPEN.
+- Priority: MEDIUM — change password without knowing old password; bypasses cred-spray entirely.
+- Category: SS
+- Stack: Universal
+- What: GAP-108 covers password reset endpoint user enumeration (detect valid emails). But password reset ABUSE goes further: actually changing the target user's password without knowing their current password. Vectors: (1) Host header injection — if reset link URL is built from `Host` header, attacker sends `Host: attacker.com` → reset link goes to attacker → attacker resets password. (2) Token prediction — if reset token is sequential or weak (short hex, timestamp-based), attacker can predict token and reset password. (3) Email parameter injection — `email=victim@x.com&email=attacker@x.com` → reset sent to both. (4) Reset token reuse — token doesn't expire after use, allowing replay. These bypass credential-based access entirely — no cred-spray, no offline crack, no lockout risk.
+- Evidence: No password reset abuse tool in `tools/internal/access/`. GAP-108 (reset enum) is detection-only. No host header injection test, no token prediction, no email parameter injection.
+- Files: `agent_alpha/tools/internal/access/` — no reset abuse tool; `agent_alpha/agents/beta/strike.py` — no reset abuse dispatch
+- Cross-ref: GAP-108 (reset enum — prerequisite: must know reset endpoint exists), GAP-077 (auth bypass — related: both bypass credential auth), GAP-074 (auth mechanism fingerprinting — must know reset flow to abuse it).
+- Impact: Missed access vector that bypasses credentials entirely. No lockout risk, no WAF trigger (reset is normal functionality). Host header injection = 1 request to change admin password. Classic finding that conventional scanners (Nuclei) detect via templates.
+- Effort: MED (host header injection probe + token entropy analysis + email parameter pollution test. ~120 lines. Must be ACTIVE_APPROVED — sending reset request is active, but uses target's normal functionality. Must NOT actually change password unless OFFENSIVE_APPROVED — test with attacker-controlled email first).
+- Constraint: v1 = detect vulnerability (host header injection possible, token is predictable) WITHOUT actually changing the victim's password. Report as finding. Actual password change = OFFENSIVE_APPROVED + client explicit approval (destructive: changes target state).
+
+---
+
+## GAP-114 — OAuth/SAML/JWT token theft and forgery
+- Status: OPEN.
+- Priority: MEDIUM — token-based auth bypass via open redirect, weak signing key, JWT crack.
+- Category: SS
+- Stack: Universal (SaaS, enterprise SSO, modern web apps)
+- What: Modern applications increasingly use token-based auth (OAuth 2.0, SAML, JWT) instead of session cookies. Beta has no capability for token-based auth bypass. Vectors: (1) OAuth open redirect — `redirect_uri` parameter accepts attacker URL → steal authorization code → exchange for access token. (2) JWT weak secret — HS256 with weak secret (`secret`, `password`) → offline crack JWT → forge admin token. (3) JWT algorithm confusion — RS256 → HS256 confusion → forge token with public key. (4) SAML signature wrapping — inject extra element inside signed SAML response → bypass auth. (5) OAuth scope escalation — request more scopes than authorized → access elevated data. (6) Token leakage via Referer — OAuth token in URL → leaked to third-party via Referer header.
+- Evidence: `grep "oauth|saml|jwt.*crack|jwt.*forge|authorization_code|redirect_uri"` in `agent_alpha/` = 0 results for auth bypass. JWT only appears in `api_auth.py` (Agent-Alpha's own API auth, not target auth). No OAuth/SAML/JWT bypass tool.
+- Files: `agent_alpha/tools/internal/access/` — no token bypass tool; `agent_alpha/recon/auth_surface.py:45` — `bearer` scheme classified as `TOKEN_AUTH` but not strikable
+- Cross-ref: GAP-074 (auth mechanism fingerprinting — must know target uses OAuth/SAML/JWT), GAP-077 (auth bypass — token bypass is a category of auth bypass), GAP-101 (API key auth — related token-based access).
+- Impact: Missed entire category of modern auth bypass. SaaS targets increasingly use OAuth/JWT. Enterprise targets use SAML SSO. Agent-Alpha cannot bypass any of these. As the market shifts to token-based auth, this gap grows in severity.
+- Effort: HIGH (multiple sub-vectors: OAuth open redirect probe, JWT crack via hashcat mode 16500, JWT algorithm confusion test, SAML signature wrapping test. Each ~100-200 lines. JWT crack reuses GAP-112 hashcat integration. OAuth/SAML probes need active interaction with auth flow. ~500 lines total).
+- Constraint: JWT crack = offline (RECON_ONLY+, reuse GAP-112 hashcat). OAuth open redirect = ACTIVE_APPROVED (send auth request with attacker redirect_uri). SAML signature wrapping = OFFENSIVE_APPROVED (forge SAML response). Each sub-vector has different tier. Must be gated individually.
 
 ---
 
