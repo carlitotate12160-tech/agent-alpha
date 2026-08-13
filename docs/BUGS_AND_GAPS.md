@@ -235,6 +235,7 @@
 - **Status:** OPEN
 - **What:** `IntelligenceBase` Protocol + `RecordBackedIntelligenceBase` (312 lines) exist. `tool_success_rates` always `{}`. No caller wires IntelligenceBase to tool selection or orchestrator.
 - **Fix:** Implement `PostgresIntelligenceBase`. Wire to `ToolRegistry.ranked()` + `LLMOrchestrator.decide()`. Write tool outcome stats after engagement.
+- **Files:** `agent_alpha/memory/intelligence.py` (Protocol + stub), `agent_alpha/memory/engagement.py:187` (`tool_success_rates={}`), `agent_alpha/tools/registry.py:37` (static ranking)
 
 ### GAP-004 — Planner/World Model
 - **Status:** LOCKED → ADR §12.29
@@ -245,19 +246,26 @@
 - **What:** `PolicyEnforcer` (152 lines) instantiated in main.py:62 but never passed to execute_agent or recon_runner. `check_technique`, `check_scope`, `resolve_opsec_profile` only called in live_fire runner (test path, not production).
 - **Slice-1 DONE:** Blast-radius gate wired into `advance_engagement()`.
 - **Slice-2 OPEN:** OPSEC/scope/technique checks still dead in production agent path.
+- **Fix:** Pass `PolicyEnforcer` to `execute_agent()` + `recon_runner`. Call `check_technique` + `check_scope` before tool execution. Resolve OPSEC profile → pass to HttpClient.
+- **Files:** `agent_alpha/conductor/policy.py` (152 lines, implemented), `agent_alpha/conductor/main.py:62` (instantiated, not passed), `agent_alpha/conductor/execute_agent.py`, `agent_alpha/conductor/recon_runner.py`
 
 ### GAP-006 — Attack graph analytics partially wired
 - **Status:** PARTIAL (slice-1 DONE #184, slice-2 OPEN)
 - **What:** `find_critical_paths()` + `calculate_blast_radius()` implemented in narrative.py. Called by Omega report generation. NOT called by conductor, execute_agent, or any decision-making path.
-- **Fix:** Call after graph rebuild in execute_agent. Wire blast-radius gate to PolicyEnforcer.
+- **Fix:** Call after graph rebuild in execute_agent. Wire blast-radius gate to PolicyEnforcer. Use critical paths for target prioritization in planner.
+- **Files:** `agent_alpha/graph/narrative.py:44-137` (implemented), `agent_alpha/agents/omega/roaster.py:136` (called in report only), `agent_alpha/conductor/execute_agent.py` (not called)
 
 ### GAP-007 — OSINT / external context gathering
 - **Status:** OPEN
 - **What:** Agent directly HTTP probes target without intelligence gathering. No crt.sh, VirusTotal, Wayback, Dehashed integration in autonomous path.
+- **Fix:** Wire passive intel (crt.sh subdomains, VT reputation, Wayback URLs, Dehashed breach) into recon_runner before active probing. Feed results to frontier + tool selection.
+- **Files:** `agent_alpha/recon/passive_intel.py` (exists, consumer not wired), `agent_alpha/conductor/recon_runner.py`
 
 ### GAP-014 — Fan-out parallel worker (Shape A not wired)
 - **Status:** OPEN
 - **What:** Celery fan-out for parallel target scanning designed but Shape A (one worker per target) not wired. Shape B (single worker, sequential) works.
+- **Fix:** Wire Shape A — one Celery worker per target, results merged via event store.
+- **Files:** `agent_alpha/conductor/main.py` (Celery dispatch), `agent_alpha/conductor/recon_runner.py`
 
 ### GAP-015 — Credential spray tool
 - **Status:** DONE
@@ -266,10 +274,14 @@
 ### GAP-016 — Wayback Machine pre-intel
 - **Status:** OPEN
 - **What:** No archive-driven probe selection. Wayback CDX API not queried.
+- **Fix:** Query Wayback CDX API for archived URLs of target domain. Filter to URLs that returned 200 historically. Feed to frontier before active probing.
+- **Files:** `agent_alpha/recon/passive_intel.py` (add Wayback CDX provider)
 
 ### GAP-017 — PassiveIntelMap enrichment dead-end
 - **Status:** OPEN
 - **What:** OSINT data collected (crt.sh, OTX, VT) but consumer not wired. Data exists in graph but never influences tool selection or probe paths.
+- **Fix:** Wire PassiveIntelMap results to frontier seeding + tool selection. Subdomains from crt.sh → frontier. VT reputation → evasion tier. OTX pulses → probe paths.
+- **Files:** `agent_alpha/recon/passive_intel.py` (producer), `agent_alpha/agents/alpha/scout.py` (consumer not wired)
 
 ### GAP-018 — LiveOriginDiscovery sibling seeding
 - **Status:** RESOLVED 2026-08-08
@@ -281,29 +293,39 @@
 
 ### GAP-020 — Mid-engagement pattern-group exhaustion
 - **Status:** OPEN
-- **What:** Agent re-tries exhausted pattern groups mid-engagement.
+- **What:** Agent re-tries exhausted pattern groups mid-engagement. No tracking of which patterns have been tried and failed.
+- **Fix:** Track pattern-group attempts per engagement. Skip exhausted groups in subsequent cycles.
+- **Files:** `agent_alpha/agents/alpha/scout.py` (pattern tracking)
 
 ### GAP-021 — Fingerprint-driven path hard-filter
 - **Status:** OPEN
-- **What:** Irrelevant paths probed for known stack. E.g. `.env` probed on WP target (Laravel path).
+- **What:** Irrelevant paths probed for known stack. E.g. `.env` probed on WP target (Laravel path). Stack fingerprint should filter leak paths.
+- **Fix:** After fingerprint detected, filter `WELL_KNOWN_LEAK_PATHS` by stack relevance. WP → wp-config paths only. Laravel → .env/composer paths only.
+- **Files:** `agent_alpha/agents/alpha/scout.py:224-242` (seeds all paths), `agent_alpha/config/constants.py:275-304` (flat list, no stack filter)
 
 ### GAP-022 — Deterministic rule coverage + finding correlation
 - **Status:** OPEN
-- **What:** Rules miss known patterns. No correlation between related findings.
+- **What:** Rules miss known patterns. No correlation between related findings (e.g. wp-config leak + DB password → cred_reuse should auto-trigger).
+- **Fix:** Add missing rules. Add finding correlation layer that links related findings into chains.
+- **Files:** `agent_alpha/llm/playbooks/` (rule YAMLs), `agent_alpha/agents/alpha/scout.py` (finding correlation)
 
 ### GAP-026 — StealthPacer gate inverted
 - **Status:** OPEN
-- **What:** StealthPacer code exists but default OFF. §12.49 violation — stealth should be default.
-- **Fix:** Toggle stealth at engagement creation. Default ON.
+- **What:** StealthPacer code exists but default OFF. §12.49 violation — stealth should be default. Agent runs without pacing → CF bot detection triggers.
+- **Fix:** Toggle stealth at engagement creation. Default ON. `opsec_stealth=True` in engagement profile.
+- **Files:** `agent_alpha/agents/stealth_pacer.py` (implemented), `agent_alpha/conductor/recon_runner.py:156-160` (conditional, default OFF)
 
 ### GAP-027 — Probing order: sensitive before legitimate
 - **Status:** OPEN
-- **What:** `.env` probes trigger CF bot detection before `wp-json` access. Legitimate endpoints should be probed first.
-- **Fix:** Reorder: homepage → API index → robots.txt → then leak paths.
+- **What:** `.env` probes trigger CF bot detection before `wp-json` access. Legitimate endpoints should be probed first to establish "normal visitor" pattern.
+- **Fix:** Reorder: homepage → API index → robots.txt → then leak paths. Interleave legitimate + sensitive.
+- **Files:** `agent_alpha/agents/alpha/scout.py:224-242` (seeds leak paths first), `agent_alpha/config/constants.py` (path order)
 
 ### GAP-028 — Origin-direct generic homepage detection
 - **Status:** OPEN
-- **What:** Origin returns homepage (200) for all paths → 0 findings from origin-direct. No baseline comparison.
+- **What:** Origin returns homepage (200) for all paths → 0 findings from origin-direct. No baseline comparison to detect catch-all 200.
+- **Fix:** Send 2 random non-existent paths to origin. If both return same body hash as homepage → catch-all 200 detected. Skip origin-direct.
+- **Files:** `agent_alpha/recon/origin_binding.py` (origin probe), `agent_alpha/recon/response_classifier.py` (catch-all detection)
 
 ### GAP-029 — Unreachable subdomain probing
 - **Status:** DONE
@@ -319,11 +341,15 @@
 
 ### GAP-032 — OTX timeout 30s
 - **Status:** OPEN
-- **What:** OTX API timeout 30s blocks sequential OSINT chain. Performance issue, not correctness.
+- **What:** OTX API timeout 30s blocks sequential OSINT chain. If OTX is slow, VT never runs. Performance issue, not correctness.
+- **Fix:** Reduce OTX timeout to 10s. Run OTX + VT in parallel (asyncio.gather). If OTX times out, continue with VT only.
+- **Files:** `agent_alpha/recon/passive_intel.py` (OTX provider, timeout config)
 
 ### GAP-033 — Subdomain pivot path not designed
 - **Status:** OPEN
-- **What:** Subdomain access not used as stepping stone to main domain. Architectural gap.
+- **What:** Subdomain access not used as stepping stone to main domain. If subdomain `dev.example.com` is compromised, no path to pivot to `example.com`. Architectural gap.
+- **Fix:** Design subdomain→apex pivot path. If subdomain has cred reuse → try same creds on apex. If subdomain shares DB → pivot via DB access.
+- **Files:** `agent_alpha/conductor/router.py` (no subdomain→apex routing), `agent_alpha/agents/beta/strike.py` (no pivot logic)
 
 ### GAP-034 — Entry-selection reachability signal
 - **Status:** DONE
@@ -335,8 +361,9 @@
 
 ### GAP-036 — LLM tool-pick on auth-surface pages
 - **Status:** OPEN
-- **What:** No deterministic RULE for auth pages. LLM tier fires, burning tokens.
-- **Fix:** Add RULE-tier match for auth surface body signature.
+- **What:** No deterministic RULE for auth pages. LLM tier fires on every auth surface page, burning tokens for predictable `auth_surface_probe` selection.
+- **Fix:** Add RULE-tier match for auth surface body signature (`type="password"` in body → `auth_surface_probe` deterministically).
+- **Files:** `agent_alpha/llm/playbooks/` (add auth_surface rule YAML), `agent_alpha/llm/orchestrator.py` (rule tier)
 
 ### GAP-037 — Mid-run host death
 - **Status:** DONE #385
@@ -344,27 +371,39 @@
 
 ### GAP-038 — Cooperative mode short-circuits origin
 - **Status:** OPEN
-- **What:** Cooperative mode skips origin discovery. No binding proof.
+- **What:** Cooperative mode (operator-approved SOW) skips binding proof entirely. Trust anchor = signed SOW, not cryptographic token. No origin verification → false origin assumption.
+- **Fix:** Cooperative mode should still probe origin candidates but accept SOW as trust anchor instead of token canary. Probe but don't require canary match.
+- **Files:** `agent_alpha/recon/origin_binding.py:93-126` (cooperative branch)
 
 ### GAP-039 — CompositeOriginDiscovery apex filter
 - **Status:** OPEN
-- **What:** Exact-host filter drops apex intel for subdomain binding.
+- **What:** Passive intel gathered per APEX domain but origin binding requested per blocked HOST (often subdomain). Exact-host filter drops apex OTX/VT candidates when subdomain needs them.
+- **Fix:** Match apex domain OR dot-boundary subdomain (same registrable domain). Cross-domain still rejected.
+- **Files:** `agent_alpha/recon/origin_discovery.py:84-90` (comment acknowledges gap, fix started)
 
 ### GAP-040 — Ownership gate rejects consented subdomains
 - **Status:** OPEN
-- **What:** Origin-direct crash on consented subdomain. Ownership gate too strict.
+- **What:** Origin-direct gate stricter than recon gate. Recon allows subdomain probing (`allow_subdomain_enum`) but origin-direct gate rejects same subdomain → crash.
+- **Fix:** Align origin-direct gate with recon gate's subdomain rule. Subdomain of scope domain = in scope.
+- **Files:** `agent_alpha/conductor/engagement_profile.py:377` (comment acknowledges), `agent_alpha/agents/alpha/scout.py:945`
 
 ### GAP-041 — Cooperative soft-binding PROVEN for unprobed
 - **Status:** OPEN
-- **What:** Stale candidates marked PROVEN without probing.
+- **What:** Cooperative mode (operator-approved SOW) skips binding proof. CompositeOriginDiscovery unions event-sourced OTX/VT IPs that were NEVER probed. Emitting PROVEN for unprobed candidate = false proof.
+- **Fix:** Probe EVERY candidate with `probe_as_origin` before emitting PROVEN. Fail-closed: all probes fail → None.
+- **Files:** `agent_alpha/recon/origin_binding.py:95-126` (comment acknowledges, partial fix started)
 
 ### GAP-042 — Origin probe bypasses stealth HttpClient
 - **Status:** OPEN
-- **What:** Origin probe uses raw requests, not stealth HttpClient. OPSEC debt.
+- **What:** Origin probe uses raw `requests`/`httpx` calls, not the stealth `HttpClient` that has curl_cffi impersonation, header ordering, pacing. OPSEC debt — origin probe fingerprint differs from recon probe.
+- **Fix:** Replace raw origin probe calls with `HttpClient` instance. Same stealth profile as recon.
+- **Files:** `agent_alpha/recon/origin_binding.py` (probe_as_origin function), `agent_alpha/agents/http_client.py`
 
 ### GAP-043 — CDN edge IP filter only Cloudflare
 - **Status:** OPEN
-- **What:** Sucuri/Incapsula/Akamai edge IPs not filtered. False origin proof.
+- **What:** CDN edge IP filter only covers Cloudflare ASN. Sucuri/Incapsula/Akamai edge IPs not filtered → false origin proof (edge IP mistaken for real origin).
+- **Fix:** Add Sucuri (AS55286), Incapsula (AS19551), Akamai (AS20940, AS16625) ASN ranges to edge IP filter.
+- **Files:** `agent_alpha/recon/origin_discovery.py` (CDN edge IP filter), `agent_alpha/config/constants.py` (ASN list)
 
 ### GAP-044 — Soft-404 false positives
 - **Status:** FIXED #386
@@ -372,15 +411,21 @@
 
 ### GAP-045 — CF-ceiling honest outcome
 - **Status:** OPEN
-- **What:** Omega/Conductor needs honest classification when CF blocks everything. Low effort, high product value.
+- **What:** When CF blocks everything (all WAF_BLOCKED, 0 findings), Omega/Conductor needs honest classification: "CF-blocked, recon incomplete, recommend authorized origin access" — not "0 vulnerabilities found" (false negative).
+- **Fix:** Add CF-ceiling outcome classification to router/advance. Omega report includes "recon blocked by WAF/CF" section with recommendation.
+- **Files:** `agent_alpha/conductor/router.py`, `agent_alpha/agents/omega/roaster.py`
 
 ### GAP-046 — HTTP Basic Auth applicator
 - **Status:** OPEN
-- **What:** 401-protected surfaces not attacked. No Basic Auth applicator in roster.
+- **What:** 401-protected surfaces (Apache `.htpasswd`, nginx `auth_basic`, Tomcat manager) not attacked. No Basic Auth applicator in Beta's roster — only WpLogin + HttpForm + OdooXmlRpc.
+- **Fix:** New `BasicAuthApplicator` — sends `Authorization: Basic base64(user:pass)` header. Verify: 200 response (not 401). Register in `beta_web_applicators`.
+- **Files:** `agent_alpha/tools/internal/access/applicator.py` (new class), `agent_alpha/conductor/applicator_factory.py:57-69` (register)
 
 ### GAP-047 — Username harvest WP-REST-only
 - **Status:** OPEN
-- **What:** Non-WP surfaces (Vue login, custom login) not harvested for usernames.
+- **What:** Alpha harvests usernames only from WP REST (`/wp-json/wp/v2/users`). Non-WP surfaces (Vue.js login forms, custom login pages, Laravel Nova/Filament, Odoo) not harvested. Beta's `UserDerivedCredsTool` has 0 USER nodes on non-WP targets.
+- **Fix:** Add username harvest for: (1) HTML login forms with visible usernames, (2) Laravel Nova/Filament user lists, (3) Odoo user enum via XML-RPC `list_services` (if enabled), (4) JS bundle analysis for SPA user references.
+- **Files:** `agent_alpha/recon/auth_surface.py` (auth surface probe), `agent_alpha/agents/alpha/scout.py` (harvest handler)
 
 ### GAP-048 — Soft-404 signature format-fragile
 - **Status:** FIXED #388
