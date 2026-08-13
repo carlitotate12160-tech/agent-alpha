@@ -119,6 +119,21 @@
 | 078 | User enumeration via auth response differential | OPEN | Med | RM | Low | Login error messages leak valid vs invalid usernames; not captured |
 | 079 | Post-access validation (agentless — access level proof) | OPEN | High | RG | Med | Beta reports "login OK" but doesn't prove what access level was achieved |
 | 080 | Session management analysis (post-login stability) | OPEN | Med | RM | Low | After login: cookie attrs, fixation, timeout, concurrency not analyzed |
+| 081 | Port scanning / non-HTTP service discovery | OPEN | High | RM | Med-High | SSH/RDP/SMTP/Redis/DB exposed but Alpha only scans HTTP |
+| 082 | SMTP enumeration (VRFY/EXPN/RCPT) | OPEN | Med | SS | Low | Mail server username enumeration not checked |
+| 083 | Virtual host discovery (Host header enumeration) | OPEN | Low | SS | Med | Other sites on same origin IP not discovered |
+| 084 | CORS analysis (Access-Control-Allow-Origin) | OPEN | High | RM | Low | `*` + `Allow-Credentials: true` = classic misconfig; 0 new requests |
+| 085 | HTTP method enumeration (OPTIONS) | OPEN | Med | RM | Low | PUT/DELETE/TRACE enabled = attack surface; 1 request |
+| 086 | Favicon hash fingerprinting (mmh3) | OPEN | Low | RM | Low | Framework/version ID via favicon hash; Shodan/Censys use this |
+| 087 | Generic backup file patterns (backup.zip, db.sql, dump.sql) | OPEN | High | RM | Low | Shared hosting SEA commonly exposes site/DB backups |
+| 088 | Technology version extraction (universal, beyond WP) | OPEN | P0 | RM | Low | nginx/Apache/PHP/DB versions in headers but not captured as SERVICE nodes |
+| 089 | CVE catalog comprehensiveness (only 1 entry today) | OPEN | P0 | RG | Med | Version extraction is useless without CVE lookup; catalog has 1 entry |
+| 090 | Email pattern inference (firstname@, first.last@, flast@) | OPEN | Med | RG | Low | One known email → generate candidates for breach correlation + cred-spray |
+| 091 | GitHub/GitLab public code search (employee repos) | OPEN | Med | RG | Med | Developers commit .env/API keys to public repos; classic OSINT |
+| 092 | ASN/netblock discovery (sister infrastructure) | OPEN | Low | RG | Med | Same ASN = other in-scope IPs, staging, internal services |
+| 093 | Certificate SAN extraction (live cert, not CT log) | OPEN | Med | RM | Low | TLS handshake SANs reveal internal hostnames not in CT log |
+| 094 | DNS zone transfer attempt (AXFR) | OPEN | Low | SS | Low | Rarely succeeds but jackpot when it does; 1 DNS query |
+| 095 | Social media company page recon (FB/IG/Twitter) | OPEN | Med | RG | Med | Company page admin list, post history, employee comments = org intel |
 
 ## Category Legend
 
@@ -174,6 +189,24 @@
 31. **GAP-080** — Session management analysis (MED — post-login stability for Gamma)
 32. **GAP-076** — Cloud storage / shadow-IT discovery (MED — S3/GCP, passive, scoped)
 33. **GAP-069** — Trust Graph / organizational intelligence (HIGH effort — v1 public OSINT only, defer LinkedIn/vishing/phishing)
+
+### Recon Completeness Slice (NEW — 0 request multiplier + passive discovery)
+
+34. **GAP-089** — CVE catalog comprehensiveness (P0 multiplier — version→CVE→finding chain)
+35. **GAP-088** — Technology version extraction universal (P0 — 0 new requests, parse existing headers)
+36. **GAP-084** — CORS analysis (HIGH — 0 new requests, classic misconfig)
+37. **GAP-087** — Generic backup file patterns (HIGH — shared hosting SEA, add paths)
+38. **GAP-093** — Certificate SAN extraction (MED — 0 new requests, TLS handshake reuse)
+39. **GAP-085** — HTTP method enumeration (MED — 1 OPTIONS request)
+40. **GAP-081** — Port scanning / non-HTTP service (HIGH — but Med-High effort, stealth concern)
+41. **GAP-082** — SMTP enumeration (MED — depends on GAP-081)
+42. **GAP-090** — Email pattern inference (MED — 0 requests, but needs breach data source)
+43. **GAP-091** — GitHub/GitLab public code search (MED — classic OSINT, needs API token)
+44. **GAP-086** — Favicon hash fingerprinting (LOW — nice-to-have)
+45. **GAP-092** — ASN/netblock discovery (LOW — niche infrastructure)
+46. **GAP-083** — Virtual host discovery (LOW — niche, origin IP only)
+47. **GAP-094** — DNS zone transfer AXFR (LOW — rarely succeeds, jackpot when it does)
+48. **GAP-095** — Social media company page recon (MED — overlaps GAP-069 Trust Graph)
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -326,6 +359,30 @@
 - GAP-074 — Authentication mechanism fingerprinting (form/JWT/SAML/OAuth) (OPEN.)
 - GAP-075 — Subdomain takeover check (dangling DNS CNAME) (OPEN.)
 - GAP-076 — Cloud storage / shadow-IT discovery (S3/GCP/Azure) (OPEN.)
+
+### Service Discovery & Infrastructure (NEW)
+
+- GAP-081 — Port scanning / non-HTTP service discovery (OPEN.)
+- GAP-082 — SMTP enumeration (VRFY/EXPN/RCPT) (OPEN.)
+- GAP-083 — Virtual host discovery (Host header enumeration) (OPEN.)
+- GAP-092 — ASN/netblock discovery (sister infrastructure) (OPEN.)
+- GAP-093 — Certificate SAN extraction (live cert, not CT log) (OPEN.)
+- GAP-094 — DNS zone transfer attempt (AXFR) (OPEN.)
+
+### HTTP Content & Configuration (NEW)
+
+- GAP-084 — CORS analysis (Access-Control-Allow-Origin) (OPEN.)
+- GAP-085 — HTTP method enumeration (OPTIONS) (OPEN.)
+- GAP-086 — Favicon hash fingerprinting (mmh3) (OPEN.)
+- GAP-087 — Generic backup file patterns (backup.zip, db.sql, dump.sql) (OPEN.)
+- GAP-088 — Technology version extraction (universal, beyond WP) (OPEN.)
+- GAP-089 — CVE catalog comprehensiveness (only 1 entry today) (OPEN.)
+
+### OSINT & Organizational (NEW)
+
+- GAP-090 — Email pattern inference (firstname@, first.last@, flast@) (OPEN.)
+- GAP-091 — GitHub/GitLab public code search (employee repos) (OPEN.)
+- GAP-095 — Social media company page recon (FB/IG/Twitter) (OPEN.)
 
 ### Cognition & Planning (ADR-locked)
 
@@ -1331,6 +1388,228 @@
 - Cross-ref: GAP-059 (cookie audit — pre-auth, this is post-auth), GAP-079 (post-access validation — related, but access-level vs session-stability), ADR §12.32 (authenticated crawl — needs stable session).
 - Impact: Gamma may be dispatched on a session that expires in 5 minutes, or that is invalidated by a second request. Gamma's exploitation fails not because the exploit is wrong, but because the session died mid-exploit. No diagnostic data to explain the failure.
 - Effort: LOW (parse post-auth Set-Cookie headers + 1-2 timed re-requests to measure timeout + session token format analysis. ~50 lines. Agentless — HTTP only).
+
+---
+
+
+# Service Discovery & Infrastructure
+
+## GAP-081 — Port scanning / non-HTTP service discovery
+- Status: OPEN.
+- Priority: HIGH — external red team must know ALL exposed services, not just HTTP.
+- Category: RM
+- Stack: Universal
+- What: Alpha only performs HTTP recon. `AssetProperties.open_ports` exists in the schema but is only populated for SOW-declared DB endpoints via `db_service_probe.py`. No port scanning of common service ports (SSH 22, RDP 3389, SMTP 25/465/587, FTP 21, Redis 6379, MongoDB 27017, PostgreSQL 5432, MySQL 3306, Elasticsearch 9200, Docker 2375/2376). A real external red team scans ALL ports first — an exposed Redis without auth, an open RDP, or a Docker API on 2375 are immediate high-severity findings. Agent-Alpha is blind to these.
+- Evidence: `grep "nmap|masscan|portscan"` in `agent_alpha/` = 0 results. `AssetProperties.open_ports` only populated by `db_service_probe.py` for SOW-declared endpoints. No TCP connect scan, no SYN scan, no banner grab on non-HTTP ports.
+- Files: `agent_alpha/graph/nodes.py:52-66` — AssetProperties (open_ports field exists, mostly empty); `agent_alpha/recon/db_service_probe.py` — only non-HTTP probe, SOW-gated only; no general port scanner module
+- Cross-ref: GAP-082 (SMTP enum — depends on port 25 being discovered), GAP-062 (TLS/MX/SPF — related infrastructure recon). ADR §8g (OS-as-a-Tools — nmap is operator-side tooling, not Agent-Alpha dependency).
+- Impact: Target can have Redis exposed without auth (classic RCE), Docker API on 2375 (full host compromise), or RDP open (cred-stuff target). Alpha never discovers these. Missed high-severity findings that Nuclei/Nmap DO find.
+- Effort: MED-HIGH (TCP connect scan on top-20 ports + banner grab. Stealth concern: must be slow (1 port per 5-10s), must use stealth timing. Cannot use nmap subprocess — must be Python socket-based per §8g. New module + AssetProperties population).
+- Constraint: Must respect §12.49 (stealth by default). Port scan rate must be throttled. Scope gate: only scan IPs in `is_in_scope`. No full 65535-port scan — top-20 common service ports only.
+
+---
+
+## GAP-082 — SMTP enumeration (VRFY/EXPN/RCPT)
+- Status: OPEN.
+- Priority: MEDIUM — mail server username enumeration, depends on GAP-081.
+- Category: SS
+- Stack: Universal
+- What: If port 25/465/587 is open (discovered by GAP-081), SMTP servers often support `VRFY` (verify user exists), `EXPN` (expand mailing list), and `RCPT TO` (recipient validation). These reveal valid email addresses and usernames — direct input for cred-spray and breach correlation. A real external red team always checks SMTP enumeration on open mail servers.
+- Evidence: `grep "SMTP|VRFY|EXPN|RCPT"` in `agent_alpha/` = 0 results. No SMTP client module.
+- Files: No SMTP module exists. `agent_alpha/recon/` — no smtp_probe.py
+- Cross-ref: GAP-081 (port scan — prerequisite), GAP-090 (email pattern inference — SMTP validates generated candidates), GAP-047 (username harvest — SMTP is another harvest source).
+- Impact: Missed username enumeration vector. Valid email addresses from SMTP = cred-spray targets = potential access.
+- Effort: LOW (smtplib + VRFY/EXPN commands + response parsing. ~80 lines. Depends on GAP-081 discovering port 25).
+- Constraint: Max 5 VRFY commands per server (anti-lockout). Must be stealthy (long delay between commands). Only on in-scope IPs.
+
+---
+
+## GAP-083 — Virtual host discovery (Host header enumeration)
+- Status: OPEN.
+- Priority: LOW — niche, only relevant when origin IP hosts multiple sites.
+- Category: SS
+- Stack: Universal
+- What: When Alpha discovers an origin IP (e.g. `168.110.192.62`), it probes it with the target's `Host` header. But the same IP may host OTHER sites — virtual hosts. By sending different `Host:` headers (`Host: admin`, `Host: staging`, `Host: test`, `Host: localhost`), the origin may respond with different content, revealing hidden admin panels, staging environments, or internal tools that have no public DNS record.
+- Evidence: `grep "vhost|virtual.*host|Host.*header.*enum"` in `agent_alpha/` = 0 results. Origin probe only uses the target's own hostname.
+- Files: `agent_alpha/recon/origin_binding.py` — origin probe uses target Host only; no vhost enumeration
+- Cross-ref: GAP-033 (subdomain pivot — related concept: attack via alternative hostname), GAP-093 (cert SAN — SANs reveal vhost candidates).
+- Impact: Missed hidden virtual hosts on origin IP. Staging/admin panels without DNS = high-value findings.
+- Effort: MED (Host header wordlist + differential response analysis. Must compare response body/hash per Host header. Stealth: 5-10 headers max, slow pacing).
+
+---
+
+## GAP-092 — ASN/netblock discovery (sister infrastructure)
+- Status: OPEN.
+- Priority: LOW — infrastructure discovery, niche value.
+- Category: RG
+- Stack: Universal
+- What: Target IP `45.80.182.6` belongs to an ASN (Autonomous System). Other IPs in the same netblock may host sister domains, staging servers, internal services, or backup infrastructure — all potentially in-scope. Alpha resolves the target IP but does not query ASN/netblock information (via RDAP/BGP APIs like `bgp.he.net` or `ipinfo.io`) to discover adjacent infrastructure.
+- Evidence: `grep "ASN|netblock|BGP|RDAP"` in `agent_alpha/` — ASN only used in authorization scope validation (`models.py:83`), not for recon. No netblock discovery module.
+- Files: `agent_alpha/conductor/models.py:83` — ASN in scope validation only; no recon module for netblock discovery
+- Cross-ref: GAP-081 (port scan — scan discovered netblock IPs), GAP-007 (OSINT — ASN is infrastructure OSINT).
+- Impact: Missed sister infrastructure. Same netblock may host `staging.niagamas.com` (no DNS, no CT log) that is more vulnerable than production.
+- Effort: MED (RDAP/BGP API query + netblock CIDR extraction + reverse DNS per IP. Passive, 0 target touch. But result volume can be large — needs filtering).
+
+---
+
+## GAP-093 — Certificate SAN extraction (live cert, not CT log)
+- Status: OPEN.
+- Priority: MEDIUM — reveals internal hostnames not in CT logs.
+- Category: RM
+- Stack: Universal
+- What: Alpha uses crt.sh/CertSpotter (CT logs) for subdomain discovery. But internal certificates (self-signed, private CA, or internal-only SANs) are NOT in CT logs. The live TLS certificate served by the target may contain SANs (Subject Alternative Names) like `erp.niagamas.internal`, `admin.niagamas.local`, or `staging.niagamas.com` that CT logs never recorded. A TLS handshake to the target (which Alpha already does for HTTPS) can extract these SANs.
+- Evidence: `grep "SAN|subject.*alternative|cert.*extract"` in `agent_alpha/` = 0 results. No certificate SAN extraction in any recon module. crt.sh is used but live cert SANs are not.
+- Files: `agent_alpha/recon/origin_resolver.py` — TLS connection made but cert not parsed for SANs; `agent_alpha/recon/passive_discovery.py` — CT log only
+- Cross-ref: GAP-016 (Wayback — historical URLs), GAP-075 (subdomain takeover — SANs reveal subdomain candidates). §12.48 (Passive-First Recon — cert SANs are passive).
+- Impact: Missed internal hostnames. `erp.niagamas.internal` in SAN = internal ERP server hostname revealed. No CT log, no DNS, but the cert tells you it exists.
+- Effort: LOW (Python `ssl` module — connect to target, get cert, parse `cert.extensions` for SANs. ~30 lines. 0 additional requests — reuse existing TLS connection).
+
+---
+
+## GAP-094 — DNS zone transfer attempt (AXFR)
+- Status: OPEN.
+- Priority: LOW — rarely succeeds but jackpot when it does.
+- Category: SS
+- Stack: Universal
+- What: DNS zone transfer (AXFR) is a misconfiguration where the authoritative nameserver allows anyone to download the entire DNS zone file — revealing ALL subdomains, internal records, TXT records, MX records, and internal hostnames in one query. It rarely succeeds on modern infrastructure (most NS are configured to refuse AXFR), but when it does, it's a jackpot. A real external red team always tries. The check is a single DNS query to the authoritative NS — zero target HTTP touch.
+- Evidence: `grep "AXFR|zone.*transfer"` in `agent_alpha/` = 0 results. No AXFR attempt in any DNS module.
+- Files: `agent_alpha/recon/passive_intel.py` — DNS enrichment (MX/NS/TXT) but no AXFR; no zone transfer module
+- Cross-ref: GAP-075 (subdomain takeover — AXFR reveals all CNAME records), GAP-093 (cert SAN — complementary subdomain source).
+- Impact: Missed "jackpot" finding. Successful AXFR = entire DNS zone = all internal hostnames, all CNAMEs (subdomain takeover candidates), all TXT records (SPF/DKIM/verification tokens).
+- Effort: LOW (dnspython `resolver.resolve(domain, "AXFR")` against each authoritative NS. ~20 lines. 1 DNS query per NS. Fail-open: most will refuse, that's OK).
+
+---
+
+
+# HTTP Content & Configuration
+
+## GAP-084 — CORS analysis (Access-Control-Allow-Origin)
+- Status: OPEN.
+- Priority: HIGH — classic misconfig, 0 new requests, Nuclei detects this.
+- Category: RM
+- Stack: Universal
+- What: Alpha fetches the homepage and API endpoints but does NOT analyze CORS headers. `Access-Control-Allow-Origin: *` combined with `Access-Control-Allow-Credentials: true` is a critical misconfiguration — it allows any website to make authenticated cross-origin requests, enabling data theft from a victim's browser. Other CORS issues: reflected origin, null origin (exploitable via sandboxed iframes). These are textbook findings that conventional scanners detect.
+- Evidence: `grep "CORS|Access-Control-Allow"` in `agent_alpha/` = 0 results. No CORS analysis in any handler. Headers are fetched but CORS headers are not parsed.
+- Files: `agent_alpha/agents/alpha/scout.py` — no CORS handler; `agent_alpha/recon/capability_probe.py` — no CORS probe
+- Cross-ref: GAP-055 (security headers — CORS is related but distinct: security headers = missing defensive headers, CORS = permissive cross-origin policy).
+- Impact: Missed misconfiguration finding. `*` + `Allow-Credentials: true` = high-severity. Nuclei detects this — Agent-Alpha must also.
+- Effort: LOW (parse `Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`, `Access-Control-Allow-Methods` from existing responses. Send `Origin: https://test.com` header on 1 probe to test reflected origin. ~40 lines. 0-1 new requests).
+
+---
+
+## GAP-085 — HTTP method enumeration (OPTIONS)
+- Status: OPEN.
+- Priority: MEDIUM — PUT/DELETE/TRACE enabled = attack surface; 1 request.
+- Category: RM
+- Stack: Universal
+- What: Alpha does not send `OPTIONS /` to discover allowed HTTP methods. Enabled dangerous methods: `PUT` (potential file upload/overwrite), `DELETE` (potential file deletion), `TRACE` (XST — Cross-Site Tracing, reflects cookies), `CONNECT` (proxy tunneling). These are misconfigurations that expand the attack surface. A real external red team always checks allowed methods.
+- Evidence: `grep "OPTIONS|allowed_methods|verb.*tamper"` in `agent_alpha/` = 0 results. No HTTP method enumeration.
+- Files: `agent_alpha/agents/alpha/scout.py` — no OPTIONS handler; `agent_alpha/recon/capability_probe.py` — no method probe
+- Cross-ref: GAP-077 (auth bypass via verb tampering — GET instead of POST on login).
+- Impact: Missed dangerous method exposure. PUT enabled = potential webshell upload. TRACE = cookie theft via XST.
+- Effort: LOW (1 `OPTIONS /` request + parse `Allow` header. ~20 lines. Stealth: 1 request only).
+
+---
+
+## GAP-086 — Favicon hash fingerprinting (mmh3)
+- Status: OPEN.
+- Priority: LOW — nice-to-have, framework/version identification.
+- Category: RM
+- Stack: Universal
+- What: The favicon (`/favicon.ico`) of a web application can be hashed (mmh3 hash) to identify the specific framework, application, or version. Shodan and Censys use this extensively — same favicon hash = same application instance. For example, a specific Odoo version has a specific favicon hash; a Jenkins instance has a recognizable favicon. Alpha does not fetch `/favicon.ico` or compute its hash.
+- Evidence: `grep "favicon|mmh3|icon.*hash"` in `agent_alpha/` = 0 results. No favicon fetch or hash.
+- Files: `agent_alpha/agents/alpha/scout.py` — no favicon handler; no mmh3 dependency
+- Cross-ref: GAP-088 (version extraction — favicon hash is another version ID vector), GAP-089 (CVE catalog — favicon hash can map to known-vulnerable versions).
+- Impact: Missed framework/version identification vector. Useful for correlating "same app on different subdomains" and for version fingerprinting when headers are stripped.
+- Effort: LOW (fetch `/favicon.ico`, compute mmh3 hash, compare against known hash database. ~40 lines. 1 request. Needs mmh3 dependency).
+
+---
+
+## GAP-087 — Generic backup file patterns (backup.zip, db.sql, dump.sql)
+- Status: OPEN.
+- Priority: HIGH — very common in shared hosting SEA; direct data exposure.
+- Category: RM
+- Stack: Universal
+- What: `BACKUP_FILE_PATHS` in `constants.py` covers `.env.bak`, `.env.save`, `.env~`, `.env.old`, `.env.orig`, `config/database.yml.bak`, and `wp-config.php.bak` variants. But it does NOT cover generic backup file patterns common in shared hosting (especially Indonesia/SEA): `backup.zip`, `backup.tar.gz`, `backup.tar`, `site.zip`, `web.zip`, `www.zip`, `db.sql`, `dump.sql`, `database.sql`, `backup.sql`, `data.sql`. These files, when exposed, contain full site source + database dumps = direct credential and PII exposure.
+- Evidence: `constants.py:394-402` — `BACKUP_FILE_PATHS` only covers `.env` and `wp-config` variants. No generic backup archive patterns.
+- Files: `agent_alpha/config/constants.py:394-402` — BACKUP_FILE_PATHS (incomplete); `agent_alpha/recon/path_probe.py` — probes these paths
+- Cross-ref: GAP-058 (JS secret extraction — backup files may contain JS with secrets too), Bug #26 (blind probing — these paths must be stack-gated, not blindly probed).
+- Impact: Missed database dump or site backup exposure. `db.sql` on a shared hosting target = full database = all user credentials, PII, admin passwords. High-severity payable finding.
+- Effort: LOW (add ~10 paths to `BACKUP_FILE_PATHS`. Must be stack-gated: only probe generic backups on shared-hosting targets (cPanel/Hostinger signatures), not on every target — anti-Bug #26).
+
+---
+
+## GAP-088 — Technology version extraction (universal, beyond WP)
+- Status: OPEN.
+- Priority: P0 — version extraction is useless without CVE lookup (GAP-089); this is the prerequisite.
+- Category: RM
+- Stack: Universal
+- What: Alpha extracts WP version and PHP version (via `x-powered-by` header → tech_stack). But it does NOT extract versions for: nginx (`Server: nginx/1.18.0`), Apache (`Server: Apache/2.4.41`), MariaDB/MySQL (from DB handshake), Odoo (from `/website/info` — GAP-065), Laravel (from `Whoops` debug page or `X-Laravel` header). These versions are already in response headers that Alpha fetches but discards. Without version extraction as SERVICE nodes, CVE lookup (GAP-089) cannot fire for non-WP stacks.
+- Evidence: `agents/alpha/scout.py:1532` — `x-powered-by` parsed for tech_stack only, not as SERVICE node with version. `Server` header parsed for tech_stack but version number dropped. `graph/nodes.py:86-91` — ServiceProperties has `version` field but rarely populated for non-WP.
+- Files: `agent_alpha/agents/alpha/scout.py:1532` — header parsing (version dropped); `agent_alpha/graph/nodes.py:86-91` — ServiceProperties (version field exists, underused); `agent_alpha/recon/capability_probe.py` — no version extraction
+- Cross-ref: GAP-089 (CVE catalog — version is prerequisite for CVE lookup), GAP-052 (WC version — stack-specific instance of this universal gap), GAP-065 (Odoo /website/info — stack-specific version source).
+- Impact: Alpha knows "nginx is present" but not "nginx 1.18.0 which has CVE-2021-23017". CVE lookup cannot fire. Version → CVE → exploit chain is broken at the version step for all non-WP stacks.
+- Effort: LOW (parse `Server` and `X-Powered-By` headers for version string → create SERVICE node with version. ~30 lines. 0 new requests — reuse existing responses).
+
+---
+
+## GAP-089 — CVE catalog comprehensiveness (only 1 entry today)
+- Status: OPEN.
+- Priority: P0 — version extraction (GAP-052, GAP-088) is useless without CVE lookup. This is the multiplier.
+- Category: RG
+- Stack: Universal
+- What: `plugin_cve_catalog.py` contains exactly ONE CVE entry (`wp-file-manager` CVE-2020-25213). The catalog is supposed to map plugin/module/package versions to known CVEs, but it is effectively empty. Alpha can extract "contact-form-7 v5.6" or "nginx 1.18.0" but cannot determine if that version is vulnerable because the catalog has no data. A real external red team cross-references every extracted version against NVD, WPScan, ExploitDB, and nuclei templates. Without a comprehensive CVE catalog, version extraction is half-complete — Alpha knows the version but not the risk.
+- Evidence: `recon/plugin_cve_catalog.py:14-23` — `_CATALOG` dict has 1 entry. No NVD feed integration, no WPScan DB, no ExploitDB, no nuclei template CVE list.
+- Files: `agent_alpha/recon/plugin_cve_catalog.py` — 1 entry only; no NVD/WPScan/ExploitDB feed integration
+- Cross-ref: GAP-052 (WC version — needs CVE catalog for CVE-2026-3589), GAP-053 (WP plugin handler — needs CVE catalog for plugin CVEs), GAP-088 (universal version extraction — needs CVE catalog), GAP-065 (Odoo /website/info — needs CVE catalog for Odoo module CVEs).
+- Impact: Version extraction produces versions but no risk assessment. "nginx 1.18.0" in graph → no CVE match → no VULNERABILITY node → no finding. The entire version→CVE→exploit chain is broken at the catalog step.
+- Effort: MED (data-tier: import NVD JSON feed + WPScan vulnerability DB + curated high-impact CVE list. Not code — data refresh. Catalog must be versioned and refreshable as data, not code. ~500-1000 entries for top WP plugins + nginx/Apache/PHP/Odoo/Laravel).
+
+---
+
+
+# OSINT & Organizational
+
+## GAP-090 — Email pattern inference (firstname@, first.last@, flast@)
+- Status: OPEN.
+- Priority: MEDIUM — prerequisite for breach correlation (needs breach data source first).
+- Category: RG
+- Stack: Universal
+- What: Alpha harvests usernames from WP REST (slug only — GAP-054) but does not infer email patterns. From one known email (`yudha@niagamas.com` from metadata/Wayback), Alpha can infer the company's email naming convention: `firstname@`, `first.last@`, `flast@`, `firstinitial+lastname@`, `firstname.lastname@`. This pattern, once inferred, generates candidate emails for ALL harvested usernames: `admin` → `admin@niagamas.com`, `siti` → `siti@niagamas.com`. These candidates are then cross-referenced against breach data (Dehashed/HIBP §12.54) to find leaked passwords.
+- Evidence: `grep "email.*pattern|email.*infer|naming.*convention"` in `agent_alpha/` = 0 results. No email pattern inference module.
+- Files: No email inference module. `agent_alpha/tools/internal/access/user_derived_creds.py` — derives creds from username + domain stem, but not email pattern inference.
+- Cross-ref: GAP-054 (WP REST user email — if email is directly available, no inference needed), GAP-070 (credential-to-asset correlation — inferred emails feed the credential map), §12.54 (Dehashed/HIBP — breach data source, not yet wired).
+- Impact: Without email pattern inference, breach correlation is limited to emails directly found in metadata. If metadata has `yudha@niagamas.com` but breach data has `y.niagamas@gmail.com`, the correlation fails. Pattern inference bridges this gap.
+- Effort: LOW (pattern detection from known email + candidate generation for harvested usernames. ~60 lines. 0 requests — pure data manipulation. Depends on breach data source being wired).
+
+---
+
+## GAP-091 — GitHub/GitLab public code search (employee repos)
+- Status: OPEN.
+- Priority: MEDIUM — classic OSINT, developers leak credentials to public repos.
+- Category: RG
+- Stack: Universal
+- What: Alpha does not search GitHub/GitLab for public repositories belonging to the target organization or its employees. Developers frequently commit sensitive files to public repos: `.env` files with API keys, `config/database.yml` with DB credentials, SSH private keys, internal API documentation, infrastructure Terraform files. This is distinct from GAP-058 (JS secret extraction from target's own website) — GAP-091 searches code that employees committed to PUBLIC repos, not the target's website. A real external red team always GitHub-dorks the target organization (`org:niagamas`, `niagamas.com password`, `niagamas.com API_KEY`).
+- Evidence: `grep "github.*secret|github.*search|gitlab|public.*repo"` in `agent_alpha/` = 0 results. No GitHub code search module.
+- Files: No GitHub search module. `agent_alpha/recon/osint_sources.py` — no GitHub source.
+- Cross-ref: GAP-069 (Trust Graph — employee GitHub repos are part of organizational intelligence), GAP-058 (JS secrets — target's own JS, not employee repos), GAP-007 (OSINT — GitHub is an OSINT source).
+- Impact: Missed credential leak via employee's public repos. Classic finding: developer pushes `.env` to public GitHub repo → DB credentials exposed → cred-reuse into production. Payable finding.
+- Effort: MED (GitHub code search API + org/employee repo enumeration + file content scan for secrets. Needs GitHub API token (rate limit). ~200 lines. Legal: searching public repos is legal; using found credentials is SOW-gated).
+
+---
+
+## GAP-095 — Social media company page recon (FB/IG/Twitter)
+- Status: OPEN.
+- Priority: MEDIUM — organizational intelligence from public company pages.
+- Category: RG
+- Stack: Universal
+- What: Alpha does not recon social media company pages. From the niagamas OSINT we already found Facebook (`facebook.com/ptniagamas`) and Instagram (`instagram.com/niagamaslestarigemilang`) via Wayback metadata. But there is no handler that captures these as graph nodes or extracts intelligence from them. Company social media pages reveal: admin list (who manages the page), post history (may screenshot internal tools), employee comments (may reveal tech stack complaints, VPN issues, password policy complaints), contact info (phone numbers, email addresses for help desk). This is public company page recon, NOT personal profile scraping — legal and ToS-compliant.
+- Evidence: `grep "facebook|instagram|twitter.*recon|social.*media"` in `agent_alpha/` = 0 results (except in lab fixtures). No social media recon module. FB/IG links found in Wayback metadata but not captured as graph nodes.
+- Files: No social media recon module. `agent_alpha/recon/osint_sources.py` — no FB/IG/Twitter source.
+- Cross-ref: GAP-069 (Trust Graph — social media admins are employees with potential system access), GAP-007 (OSINT — social media is OSINT source).
+- Impact: Missed organizational intelligence. Social media admin = potential WP admin = cred-reuse target. Post history may reveal internal tooling. Employee comments may reveal tech stack and IT complaints.
+- Effort: MED (FB/IG Graph API for company page metadata + post history + admin detection. Twitter API for company handle. Needs API tokens. Legal: company page data is public, NOT personal profile scraping).
+- Constraint: Company page ONLY. No personal profile scraping. No vishing, no phishing, no social engineering. v1 = metadata + post history only. Deferred items (per GAP-069 constraint): LinkedIn scraping, vishing, phishing = client-authorized slice with legal review.
 
 ---
 
