@@ -170,6 +170,51 @@
 | 129 | VPN/Remote Access fingerprinting (expand GAP-081) | OPEN | High | RM | Med | GAP-081 is top-20 HTTP-only; no VPN/RA fingerprinting (IKEv2, OpenVPN, TeamViewer) |
 | 130 | OAuth app enumeration (trust boundary mapping) | OPEN | Med | RM | Med | Target's OAuth apps (Slack/Google/GitHub) = trust boundary; APT29 Nobelium pattern |
 | 131 | Refresh token abuse (OAuth session persistence) | OPEN | Med | SS | Low | No refresh token handling; expired OAuth session = dead; APT uses refresh to persist |
+| 132 | Mobile app attack surface (APK/IPA decompile) | OPEN | High | RM | High | SEA = mobile-first; APK = hardcoded origin IP, API keys, Firebase; bypass CF |
+| 133 | Business logic flaws (price/qty/IDOR/coupon race) | OPEN | High | SS | High | Scanner cannot find this = MOAT; client pays for "how much can we lose" |
+| 134 | API enumeration beyond login (REST endpoint discovery) | OPEN | High | RM | Med | GAP-097 = login only; /api/v1/users, /api/internal/*, Swagger as discovery target |
+| 135 | GraphQL introspection + field suggestion | OPEN | Med | RM | Med | /graphql in soft-404 suppression list = SUPPRESSED not probed; __schema = full API map |
+| 136 | SSRF + cloud metadata (IMDS) exposure | OPEN | Med | SS | Med | Image proxy / URL fetch → 169.254.169.254 = AWS IAM creds; #1 cloud vector |
+| 137 | File upload abuse (webshell/SVG XSS/path traversal) | OPEN | Med | SS | Med | WooCommerce/SEA e-commerce upload surface; content-type bypass |
+| 138 | HTTP request smuggling (CL.TE / TE.CL) | OPEN | Med | SS | High | CF + origin desync; bypass WAF, cache poisoning, session hijack |
+| 139 | Web cache poisoning (unkeyed header) | OPEN | Med | SS | Med | CDN cache key manipulation; poison cache for all users |
+| 140 | WebSocket attack surface (ws:// bypass WAF) | OPEN | Med | RM | Med | WAF often does not inspect WebSocket frames; auth bypass via WS |
+| 141 | JavaScript dependency CVE (jQuery/Angular/moment.js) | OPEN | Med | RM | Low | GAP-058 = secrets only; dependency version → CVE chain not captured |
+| 142 | Source map exposure (.js.map = full source) | OPEN | Med | RM | Low | app.js.map = unminified source; internal API routes, business logic leak |
+| 143 | Database direct exposure enumeration (Mongo/ES/Redis) | OPEN | High | RM | Med | Expand GAP-081; Shodan confirms thousands exposed in ID/VN/TH; no-auth = data leak |
+| 144 | FTP/SFTP anonymous access (shared hosting SEA) | OPEN | Med | SS | Low | Port 21 anonymous on Hostinger/Niagahoster; source/backup leak |
+| 145 | SNMP enumeration (community string public) | OPEN | Low | RM | Low | Port 161 UDP; system info, processes, internal hostname leak |
+| 146 | Hidden parameter discovery (admin=true, debug=1) | OPEN | Med | RM | Med | Arjun/param-miner style; hidden params not in UI but server accepts |
+| 147 | Race condition / TOCTOU testing (e-commerce) | OPEN | Med | SS | High | Coupon 2x, withdraw 2x, vote manipulation; concurrent request tooling |
+| 148 | Error message information disclosure (stack trace) | OPEN | Low | RM | Low | 500 = framework version, file paths; SQL error = table/column names |
+| 149 | Open redirect enumeration (standalone) | OPEN | Med | RM | Low | /redirect?url=evil.com; phishing, OAuth token theft, SSRF bypass |
+| 150 | CSP analysis for attack surface mapping | OPEN | Low | RM | Low | GAP-055 = presence only; script-src trusted external = attack surface |
+| 151 | CDN origin shield bypass (Argo/CloudFront shield) | OPEN | Med | RM | Med | Shield IP discovery = bypass edge entirely |
+| 152 | DNS rebinding for SSRF bypass | OPEN | Low | SS | Med | Domain resolves to 127.0.0.1 after first DNS check; bypass SSRF allowlist |
+
+### Out of Scope — Documented (bounds GAP-045 claim)
+
+| # | Name | Status | Priority | Cat | Effort | Notes |
+|----|------|--------|----------|-----|--------|-------|
+| OOS-1 | Phishing / pretexting for credentials | OUT OF SCOPE | — | — | — | Human interaction + legal exposure; real APT #1 vector but deferred indefinitely |
+| OOS-2 | Vishing (voice phishing) | OUT OF SCOPE | — | — | — | Phone-based social engineering; legal + human interaction |
+| OOS-3 | Physical access (office/USB/lock) | OUT OF SCOPE | — | — | — | On-site, not remote SaaS |
+| OOS-4 | Wireless (WiFi/evil twin/deauth) | OUT OF SCOPE | — | — | — | On-site, not remote SaaS |
+| OOS-5 | Supply chain compromise (vendor attack) | OUT OF SCOPE | — | — | — | Different engagement type; SolarWinds/Kaseya/3CX pattern |
+| OOS-6 | Social engineering (LinkedIn/impersonation) | OUT OF SCOPE | — | — | — | Human manipulation, legal exposure |
+| OOS-7 | Insider threat (disgruntled employee) | OUT OF SCOPE | — | — | — | Requires insider access, different scope |
+
+### Existing GAP Expansion Tracking
+
+| # | Parent | Expansion needed | New GAP |
+|----|--------|------------------|---------|
+| EXP-1 | GAP-081 | DB-specific protocol enumeration | GAP-143 |
+| EXP-2 | GAP-055 | CSP trust-boundary analysis | GAP-150 |
+| EXP-3 | GAP-058 | Dependency version → CVE chain | GAP-141 |
+| EXP-4 | GAP-085 | WebDAV verbs (PROPFIND/MOVE/COPY) | — |
+| EXP-5 | GAP-087 | Directory patterns (/backup/, /db/, /sql/) | — |
+| EXP-6 | GAP-062 | DMARC policy analysis (p=none vs reject) | — |
+| EXP-7 | GAP-099 | MFA bypass (SIM swap/push fatigue/RTOP) | — |
 
 ## Category Legend
 
@@ -305,6 +350,56 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 91. **GAP-129** — VPN/Remote Access fingerprinting (HIGH — expand GAP-081 beyond HTTP; IKEv2/OpenVPN/WireGuard/TeamViewer/AnyDesk; primary APT entry vector)
 92. **GAP-130** — OAuth app enumeration (MED — target's OAuth apps = trust boundary; APT29 Nobelium pattern; passive platform API)
 93. **GAP-131** — Refresh token abuse (MED — OAuth refresh token regenerates access token after expiry; complement GAP-114)
+
+### Ledger Completeness Audit (2026-08-13) — Missing Holes from APT parity review
+
+> Audit context: 131 GAPs reviewed against MITRE ATT&CK external red team tradecraft + SEA market specifics. Ledger completeness ~35% of APT parity. Missing holes below are NOT in any prior section. They are registered here so GAP-045 (CF-ceiling honest-outcome) can enumerate "tested vs untested" honestly — without this, the defensive-validation report cannot bound its own claim.
+
+#### A. Genuinely missing — must be built for APT parity
+
+94. **GAP-132** — Mobile app attack surface (HIGH — SEA = mobile-first; APK/IPA decompile via apktool/jadx reveals hardcoded origin IPs, API keys, Firebase config, OAuth client secrets; bypasses CF entirely; Play Store/App Store = public, 5-min reverse)
+95. **GAP-133** — Business logic flaws (HIGH — price manipulation, negative quantity, coupon race, IDOR on order_id, parameter tampering role=admin; scanner CANNOT find this = MOAT; client pays for "how much can we lose")
+96. **GAP-134** — API enumeration beyond login (HIGH — /api/v1/users, /api/v1/admin, /api/internal/*; GAP-097 = login only, not endpoint enumeration; Swagger/OpenAPI spec as discovery target, not soft-404 suppression)
+97. **GAP-135** — GraphQL introspection + field suggestion (MED-HIGH — /graphql with introspection = full schema dump; currently /graphql is in soft-404 suppression list = SUPPRESSED not probed; __schema/__type queries)
+98. **GAP-136** — SSRF + cloud metadata (IMDS) exposure (MED-HIGH — image proxy / URL fetch / PDF generator → 169.254.169.254 = AWS IAM creds; #1 cloud attack vector; not in any existing GAP)
+99. **GAP-137** — File upload abuse (MED — avatar/document upload: .php webshell, .svg XSS+SSRF, path traversal in filename, content-type bypass; WooCommerce/SEA e-commerce = common upload surface)
+100. **GAP-138** — HTTP request smuggling (MED-HIGH — CL.TE / TE.CL desync between CF edge and origin; bypass WAF, cache poisoning, session hijack; CF + origin mismatch = classic vector)
+101. **GAP-139** — Web cache poisoning (MED — unkeyed header → poison CDN cache for all users; X-Forwarded-Host reflected → cached; CDN-target interaction)
+102. **GAP-140** — WebSocket attack surface (MED — ws:// / wss:// often bypass WAF inspection; auth bypass via WebSocket frame; real-time chat/notification endpoints)
+103. **GAP-141** — JavaScript dependency CVE (MED — jQuery <3.5 prototype pollution, Angular <1.8 XSS bypass, moment.js ReDoS; GAP-058 = secrets only, NOT dependency version → CVE chain)
+104. **GAP-142** — Source map exposure (MED — app.js.map / vendor.js.map = full unminified source; reveals internal API routes, component names, business logic)
+105. **GAP-143** — Database direct exposure enumeration (HIGH — expand GAP-081: MongoDB 27017, Elasticsearch 9200, Redis 6379, CouchDB 5984, Cassandra 9042, Memcached 11211; Shodan confirms thousands exposed in ID/VN/TH; no-auth = data leak/RCE)
+106. **GAP-144** — FTP/SFTP anonymous access (MED — port 21 FTP anonymous login on shared hosting SEA (Hostinger/Niagahoster); browsable directory = source/backup leak; port 22 SFTP cred-stuff)
+107. **GAP-145** — SNMP enumeration (LOW-MED — port 161 UDP, community string public/default = system info, processes, network config, internal hostname)
+108. **GAP-146** — Hidden parameter discovery (MED — Arjun/param-miner style: ?admin=true, ?debug=1, hidden params not in UI but server accepts; admin panel activation)
+109. **GAP-147** — Race condition / TOCTOU testing (MED — coupon apply 2x, withdraw 2x, vote manipulation; e-commerce logic gap; requires concurrent request tooling)
+110. **GAP-148** — Error message information disclosure (LOW-MED — 500 stack trace = framework version, file paths, DB type; SQL error = table/column names; PHP debug = full config)
+111. **GAP-149** — Open redirect enumeration (MED — /redirect?url=https://evil.com; phishing vector, OAuth token theft via redirect_uri, SSRF filter bypass; GAP-113 = host header only, not standalone redirect)
+112. **GAP-150** — CSP analysis for attack surface mapping (LOW-MED — script-src trusted external = attack surface; connect-src = allowed backend origins = origin discovery; GAP-055 = presence check only, not trust-boundary analysis)
+113. **GAP-151** — CDN origin shield bypass (MED — Cloudflare Argo Tunnel, AWS CloudFront origin shield; shield IP discovery = bypass edge entirely)
+114. **GAP-152** — DNS rebinding for SSRF bypass (LOW-MED — domain resolves to 127.0.0.1 after first DNS check; access internal services via "external" URL; bypass SSRF allowlists)
+
+#### B. Intentionally OUT OF SCOPE — DOCUMENTED (not to build, but to bound GAP-045 claim)
+
+> These are deliberately excluded from Agent-Alpha's remote SaaS model. They are recorded here so the GAP-045 defensive-validation report can enumerate "tested vs untested vs out-of-scope" honestly. Without this section, a reviewer cannot distinguish "deliberate exclusion" from "oversight."
+
+115. **OOS-1** — Phishing / pretexting for credentials (OUT OF SCOPE — human interaction + legal exposure; real APT #1 vector but requires human target contact; deferred indefinitely)
+116. **OOS-2** — Vishing (voice phishing) (OUT OF SCOPE — phone-based social engineering; legal + human interaction)
+117. **OOS-3** — Physical access (office entry, USB drop, lock picking) (OUT OF SCOPE — on-site, not remote SaaS)
+118. **OOS-4** — Wireless (WiFi near target office, evil twin, deauth) (OUT OF SCOPE — on-site, not remote SaaS)
+119. **OOS-5** — Supply chain compromise (vendor/plugin/theme attack) (OUT OF SCOPE — different engagement type; SolarWinds/Kaseya/3CX pattern; requires vendor access)
+120. **OOS-6** — Social engineering (LinkedIn manipulation, impersonation) (OUT OF SCOPE — human manipulation, legal exposure; GAP-069 defers LinkedIn OSINT but not active manipulation)
+121. **OOS-7** — Insider threat (disgruntled employee, credential sale) (OUT OF SCOPE — requires insider access, different engagement scope)
+
+#### C. Partially covered — existing GAPs need expansion (registered for tracking)
+
+122. **EXP-1 (GAP-081)** — Port scan does not enumerate DB-specific protocols per-service (MongoDB, Elasticsearch, Redis, CouchDB, Cassandra, Memcached) — see GAP-143
+123. **EXP-2 (GAP-055)** — Security headers does not include CSP trust-boundary analysis — see GAP-150
+124. **EXP-3 (GAP-058)** — JS secret extraction does not include dependency version → CVE chain — see GAP-141
+125. **EXP-4 (GAP-085)** — HTTP methods does not include WebDAV-specific verbs (PROPFIND, MOVE, COPY, MKCOL on /webdav)
+126. **EXP-5 (GAP-087)** — Backup file patterns does not include directory patterns (/backup/, /db/, /sql/, /dump/, /tmp/)
+127. **EXP-6 (GAP-062)** — TLS/MX/SPF/DMARC does not include DMARC policy analysis (p=none vs quarantine vs reject; p=none = email spoofing possible)
+128. **EXP-7 (GAP-099)** — MFA detection does not include MFA bypass (SIM swap, TOTP reuse, push fatigue, RTOP)
 
 ### Enhancements to existing GAPs (2026-08-13)
 
