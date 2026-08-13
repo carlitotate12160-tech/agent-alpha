@@ -164,6 +164,12 @@
 | 123 | Certificate Transparency delay analysis (post-CF origin leak) | OPEN | Med | RG | Med | Certs issued 2 days after apex CF fronting often leak origin IP in SAN history |
 | 124 | Job posting / tech stack mining (infrastructure inference) | OPEN | Low | RG | Low | Job descriptions reveal stack (nginx, Kafka, Kubernetes) = attack surface intel |
 | 125 | Deception detection (honeypot / canary token / sinkhole) | OPEN | Low | RG | Med | APT detects honeypot before touching; Alpha has no deception awareness |
+| 126 | Document metadata intel (PDF/DOCX/EXIF from public files) | OPEN | Med | RM | Med | Alpha fetches only .env/wp-config/.git; no document discovery or metadata parsing |
+| 127 | SaaS vendor integration map (DNS TXT verification records) | OPEN | Med | RM | Low | DNS TXT reveals Zendesk/Atlassian/Google/Slack integrations; 0 target touch |
+| 128 | Timezone-aware pacing (SOC-hours targeting) | OPEN | Med | RM | Low | StealthPacer has no timezone awareness; attack runs regardless of target SOC hours |
+| 129 | VPN/Remote Access fingerprinting (expand GAP-081) | OPEN | High | RM | Med | GAP-081 is top-20 HTTP-only; no VPN/RA fingerprinting (IKEv2, OpenVPN, TeamViewer) |
+| 130 | OAuth app enumeration (trust boundary mapping) | OPEN | Med | RM | Med | Target's OAuth apps (Slack/Google/GitHub) = trust boundary; APT29 Nobelium pattern |
+| 131 | Refresh token abuse (OAuth session persistence) | OPEN | Med | SS | Low | No refresh token handling; expired OAuth session = dead; APT uses refresh to persist |
 
 ## Category Legend
 
@@ -290,6 +296,21 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 85. **GAP-123** — Certificate Transparency delay analysis (MED — pre-CF certs leak origin IP in SAN)
 86. **GAP-124** — Job posting / tech stack mining (LOW — passive OSINT, low value for SEA market)
 87. **GAP-125** — Deception detection (LOW-MED — honeypot/canary/sinkhole awareness, APT-grade)
+
+### APT Architect Assessment — Slice 3+4 (2026-08-13)
+
+88. **GAP-126** — Document metadata intel (MED — employee names, internal hostname, software version from PDF/DOCX/EXIF; needs document discovery + fetch + parse)
+89. **GAP-127** — SaaS vendor integration map (MED — DNS TXT reveals Zendesk/Atlassian/Google/Slack; 0 target touch, 1 DNS query)
+90. **GAP-128** — Timezone-aware pacing (MED — StealthPacer adjust to target SOC hours; from HTTP Date header or geo-IP; ~20 lines)
+91. **GAP-129** — VPN/Remote Access fingerprinting (HIGH — expand GAP-081 beyond HTTP; IKEv2/OpenVPN/WireGuard/TeamViewer/AnyDesk; primary APT entry vector)
+92. **GAP-130** — OAuth app enumeration (MED — target's OAuth apps = trust boundary; APT29 Nobelium pattern; passive platform API)
+93. **GAP-131** — Refresh token abuse (MED — OAuth refresh token regenerates access token after expiry; complement GAP-114)
+
+### Enhancements to existing GAPs (2026-08-13)
+
+94. **ENH-1 (GAP-113)** — Automated token entropy analysis: request 3 reset tokens, analyze randomness. Predictable token = critical finding
+95. **ENH-2 (GAP-108)** — Response time differential for user enum: valid user = 200ms, invalid = 50ms. More accurate than message differential
+96. **ENH-3 (GAP-116)** — TOTP secret exposure detection: after authenticated crawl, check if profile page displays valid TOTP QR code = critical finding
 
 **Deferred:** GAP-001 (new stack playbooks), GAP-003 (IntelligenceBase), GAP-007 (OSINT), GAP-014 (fan-out), GAP-016 (Wayback), GAP-017 (PassiveIntelMap consumer), GAP-020-022, GAP-026-028, GAP-032-033, GAP-036, GAP-038-043, GAP-045-047, GAP-050.
 
@@ -458,6 +479,12 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - GAP-123 — Certificate Transparency delay analysis (post-CF origin leak) (OPEN.)
 - GAP-124 — Job posting / tech stack mining (infrastructure inference) (OPEN.)
 - GAP-125 — Deception detection (honeypot / canary token / sinkhole) (OPEN.)
+- GAP-126 — Document metadata intel (PDF/DOCX/EXIF from public files) (OPEN.)
+- GAP-127 — SaaS vendor integration map (DNS TXT verification records) (OPEN.)
+- GAP-128 — Timezone-aware pacing (SOC-hours targeting) (OPEN.)
+- GAP-129 — VPN/Remote Access fingerprinting (expand GAP-081) (OPEN.)
+- GAP-130 — OAuth app enumeration (trust boundary mapping) (OPEN.)
+- GAP-131 — Refresh token abuse (OAuth session persistence) (OPEN.)
 
 ### Trust Graph & Organizational Intelligence (NEW)
 
@@ -2264,6 +2291,130 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - Impact: Alpha may touch honeypots/canaries and alert target SOC. In a real APT emulation, this burns the engagement. For SaaS red team (engagement is announced), this is less critical — but for "stealth assessment" engagements, deception detection is valuable.
 - Effort: MED (canary token detection: check if .env file contains canary patterns (Canarytokens.org patterns, Thinkst patterns). Honeypot detection: check if open port behaves like real service (banner analysis, protocol fingerprinting). Sinkhole detection: check if resolved IP is in known sandbox/analyst IP ranges. ~150 lines. Needs canary pattern database + sandbox IP range list.)
 - Constraint: RECON_ONLY (detection, not avoidance — Alpha should REPORT deception detected, not silently avoid it. The engagement report should include "deception infrastructure detected: honeypot on port X, canary token in .env file" as a finding.)
+
+---
+
+
+# APT Architect Assessment — New GAPs (2026-08-13)
+
+## GAP-126 — Document metadata intel (PDF/DOCX/EXIF from public files)
+- Status: OPEN.
+- Priority: MEDIUM — employee names, internal hostname, software version, timezone from public documents. High intel value but requires new document discovery + fetch capability.
+- Category: RM (RECON_MISS — Alpha doesn't capture data available in public documents)
+- Stack: Universal (any target with public PDF/DOCX/images)
+- What: PDF, DOCX, XLSX, and image files published on target websites contain embedded metadata: author names (employees), creator software + version (CVE match), template paths (internal hostnames like `\\FILESERVER\Templates\`), company name, timezone, GPS coordinates (images). This metadata is physically embedded in the file bytes per international standards (PDF ISO 32000, OOXML ECMA-376, EXIF JEITA CP-3451). Tools like Metagoofil and FOCA have exploited this for years. Alpha currently fetches ONLY `.env.bak`, `wp-config.php.bak`, `.git/config`, and actuator endpoints — it does NOT discover, fetch, or parse public documents (PDF/DOCX/XLSX/images). This is a 3-step gap: (1) document discovery (crawl HTML, extract href/src with document extensions), (2) document fetch (GET the document URL), (3) metadata parse (extract embedded metadata from file bytes).
+- Evidence: `grep "\.pdf|\.docx|\.xlsx|\.jpg|\.png" ` in `agent_alpha/recon/` = 0 results. `constants.BACKUP_FILE_PATHS` contains only `.env.bak`, `wp-config.php.bak`, `database.yml.bak` — no document extensions. `WELL_KNOWN_LEAK_PATHS` = GIT + BACKUP + ACTUATOR only. No document discovery, no document fetch, no metadata parser in codebase.
+- Files: `agent_alpha/config/constants.py` — BACKUP_FILE_PATHS (no document extensions); `agent_alpha/recon/path_probe.py` — processes only leak paths, not documents; `agent_alpha/agents/alpha/scout.py` — crawl extracts href for frontier expansion, does NOT filter for document extensions; no `doc_metadata_probe.py` module exists.
+- Cross-ref: GAP-069 (Trust Graph — employee names from metadata feed USER nodes), GAP-104 (breach data — employee names enable breach query), GAP-088/089 (version extraction + CVE — software version from metadata feeds CVE match), GAP-115 (historical DNS — internal hostname from template path enables DNS query), GAP-120 (IPv6 — internal hostname may have AAAA record), GAP-128 (timezone-aware pacing — timezone from metadata feeds pacing).
+- Impact: Missed free intelligence. Public documents are published by the target intentionally — fetching them is passive RECON_ONLY. Metadata leaks are well-documented (NSA advisory, SANS FOR572, Metagoofil, FOCA). UKM/SEA targets frequently upload documents without stripping metadata. Employee names → breach data query → credential reuse. Internal hostname → origin discovery. Software version → CVE match.
+- Effort: MED (~200 lines total). Document discovery: ~80 lines (parse HTML, filter href by extension `.pdf/.docx/.xlsx/.pptx/.jpg/.png`, add to frontier). Document fetch: ~20 lines (http_client GET, save bytes). Metadata parse: ~100 lines (PyPDF2/pikepdf for PDF Info+XMP, zipfile+xml.etree for OOXML docProps, Pillow for EXIF). Dependencies: PyPDF2 or pikepdf (pip), Pillow (may already exist for screenshots), zipfile+xml.etree (standard library).
+- Constraint: RECON_ONLY (fetch public documents = passive GET, same as any browser). Only fetch documents linked from target's own pages (no Google dorking — that's a separate capability). Skip files >10MB (metadata not worth bandwidth). Parse metadata ONLY, not document content. Do NOT store file content in graph — only extracted metadata fields.
+
+---
+
+## GAP-127 — SaaS vendor integration map (DNS TXT verification records)
+- Status: OPEN.
+- Priority: MEDIUM — reveals target's SaaS vendor stack from 1 DNS query, 0 target touch.
+- Category: RM (RECON_MISS — Alpha doesn't query TXT records for SaaS verification)
+- Stack: Universal
+- What: SaaS vendors require domain verification via DNS TXT records. These records persist after verification and reveal the target's SaaS stack: `google-site-verification=...` (Google Workspace), `atlassian-domain-verification=...` (Atlassian/Jira/Confluence), `zendesk-verification=...` (Zendesk), `stripe-verification=...` (Stripe), `MS=ms...` (Microsoft 365), `facebook-domain-verification=...` (Facebook/Meta), `slack-verification-token=...` (Slack). Each verification record = a trust boundary that could be abused. Alpha currently queries A, MX, SPF, DMARC records (GAP-062) but does NOT query TXT records for SaaS vendor enumeration.
+- Evidence: `grep "TXT|txt.*record|google-site-verification|atlassian-domain|zendesk" ` in `agent_alpha/` = 0 results for SaaS verification parsing. DNS queries focus on A/MX/SPF/DMARC, not TXT enumeration.
+- Files: `agent_alpha/recon/passive_discovery.py` — DNS queries (no TXT SaaS enumeration); `agent_alpha/recon/origin_resolver.py` — A/AAAA only.
+- Cross-ref: GAP-062 (TLS/MX/SPF/DMARC — TXT query should be added alongside), GAP-069 (Trust Graph — SaaS vendors = trust boundary nodes), GAP-130 (OAuth app enumeration — SaaS vendors that support OAuth = OAuth trust boundary), ADR §12.56 (supply chain recon — SaaS integrations are supply chain), ADR §12.61 axis B6 (SaaS shadow-IT).
+- Impact: Missed trust boundary mapping. Knowing target uses Zendesk = Zendesk API is a potential entry vector. Knowing target uses Atlassian = Jira/Confluence may expose internal project data. Knowing target uses Google Workspace = OAuth token theft vector (GAP-114). All from 1 DNS TXT query, 0 target touch.
+- Effort: LOW (~40 lines). Query DNS TXT records (dnspython, already used for A/MX). Parse known verification patterns (regex for `google-site-verification`, `atlassian-domain-verification`, `zendesk-verification`, `MS=ms`, `stripe-verification`, `facebook-domain-verification`, `slack-verification-token`). Mint SERVICE nodes for each discovered SaaS vendor.
+- Constraint: RECON_ONLY (DNS query, 0 target touch). Public DNS records = public data.
+
+---
+
+## GAP-128 — Timezone-aware pacing (SOC-hours targeting)
+- Status: OPEN.
+- Priority: MEDIUM — basic APT instinct: attack when SOC is asleep.
+- Category: RM (RECON_MISS — Alpha doesn't factor target timezone into pacing)
+- Stack: Universal
+- What: APT operators time their attacks to target's off-hours — when SOC analysts are asleep, response time is slowest, and WAF rule updates are least likely. Alpha's StealthPacer controls request rate but has no timezone awareness — it paces at the same rate regardless of whether it's 2am or 2pm target local time. Target timezone can be inferred from: HTTP `Date` header (server timezone), geo-IP lookup (target country → timezone), or document metadata (GAP-126 CreationDate timezone offset). Once known, Alpha should adjust pacing to concentrate active probes during target's off-hours (typically 11pm-6am target local).
+- Evidence: `grep "timezone|tz|SOC.*hours|off.*hours|Date.*header.*timezone" ` in `agent_alpha/` = 0 results for timezone-aware pacing. StealthPacer uses fixed intervals, no timezone input.
+- Files: `agent_alpha/recon/stealth_pacer.py` (or equivalent pacing module) — no timezone input; `agent_alpha/agents/alpha/scout.py` — no timezone extraction from HTTP Date header.
+- Cross-ref: GAP-026 (StealthPacer gate — related: pacing control), GAP-126 (document metadata — timezone from CreationDate feeds this), ADR §12.49 (proactive evasion — timezone-aware pacing is evasion enhancement).
+- Impact: Alpha runs at the same speed regardless of target SOC presence. For announced engagements, this is acceptable. For stealth assessments, attacking during SOC off-hours reduces detection risk. Basic APT instinct that costs ~20 lines to implement.
+- Effort: LOW (~20 lines). Extract timezone from HTTP `Date` header (parsedatetime or manual parse). Pass to StealthPacer. Adjust pacing schedule: concentrate active probes in target off-hours (configurable, default 23:00-06:00 target local). Or simpler: just record target timezone as ASSET metadata for now, defer schedule adjustment to Phase 6.
+- Constraint: RECON_ONLY (timezone extraction is passive). Schedule adjustment is config-level, not code self-modification.
+
+---
+
+## GAP-129 — VPN/Remote Access fingerprinting (expand GAP-081)
+- Status: OPEN.
+- Priority: HIGH — VPN/RA is primary APT entry vector; GAP-081 is HTTP-only top-20 ports.
+- Category: RM (RECON_MISS — Alpha doesn't fingerprint non-HTTP remote access services)
+- Stack: Universal (VPN endpoints, remote access tools)
+- What: GAP-081 (port scanning) is scoped to "top-20 ports" with "stealth concern" framing — scanner mindset. APT operators map the FULL external perimeter including VPN endpoints (IKEv2/IPSec on UDP 500/4500, OpenVPN on UDP 1194/TCP 443, WireGuard on UDP 51820, SSTP on TCP 443, AnyConnect on TCP 443/8443) and remote access tools (TeamViewer on TCP 5938, AnyDesk on TCP 6568, Chrome Remote Desktop via HTTPS, RDP on TCP 3389, VNC on TCP 5900-5910). Many SEA targets expose TeamViewer/AnyDesk without 2FA — a payable finding. Alpha currently does not fingerprint these services. GAP-081 should be expanded beyond HTTP-only top-20 to include VPN/RA fingerprinting.
+- Evidence: `grep "IKE|IPSec|OpenVPN|WireGuard|TeamViewer|AnyDesk|RDP|VNC|3389|5938" ` in `agent_alpha/` = 0 results for VPN/RA fingerprinting. GAP-081 scope is HTTP-centric.
+- Files: `agent_alpha/recon/` — no VPN/RA fingerprinting module; GAP-081 detailed entry — scope is top-20 ports, HTTP-focused.
+- Cross-ref: GAP-081 (port scanning — this GAP expands its scope), GAP-062 (MX/SPF — mail infrastructure is another non-HTTP surface), GAP-103 (cross-service cred reuse — VPN cred reuse if creds harvested).
+- Impact: Missed primary APT entry vector. VPN compromise = initial access without touching web application. TeamViewer/AnyDesk without 2FA = direct remote access finding. Many SEA UKM expose these. Finding "TeamViewer exposed on 168.110.192.62:5938 without 2FA" = payable.
+- Effort: MED (~120 lines). UDP probe for IKE (send IKE_SA_INIT, parse response). TCP connect + banner for OpenVPN/RDP/VNC/TeamViewer/AnyDesk. Service fingerprinting from response. Must be tier-gated (port scan = RECON_ONLY, but some targets may consider active port scan as intrusive — engagement config should control).
+- Constraint: RECON_ONLY (fingerprinting, not exploitation). Port scanning may require engagement-level authorization beyond default RECON_ONLY — some clients consider port scanning active. Must respect engagement config `allow_port_scan` flag.
+
+---
+
+## GAP-130 — OAuth app enumeration (trust boundary mapping)
+- Status: OPEN.
+- Priority: MEDIUM — APT29 Nobelium used malicious OAuth apps; target's existing OAuth apps = trust boundary.
+- Category: RM (RECON_MISS — Alpha doesn't enumerate target's OAuth app integrations)
+- Stack: Universal (targets using Google Workspace, Microsoft 365, Slack, GitHub)
+- What: Modern targets integrate third-party OAuth apps into their SaaS platforms (Google Workspace, Microsoft 365, Slack, GitHub). Each OAuth app has scopes (read email, read files, manage calendar) = trust boundary. APT29 Nobelium campaign used malicious OAuth application for persistent access to victim mailboxes. External red team should enumerate: which OAuth apps does the target have installed? What scopes do they have? Are any over-privileged? This is passive intelligence — querying platform APIs for installed apps (where authorized) or inferring from DNS TXT records (GAP-127) and cookie domains.
+- Evidence: `grep "OAuth.*app|installed.*app|app.*permission|consent.*phishing" ` in `agent_alpha/` = 0 results for OAuth app enumeration.
+- Files: No OAuth app enumeration module. `agent_alpha/recon/` — no oauth_app_probe.py.
+- Cross-ref: GAP-114 (OAuth/SAML/JWT token theft — OAuth apps are the trust boundary that enables token theft), GAP-127 (SaaS vendor map — DNS TXT reveals which SaaS platforms target uses, enabling targeted OAuth app enum), GAP-069 (Trust Graph — OAuth apps = trust relationship nodes), ADR §12.56 (supply chain recon — OAuth apps are supply chain trust).
+- Impact: Missed trust boundary mapping. Without knowing target's OAuth app landscape, Alpha cannot identify over-privileged apps or potential OAuth abuse vectors. APT29 pattern: enumerate OAuth apps → find over-privileged app → steal/abuse its token → persistent access.
+- Effort: MED (~100 lines). For Google Workspace: Google Admin SDK API (requires domain admin token — may not be available for external red team). For Slack: Slack API `admin.apps.requests.list` (requires admin token). For GitHub: GitHub API `/orgs/{org}/installations` (public for orgs with GitHub Apps). Fallback: infer from DNS TXT (GAP-127) + cookie domain analysis (set-cookie domain reveals SaaS platform). Realistic external red team approach: infer from passive signals (DNS TXT, cookie domains, JS references to SaaS APIs), not platform admin API.
+- Constraint: RECON_ONLY (passive enumeration). Do NOT install malicious OAuth apps (that's Gamma OFFENSIVE_APPROVED + destructive). Do NOT abuse OAuth tokens (that's Beta/Gamma with authorization).
+
+---
+
+## GAP-131 — Refresh token abuse (OAuth session persistence)
+- Status: OPEN.
+- Priority: MEDIUM — without refresh token handling, expired OAuth session = dead end.
+- Category: SS (STRIKE-SHORT — Beta can't persist OAuth-based access)
+- Stack: Universal (targets using OAuth/OIDC)
+- What: OAuth/OIDC flows issue two tokens: access token (short-lived, 15min-1hr) and refresh token (long-lived, days-weeks-months). When Alpha/Beta harvests an OAuth access token (from JS leak, .env, browser storage), the token may already be expired. Without refresh token handling, Beta reports "token expired" and moves on — missing a valid persistence vector. APT operators use refresh tokens to maintain access for weeks/months without re-authentication. Beta should: (1) check if harvested token set includes refresh token, (2) if access token expired, use refresh token to get new access token, (3) report "valid refresh token with scope X, persistence duration Y" as finding.
+- Evidence: `grep "refresh.*token|refresh_token|token.*refresh|OAuth.*persist" ` in `agent_alpha/` = 0 results for refresh token handling. GAP-114 mentions OAuth/JWT but does not cover refresh token flow.
+- Files: No refresh token handling. `agent_alpha/tools/internal/access/` — no oauth module. GAP-114 detailed entry — covers token theft/forgery but not refresh flow.
+- Cross-ref: GAP-114 (OAuth/SAML/JWT — this GAP adds refresh token persistence), GAP-102 (session cookie riding — related session persistence), GAP-101 (API key — related token-based access), GAP-116 (authenticated crawl — refresh token enables sustained crawl session).
+- Impact: Missed persistence vector. Harvested OAuth token set with refresh token = weeks of access. Without refresh handling, Beta misses this and reports "expired token" = false negative. APT uses refresh tokens for silent persistence — no re-login needed, no log entry per access.
+- Effort: LOW (~60 lines). Parse harvested token set for `refresh_token` field. If access token expired + refresh token present: POST to OAuth token endpoint with `grant_type=refresh_token`. Parse new access token. Report persistence duration (from refresh token expiry). Must be tier-gated: token validation = RECON_ONLY, refresh = active use of harvested credential (RECON_ONLY+ or Beta tier).
+- Constraint: Refresh token use = active credential use (not pure passive). Must be authorized. Do NOT refresh tokens for accounts not in scope. Report refresh token as finding with scope + persistence duration, do NOT use refreshed token for further access without explicit authorization.
+
+---
+
+
+# Enhancements to existing GAPs (2026-08-13)
+
+## ENH-1 (GAP-113) — Automated token entropy analysis
+- Parent: GAP-113 (Password Reset Abuse)
+- What: GAP-113 Vector 3 (predictable reset token) currently describes manual detection. Add automated entropy analysis: request 3 reset tokens for an attacker-controlled test account, analyze randomness (Shannon entropy, sequential pattern check, timestamp correlation). If tokens are predictable (low entropy, sequential, timestamp-derived), flag as critical finding — token prediction could enable autonomous account takeover.
+- Effort: LOW (~50 lines). Request 3 tokens, compute Shannon entropy, check for sequential/timestamp pattern. Compare against cryptographic randomness baseline.
+- Constraint: Use attacker-controlled test account, NOT victim account. Detection only (v1) — do NOT use predicted token to change password without OFFENSIVE_APPROVED.
+- Cross-ref: GAP-113 Vector 3, GAP-108 (reset user enum — related reset flow analysis).
+
+---
+
+## ENH-2 (GAP-108) — Response time differential for user enumeration
+- Parent: GAP-108 (Password Reset Flow User Enumeration)
+- What: GAP-108 currently covers message differential ("user not found" vs "reset link sent"). Add response time differential: valid users typically take longer (server generates token, sends email) than invalid users (quick rejection). Measure response time for 3+ requests per email, compare timing distributions. Valid user = 200ms, invalid = 50ms = user enumeration with higher accuracy than message differential alone.
+- Effort: LOW (~30 lines). Measure HTTP response time for reset endpoint. Compare timing across valid/invalid emails. Flag significant timing differential as user enumeration vector.
+- Constraint: RECON_ONLY (timing measurement, not exploitation). Use engagement-controlled test emails for baseline. Do NOT brute-force emails (that's user enumeration attack = OFFENSIVE_APPROVED).
+- Cross-ref: GAP-108, GAP-113 (reset abuse — related reset flow analysis).
+
+---
+
+## ENH-3 (GAP-116) — TOTP secret exposure detection
+- Parent: GAP-116 (Authenticated Crawl)
+- What: After GAP-116 basic authenticated crawl is built, add TOTP secret exposure check: scan authenticated pages (especially profile/settings/security pages) for TOTP QR code images or TOTP secret strings. If a page displays a valid TOTP QR code (base32 secret embedded in `otpauth://totp/...` URL), this is a critical finding — anyone with access to the page can generate valid MFA codes. This is a configuration error (TOTP secret should only be shown once during setup, not on every profile view).
+- Effort: LOW (~40 lines). After authenticated crawl, parse page content for `otpauth://totp/` URLs or QR code images containing TOTP secrets. Flag as critical finding.
+- Constraint: RECON_ONLY (detection, not exploitation). Do NOT generate MFA codes from discovered secret (that's OFFENSIVE_APPROVED). Report as finding: "TOTP secret exposed on profile page = MFA bypass possible."
+- Dependency: GAP-116 must be built first (authenticated crawl). This enhancement runs on top of crawl results.
+- Cross-ref: GAP-116, GAP-099 (MFA detection — related MFA surface analysis).
 
 ---
 
