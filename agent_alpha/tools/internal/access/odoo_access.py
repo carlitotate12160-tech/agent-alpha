@@ -53,6 +53,7 @@ from defusedxml import ElementTree as DefusedET
 
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
+from agent_alpha.tools.internal.access.default_credentials import platform_defaults
 
 # ── Single-source markers for THIS tool (defined once; not a #7 dup) ───────
 # An Odoo target is the trigger. Mirrors the recon probe's fingerprint vocab
@@ -250,10 +251,14 @@ class OdooAccessTool:
         return db_names, db_source, requests_used
 
     def _assemble_candidates(self) -> list[tuple[str, str, str, str | None]]:
-        """Build credential candidate list: Odoo defaults + harvested graph creds."""
+        """Build credential candidate list: Odoo defaults + harvested graph creds.
+
+        Odoo defaults come from the SINGLE-source catalog (default_credentials.yaml,
+        ``odoo`` platform entry) — NOT an inline literal (anti-#7; the pairs used to be
+        orphaned here, diverged from default_creds' catalog)."""
         candidates: list[tuple[str, str, str, str | None]] = [
-            ("admin", "admin", "default", None),
-            ("admin", "password", "default", None),
+            (username, password, "default", None)
+            for username, password in platform_defaults("odoo")
         ]
 
         if self._graph_store is None or self._secrets_manager is None:

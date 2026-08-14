@@ -41,6 +41,10 @@ from typing import Any
 
 from agent_alpha.config import constants
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
+from agent_alpha.tools.internal.access.default_credentials import (
+    credentials_for,
+    load_default_credentials,
+)
 
 
 def _cookie_name_only(set_cookie: str) -> str:
@@ -56,54 +60,19 @@ def _cookie_name_only(set_cookie: str) -> str:
 _AUTH_PORTS = frozenset({21, 22, 3306, 3389, 5432, 5900})
 _AUTH_TECH_HINTS = (constants.STACK_WP, "joomla", "phpmyadmin", "tomcat", "jenkins", "grafana")
 
-# ── Data-driven default credential dictionary (data, not logic) ────────────
-# Keyed by platform; "generic" always included. Per-platform entries selected
-# from ctx.tech_stack.  Public knowledge — not secrets.
-_DEFAULT_CREDENTIALS: dict[str, list[tuple[str, str]]] = {
-    "generic": [
-        ("admin", "admin"),
-        ("admin", "password"),
-        ("admin", "admin123"),
-        ("root", "root"),
-        ("root", "toor"),
-        ("test", "test"),
-        ("user", "user"),
-        ("guest", "guest"),
-    ],
-    constants.STACK_WP: [
-        ("admin", "admin"),
-        ("admin", "password"),
-    ],
-    "tomcat": [
-        ("tomcat", "tomcat"),
-        ("admin", "admin"),
-        ("manager", "manager"),
-    ],
-    "jenkins": [
-        ("admin", "admin"),
-    ],
-    "phpmyadmin": [
-        ("root", ""),
-        ("root", "root"),
-    ],
-    "grafana": [
-        ("admin", "admin"),
-    ],
-    "joomla": [
-        ("admin", "admin"),
-    ],
-}
+# ── Data-driven default credential dictionary (SINGLE source: yaml, anti-#7) ──
+# Loaded from default_credentials.yaml at import so it stays a mutable module-level
+# dict (tests monkeypatch.setitem this to inject platform-specific pairs). No longer
+# an inline literal — the pairs live in the yaml, this is only the cached projection.
+_DEFAULT_CREDENTIALS: dict[str, list[tuple[str, str]]] = load_default_credentials()
 
 
 def _build_credential_list(tech_stack: dict[str, str]) -> list[tuple[str, str]]:
-    """Assemble a deduplicated credential list: generic + platform-specific."""
-    creds: list[tuple[str, str]] = list(_DEFAULT_CREDENTIALS["generic"])
-    tech_blob = " ".join(tech_stack.values()).lower()
-    for platform, platform_creds in _DEFAULT_CREDENTIALS.items():
-        if platform != "generic" and platform in tech_blob:
-            creds.extend(platform_creds)
-    # Deduplicate, preserving order.
-    return list(dict.fromkeys(creds))
+    """Assemble a deduplicated credential list: generic + platform-specific.
+
+    Delegates the merge to the single-source ``credentials_for`` (anti-#6), passing the
+    import-cached ``_DEFAULT_CREDENTIALS`` so test monkeypatches on it still take effect."""
+    return credentials_for(tech_stack, catalog=_DEFAULT_CREDENTIALS)
 
 
 def _parse_set_cookie(header: str) -> dict[str, str]:
