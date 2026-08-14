@@ -48,6 +48,21 @@ def test_t1_recon_produces_handoff(mock_recon):
     record = auth.create_engagement("client_1", "example.com")
     eng_id = record.engagement_id
     auth.enable_recon(eng_id, Scope(ip_ranges=["10.0.0.0/24"], domains=[], exclusions=[]))
+    # §12.36 fail-closed: the authorized worker path now requires a signed profile.
+    from agent_alpha.conductor.engagement_profile import EngagementProfile, dump_signed_profile
+    from agent_alpha.security.secrets import get_profile_signing_key
+
+    main.event_store.append(
+        event_type=EventType.ENGAGEMENT_PROFILE_SIGNED,
+        engagement_id=eng_id,
+        agent="CONDUCTOR",
+        payload=dump_signed_profile(
+            EngagementProfile(
+                engagement_id=eng_id, client_id="client_1", targets=frozenset({"example.com"})
+            ),
+            key=get_profile_signing_key(),
+        ),
+    )
 
     with patch("agent_alpha.conductor.main.advance_engagement_task.delay") as mock_delay:
         result = run_engagement_task(eng_id, tenant_id=None)
