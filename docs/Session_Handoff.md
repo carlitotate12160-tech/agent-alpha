@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-13, soft-404 arc CLOSED)
+# Agent-Alpha — Session Handoff (2026-08-14, Coverage-Honesty & GAP-074 mechanism-aware auth arc CLOSED)
 
-Resume with: "lanjut Agent-Alpha — soft-404 arc CLOSED. GAP-044/048 merged (#388), 7/7 Tier-1 tests + Tier-2 catchall.lab field-proven (11/11 suppressed, 0 false findings). GAP-034 (#390) + GAP-035 (#389) merged. NEXT slice = §12.61 historical-DNS origin discovery (highest leverage, opens full-CF targets) OR GAP-045 CF-ceiling honest-outcome (LOW effort, HIGH product value). Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slice 1 & 2a (#406/#408) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2b (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
 
 ---
 
@@ -14,18 +14,20 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 ---
 
-## SEALED / PROVEN (soft-404 arc — CLOSED 2026-08-11)
+## SEALED / PROVEN (recent merged arcs)
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
-| **GAP-044 soft-404 false positives** | **CLOSED via GAP-048 (#388 merged)** | Problem: catch-all host returns 200 for all paths, body varies (reflected path, CSRF token, timestamp) → exact hash dedup miss → false findings (Lyndon #3). GAP-044 #386 (regex normalization) was PARTIAL — whack-a-mole per token format. |
-| **GAP-048 two-probe differential calibration** | **MERGED #388, Tier-1 + Tier-2 PROVEN** | Two-probe DIFFERENTIAL: probe 2 independent random missing paths → token positions that DIFFER = volatile tokens (CSRF/session/timestamp) — WHATEVER format (hex/UUID/base64). Mask exactly those → format-agnostic signature. FAIL-SAFE: transport error / proper 404 / unstable token count → NO signature. scout.py `_soft404_tokens`/`_soft404_mask`/`_calibrate_soft404`/`_is_soft404`. |
-| **GAP-048 Tier-1 tests** | **7/7 PASS Oracle ARM64** | test_soft404_calibration.py: hex true-positive, UUID true-positive, fail-safe cardinal (proper-404 → no signature), false-negative guard (real page on calibrated host NOT suppressed), same-token-count-different-skeleton (masked-hash collision guard), unstable token count (hex vs UUID → no signature), exactly 2 probes per host. |
-| **GAP-048 Tier-2 field proof (catchall.lab)** | **11/11 suppressed, 0 false findings** | catchall.lab (#387 merged): nginx vhost returns 200 + 93894-byte body for ALL paths. Agent-Alpha calibrated, suppressed 11 catch-all paths (.git/config, .env, .env.bak, wp-config.php.bak, config/database.yml.bak, openapi.json, swagger.json, v2/api-docs, api-docs, graphql, graphiql). Real homepage (root /) NOT suppressed (_analyzable_probes=1). |
-| **GAP-048 field verification (ingco.co.id bodies)** | **Empirically verified** | Two real ingco catch-all bodies differ only in CSRF token (2 lines: L1453 HTML attr handled by old regex, L1866 JS-object colon-context LEAKED). Old regex: signatures mismatch → false positive. New differential: 2 volatile positions found, signatures match → suppressed. ibudanbalita homepage → structural mismatch → NOT suppressed. |
+| **GAP-074 Auth Mechanism Selection (Slice 2a)** | **MERGED #408, Tier-1 PROVEN** | Mechanism-aware applicator selection: reads canonical ASSET `tech_stack` `mech_*` labels. Single-source `MECH_TO_APPLICATOR_SERVICES` in `recon.auth_surface`. `applicator_factory._resolve_in_scope_targets` binds only matching services (e.g. JSON-RPC → SPA only, Form-POST → HTTP only). Fail-open when unclassified, fail-closed for any unmapped/unstrikable `mech_*`. 20/20 PASS. |
+| **GAP-074 Auth Mechanism Fingerprinting (Slice 1)** | **MERGED #406, Tier-1 PROVEN** | Universal recon fingerprinting in `scout._detect_auth_surface`: detects `mech_http_basic`, `mech_json_rpc`, `mech_jwt`, `mech_saml`, `mech_oauth`, `mech_form_post` without hardcoded catalogs. Persisted to ASSET `tech_stack`. |
+| **ADR §12.62 Coverage-Honesty & Report Section (Slice 2)** | **MERGED #407, Tier-1 PROVEN** | OMEGA client report emits formal Coverage & Methodology section: lists tested, not_run, blocked, and capability_absent techniques + not_assessed engagement targets. Anti-false-assurance (§12.45 / §12.62). |
+| **ADR §12.62 Engagement Coverage Ledger (Slice 1)** | **MERGED #404, Tier-1 PROVEN** | `agent_alpha/coverage/coverage_ledger.py` + `techniques.yaml` single-source technique catalog. Runtime ledger tracking execution events and surfaces across the engagement lifecycle. |
+| **OMEGA-GOV Catalog Integrity & Exit Criteria** | **MERGED #405, Tier-1 PROVEN** | `test_coverage_catalog_integrity.py` validates techniques.yaml against EventType and gap references. Phase Omega exit criteria banked in `AGENTS.md` (OMEGA-1..5, OMEGA-GOV). |
+| **GAP-030 / SpaLoginApplicator & Autonomous Path** | **MERGED #403, Tier-1 PROVEN** | JSON-API login reuse tool (`SpaLoginApplicator`): POSTs JSON credentials, extracts JWT from response, verifies via Bearer replay. Fully wired into `applicator_factory` and Conductor autonomous path (no Lyndon #2). |
+| **GAP-044 / GAP-048 soft-404 differential calibration** | **MERGED #388, Tier-1 + Tier-2 PROVEN** | Two-probe DIFFERENTIAL: probe 2 independent random missing paths → diff volatile positions (CSRF/session/timestamp) → format-agnostic signature. 7/7 Tier-1 PASS, 11/11 catchall.lab suppressed (0 false findings). |
 | **GAP-034 reachability read-model** | **MERGED #390** | `events/reachability.py::unreachable_hosts(events)` — pure read-model over event store. `HOST_ABANDONED` marks host strike-dead; `WAF_BLOCKED` does NOT (origin-exposure-bypass target). `select_strike_entry` demotes dead hosts below live ones. |
 | **GAP-035 multi-candidate entry-selection** | **MERGED #389** | Beta strikes ALL in-scope surfaces (up to MAX_STRIKE_CANDIDATES=3), NOT stop-on-first-COMPLETE. Shared CredentialLockoutGovernor per engagement. STRIKE_CANDIDATE_ATTEMPTED/SKIPPED events wired. |
-| **catchall.lab lab host** | **MERGED #387** | Lab host for GAP-044/048 field-prove. nginx :443 on Oracle, returns 200 + 93894 bytes for all paths. |
+| **catchall.lab & real-world lab stacks** | **MERGED #387, #401, #400** | catchall.lab on Oracle (:443 returns 200 + 93k body), alpha-ai.web.id real-world lab stacks, and vercel-lab multi-IP origin target. |
 
 ### Earlier sealed (still valid — context)
 
@@ -41,9 +43,10 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 **High-leverage growth (next real slice — pick one, ONE at a time):**
 - **§12.61 historical-DNS origin discovery** ★ — opens full-CF targets (niagamas/bernofarm/ibudanbalita all ceiling only because origin isn't found; crt.sh/VT/OTX failed). Passive, datacenter-friendly, extends the moat. Wayback CDX API = priority candidate (free, no key, operator-autonomous). Then cert/favicon pivot, then leaked-cred stuffing (axis-B). MENU — one slice.
+- **GAP-074 Slice 2b / GAP-067 Odoo JSON-RPC fallback** — when XML-RPC is blocked by CF/WAF, fallback to `/web/session/authenticate` JSON-RPC endpoint for Odoo credential reuse.
+- **GAP-045 CF-ceiling honest-outcome report** — (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable integrated with CoverageLedger).
 
 **Non-blockers (schedule after):**
-- GAP-045 CF-ceiling honest-outcome report (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable).
 - GAP-043 CDN edge IP filter only covers Cloudflare (Sucuri/Incapsula/Akamai).
 - GAP-042 origin probe bypasses stealth HttpClient (opsec debt).
 - GAP-046 basic-auth applicator, GAP-047 username-harvest breadth — deferred (cred-acquisition).
@@ -58,17 +61,18 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 ## DOCTRINE BANKED (durable)
 
+- **ADR §12.62 Coverage-Honesty Doctrine** — the client report MUST carry a Coverage & Methodology ledger (tested / not_run / blocked / capability_absent). Negative results carry methodology caveats (what WAS / was NOT tested); NEVER emit an affirmative "fully secure" / "no vulnerabilities" from an absence.
 - **ADR §12.60 Two-Tier Proof + Field-Feedback Ratchet** — lab-green ≠ field-ready. Tier-1 lab-seal < Tier-2 field-prove (THE bar). Every field failure → permanent fixture in `test_field_regression`.
 - **ADR §12.61 Flank-when-CF-hard** — CF "ceiling" is ONLY bruteing the edge. Operator FLANKS: find origin via side channels (historical DNS ★, mail/MX, cert/favicon pivot, grey-cloud) or skip perimeter (leaked-cred stuffing, exposed secrets, S3, subdomain takeover). Full-CF-no-origin → sellable defensive-validation report.
+- **GAP-074 Single-Source Mechanism Resolution** — mechanism-to-applicator mapping is centralized in `recon.auth_surface`. ASSET `tech_stack` is the canonical projection. Unknown/unmapped mechanisms fail-closed.
 - **Soft-404: two-probe differential > regex whack-a-mole** — let the target reveal its volatile tokens by diffing two catch-all samples; don't enumerate token formats. Verified empirically + Tier-2 catchall.lab proven.
 - **GAP-034: read-model over events, not node-schema mutation** (event-sourced; AttackGraph = projection).
 - **GAP-026: stealth is consent-gated (§12.36 enforced)** — TEMPO is operator baseline but stays consent-gated.
 - **GAP-031: crash FIXED (graceful decline + Omega); residual = CF ceiling, NOT a code slice.**
 - **Code quality target**: military-grade engineering (fail-safe, deterministic, audited, no false-success) that ENCODES APT tradecraft.
 - **Verify-before-ship, every time**: green ≠ proven; always `git pull` before writing a patch; RUNNER-SEAL ≠ AUTONOMOUS-WIRED; Oracle is the seal.
-- **Anti-#3 in soft-404**: no finding from status code alone; catch-all suppression must be fail-safe (no signature = nothing suppressed); false-negative guard MUST test on CALIBRATED host.
 
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — soft-404 arc CLOSED. GAP-044/048 merged (#388), 7/7 Tier-1 + Tier-2 catchall.lab (11/11 suppressed, 0 false). GAP-034 (#390) + GAP-035 (#389) merged. NEXT = §12.61 historical-DNS origin discovery (highest leverage) OR GAP-045 CF-ceiling honest-outcome (LOW effort, HIGH value). Open: Spectranet frontier cycling (Bug #34), DeepSeek 512-token truncation. Do NOT build Gamma. ALWAYS git pull + re-verify first.
+> lanjut Agent-Alpha — Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slice 1 & 2a (#406/#408) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2b (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma. ALWAYS git pull + re-verify first.
