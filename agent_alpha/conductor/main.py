@@ -597,7 +597,10 @@ def run_agent_task(
         # Load + verify the signed EngagementProfile (ENGAGEMENT_PROFILE_SIGNED event).
         # For Beta it enables §12.46 origin-direct routing; the fail-CLOSED gate below
         # enforces §12.36 for the offensive run.
-        _task_profile, _profile_error = _load_task_profile(target_store, engagement_id)
+        _task_profile: EngagementProfile | None = None
+        _profile_error: str | None = None
+        if agent_role == a2a_pb2.BETA:
+            _task_profile, _profile_error = _load_task_profile(target_store, engagement_id)
 
         # §12.36 fail-CLOSED for the OFFENSIVE Beta run: initial access must NOT proceed
         # without a verified signed profile (the authorization of record) — initial access
