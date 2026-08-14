@@ -44,7 +44,7 @@ from agent_alpha.graph.nodes import (
     VulnerabilityProperties,
 )
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
-from agent_alpha.recon.auth_surface import SPA_LOGIN_FORM, scan_js_for_login_surface
+from agent_alpha.recon.auth_surface import MECH_JSON_RPC, SPA_LOGIN_FORM, scan_js_for_login_surface
 from agent_alpha.recon.response_classifier import Verdict, classify_response
 
 # ── SecretHit dataclass ─────────────────────────────────────────────────────
@@ -313,7 +313,7 @@ def verify_js_secret_leak(
                 login_asset = merge_asset_node(
                     graph_store,
                     target,
-                    tech_stack_add=[SPA_LOGIN_FORM],
+                    tech_stack_add=[SPA_LOGIN_FORM, MECH_JSON_RPC],
                     confidence=0.7,
                     timestamp_utc=_now,
                 )

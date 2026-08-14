@@ -43,7 +43,7 @@ from agent_alpha.graph.nodes import (
 )
 from agent_alpha.graph.persist import merge_asset_node, persist_edge, persist_node
 from agent_alpha.llm.orchestrator import OrientationError
-from agent_alpha.recon.auth_surface import detect_auth_surface_labels
+from agent_alpha.recon.auth_surface import detect_auth_surface_labels, fingerprint_auth_mechanism
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
@@ -1335,13 +1335,19 @@ class Alpha:
         host = urlparse(url).hostname or urlparse(url).netloc
         if not host:
             return 0
+        body = getattr(resp, "text", "") or ""
         labels = detect_auth_surface_labels(
-            status_code=resp.status_code,
-            headers=resp.headers,
-            body=getattr(resp, "text", "") or "",
+            status_code=resp.status_code, headers=resp.headers, body=body
         )
         if not labels:
             return 0
+        # GAP-074: attach the auth MECHANISM label (mech_*) so Beta can pick the right
+        # tool (no XML-RPC on a JSON-RPC target) + the coverage denominator is precise.
+        mech = fingerprint_auth_mechanism(
+            status_code=resp.status_code, headers=resp.headers, body=body
+        )
+        if mech is not None:
+            labels = [*labels, mech]
         now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
         asset_node = merge_asset_node(
             self.graph_store,
