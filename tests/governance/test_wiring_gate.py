@@ -53,6 +53,9 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "STRIKE_CANDIDATE_SKIPPED": ("conductor/main.py",),
     # GAP-034: reachability read-model consumed on the live entry-selection path.
     "unreachable_hosts": ("conductor/main.py",),
+    # Slice-B SpaLoginApplicator: wired on the live Beta factory path.
+    "SpaLoginApplicator": ("conductor/applicator_factory.py",),
+    "login_endpoint_candidates": ("conductor/applicator_factory.py",),
     "wp_fingerprint": (
         "agents/alpha/scout.py",
     ),  # WP battery auto-seeds from fingerprint (PR #274 wiring)

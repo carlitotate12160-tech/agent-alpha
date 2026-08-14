@@ -36,7 +36,10 @@ from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
-from agent_alpha.recon.login_endpoints import login_endpoint_candidates
+from agent_alpha.recon.login_endpoints import (
+    first_non_login_api_endpoint,
+    login_endpoint_candidates,
+)
 from agent_alpha.tools.internal.access.applicator import (
     CredentialApplicator,
     GovernedApplicator,
@@ -82,67 +85,14 @@ def beta_web_applicators(
     if events is not None and host:
         candidates = login_endpoint_candidates(events, host)
         if candidates:
-            # Top-ranked login endpoint (most specific path) is the strike target.
-            login_url = candidates[0]
-            # Resolve a non-login harvested api_endpoint on the same host for the
-            # independent cross-verify oracle (protected_url).  Fail gracefully to
-            # None — SpaLoginApplicator falls back to /api/me|/api/user|/api/profile.
-            protected_url: str | None = _first_non_login_api_endpoint(events, host)
             roster.append(
                 SpaLoginApplicator(
                     http_client=http_client,
-                    protected_url=protected_url,
+                    login_url=candidates[0],
+                    protected_url=first_non_login_api_endpoint(events, host),
                 )
             )
-            # Store the resolved login_url so the factory can bind the correct target
-            # when build_applicators_for_engagement resolves in-scope targets.  We
-            # annotate the applicator instance directly — the factory reads it via
-            # getattr, never via the CredentialApplicator protocol (no protocol leak).
-            roster[-1]._resolved_login_url = login_url  # type: ignore[attr-defined]
     return roster
-
-
-def _first_non_login_api_endpoint(events: Iterable[Any], host: str) -> str | None:
-    """Return the first non-login ``api_endpoint`` event URL for *host*, or None.
-
-    Used as the ``protected_url`` oracle for SpaLoginApplicator's cross-verify
-    stage. A non-login endpoint is chosen (not the login URL itself) so Stage-2
-    proves a genuinely protected resource was reached — not a trivially-open
-    public endpoint (anti-#3).
-
-    Pure projection; no I/O; fail-silently returns None on any exception.
-    """
-    from urllib.parse import urlparse
-
-    from agent_alpha.events.event_types import EventType
-    from agent_alpha.recon.login_endpoints import _LOGIN_PATH
-
-    try:
-        for event in events:
-            if getattr(event, "event_type", None) != EventType.NODE_DISCOVERED:
-                continue
-            payload = getattr(event, "payload", None) or {}
-            if payload.get("type") != "api_endpoint" or payload.get("host") != host:
-                continue
-            endpoint = str(payload.get("endpoint") or "")
-            if not endpoint:
-                continue
-            parsed = urlparse(endpoint)
-            path = parsed.path
-            if not path.startswith("/"):
-                path = "/" + path
-            # Skip login-candidate paths — we want a protected non-login resource.
-            if _LOGIN_PATH.search(path):
-                continue
-            # Resolve to absolute URL
-            if parsed.scheme:
-                if parsed.hostname == host:
-                    return endpoint
-                continue
-            return f"https://{host}{endpoint if endpoint.startswith('/') else '/' + endpoint}"
-    except Exception:  # noqa: BLE001
-        pass
-    return None
 
 
 @runtime_checkable

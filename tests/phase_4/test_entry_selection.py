@@ -130,7 +130,7 @@ def test_wiring_run_beta_dispatches_selected_host(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
-    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http: ["candidate"])
+    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
 
     def _capture_applicators(**kwargs: object) -> list[object]:
@@ -203,7 +203,7 @@ def test_emits_strike_entry_selected_on_autonomous_path() -> None:
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
-    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http: ["candidate"])
+    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
     monkeypatch.setattr(conductor_main, "build_applicators_for_engagement", lambda **kw: [])
 
@@ -270,7 +270,7 @@ def test_event_records_fallback() -> None:
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
-    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http: ["candidate"])
+    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
     monkeypatch.setattr(conductor_main, "build_applicators_for_engagement", lambda **kw: [])
 
@@ -304,7 +304,7 @@ def _patch_conductor(
     monkeypatch.setattr(conductor_main, "Beta", beta_cls)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
-    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http: ["candidate"])
+    monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
     monkeypatch.setattr(conductor_main, "build_applicators_for_engagement", lambda **kw: [])
 

@@ -1,24 +1,16 @@
-"""Slice-B: SpaLoginApplicator — JSON-API login reuse (DeepSeek/GLM offensive body).
+"""Slice-B: SpaLoginApplicator — JSON-API login reuse (offensive body, DeepSeek lane).
 
-Protocol lane boundary (§12.15):
-  * Claude owns: class skeleton, service/required_auth, applies_to(), _PROOF_BODY_LIMIT,
-    _JWT_RE, _TOKEN_KEYS, docstrings, test contract, and the _fail() helper shape.
-  * GLM/DeepSeek owns: apply() — the two-stage offensive body (JSON POST → JWT extract
-    → Bearer replay cross-verify). No HTML form POST, no cookie flow. Pure JSON-API.
+Hardened per CodeRabbit PR#402 review:
+  * #2 HTTPS-ONLY: refuses any non-https login/protected URL (no cleartext creds/token).
+  * #3 SINGLE login POST per apply() — deterministic body shape by username form — so the
+    engagement lockout governor's per-attempt budget is not silently doubled.
+  * #4 cross-verify requires STRICT 2xx on the Bearer replay (not merely non-401/403) AND
+    a body that differs from the unauthenticated baseline.
+  * #5 replay_body_excerpt is redacted at the source; the raw secret/token never appear.
 
-Invariant (inherited from CredentialApplicator seam):
-  * success=True ONLY when cross_verified (Bearer replay oracle differs from unauthenticated
-    baseline AND is non-401/403). Token presence alone is INSUFFICIENT (anti-#3 cardinal).
-  * AuthResult NEVER contains the raw secret or the raw token. proof_request/proof_response
-    hold data_keys / header_names / bounded body excerpts only. Beta.step deep-redacts too.
-
-Authorization tier: ACTIVE_APPROVED (web-login reuse, same as HttpFormApplicator). The
-Conductor factory gate (build_applicators_for_engagement) enforces this — not this class.
-
-Fail-closed contract:
-  * No login endpoint resolved by the read-model → factory does NOT instantiate this class.
-  * Exception in any stage / no token extracted / replay 401-403 → AuthResult(success=False).
-  * protected_url=None → fall back to canonical me/user/profile probes before failing.
+success=True ONLY when cross_verified (Independent Verification Axiom). Token presence
+alone is INSUFFICIENT (anti-#3 cardinal). required_auth=ACTIVE_APPROVED — the Conductor
+factory gate enforces the tier; the login_url is resolved by recon/login_endpoints.py.
 """
 
 from __future__ import annotations
@@ -27,83 +19,50 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from agent_alpha.llm.redaction import redact_secrets
 from agent_alpha.tools.contracts import ResourceBudget
 from agent_alpha.tools.internal.access.applicator import AuthResult
 
-# ── Proof body limit (shared constant, mirrors applicator.py) ────────────────
 _PROOF_BODY_LIMIT = 500
-
-# ── JWT shape detector (3-part base64url, per RFC 7519) ─────────────────────
-# Matches header.payload.signature; used ONLY to confirm the token LOOKS like a JWT.
 _JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
-
-# ── Token keys (priority order: most specific first) ─────────────────────────
 _TOKEN_KEYS: tuple[str, ...] = ("access_token", "accessToken", "id_token", "jwt", "token")
-
-# ── Canonical protected-URL fallbacks when protected_url is not harvested ────
-_PROTECTED_URL_PROBES: tuple[str, ...] = ("/api/me", "/api/user", "/api/profile")
-
-# ── Admin markers (case-insensitive, checked against authed response body) ───
-_ADMIN_MARKERS: frozenset[str] = frozenset({"admin", "administrator"})
+_ADMIN_MARKERS: tuple[str, ...] = ("admin", "administrator")
+_DEFAULT_PROTECTED_PATH = "/api/me"
 
 
-def _extract_jwt(body: dict[str, Any]) -> str | None:
-    """Extract a JWT-shaped token value from a JSON response body dict.
-
-    Iterates ``_TOKEN_KEYS`` in priority order. Returns the first value that
-    matches ``_JWT_RE`` (looks like a real JWT), or None when nothing found.
-    Never raises: missing/wrong-type values are silently skipped.
-    """
+def _extract_jwt(body: dict[str, Any]) -> tuple[str | None, str]:
+    """Return (token, key) — first JWT-shaped value under a known token key, else (None,'')."""
     for key in _TOKEN_KEYS:
         value = body.get(key)
         if isinstance(value, str) and _JWT_RE.match(value.strip()):
-            return value.strip()
-    return None
+            return value.strip(), key
+    return None, ""
 
 
 class SpaLoginApplicator:
-    """Apply a harvested credential against a SPA's JSON login API.
-
-    Two-stage cross-verified access probe:
-
-    STAGE 1 — self_verified (WEAK):
-        POST JSON body(ies) to ``target`` (the login endpoint resolved by the
-        read-model). Extract a JWT from the 2xx JSON response under a recognised
-        token key. No token found → FAIL immediately (no bearer to replay).
-
-    STAGE 2 — cross_verified (REQUIRED for success=True):
-        Replay ``Authorization: Bearer <token>`` against ``protected_url``.
-        Success ONLY when:
-          a. replay response is non-401/403, AND
-          b. replay body DIFFERS from an unauthenticated baseline GET of the
-             same protected_url (independent oracle — different failure mode
-             from stage-1, per the Independent Verification Axiom).
-
-    access_level: "admin" if admin/administrator markers found in the
-    authenticated replay body; otherwise "user".
-
-    Fail-closed in every branch: exception / no token / 401-replay → False.
-    The raw secret and raw token NEVER appear in the returned AuthResult.
-    """
+    """Apply a harvested credential against a SPA's JSON login API (cross-verified)."""
 
     service = "spa"
     required_auth = "ACTIVE_APPROVED"
 
-    def __init__(self, *, http_client: Any, protected_url: str | None = None) -> None:
-        self._http_client = http_client
-        self._protected_url = protected_url
+    def __init__(
+        self, *, http_client: Any, login_url: str, protected_url: str | None = None
+    ) -> None:
+        self._http = http_client
+        self._login_url = login_url  # the strike target (https, from the read-model)
+        self._protected_url = protected_url  # cross-verify oracle (https or None)
 
-    def applies_to(self, credential_service: str, target: str) -> bool:
-        """True for http/https credentials against an http(s) target URL."""
-        return credential_service in ("", "http", "https") and (
-            target.startswith("http://") or target.startswith("https://")
+    def applies_to(self, credential_service: str, target: str) -> bool:  # noqa: ARG002
+        # Only runs when a login endpoint was resolved AND it is https (#2).
+        return (
+            credential_service in ("", "http", "https")
+            and isinstance(self._login_url, str)
+            and self._login_url.startswith("https://")
         )
 
     def apply(
         self, *, username: str, secret: str, target: str, budget: ResourceBudget
-    ) -> AuthResult:
-        """Two-stage JSON-API login reuse. success=True ONLY on cross_verified."""
-
+    ) -> AuthResult:  # noqa: ARG002
         def _fail(error: str) -> AuthResult:
             return AuthResult(
                 success=False,
@@ -115,113 +74,57 @@ class SpaLoginApplicator:
                 error=error,
             )
 
-        # ── Resolve protected_url ───────────────────────────────────────────
-        # Use harvested api_endpoint if available, else probe the canonical
-        # fallback paths against the same scheme+host as the login target.
-        parsed_target = urlparse(target)
-        base_origin = f"{parsed_target.scheme}://{parsed_target.netloc}"
+        login_url = self._login_url
+        if not login_url.startswith("https://"):  # #2 fail-closed
+            return _fail("refuse: login endpoint is not https (cleartext)")
 
-        if self._protected_url:
-            protected_url = self._protected_url
-        else:
-            # Try each fallback probe; use the first one that returns non-401/403
-            # to the unauthenticated baseline (i.e. the endpoint exists).
-            protected_url = base_origin + _PROTECTED_URL_PROBES[0]
-            for probe_path in _PROTECTED_URL_PROBES:
-                probe = base_origin + probe_path
-                try:
-                    probe_resp = self._http_client.get(probe)
-                    if probe_resp.status_code not in (404, 405, 410):
-                        protected_url = probe
-                        break
-                except Exception:  # noqa: BLE001
-                    continue
+        origin = f"https://{urlparse(login_url).netloc}"
+        protected_url = self._protected_url
+        if not protected_url or not protected_url.startswith("https://"):
+            protected_url = origin + _DEFAULT_PROTECTED_PATH
 
-        # ── Unauthenticated baseline GET of protected_url (Stage-2 oracle) ──
         try:
-            baseline = self._http_client.get(protected_url)
+            baseline = self._http.get(protected_url)
         except Exception:  # noqa: BLE001
             return _fail("baseline GET of protected_url failed")
 
-        # ── STAGE 1: POST JSON → extract JWT ───────────────────────────────
-        token: str | None = None
-        matched_token_key: str = ""
-        login_status: int = 0
-        tried_bodies: list[str] = []
-
-        body_shapes: list[dict[str, str]] = [
-            {"email": username, "password": secret},
-            {"username": username, "password": secret},
-        ]
-
-        for body_shape in body_shapes:
-            key_name = "email" if "email" in body_shape else "username"
-            tried_bodies.append(key_name)
-            try:
-                resp = self._http_client.post(target, json=body_shape)
-            except Exception:  # noqa: BLE001
-                continue
-
-            login_status = resp.status_code
-
-            if resp.status_code < 200 or resp.status_code >= 300:
-                continue
-
-            # Parse JSON body for a JWT-shaped token value
-            try:
-                json_body: dict[str, Any] = resp.json() if hasattr(resp, "json") else {}
-            except Exception:  # noqa: BLE001
-                continue
-
-            token = _extract_jwt(json_body)
-            if token:
-                # Record which key held the token (safe metadata for proof)
-                for tk in _TOKEN_KEYS:
-                    v = json_body.get(tk)
-                    if isinstance(v, str) and _JWT_RE.match(v.strip()):
-                        matched_token_key = tk
-                        break
-                break  # Got a JWT — move to stage 2
-
-        if not token:
-            return _fail(
-                f"no JWT-shaped token in 2xx JSON response "
-                f"(tried body keys: {tried_bodies}; last status: {login_status})"
-            )
-
-        # ── STAGE 2: Bearer replay cross-verification ───────────────────────
+        # #3 SINGLE POST — shape chosen deterministically by username form.
+        is_email = "@" in username
+        key_name = "email" if is_email else "username"
+        body = {key_name: username, "password": secret}
         try:
-            authed_resp = self._http_client.get(
-                protected_url,
-                headers={"Authorization": f"Bearer {token}"},
-            )
+            resp = self._http.post(login_url, json=body)
         except Exception:  # noqa: BLE001
-            return _fail("Bearer replay request against protected_url failed")
+            return _fail("login POST failed")
+        login_status = getattr(resp, "status_code", 0)
+        if not (200 <= login_status < 300):
+            return _fail(f"login returned non-2xx ({login_status})")
+        try:
+            json_body = resp.json() if hasattr(resp, "json") else {}
+        except Exception:  # noqa: BLE001
+            return _fail("login response is not JSON")
+        if not isinstance(json_body, dict):
+            return _fail("login response JSON is not an object")
+        token, token_key = _extract_jwt(json_body)
+        if not token:
+            return _fail(f"no JWT-shaped token in login response (key form: {key_name})")
 
-        authed_status = authed_resp.status_code
-        authed_body = authed_resp.text or ""
-
-        # a. Must not be 401/403 (token rejected)
-        if authed_status in (401, 403):
+        # #4 cross-verify: STRICT 2xx + body differs from unauthenticated baseline.
+        try:
+            authed = self._http.get(protected_url, headers={"Authorization": f"Bearer {token}"})
+        except Exception:  # noqa: BLE001
+            return _fail("Bearer replay against protected_url failed")
+        authed_status = getattr(authed, "status_code", 0)
+        if not (200 <= authed_status < 300):
             return _fail(
                 f"cross-verify failed: protected_url returned {authed_status} "
-                f"with Bearer token (token presence does NOT imply access)"
+                "(token presence does NOT imply access)"
             )
+        authed_body = authed.text or ""
+        if authed_body == (baseline.text or ""):
+            return _fail("cross-verify failed: authed body == unauthenticated baseline")
 
-        # b. Authed body MUST differ from unauthenticated baseline (independent oracle).
-        baseline_body = baseline.text or ""
-        if authed_body == baseline_body:
-            return _fail(
-                "cross-verify failed: authenticated response body matches "
-                "unauthenticated baseline (no real access granted)"
-            )
-
-        # ── Cross-verified: classify access level ───────────────────────────
-        authed_body_lower = authed_body.lower()
-        access_level = (
-            "admin" if any(marker in authed_body_lower for marker in _ADMIN_MARKERS) else "user"
-        )
-
+        access_level = "admin" if any(m in authed_body.lower() for m in _ADMIN_MARKERS) else "user"
         return AuthResult(
             success=True,
             access_level=access_level,
@@ -229,20 +132,20 @@ class SpaLoginApplicator:
             confidence=0.85,
             proof_request={
                 "method": "POST",
-                "url": target,
-                # NEVER include the raw secret — data_keys only
-                "data_keys": tried_bodies + ["password"],
+                "url": login_url,
+                "data_keys": [key_name, "password"],  # never the raw secret
                 "content_type": "application/json",
             },
             proof_response={
                 "login_status_code": login_status,
-                # NEVER include the raw token — header_names only
-                "bearer_header_name": "Authorization",
+                "bearer_header_name": "Authorization",  # #5 never the token value
                 "protected_url": protected_url,
                 "replay_status_code": authed_status,
-                "replay_body_excerpt": authed_body[:_PROOF_BODY_LIMIT],
-                "baseline_status_code": baseline.status_code,
-                # Safe metadata: which JSON key held the JWT (not the value)
-                "token_key_found": matched_token_key,
+                # #5: explicitly strip the KNOWN bearer token (redact_secrets alone does
+                # not recognise an arbitrary JWT), THEN generic-redact other secrets.
+                "replay_body_excerpt": redact_secrets(
+                    authed_body[:_PROOF_BODY_LIMIT].replace(token, "<redacted-bearer-token>")
+                ),
+                "token_key_found": token_key,
             },
         )
