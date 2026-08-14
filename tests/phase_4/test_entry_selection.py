@@ -7,6 +7,7 @@ import pytest
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor import main as conductor_main
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
+from agent_alpha.conductor.engagement_profile import EngagementProfile
 from agent_alpha.conductor.models import Scope
 from agent_alpha.conductor.router import (
     StrikeCandidate,
@@ -82,6 +83,7 @@ def test_wiring_run_beta_dispatches_selected_host(monkeypatch: pytest.MonkeyPatc
         Scope(ip_ranges=[], domains=["apex.example", "hub.example"], exclusions=[]),
     )
     auth.enable_active(record.engagement_id)
+    _profile_event(store, record.engagement_id)  # §12.36: Beta dispatch requires it
 
     seed_graph = NetworkXGraphStore()
     persist_node(
@@ -130,6 +132,16 @@ def test_wiring_run_beta_dispatches_selected_host(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
+    # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
+    # exercise strike-entry SELECTION, not signature verification — return a dummy verified
+    # profile so the gate passes (the ENGAGEMENT_PROFILE_SIGNED event is seeded per test).
+    monkeypatch.setattr(
+        conductor_main,
+        "load_signed_profile_from_dict",
+        lambda payload, key: EngagementProfile(
+            engagement_id="e", client_id="c", targets=frozenset({"lab"})
+        ),
+    )
     monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
 
@@ -157,6 +169,7 @@ def test_emits_strike_entry_selected_on_autonomous_path() -> None:
         Scope(ip_ranges=[], domains=["apex.example", "hub.example"], exclusions=[]),
     )
     auth.enable_active(record.engagement_id)
+    _profile_event(store, record.engagement_id)  # §12.36: Beta dispatch requires it
 
     seed_graph = NetworkXGraphStore()
     persist_node(
@@ -203,6 +216,16 @@ def test_emits_strike_entry_selected_on_autonomous_path() -> None:
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
+    # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
+    # exercise strike-entry SELECTION, not signature verification — return a dummy verified
+    # profile so the gate passes (the ENGAGEMENT_PROFILE_SIGNED event is seeded per test).
+    monkeypatch.setattr(
+        conductor_main,
+        "load_signed_profile_from_dict",
+        lambda payload, key: EngagementProfile(
+            engagement_id="e", client_id="c", targets=frozenset({"lab"})
+        ),
+    )
     monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
     monkeypatch.setattr(conductor_main, "build_applicators_for_engagement", lambda **kw: [])
@@ -231,6 +254,7 @@ def test_event_records_fallback() -> None:
         Scope(ip_ranges=[], domains=["apex.example"], exclusions=[]),
     )
     auth.enable_active(record.engagement_id)
+    _profile_event(store, record.engagement_id)  # §12.36: Beta dispatch requires it
 
     seed_graph = NetworkXGraphStore()
     persist_node(
@@ -270,6 +294,16 @@ def test_event_records_fallback() -> None:
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
+    # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
+    # exercise strike-entry SELECTION, not signature verification — return a dummy verified
+    # profile so the gate passes (the ENGAGEMENT_PROFILE_SIGNED event is seeded per test).
+    monkeypatch.setattr(
+        conductor_main,
+        "load_signed_profile_from_dict",
+        lambda payload, key: EngagementProfile(
+            engagement_id="e", client_id="c", targets=frozenset({"lab"})
+        ),
+    )
     monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
     monkeypatch.setattr(conductor_main, "build_applicators_for_engagement", lambda **kw: [])
@@ -304,6 +338,16 @@ def _patch_conductor(
     monkeypatch.setattr(conductor_main, "Beta", beta_cls)
     monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
+    # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
+    # exercise strike-entry SELECTION, not signature verification — return a dummy verified
+    # profile so the gate passes (the ENGAGEMENT_PROFILE_SIGNED event is seeded per test).
+    monkeypatch.setattr(
+        conductor_main,
+        "load_signed_profile_from_dict",
+        lambda payload, key: EngagementProfile(
+            engagement_id="e", client_id="c", targets=frozenset({"lab"})
+        ),
+    )
     monkeypatch.setattr(conductor_main, "beta_web_applicators", lambda http, **kw: ["candidate"])
     monkeypatch.setattr(conductor_main.advance_engagement_task, "delay", lambda eid, tid: None)
     monkeypatch.setattr(conductor_main, "build_applicators_for_engagement", lambda **kw: [])
@@ -331,10 +375,22 @@ def _complete_beta(struck: list[str]) -> type:
     return _FakeBeta
 
 
+def _profile_event(store: InMemoryEventStore, eid: str) -> None:
+    """Seed the ENGAGEMENT_PROFILE_SIGNED event the §12.36 Beta gate requires (payload is
+    opaque here — load_signed_profile_from_dict is patched to return a dummy profile)."""
+    store.append(
+        event_type=EventType.ENGAGEMENT_PROFILE_SIGNED,
+        engagement_id=eid,
+        agent="CONDUCTOR",
+        payload={"signed": True},
+    )
+
+
 def _seed(store: InMemoryEventStore, eid: str, *assets: tuple[str, list[str]]) -> None:
     g = NetworkXGraphStore()
     for host, tech in assets:
         persist_node(store, g, eid, _asset_node(host, tech), agent="alpha")
+    _profile_event(store, eid)
 
 
 def test_ranked_entries_is_full_uncapped_list() -> None:
