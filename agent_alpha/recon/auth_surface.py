@@ -94,7 +94,7 @@ def applicator_services_for_mechanisms(labels: Iterable[str]) -> frozenset[str] 
                      (may be EMPTY = fail-CLOSED: a classified surface with no strikable
                      tool binds nothing, so no wrong tool fires at it).
     """
-    present = [label for label in labels if label in _ALL_MECH_LABELS]
+    present = [label for label in labels if label.startswith("mech_")]
     if not present:
         return None
     allowed: set[str] = set()

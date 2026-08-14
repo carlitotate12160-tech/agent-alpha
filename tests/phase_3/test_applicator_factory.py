@@ -473,6 +473,12 @@ def test_unstrikable_mechanism_fails_closed() -> None:
     assert services == set()
 
 
+def test_unknown_mech_label_fails_closed() -> None:
+    """Any unmapped mech_* label (e.g. future/unrecognized mechanism) fails closed (binds nothing)."""
+    services = _mech_bound(["mech_webauthn"], [_http(), _spa()])
+    assert services == set()
+
+
 def test_db_path_unaffected_by_web_mechanism() -> None:
     """REGRESSION guard: the web-host mechanism label must NOT touch DB applicator
     binding — mech_* describes the web auth surface, not a DB port."""
