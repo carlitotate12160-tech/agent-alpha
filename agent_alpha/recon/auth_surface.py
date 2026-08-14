@@ -12,7 +12,7 @@ the router's has_web_auth_surface() consumes.
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 # Fallback 1: static type="password" (existing)
 _PASSWORD_INPUT = re.compile(r"<input[^>]*type\s*=\s*['\"]?password\b['\"]?", re.IGNORECASE)
@@ -63,6 +63,45 @@ MECH_JWT = "mech_jwt"
 MECH_SAML = "mech_saml"
 MECH_OAUTH = "mech_oauth"
 MECH_FORM_POST = "mech_form_post"
+
+_ALL_MECH_LABELS: frozenset[str] = frozenset(
+    {MECH_HTTP_BASIC, MECH_JSON_RPC, MECH_JWT, MECH_SAML, MECH_OAUTH, MECH_FORM_POST}
+)
+
+# GAP-074 slice 2a: mechanism -> the applicator.service value(s) fit to strike it.
+# SINGLE source (anti-#7): both Beta selection (applicator_factory) and any future
+# consumer read the mech->tool mapping here, never a second hardcoded copy.
+#   mech_form_post -> "http"  (WpLoginApplicator + HttpFormApplicator, both service="http")
+#   mech_json_rpc  -> "spa"   (SpaLoginApplicator, service="spa")
+#   mech_http_basic-> {}      (GAP-046: NO credential-reuse applicator exists → strike nothing)
+# jwt/saml/oauth are deliberately ABSENT (GAP-114 capability_absent) → resolve to {} =
+# fail-CLOSED, never fail-open: a present-but-unstrikable mechanism binds no web tool.
+MECH_TO_APPLICATOR_SERVICES: dict[str, frozenset[str]] = {
+    MECH_FORM_POST: frozenset({"http"}),
+    MECH_JSON_RPC: frozenset({"spa"}),
+    MECH_HTTP_BASIC: frozenset(),
+}
+
+
+def applicator_services_for_mechanisms(labels: Iterable[str]) -> frozenset[str] | None:
+    """Given a host's tech_stack labels, return the applicator.service values whose tools
+    fit the host's auth MECHANISM.
+
+    Return values (the fail-open/closed contract, single source):
+      * ``None``  -> NO mech_* label present -> FAIL-OPEN (caller binds every candidate;
+                     preserves pre-GAP-074 behaviour, no regression).
+      * frozenset -> one or more mech_* labels present -> bind ONLY these services
+                     (may be EMPTY = fail-CLOSED: a classified surface with no strikable
+                     tool binds nothing, so no wrong tool fires at it).
+    """
+    present = [label for label in labels if label in _ALL_MECH_LABELS]
+    if not present:
+        return None
+    allowed: set[str] = set()
+    for label in present:
+        allowed |= MECH_TO_APPLICATOR_SERVICES.get(label, frozenset())
+    return frozenset(allowed)
+
 
 _FORM_POST_RE = re.compile(r"<form[^>]*method\s*=\s*['\"]?post", re.IGNORECASE)
 _SAML_RE = re.compile(r"SAMLRequest|SAMLResponse|urn:oasis:names:tc:SAML", re.IGNORECASE)
