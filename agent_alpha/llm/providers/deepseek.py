@@ -101,7 +101,7 @@ class DeepSeekProvider:
         # capture it for the inner monologue instead of discarding it.
         reasoning = (choices[0].get("message", {}).get("reasoning_content") or "").strip()
 
-        if not text and finish_reason == "length":
+        if finish_reason == "length":
             # Bug #35 P1: a truncated round-trip is STILL billed — attach its cost so
             # the caller can fold it into the retry (same _usage_cost source as success).
             raise CompletionTruncatedError(
