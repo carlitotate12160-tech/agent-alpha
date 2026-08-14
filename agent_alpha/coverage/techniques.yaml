@@ -5,7 +5,10 @@
 #
 # applies_to.surface: host | auth_surface | service | dns_record | fronted_host
 #                     | vendor | employee   (last two = GAP-069, capability_absent until built)
-# applies_to.auth_mechanism: refined by GAP-074 (v1 matches surface only; mechanism = future).
+# applies_to.auth_mechanism: bare mechanism tokens (form_post/http_basic/json_rpc/jwt/saml/
+#   oauth). GAP-074 slice 2b LIVE: an auth_surface technique with a non-empty auth_mechanism is
+#   applicable ONLY on a surface whose fingerprinted mechanism overlaps (mech_* on tech_stack,
+#   reconciled via recon.auth_surface.bare_mechanisms). Mechanism UNKNOWN on a surface => fail-open.
 # run_event: EventType whose payload.host marks this technique as TESTED on a surface.
 
 techniques:

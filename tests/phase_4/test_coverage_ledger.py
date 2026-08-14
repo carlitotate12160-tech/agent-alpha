@@ -96,3 +96,50 @@ def test_nested_node_discovered_payload() -> None:
     b = _buckets(project_coverage(events), "auth_surface")
     assert b["cred_reuse"] == "tested"
     assert b["spa_json_login"] == "tested"
+
+
+# ── GAP-074 slice 2b: mechanism-precise auth denominator ──────────────────────
+#
+# The host's auth MECHANISM (mech_* on tech_stack) narrows WHICH auth techniques are
+# APPLICABLE, so the coverage denominator stops claiming "we did not test JSON-RPC
+# login" on a form-only surface. Mechanism UNKNOWN => fail-open (unchanged). The catalog
+# uses BARE tokens (json_rpc); tech_stack uses mech_* — reconciled by bare_mechanisms().
+
+
+def test_form_post_surface_excludes_json_rpc_technique() -> None:
+    """CARDINAL (RED before fix): a form_post surface counts form_post/agnostic techniques
+    but NOT json_rpc-only ones — spa_json_login drops out of the denominator entirely."""
+    events = [
+        _node_ev("hub.x", ["login-form", "mech_form_post"]),
+        _Ev("StrikeCandidateAttempted", {"host": "hub.x"}),
+    ]
+    b = _buckets(project_coverage(events), "auth_surface")
+    assert b["cred_reuse"] == "tested"  # [form_post, http_basic] ∩ {form_post} ✓
+    assert b["default_creds_login"] == "tested"  # mechanism-agnostic → always applies
+    assert "spa_json_login" not in b  # [json_rpc] ∩ {form_post} = ∅ → NOT applicable
+    assert "oauth_saml_jwt_forgery" not in b  # [jwt,saml,oauth] ∩ {form_post} = ∅
+
+
+def test_json_rpc_surface_excludes_form_only_technique() -> None:
+    """CARDINAL (RED before fix): a json_rpc surface counts spa_json_login but NOT the
+    form/basic-only cred_reuse — the JSON-RPC login is a distinct mechanism."""
+    events = [
+        _node_ev("api.x", ["spa-login-form", "mech_json_rpc"]),
+        _Ev("StrikeCandidateAttempted", {"host": "api.x"}),
+    ]
+    b = _buckets(project_coverage(events), "auth_surface")
+    assert b["spa_json_login"] == "tested"  # [json_rpc] ∩ {json_rpc} ✓
+    assert b["default_creds_login"] == "tested"  # agnostic
+    assert b["sqli_auth_bypass"] == "capability_absent"  # [form_post, json_rpc] ∩ {json_rpc} ✓
+    assert "cred_reuse" not in b  # [form_post, http_basic] ∩ {json_rpc} = ∅ → NOT applicable
+    assert "http_basic_auth_strike" not in b  # [http_basic] ∩ {json_rpc} = ∅
+
+
+def test_mechanism_unknown_keeps_all_auth_techniques_fail_open() -> None:
+    """REGRESSION guard: a surface with NO mech_* label keeps every auth technique in its
+    denominator (fail-open) — mechanism precision must never DROP coverage when unknown."""
+    events = [_node_ev("hub.x", ["login-form"])]  # no mech label
+    b = _buckets(project_coverage(events), "auth_surface")
+    assert "cred_reuse" in b
+    assert b["spa_json_login"] == "not_run"  # still applicable (unknown mechanism)
+    assert b["sqli_auth_bypass"] == "capability_absent"

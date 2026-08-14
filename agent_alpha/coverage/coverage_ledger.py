@@ -25,6 +25,8 @@ from typing import Any
 
 import yaml
 
+from agent_alpha.recon.auth_surface import bare_mechanisms
+
 _AUTH_LABELS = frozenset({"http_basic_auth", "login-form", "spa-login-form"})
 _BLOCK_EVENTS = frozenset({"WafBlocked", "HostAbandoned"})
 _CATALOG_PATH = pathlib.Path(__file__).with_name("techniques.yaml")
@@ -45,6 +47,9 @@ class Technique:
 class Surface:
     surface_id: str  # the host (v1)
     surface_type: str  # host | auth_surface
+    mechanisms: frozenset[str] = frozenset()  # GAP-074 2b: bare auth-mechanism tokens
+    #   present on this host (form_post/json_rpc/http_basic/...). Empty = mechanism UNKNOWN.
+    #   Only meaningful for auth_surface; gates mechanism-specific techniques (see project_coverage).
 
 
 @dataclass(frozen=True)
@@ -109,6 +114,7 @@ def _event_tech_stack(payload: dict[str, Any]) -> list[str]:
 def _surfaces(events: Iterable[Any]) -> list[Surface]:
     hosts: set[str] = set()
     auth_hosts: set[str] = set()
+    stack_by_host: dict[str, set[str]] = {}
     for e in events:
         if getattr(e, "event_type", None) != "NodeDiscovered":
             continue
@@ -118,10 +124,18 @@ def _surfaces(events: Iterable[Any]) -> list[Surface]:
             continue
         hosts.add(host)
         tech_stack = _event_tech_stack(p)
+        # Union tech_stack across every NodeDiscovered for this host — the mech_* label may
+        # ride a different re-emission than the auth-type label (merge_asset_node accumulates).
+        stack_by_host.setdefault(host, set()).update(tech_stack)
         if _AUTH_LABELS.intersection(tech_stack):
             auth_hosts.add(host)
     surfaces = [Surface(h, "host") for h in sorted(hosts)]
-    surfaces += [Surface(h, "auth_surface") for h in sorted(auth_hosts)]
+    surfaces += [
+        # GAP-074 2b: attach the host's bare auth-mechanism tokens so mechanism-specific
+        # techniques are counted applicable ONLY on a matching surface (precise denominator).
+        Surface(h, "auth_surface", bare_mechanisms(stack_by_host.get(h, set())))
+        for h in sorted(auth_hosts)
+    ]
     return surfaces
 
 
@@ -152,6 +166,13 @@ def project_coverage(
         for t in catalog:
             if t.surface != s.surface_type:
                 continue  # not_applicable → excluded
+            # GAP-074 2b: mechanism precision. When the surface's auth mechanism is KNOWN
+            # (s.mechanisms non-empty) and the technique is mechanism-specific
+            # (t.auth_mechanism non-empty), the technique is applicable ONLY if the sets
+            # overlap — no "we didn't test JSON-RPC login" on a form-only surface. Mechanism
+            # UNKNOWN (empty s.mechanisms) → fail-open, technique stays applicable (mirrors 2a).
+            if s.mechanisms and t.auth_mechanism and not (set(t.auth_mechanism) & s.mechanisms):
+                continue  # mechanism mismatch → not applicable → excluded from denominator
             cells.append(_classify(s, t, blocked_hosts, ran, excluded_techniques))
 
     not_assessed = tuple(t.id for t in catalog if not t.capability_present)
