@@ -222,6 +222,58 @@ def _ensure_session(
     return store
 
 
+def _record_run_failure(
+    target_store: Any,
+    engagement_id: str,
+    tenant_id: str | None,
+    reason: str,
+    *,
+    agent_role: int | None = None,
+) -> None:
+    """Append an ENGAGEMENT_RUN_FAILED audit event. Never crashes the caller."""
+    payload: dict[str, Any] = {"reason": reason, "tenant_id": tenant_id}
+    if agent_role is not None:
+        payload["agent_role"] = agent_role
+    try:
+        target_store.append(
+            event_type=EventType.ENGAGEMENT_RUN_FAILED,
+            engagement_id=engagement_id,
+            agent="CONDUCTOR",
+            payload=payload,
+        )
+    except Exception:  # noqa: BLE001 — failure audit must not crash the task
+        _log.exception("Failed to append ENGAGEMENT_RUN_FAILED for %s", engagement_id)
+
+
+def _load_task_profile(
+    target_store: Any, engagement_id: str
+) -> tuple[EngagementProfile | None, str | None]:
+    """Load + HMAC-verify the signed EngagementProfile for an engagement.
+
+    Returns ``(profile, None)`` on success, or ``(None, reason)`` where reason is one of
+    ``missing_signed_profile`` / ``profile_signature_invalid`` / ``profile_load_error``.
+    Callers decide the gate (Alpha: always required; Beta: required for the offensive run).
+    ``TransientStoreError`` propagates — a transient store failure is not a missing profile.
+    """
+    try:
+        signing_key = get_profile_signing_key()
+        events = target_store.get_events(engagement_id)
+        envelope = next(
+            (e for e in reversed(events) if e.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED),
+            None,
+        )
+        if not envelope or not envelope.payload:
+            return None, "missing_signed_profile"
+        return load_signed_profile_from_dict(envelope.payload, key=signing_key), None
+    except ProfileSignatureError:
+        return None, "profile_signature_invalid"
+    except TransientStoreError:
+        raise
+    except Exception:  # noqa: BLE001 — any other load failure = no verified profile
+        _log.exception("Failed to load signed EngagementProfile for %s", engagement_id)
+        return None, "profile_load_error"
+
+
 @celery_app.task(
     bind=True,
     acks_late=True,
@@ -542,26 +594,27 @@ def run_agent_task(
         provider = resolve_reasoning_provider(api_key=os.environ["DEEPSEEK_API_KEY"])
         orchestrator = LLMOrchestrator(PlaybookEngine.from_directory(playbook_dir), provider)
 
-        # Load the signed EngagementProfile for §12.46 Slice 2 (Beta origin-direct).
-        # Same pattern as run_engagement_task: read ENGAGEMENT_PROFILE_SIGNED event,
-        # verify signature, fail-open to None if missing (non-profile engagements
-        # still work — Beta just won't get origin-direct routing).
-        _task_profile: EngagementProfile | None = None
-        try:
-            signing_key = get_profile_signing_key()
-            _events = target_store.get_events(engagement_id)
-            _envelope = next(
-                (
-                    e
-                    for e in reversed(_events)
-                    if e.event_type == EventType.ENGAGEMENT_PROFILE_SIGNED
-                ),
-                None,
+        # Load + verify the signed EngagementProfile (ENGAGEMENT_PROFILE_SIGNED event).
+        # For Beta it enables §12.46 origin-direct routing; the fail-CLOSED gate below
+        # enforces §12.36 for the offensive run.
+        _task_profile, _profile_error = _load_task_profile(target_store, engagement_id)
+
+        # §12.36 fail-CLOSED for the OFFENSIVE Beta run: initial access must NOT proceed
+        # without a verified signed profile (the authorization of record) — initial access
+        # is MORE invasive than recon, so this mirrors run_engagement_task (Alpha).
+        # Beta's authz/scope gates are enforced independently, but §12.36 mandates the
+        # signed authorization for ANY offensive run (defence-in-depth + consistency).
+        # Omega (reporting) does NOT attack and does NOT use the profile → stays fail-open.
+        # (Gamma joins this gate when it is built; it is STOP-gated today.)
+        if agent_role == a2a_pb2.BETA and _task_profile is None:
+            _record_run_failure(
+                target_store,
+                engagement_id,
+                tenant_id,
+                _profile_error or "missing_signed_profile",
+                agent_role=agent_role,
             )
-            if _envelope and _envelope.payload:
-                _task_profile = load_signed_profile_from_dict(_envelope.payload, key=signing_key)
-        except Exception:  # noqa: BLE001 — profile load failure → no origin-direct (graceful)
-            _log.debug("No signed profile for %s — Beta origin-direct disabled", engagement_id)
+            return {"engagement_id": engagement_id, "status": "failed"}
 
         def agent_factory(
             graph_store: Any, session_store: Any = None, _profile: Any = _task_profile

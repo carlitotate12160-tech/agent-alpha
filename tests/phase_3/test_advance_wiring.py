@@ -107,6 +107,52 @@ def test_t2a_active_approved_dispatches_beta():
             mock_delay.assert_called_once_with(eng_id, None, a2a_pb2.BETA)
 
 
+def _append_beta_signed_profile(store: object, eng_id: str) -> None:
+    """§12.36: an offensive Beta run now REQUIRES a verified signed profile."""
+    from agent_alpha.conductor.engagement_profile import EngagementProfile, dump_signed_profile
+    from agent_alpha.security.secrets import get_profile_signing_key
+
+    store.append(  # type: ignore[attr-defined]
+        event_type=EventType.ENGAGEMENT_PROFILE_SIGNED,
+        engagement_id=eng_id,
+        agent="CONDUCTOR",
+        payload=dump_signed_profile(
+            EngagementProfile(
+                engagement_id=eng_id, client_id="client_1", targets=frozenset({"example.com"})
+            ),
+            key=get_profile_signing_key(),
+        ),
+    )
+
+
+def test_run_agent_task_beta_fails_closed_without_profile(mock_beta_run_strike):
+    """§12.36 CARDINAL fail-closed: run_agent_task(BETA) with NO signed profile must
+    refuse — returns failed(missing_signed_profile) and never builds applicators/Beta."""
+    auth = AuthorizationStateMachine(event_store=main.event_store)
+    record = auth.create_engagement("client_1", "example.com")
+    eng_id = record.engagement_id
+    auth.enable_recon(
+        eng_id, Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[])
+    )
+    auth.enable_active(eng_id)
+    # NO ENGAGEMENT_PROFILE_SIGNED event appended.
+
+    with (
+        patch("agent_alpha.conductor.main.build_applicators_for_engagement") as m_build,
+        patch.dict("os.environ", {"DEEPSEEK_API_KEY": "dummy"}),
+    ):
+        result = run_agent_task(eng_id, None, a2a_pb2.BETA)
+
+    assert result["status"] == "failed"
+    m_build.assert_not_called()
+    reasons = [
+        e.payload.get("reason")
+        for e in main.event_store.get_events(eng_id)
+        if e.event_type == EventType.ENGAGEMENT_RUN_FAILED
+    ]
+    assert "missing_signed_profile" in reasons
+
+
 def test_t2b_run_agent_task_calls_factory(mock_beta_run_strike):
     """T2b: run_agent_task(BETA) calls factory and constructs CredReuseTool with applicators."""
     auth = AuthorizationStateMachine(event_store=main.event_store)
@@ -116,6 +162,7 @@ def test_t2b_run_agent_task_calls_factory(mock_beta_run_strike):
         eng_id, Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[])
     )
     auth.enable_active(eng_id)
+    _append_beta_signed_profile(main.event_store, eng_id)  # §12.36: Beta now requires it
 
     # Fake an ASSET in the graph so we have something in scope
     def mock_build_applicators(*args, **kwargs):
