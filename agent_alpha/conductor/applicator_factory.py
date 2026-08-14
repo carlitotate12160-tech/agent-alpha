@@ -36,6 +36,7 @@ from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
+from agent_alpha.recon.auth_surface import applicator_services_for_mechanisms
 from agent_alpha.recon.login_endpoints import (
     first_non_login_api_endpoint,
     login_endpoint_candidates,
@@ -199,6 +200,24 @@ def _tier_satisfied(required_auth: str, current_state: int) -> bool:
     return STATE_RANK.get(current_state, 0) >= STATE_RANK[required_state]
 
 
+def _host_allowed_services(graph_store: Any, web_host: str) -> frozenset[str] | None:
+    """Resolve the applicator.service values fit for ``web_host``'s auth mechanism.
+
+    Reads the CANONICAL projection — the host's ASSET node tech_stack (written by
+    ``scout._detect_auth_surface`` -> ``merge_asset_node``) — NOT raw events. Delegates
+    the mech->service decision to the single-source map in recon.auth_surface (anti-#7).
+
+    Returns None when no ASSET node or no mech_* label is present => FAIL-OPEN (caller
+    binds every candidate). A returned frozenset (possibly empty) => bind only those
+    services (empty = fail-CLOSED: classified surface, no strikable tool).
+    """
+    for node in graph_store.nodes_by_type(NodeType.ASSET):
+        props = node.properties
+        if isinstance(props, AssetProperties) and props.host == web_host:
+            return applicator_services_for_mechanisms(props.tech_stack)
+    return None
+
+
 def _resolve_in_scope_targets(
     *,
     applicator: _Applicator,
@@ -227,6 +246,14 @@ def _resolve_in_scope_targets(
         http_targets = [web_target]
         base = web_target.rstrip("/")
         web_host = urlparse(web_target).hostname or urlparse(web_target).netloc
+
+        # GAP-074 slice 2a: mechanism-aware selection. If recon fingerprinted the host's
+        # auth MECHANISM (mech_* on the ASSET tech_stack), only bind applicators whose
+        # service fits it — no form-POST tool at a JSON-RPC surface (root of GAP-067).
+        # None => no mech label => fail-open (bind, pre-GAP-074 behaviour, no regression).
+        allowed_services = _host_allowed_services(graph_store, web_host)
+        if allowed_services is not None and applicator.service not in allowed_services:
+            return []  # mechanism mismatch (or classified-but-unstrikable): bind nothing
 
         for node in graph_store.nodes_by_type(NodeType.ASSET):
             props = node.properties

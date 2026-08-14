@@ -390,6 +390,121 @@ if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-v"]))
 
 
+# ── GAP-074 slice 2a: mechanism-aware applicator selection ────────────────────
+#
+# The host's auth MECHANISM label (mech_*, persisted by scout._detect_auth_surface
+# onto the ASSET tech_stack) gates WHICH web applicators may bind — so we never fire a
+# form-POST tool at a JSON-RPC surface (root of GAP-067). Selection stays in the ONE
+# factory (docstring: "the ONLY place that decides WHICH applicators"); applies_to()
+# and the Protocol are unchanged. Fail-open when no mechanism label is present.
+
+
+def _spa() -> _Applicator:
+    return _Applicator(service="spa", required_auth="ACTIVE_APPROVED")
+
+
+def _asset_with_stack(host: str, tech_stack: list[str]) -> AttackNode:
+    return AttackNode(
+        id=f"asset_{host}",
+        type=NodeType.ASSET,
+        properties=AssetProperties(host=host, tech_stack=tech_stack),
+        confidence=0.9,
+    )
+
+
+_WEB_HOST = "app.client.example"  # matches WEB_TARGET's host
+
+
+def _mech_bound(tech_stack: list[str], candidates: list[_Applicator]) -> set[str]:
+    auth = FakeAuth(state=a2a_pb2.ACTIVE_APPROVED, in_scope_endpoints=set())
+    graph = FakeGraph([_asset_with_stack(_WEB_HOST, tech_stack)])
+    bound = build_applicators_for_engagement(
+        engagement_id=ENG,
+        auth=auth,
+        graph_store=graph,
+        web_target=WEB_TARGET,
+        candidates=candidates,
+    )
+    return {b.applicator.service for b in bound}
+
+
+def test_json_rpc_host_binds_spa_excludes_form() -> None:
+    """CARDINAL (RED before fix): a JSON-RPC auth surface binds the SPA applicator and
+    EXCLUDES the form (http) applicator — no form-POST at a JSON-RPC target (GAP-067)."""
+    from agent_alpha.recon.auth_surface import MECH_JSON_RPC, SPA_LOGIN_FORM
+
+    services = _mech_bound([SPA_LOGIN_FORM, MECH_JSON_RPC], [_http(), _spa()])
+    assert services == {"spa"}
+
+
+def test_form_post_host_binds_http_excludes_spa() -> None:
+    """CARDINAL (RED before fix): a form-POST auth surface binds the http form
+    applicator(s) and EXCLUDES the SPA/JSON applicator."""
+    from agent_alpha.recon.auth_surface import LOGIN_FORM, MECH_FORM_POST
+
+    services = _mech_bound([LOGIN_FORM, MECH_FORM_POST], [_http(), _spa()])
+    assert services == {"http"}
+
+
+def test_http_basic_host_binds_no_web_applicator() -> None:
+    """CARDINAL (RED before fix): an HTTP-Basic surface has NO credential-reuse
+    applicator (GAP-046 capability_absent) — bind nothing rather than fire a wrong tool."""
+    from agent_alpha.recon.auth_surface import HTTP_BASIC_AUTH, MECH_HTTP_BASIC
+
+    services = _mech_bound([HTTP_BASIC_AUTH, MECH_HTTP_BASIC], [_http(), _spa()])
+    assert services == set()
+
+
+def test_no_mech_label_fails_open() -> None:
+    """REGRESSION guard: when no mech_* label is present, selection is unchanged —
+    every tier-satisfied web applicator binds (fail-open, no regression)."""
+    from agent_alpha.recon.auth_surface import LOGIN_FORM
+
+    services = _mech_bound([LOGIN_FORM], [_http(), _spa()])
+    assert services == {"http", "spa"}
+
+
+def test_unstrikable_mechanism_fails_closed() -> None:
+    """A classified-but-unstrikable mechanism (jwt/saml/oauth — GAP-114) binds nothing:
+    present label → fail-CLOSED (not fail-open), so no wrong tool fires at an SSO/JWT surface."""
+    from agent_alpha.recon.auth_surface import LOGIN_FORM, MECH_JWT
+
+    services = _mech_bound([LOGIN_FORM, MECH_JWT], [_http(), _spa()])
+    assert services == set()
+
+
+def test_unknown_mech_label_fails_closed() -> None:
+    """Any unmapped mech_* label (e.g. future/unrecognized mechanism) fails closed (binds nothing)."""
+    services = _mech_bound(["mech_webauthn"], [_http(), _spa()])
+    assert services == set()
+
+
+def test_db_path_unaffected_by_web_mechanism() -> None:
+    """REGRESSION guard: the web-host mechanism label must NOT touch DB applicator
+    binding — mech_* describes the web auth surface, not a DB port."""
+    from agent_alpha.recon.auth_surface import MECH_JSON_RPC, SPA_LOGIN_FORM
+
+    auth = FakeAuth(
+        state=a2a_pb2.OFFENSIVE_APPROVED, in_scope_endpoints={("db.client.example", 3306)}
+    )
+    graph = FakeGraph(
+        [
+            _asset_with_stack(_WEB_HOST, [SPA_LOGIN_FORM, MECH_JSON_RPC]),
+            _asset("db.client.example", [3306]),
+            _mysql_service(),
+        ]
+    )
+    bound = build_applicators_for_engagement(
+        engagement_id=ENG,
+        auth=auth,
+        graph_store=graph,
+        web_target=WEB_TARGET,
+        candidates=[_mysql()],
+    )
+    db_targets = [b.target for b in bound if b.applicator.service == "mysql"]
+    assert db_targets == ["db.client.example:3306"]
+
+
 def test_factory_wraps_every_applicator_with_governor() -> None:
     """§12.22 D2 seam: every bound applicator is a GovernedApplicator, so all cred
     tools inherit credential-attempt lockout via the roster — no per-tool gate (#6/#7)."""
