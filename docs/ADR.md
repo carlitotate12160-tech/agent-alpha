@@ -3757,3 +3757,80 @@ creep — not built until promotion gate triggers). #7 (single source — intera
 patterns defined in one module, not scattered).
 
 
+### 12.62 Coverage-Honesty Doctrine — engagement-scope generalization of §12.45 (PROPOSED)
+
+**Status:** PROPOSED. Supersedes nothing; generalizes §12.45 (per-credential) to the
+engagement scope.
+
+**Context.** A red-team SaaS report that says "no findings" on surfaces the agent never
+tested is the single fastest way to destroy client trust (client breached via SQLi we
+never ran → "but your report said clean"). §12.45 already forbids "password is safe" from
+ONE negative credential result. The same failure mode exists at engagement scope: silent
+absence read as security. No assessment — human, Nuclei, or Agent-Alpha — is exhaustive;
+the professional ones state scope + limitations, the fraudulent ones imply completeness.
+
+**Decision.**
+
+1. **Positive-only findings.** No `secure` / `safe` / `strong` node ever. Absence is never
+   a verdict.
+2. **Every engagement emits a Coverage report** (Omega), projected from the event stream ×
+   the canonical technique catalog: per surface →
+   {tested, not_run, blocked, capability_absent, out_of_scope};
+   plus an engagement-scope `not_assessed` list.
+3. **Omega is FORBIDDEN** from emitting "secure/safe/strong/not vulnerable" from a
+   `capability_absent` / `not_run` / `blocked` cell. `capability_absent` is framed as
+   "outside this assessment's automated scope — recommend complementary coverage."
+4. **`agent_alpha/coverage/techniques.yaml` is the SINGLE source** of the technique
+   taxonomy (anti-#7). Playbook `technique_id` (what runs) AND gap
+   `capability_present:false` (what can't yet) both DERIVE from it. No third list.
+5. **Payability stays BINARY** — only `cross_verified` backs a payable finding
+   (Independent Verification Axiom). Coverage confidence never softens the proof gate.
+
+**The part that answers "shouldn't we just build everything?"**
+
+6. **`capability_absent` is a BUILD QUEUE, not a resting state.** This doctrine does NOT
+   license permanent narrowness. It commits to SHRINKING the `not_assessed` list every
+   cycle:
+   - Prioritize technique classes by **client-adversary value** (what their real attacker
+     uses / what a competitor scanner would catch), not by ease.
+   - Each new technique lands as a **verified vertical slice** (its own cross-verify +
+     tests), NEVER as a breadth-sprint of unverified stubs — 84 half-built techniques
+     manufacture the exact false assurance this doctrine exists to prevent (a technique
+     that "runs" but is buggy is WORSE than one honestly marked not-built).
+   - **Governing metric:** `len(not_assessed)` must trend DOWN release over release. The
+     coverage ledger makes that shrinkage measurable and auditable — the accountability a
+     "client paid a lot" deserves.
+
+**Alternatives rejected.**
+- **Silent "no findings"** — fraud by omission (the failure this ADR prevents).
+- **Build all 84 gaps before shipping** — Lyndon breadth-before-foundation (#1/#5);
+  yields unverified techniques = more false assurance, and no revenue while you build.
+
+**Consequence.** The gap ledger now has a client-facing CONSUMER. Only genuine technique
+classes belong in `techniques.yaml`/gaps (they surface in the client's `not_assessed`).
+Orchestration wisdom (prioritizer, belief graph, temporal intel) is NOT a technique class
+→ ADR, never a gap.
+
+**Implementation prerequisites (before this ADR can be LOCKED).**
+- `agent_alpha/coverage/techniques.yaml` — concrete schema with technique_id, class, name,
+  playbook_ref, capability_present, gap_ref, verification_tier. Minimum 5 entries as
+  proof-of-concept.
+- `agent_alpha/coverage/projector.py` — pure read-model over the event stream ×
+  techniques.yaml. Called by Omega at report generation (not real-time).
+- GAP reclassification audit: which GAPs are technique classes (belong in
+  techniques.yaml) vs orchestration wisdom (belong in ADR, never a gap). One-time audit.
+- CI guard: `len(techniques where capability_present=false)` must not INCREASE without
+  ADR justification (enforces governing metric).
+
+**Anti-Lyndon.** #1/#5 (rejected explicitly in §6 — build queue, not breadth-sprint).
+#7 (single source — techniques.yaml is the ONE taxonomy). #2 (techniques.yaml is not
+dead scaffold — Omega consumes it at report generation; CI guard enforces shrinkage).
+#3 (positive-only findings — absence is never a verdict, never a false success).
+
+**Cross-ref.** §12.45 (per-credential semantics — this ADR generalizes it to engagement
+scope). §12.43 (proof standard — payability stays binary, coverage does not soften it).
+§12.60 (two-tier proof — coverage report is Tier-1 transparency, not Tier-2 proof).
+GAP-119 (credential-result semantics — per-credential implementation of §12.45, complement
+to this engagement-scope doctrine).
+
+
