@@ -265,12 +265,11 @@ class OdooAccessTool:
                         ),
                     )
 
-            # This transport reached its auth endpoint and exhausted every candidate
-            # WITHOUT a block → the credentials are wrong on a REACHABLE endpoint. Another
-            # transport (same candidates) would fail identically, so do NOT fall back —
-            # falling back here would double the request + lockout budget for nothing.
-            # Fallback is ONLY for an endpoint BLOCK (WAF/CDN), handled by `continue` above.
-            if not transport_blocked:
+            # A reachable auth failure is only terminal when this transport resolved the
+            # database authoritatively ("enumerated"). XML-RPC can fall back to a
+            # hostname-derived guess, and a wrong guessed db must not suppress later
+            # transports that may discover/enumerate the real database.
+            if not transport_blocked and db_source == "enumerated":
                 break
 
         if not any_db_resolved:

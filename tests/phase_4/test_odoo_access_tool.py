@@ -568,10 +568,37 @@ def test_xmlrpc_transport_reports_blocked_on_waf_status() -> None:
     assert result.uid is None
 
 
+def test_xmlrpc_transport_reports_blocked_on_waf_status_db_list() -> None:
+    """XmlRpcOdooTransport maps a WAF/CDN block status on db.list (403) to blocked=True
+    and does not attempt hostname fallback."""
+    http = _FakeHttp({ODOO_XMLRPC_DB_PATH: _FakeResp(403, "")})
+    dbs, db_source, blocked, _ = XmlRpcOdooTransport(http).discover_databases(
+        "https://x.invalid", 10, 0
+    )
+    assert dbs == []
+    assert db_source == ""
+    assert blocked is True
+
+
 def test_xmlrpc_transport_wrong_creds_is_not_blocked() -> None:
     """A 200 that yields no positive uid is a wrong credential, NOT a block (no fallback)."""
     http = _FakeHttp({ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_bool(False))})
     result = XmlRpcOdooTransport(http).authenticate("https://x.invalid", "erp", "admin", "x", 0)
     assert result.blocked is False
     assert result.uid is None
+
+
+def test_fallback_allowed_when_first_transport_used_guessed_db() -> None:
+    """If the first transport failed on a GUESSED db name, fallback to the next transport
+    is allowed so a transport with better DB discovery can still succeed."""
+    xmlrpc = _FakeTransport("xmlrpc", dbs=("guessed_db",), uid=None)
+    # simulate db_source = "guessed"
+    xmlrpc.discover_databases = lambda base_url, max_reqs, used: (["guessed_db"], "guessed", False, used)  # type: ignore[method-assign]
+    json_rpc = _FakeTransport("json_rpc", uid=2)
+    tool = OdooAccessTool(http_client=object(), transports=[xmlrpc, json_rpc])
+
+    result = tool.run(_odoo_ctx(), _budget())
+    assert result.success is True
+    assert json_rpc.auth_calls == 1
+
 
