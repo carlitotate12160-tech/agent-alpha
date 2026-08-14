@@ -112,7 +112,7 @@
 | 071 | Recon freshness / liveness check missing | OPEN | Med | RG | Med | Beta uses stale recon data; no temporal validation policy |
 | 072 | Entry-vector ranking + strategic approach not in graph | OPEN | Med | RG | Med | Beta gets raw nodes, no ranked entry vectors or approach recommendation |
 | 073 | WAF/CDN capability fingerprinting (beyond vendor hint) | OPEN | High | RM | Med | Alpha knows vendor but not rule set, bot management mode, rate limit threshold |
-| 074 | Authentication mechanism fingerprinting (form/JWT/SAML/OAuth) | OPEN | High | RM | Med | Auth-surface label is binary; Beta can't attack what it doesn't understand mechanistically |
+| 074 | Authentication mechanism fingerprinting (form/JWT/SAML/OAuth) | PARTIAL | High | RM | Med | Slices 1, 2a, 2b merged. Root cause of GAP-067/046; gates GAP-077 |
 | 075 | Subdomain takeover check (dangling DNS CNAME) | OPEN | Med | SS | Low | Classic external finding; dangling CNAME to deleted service not checked |
 | 076 | Cloud storage / shadow-IT discovery (S3/GCP/Azure) | OPEN | Med | SS | Med | S3 buckets, GCP storage associated with target domain not discovered |
 | 077 | Authentication bypass testing (SQLi/NoSQLi/LDAPi in login) | OPEN | High | SS | Med | Beta only tries cred-reuse + default-creds; no injection-based auth bypass |
@@ -2598,4 +2598,20 @@ Mapped to GAPs:
 3. GAP-104 (breach cred) + GAP-054 (email) + GAP-090 (email pattern) — leaked-cred stuffing
 
 ---
+
+## GAP-074 — Authentication Mechanism Fingerprinting & Selection
+
+### Problem Statement
+An auth-surface label was binary (`login-form`, `spa-login-form`, `http_basic_auth`). Without understanding the underlying auth *mechanism* (form POST, JSON-RPC, HTTP Basic, JWT/SAML/OAuth), Beta would fire the wrong tool at a surface (e.g. form-POST tool at a JSON-RPC endpoint, root cause of GAP-067 failure).
+
+### Implementation Slices
+1. **Slice 1 (PR #406)**: Universal recon fingerprinting in `scout._detect_auth_surface` adding `mech_*` labels (`mech_http_basic`, `mech_json_rpc`, `mech_jwt`, `mech_saml`, `mech_oauth`, `mech_form_post`) persisted on `ASSET.tech_stack`.
+2. **Slice 2a (PR #408)**: Single-source mechanism-to-applicator service mapping in `recon.auth_surface` (`_ALL_MECH_LABELS`, `MECH_TO_APPLICATOR_SERVICES`, `applicator_services_for_mechanisms`). Mechanism-aware binding in `applicator_factory._resolve_in_scope_targets()` (fail-open when unclassified, fail-closed for unmapped/unstrikable `mech_*`).
+3. **Slice 2b**: Mechanism-precise coverage ledger denominator in `coverage_ledger.py` (`bare_mechanisms()`, `Surface.mechanisms`, and precision filter in `project_coverage()`).
+4. **Slice 2c (Next)**: Odoo JSON-RPC fallback (`/web/session/authenticate` in `OdooAccessTool` for CF/WAF-blocked XML-RPC).
+
+### Known Limitations (Precision vs. False-Clean Trade-off)
+1. **Misclassification Omission (Recon Error)**: When a host that actually uses JSON-RPC is misclassified as `mech_form_post` (e.g. due to a static HTML post form in the shell), `coverage_ledger.project_coverage()` excludes `spa_json_login` from the applicable denominator. As a result, `spa_json_login` will NOT appear as `not_run` on that host (silent omission). This is an accepted trade-off to keep the coverage denominator free of false `not_run` noise on verified form-only targets.
+2. **Shared `run_event` on Unclassified Surfaces**: On a surface with unclassified mechanism (fail-open), executing any credential applicator emits `StrikeCandidateAttempted`. Because `cred_reuse`, `spa_json_login`, and `default_creds_login` currently share `run_event: StrikeCandidateAttempted`, attempting a form strike marks all unclassified auth techniques on that host as `tested`. Future refinement may introduce technique-specific run events or payload tags.
+
 

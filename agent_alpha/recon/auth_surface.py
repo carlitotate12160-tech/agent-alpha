@@ -103,6 +103,20 @@ def applicator_services_for_mechanisms(labels: Iterable[str]) -> frozenset[str] 
     return frozenset(allowed)
 
 
+_MECH_PREFIX = "mech_"
+
+
+def bare_mechanisms(labels: Iterable[str]) -> frozenset[str]:
+    """Map a host's ``mech_*`` tech_stack labels to the BARE mechanism tokens the
+    coverage catalog (techniques.yaml ``auth_mechanism``) uses — ``mech_json_rpc`` ->
+    ``json_rpc``. SINGLE source reconciling the two spellings of one concept (anti-#7):
+    persist/selection use the prefixed label, the catalog uses the bare token, and this
+    is the ONE place that bridges them. Empty result = mechanism unknown for this host."""
+    return frozenset(
+        label[len(_MECH_PREFIX) :] for label in labels if label.startswith(_MECH_PREFIX)
+    )
+
+
 _FORM_POST_RE = re.compile(r"<form[^>]*method\s*=\s*['\"]?post", re.IGNORECASE)
 _SAML_RE = re.compile(r"SAMLRequest|SAMLResponse|urn:oasis:names:tc:SAML", re.IGNORECASE)
 _OAUTH_RE = re.compile(
