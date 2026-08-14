@@ -19,6 +19,7 @@ import httpx
 from agent_alpha.config import constants
 from agent_alpha.config.constants import RECON_TOOL_CATALOG
 from agent_alpha.llm import redaction
+from agent_alpha.llm.providers.deepseek import CompletionTruncatedError
 from agent_alpha.recon.response_classifier import is_json_response
 from agent_alpha.tools.playbook import PlaybookDecision, PlaybookEngine
 
@@ -98,21 +99,55 @@ class LLMOrchestrator:
         # ── SINGLE_LLM tier ─────────────────────────────────────
         messages = self._build_tool_select_messages(observation, exclude_tools=exclude_tools)
         try:
-            result = self.provider.complete(
-                messages=messages,
-                max_tokens=constants.LLM_TOOL_SELECT_MAX_TOKENS,
+            return self._complete_and_parse(
+                messages, constants.LLM_TOOL_SELECT_MAX_TOKENS, exclude_tools
             )
-            return self._parse_tool_response(
-                result.text,
-                cost_usd=result.usage_cost_usd,
-                reasoning=getattr(result, "reasoning", ""),
-                exclude_tools=exclude_tools,
-            )
+        except CompletionTruncatedError as trunc:
+            # Bug #35: a reasoning model that over-ran the token budget is NOT "unable to
+            # orient" — its thinking simply didn't fit. A truncated reply used to become a
+            # terminal OrientationError → the agent gave up for no real reason. Retry ONCE
+            # with a larger budget BEFORE declaring defeat. (This except must precede the
+            # broad RuntimeError clause below — CompletionTruncatedError IS a RuntimeError.)
+            # P1: the truncated attempt was still billed — carry its cost into the retry's
+            # decision so the loop's COST_BUDGET sees the TRUE spend, not just the 2nd call.
+            try:
+                return self._complete_and_parse(
+                    messages,
+                    constants.LLM_TOOL_SELECT_MAX_TOKENS_RETRY,
+                    exclude_tools,
+                    prior_cost=trunc.cost_usd,
+                )
+            except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+                # Truncated again (or failed) at the larger budget → a genuine give-up.
+                raise OrientationError(
+                    f"SINGLE_LLM tier could not produce a decision after retry: {exc}"
+                ) from exc
         except (RuntimeError, ValueError, httpx.HTTPError) as exc:
-            # Truncation (CompletionTruncatedError <- RuntimeError), no-choices /
-            # empty (RuntimeError), malformed output (ValueError), API/network
+            # No-choices / empty (RuntimeError), malformed output (ValueError), API/network
             # (httpx.HTTPError) all mean "could not decide" -> one domain error.
             raise OrientationError(f"SINGLE_LLM tier could not produce a decision: {exc}") from exc
+
+    def _complete_and_parse(
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        exclude_tools: frozenset[str],
+        *,
+        prior_cost: float = 0.0,
+    ) -> PlaybookDecision:
+        """One provider.complete() at ``max_tokens`` + parse. Raises CompletionTruncatedError
+        (retry-able) / RuntimeError / ValueError / httpx.HTTPError to the caller.
+
+        ``prior_cost`` folds the cost of an earlier truncated-but-billable attempt into
+        this decision (Bug #35 P1) so the cognitive loop's COST_BUDGET accounts for every
+        round-trip actually charged, not just the final successful one."""
+        result = self.provider.complete(messages=messages, max_tokens=max_tokens)
+        return self._parse_tool_response(
+            result.text,
+            cost_usd=result.usage_cost_usd + prior_cost,
+            reasoning=getattr(result, "reasoning", ""),
+            exclude_tools=exclude_tools,
+        )
 
     # ── internals ───────────────────────────────────────────────
 

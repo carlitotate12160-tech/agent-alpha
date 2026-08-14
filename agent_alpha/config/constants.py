@@ -15,6 +15,7 @@ __all__ = [
     "LLM_TIER_SINGLE",
     "LLM_TIER_CONSENSUS",
     "LLM_TOOL_SELECT_MAX_TOKENS",
+    "LLM_TOOL_SELECT_MAX_TOKENS_RETRY",
     "BLAST_GATE_SEVERITY_THRESHOLD",
     "DEEPSEEK_HTTP_TIMEOUT_SEC",
     "LLM_MAX_UNTRUSTED_BODY_CHARS",
@@ -146,7 +147,14 @@ LLM_TIER_SINGLE = "single_llm"
 LLM_TIER_CONSENSUS = "consensus"
 
 # ── LLM Orchestrator ────────────────────────────────────────
-LLM_TOOL_SELECT_MAX_TOKENS = 512  # headroom for reasoning model JSON reply
+# Bug #35: a reasoning model (DeepSeek-v4-pro) emits ``reasoning_content`` (its thinking)
+# BEFORE the JSON ``content``. At 512 the thinking ate the whole budget → empty content →
+# CompletionTruncatedError → OrientationError → the agent gave up WITHOUT a real reason
+# (a false give-up, anti-#3). Right-sized so the reasoning + the small JSON reply both fit.
+LLM_TOOL_SELECT_MAX_TOKENS = 2048  # primary orientation budget (reasoning + JSON reply)
+# One-shot resilience retry (bug #35): a truncation is a budget miss, NOT an inability to
+# orient — retry ONCE with a larger budget before declaring OrientationError.
+LLM_TOOL_SELECT_MAX_TOKENS_RETRY = 4096
 # DeepSeek HTTP round-trip timeout — its own concept (LLM inference is
 # slower than a recon GET), kept distinct from HTTP_REQUEST_TIMEOUT_SEC.
 DEEPSEEK_HTTP_TIMEOUT_SEC = 30.0

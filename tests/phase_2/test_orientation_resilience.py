@@ -35,6 +35,56 @@ class _TruncatingProvider:
         raise CompletionTruncatedError("reasoning model consumed the token budget")
 
 
+class _TruncateOnceThenSucceedProvider:
+    """Truncates on the FIRST complete() (primary budget), succeeds on the retry.
+
+    The truncated first attempt carries a non-zero ``cost_usd`` (the provider bills a
+    finish_reason=length round-trip) and the successful retry reports its own cost, so a
+    correct orchestrator surfaces the SUM (Bug #35 P1 — the first billable attempt must
+    not vanish from the decision cost)."""
+
+    TRUNCATED_COST = 0.001
+    RETRY_COST = 0.002
+
+    model = "deepseek-v4-pro"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, *a: object, **k: object):
+        self.calls += 1
+        if self.calls == 1:
+            raise CompletionTruncatedError(
+                "first attempt: reasoning ate the token budget",
+                cost_usd=self.TRUNCATED_COST,
+            )
+        return type(
+            "R",
+            (),
+            {
+                "text": '{"tool": "generic_http_probe"}',
+                "usage_cost_usd": self.RETRY_COST,
+                "model": "deepseek-v4-pro",
+                "reasoning": "",
+            },
+        )()
+
+
+class _AlwaysTruncateCountingProvider:
+    """Truncates on EVERY complete() — primary AND retry both over-run the budget."""
+
+    model = "deepseek-v4-pro"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, *a: object, **k: object):
+        self.calls += 1
+        raise CompletionTruncatedError(
+            f"attempt {self.calls}: reasoning ate the token budget", cost_usd=0.001
+        )
+
+
 class _BadJsonProvider:
     model = "deepseek-v4-pro"
 
@@ -64,6 +114,51 @@ def test_malformed_llm_output_becomes_orientation_error() -> None:
     orch = LLMOrchestrator(PlaybookEngine.from_directory(PLAYBOOK_DIR), _BadJsonProvider())
     with pytest.raises(OrientationError):
         orch.decide({"body": "Acme novel page no playbook match", "headers": {}})
+
+
+# ── Bug #35: a truncated FIRST attempt retries once instead of surrendering ────
+
+
+def test_truncation_retries_once_then_succeeds() -> None:
+    """Bug #35 CARDINAL: a reasoning model that truncated (thinking > budget) is NOT a
+    give-up. decide() retries ONCE with a larger budget and returns a real decision
+    instead of raising OrientationError (the old behaviour = a false give-up)."""
+    provider = _TruncateOnceThenSucceedProvider()
+    orch = LLMOrchestrator(PlaybookEngine.from_directory(PLAYBOOK_DIR), provider)
+
+    decision = orch.decide({"body": "Acme novel page no playbook match", "headers": {}})
+
+    assert decision.tool == "generic_http_probe"
+    assert provider.calls == 2  # primary truncated → retried once → succeeded
+    # Bug #35 P1: the truncated-but-billed first attempt must be folded into the decision
+    # cost, not dropped — else the loop's COST_BUDGET under-counts real spend.
+    assert decision.cost_usd == pytest.approx(
+        _TruncateOnceThenSucceedProvider.TRUNCATED_COST
+        + _TruncateOnceThenSucceedProvider.RETRY_COST
+    )
+
+
+def test_truncation_retry_also_truncates_becomes_orientation_error() -> None:
+    """Bug #35 failure-path (Sourcery): if the retry ALSO truncates, the one-shot retry is
+    exhausted → a genuine give-up. decide() raises OrientationError and calls the provider
+    EXACTLY twice (primary + one retry, never an unbounded loop)."""
+    provider = _AlwaysTruncateCountingProvider()
+    orch = LLMOrchestrator(PlaybookEngine.from_directory(PLAYBOOK_DIR), provider)
+
+    with pytest.raises(OrientationError):
+        orch.decide({"body": "Acme novel page no playbook match", "headers": {}})
+
+    assert provider.calls == 2  # primary + exactly one retry, then surrender
+
+
+def test_tool_select_budget_is_reasoning_sized() -> None:
+    """Bug #35 regression guard: the orientation budget must be large enough for a
+    reasoning model's thinking + JSON reply — 512 was the false-give-up trap. Locks the
+    primary budget right-sized and the retry budget strictly larger (single source)."""
+    from agent_alpha.config import constants
+
+    assert constants.LLM_TOOL_SELECT_MAX_TOKENS >= 2048
+    assert constants.LLM_TOOL_SELECT_MAX_TOKENS_RETRY > constants.LLM_TOOL_SELECT_MAX_TOKENS
 
 
 # ── Alpha survives an LLM decision failure: FAILED, not a crash ───────────────
