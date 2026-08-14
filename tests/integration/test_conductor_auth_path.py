@@ -62,6 +62,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key-for-eager-dispatch")
     # Profile signing key — 64 hex chars = 32 bytes (minimum for HMAC-SHA-256).
     monkeypatch.setenv("PROFILE_SIGNING_KEY", "a" * 64)
+    monkeypatch.delenv("AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION", raising=False)
 
     fresh_store = InMemoryEventStore()
     monkeypatch.setattr(m, "event_store", fresh_store)
