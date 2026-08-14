@@ -207,7 +207,10 @@ class OdooAccessTool:
         candidates = self._assemble_candidates()
         # GAP-067: try each transport in order; fall back to the next when one is BLOCKED
         # (WAF/CDN at the endpoint), NOT when a credential is simply wrong. Default chain is
-        # XML-RPC only; JSON-RPC joins it in __init__ once its DeepSeek body lands.
+        # XML-RPC then JSON-RPC: a WAF-blocked /xmlrpc/2/* falls back to the web login
+        # (/web/session/authenticate) — the path CDN/WAF rules normally allow. The
+        # test_tool_run_fallback_from_xmlrpc_to_jsonrpc end-to-end test LOCKS this chain so it
+        # can never silently regress to XML-RPC-only dead code (anti-#2).
         transports = self._transports or [
             XmlRpcOdooTransport(self._http_client),
             JsonRpcOdooTransport(self._http_client),

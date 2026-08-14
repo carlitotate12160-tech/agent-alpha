@@ -723,6 +723,11 @@ def test_tool_run_fallback_from_xmlrpc_to_jsonrpc() -> None:
     result = tool.run(_odoo_ctx(), _budget())
 
     assert result.success is True
+    # The WINNING transport must be JSON-RPC (the finding's endpoint proves the default
+    # chain reached the fallback body, not a false-positive XML-RPC success) — this is the
+    # anti-#2 lock: drop JsonRpcOdooTransport from the default chain and this goes RED.
+    assert result.findings[0]["uid"] == 2
+    assert result.findings[0]["proof_request"]["endpoint"] == "/web/session/authenticate"
     # The tool must have tried both endpoints
     assert any(ODOO_XMLRPC_DB_PATH in c for c in http.calls)
     assert any("/web/database/list" in c for c in http.calls)
