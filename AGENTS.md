@@ -471,6 +471,40 @@ A phase is "sealed" only when ALL pass on Oracle ARM64, for 2+ stacks:
 [ ] GAMMA-5: Field-proven on self-owned target (alpha-ai.web.id)
 ```
 
+#### Phase Omega/Report — exit criteria (report-honesty gate)
+
+> The report is where false assurance actually reaches the client. Alpha/Beta
+> completeness gates do NOT cover it — this section closes that meta-gap
+> (ADR §12.62 Coverage-Honesty Doctrine).
+
+```
+[ ] OMEGA-1: report emits a Coverage & Methodology section — tested / not_run /
+    blocked / capability_absent + engagement not_assessed list.        (GAP-153)
+    Test: Tier 1 (test_omega_coverage) + Tier 2 (report on a lab run)
+
+[ ] OMEGA-2: report NEVER emits an affirmative safety verdict from an absence.
+    Forbidden-phrase test: "no vulnerabilities" / "system is safe" / "fully secure"
+    / "is not vulnerable" absent.                              (§12.45 / §12.62)
+    Test: Tier 1 (grep the rendered report)
+
+[ ] OMEGA-3: every NEGATIVE credential result carries a methodology caveat
+    (what WAS / was NOT tested), never a verdict.              (§12.45 / GAP-119)
+    Test: Tier 1 + Tier 2
+
+[ ] OMEGA-4: not_run == 0 for capability_present techniques on discovered surfaces
+    that SHOULD fire — the coverage ledger as a RUNTIME wiring-gate (catches a
+    capable-but-unfired technique = Lyndon #2 at report time).
+    Test: Tier 2 (lab run → assert no capable technique left not_run)
+
+[ ] OMEGA-5: every POSITIVE Finding is cross_verified + proof-backed (payability
+    binary; anti-#3). A Finding with no proof artifact is never constructed.
+    Test: Tier 1 (roaster) + Tier 3 (field-prove)
+
+[ ] OMEGA-GOV: techniques.yaml single-source integrity — every catalog run_event is a
+    real EventType; every capability_absent links a gap_ref (anti-#7 drift).
+    Test: Tier 1 (test_coverage_catalog_integrity)
+```
+
 ### Bug categorization (when bugs emerge during testing)
 
 Every bug discovered during testing MUST be registered in `docs/BUGS_AND_GAPS.md`
