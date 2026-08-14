@@ -36,7 +36,15 @@ class _TruncatingProvider:
 
 
 class _TruncateOnceThenSucceedProvider:
-    """Truncates on the FIRST complete() (primary budget), succeeds on the retry."""
+    """Truncates on the FIRST complete() (primary budget), succeeds on the retry.
+
+    The truncated first attempt carries a non-zero ``cost_usd`` (the provider bills a
+    finish_reason=length round-trip) and the successful retry reports its own cost, so a
+    correct orchestrator surfaces the SUM (Bug #35 P1 — the first billable attempt must
+    not vanish from the decision cost)."""
+
+    TRUNCATED_COST = 0.001
+    RETRY_COST = 0.002
 
     model = "deepseek-v4-pro"
 
@@ -46,17 +54,35 @@ class _TruncateOnceThenSucceedProvider:
     def complete(self, *a: object, **k: object):
         self.calls += 1
         if self.calls == 1:
-            raise CompletionTruncatedError("first attempt: reasoning ate the token budget")
+            raise CompletionTruncatedError(
+                "first attempt: reasoning ate the token budget",
+                cost_usd=self.TRUNCATED_COST,
+            )
         return type(
             "R",
             (),
             {
                 "text": '{"tool": "generic_http_probe"}',
-                "usage_cost_usd": 0.0,
+                "usage_cost_usd": self.RETRY_COST,
                 "model": "deepseek-v4-pro",
                 "reasoning": "",
             },
         )()
+
+
+class _AlwaysTruncateCountingProvider:
+    """Truncates on EVERY complete() — primary AND retry both over-run the budget."""
+
+    model = "deepseek-v4-pro"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def complete(self, *a: object, **k: object):
+        self.calls += 1
+        raise CompletionTruncatedError(
+            f"attempt {self.calls}: reasoning ate the token budget", cost_usd=0.001
+        )
 
 
 class _BadJsonProvider:
@@ -104,6 +130,25 @@ def test_truncation_retries_once_then_succeeds() -> None:
 
     assert decision.tool == "generic_http_probe"
     assert provider.calls == 2  # primary truncated → retried once → succeeded
+    # Bug #35 P1: the truncated-but-billed first attempt must be folded into the decision
+    # cost, not dropped — else the loop's COST_BUDGET under-counts real spend.
+    assert decision.cost_usd == pytest.approx(
+        _TruncateOnceThenSucceedProvider.TRUNCATED_COST
+        + _TruncateOnceThenSucceedProvider.RETRY_COST
+    )
+
+
+def test_truncation_retry_also_truncates_becomes_orientation_error() -> None:
+    """Bug #35 failure-path (Sourcery): if the retry ALSO truncates, the one-shot retry is
+    exhausted → a genuine give-up. decide() raises OrientationError and calls the provider
+    EXACTLY twice (primary + one retry, never an unbounded loop)."""
+    provider = _AlwaysTruncateCountingProvider()
+    orch = LLMOrchestrator(PlaybookEngine.from_directory(PLAYBOOK_DIR), provider)
+
+    with pytest.raises(OrientationError):
+        orch.decide({"body": "Acme novel page no playbook match", "headers": {}})
+
+    assert provider.calls == 2  # primary + exactly one retry, then surrender
 
 
 def test_tool_select_budget_is_reasoning_sized() -> None:

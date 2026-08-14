@@ -13,7 +13,17 @@ logger = logging.getLogger(__name__)
 
 
 class CompletionTruncatedError(RuntimeError):
-    """Raised when max_tokens is too small for the reasoning model to output a final answer."""
+    """Raised when max_tokens is too small for the reasoning model to output a final answer.
+
+    Carries ``cost_usd`` — the provider STILL bills prompt+completion tokens on a
+    ``finish_reason == "length"`` round-trip, so a truncated attempt is not free.
+    Dropping it lets the cognitive loop under-count spend and overrun its COST_BUDGET
+    stop condition (Bug #35 P1). The caller folds this into the retry's decision cost.
+    """
+
+    def __init__(self, message: str, *, cost_usd: float = 0.0) -> None:
+        super().__init__(message)
+        self.cost_usd = cost_usd
 
 
 @dataclass(frozen=True)
@@ -92,26 +102,32 @@ class DeepSeekProvider:
         reasoning = (choices[0].get("message", {}).get("reasoning_content") or "").strip()
 
         if not text and finish_reason == "length":
+            # Bug #35 P1: a truncated round-trip is STILL billed — attach its cost so
+            # the caller can fold it into the retry (same _usage_cost source as success).
             raise CompletionTruncatedError(
-                "completion truncated; raise max_tokens (reasoning model consumed the token budget)"
+                "completion truncated; raise max_tokens (reasoning model consumed the token budget)",
+                cost_usd=self._usage_cost(data),
             )
         if not text:
             raise RuntimeError("Provider returned empty completion text.")
 
+        return CompletionResult(
+            text=text, usage_cost_usd=self._usage_cost(data), model=self.model, reasoning=reasoning
+        )
+
+    def _usage_cost(self, data: dict[str, Any]) -> float:
+        """USD cost of one round-trip from its ``usage`` block. SINGLE source of the
+        pricing formula (anti-Lyndon #7) — both the success return and the truncation
+        raise bill through here, so a truncated attempt can never be priced differently
+        from a completed one."""
         usage = data.get("usage", {})
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
-
-        # Cost calculation
         if self.model not in DEEPSEEK_PRICING_USD_PER_1K:
             logger.warning("no pricing for model %s; cost under-reported", self.model)
-            cost = 0.0
-        else:
-            pricing = DEEPSEEK_PRICING_USD_PER_1K[self.model]
-            cost = (prompt_tokens / 1000.0) * pricing.get("input", 0.0) + (
-                completion_tokens / 1000.0
-            ) * pricing.get("output", 0.0)
-
-        return CompletionResult(
-            text=text, usage_cost_usd=cost, model=self.model, reasoning=reasoning
+            return 0.0
+        pricing = DEEPSEEK_PRICING_USD_PER_1K[self.model]
+        return float(
+            (prompt_tokens / 1000.0) * pricing.get("input", 0.0)
+            + (completion_tokens / 1000.0) * pricing.get("output", 0.0)
         )
