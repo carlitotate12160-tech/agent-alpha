@@ -29,13 +29,17 @@ mirroring AuthorizationStateMachine.can_agent_proceed's tier ladder.
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor.authorization import STATE_RANK
 from agent_alpha.config import constants
 from agent_alpha.graph.nodes import AssetProperties, NodeType, ServiceProperties
+from agent_alpha.recon.login_endpoints import (
+    first_non_login_api_endpoint,
+    login_endpoint_candidates,
+)
 from agent_alpha.tools.internal.access.applicator import (
     CredentialApplicator,
     GovernedApplicator,
@@ -43,6 +47,7 @@ from agent_alpha.tools.internal.access.applicator import (
     WpLoginApplicator,
 )
 from agent_alpha.tools.internal.access.cred_lockout import CredentialLockoutGovernor
+from agent_alpha.tools.internal.access.spa_login_applicator import SpaLoginApplicator
 
 # required_auth label -> minimum engagement state that satisfies it.
 _REQUIRED_AUTH_TO_STATE: dict[str, int] = {
@@ -54,7 +59,12 @@ _REQUIRED_AUTH_TO_STATE: dict[str, int] = {
 _DB_SERVICES: frozenset[str] = frozenset({"mysql", "mariadb"})
 
 
-def beta_web_applicators(http_client: object) -> list[CredentialApplicator]:
+def beta_web_applicators(
+    http_client: object,
+    *,
+    events: Iterable[Any] | None = None,
+    host: str | None = None,
+) -> list[CredentialApplicator]:
     """Canonical Beta web-login applicator roster (single source, #7).
 
     ORDER MATTERS — specific before generic. cred_reuse tries bound applicators in
@@ -62,11 +72,27 @@ def beta_web_applicators(http_client: object) -> list[CredentialApplicator]:
     MUST be tried before the generic HttpFormApplicator (POSTs username/password), so we
     never fire a wrong-field login attempt at a client's wp-login.php first (opsec:
     avoids a detectable failed login + lockout/WAF trigger).
+
+    SpaLoginApplicator is conditionally added (fail-closed) when the event store has
+    harvested a login API endpoint for ``host`` (via login_endpoint_candidates). If no
+    login endpoint was discovered, the applicator is NOT constructed — no false-positive
+    strike against an SPA whose auth path is unknown.
     """
-    return [
+    roster: list[CredentialApplicator] = [
         WpLoginApplicator(http_client=http_client),
         HttpFormApplicator(http_client=http_client),
     ]
+    if events is not None and host:
+        candidates = login_endpoint_candidates(events, host)
+        if candidates:
+            roster.append(
+                SpaLoginApplicator(
+                    http_client=http_client,
+                    login_url=candidates[0],
+                    protected_url=first_non_login_api_endpoint(events, host),
+                )
+            )
+    return roster
 
 
 @runtime_checkable

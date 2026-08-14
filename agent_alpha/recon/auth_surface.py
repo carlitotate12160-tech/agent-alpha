@@ -45,19 +45,20 @@ _WWW_AUTH_SCHEME: dict[str, str] = {
     "bearer": TOKEN_AUTH,
 }
 
-# The subset Beta may actually strike this phase (auth-type only; the router adds
-# tech-stack fingerprints like wp/odoo that also imply a strikable login surface).
-STRIKABLE_AUTH_LABELS: frozenset[str] = frozenset({HTTP_BASIC_AUTH, LOGIN_FORM})
-
-
 # GAP-030 Slice 1b: SPA login surface rendered by JS. A pure SPA shell
 # (<div id="app">) carries NO password input in the initial HTML, so the HTML
 # regexes above miss it — the login <input> lives in the JS bundle. This label is
-# CLASSIFY-ONLY (NOT in STRIKABLE_AUTH_LABELS): the existing form applicator POSTs
-# form-encoded to the page URL, but an SPA logs in via a JSON API endpoint, so
-# striking it needs a future SPA-login applicator. Classifying it closes the recon
-# blindness + feeds that future applicator; it never wastes a strike slot now.
+# now STRIKABLE via SpaLoginApplicator (Slice-B): a JSON-API login reuse tool that
+# POSTs JSON credentials, extracts a JWT from the 2xx response, and cross-verifies
+# via Bearer replay. Previously classify-only; strikable once SpaLoginApplicator
+# was wired into the factory.
 SPA_LOGIN_FORM = "spa-login-form"
+
+# The subset Beta may actually strike this phase (auth-type only; the router adds
+# tech-stack fingerprints like wp/odoo that also imply a strikable login surface).
+# SPA_LOGIN_FORM added when SpaLoginApplicator landed (Slice-B) — JSON-API login
+# reuse is now a real strike capability, no longer classify-only.
+STRIKABLE_AUTH_LABELS: frozenset[str] = frozenset({HTTP_BASIC_AUTH, LOGIN_FORM, SPA_LOGIN_FORM})
 
 _JS_LOGIN_PATTERNS: tuple[re.Pattern[str], ...] = (
     # Quote char class includes backtick: Vite/esbuild minified bundles use

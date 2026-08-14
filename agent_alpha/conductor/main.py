@@ -591,7 +591,6 @@ def run_agent_task(
                         "candidates_considered": strike_entry_selection.candidates_considered,
                     },
                 )
-                applicator_candidates = beta_web_applicators(beta_http)
                 # GAP-035: strike EVERY in-scope ranked auth-surface, not just the top
                 # one. The loop lives HERE at the dispatch seam — Beta's single-entry
                 # run_strike contract is untouched (anti #8/#10). Fallback (no ranked
@@ -642,6 +641,13 @@ def run_agent_task(
                             engagement_id=engagement_id,
                             agent="CONDUCTOR",
                             payload={"entry": entry_url, "host": host},
+                        )
+                        # Slice-B: roster resolved PER-HOST so SpaLoginApplicator binds
+                        # this host's harvested login endpoint (fail-closed if none).
+                        applicator_candidates = beta_web_applicators(
+                            beta_http,
+                            events=target_store.get_events(engagement_id),
+                            host=host,
                         )
                         applicators = build_applicators_for_engagement(
                             engagement_id=engagement_id,
