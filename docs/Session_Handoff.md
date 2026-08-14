@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-14, Coverage-Honesty & GAP-074 mechanism-aware auth arc CLOSED)
+# Agent-Alpha — Session Handoff (2026-08-14, GAP-074 Slice 2c Odoo JSON-RPC Fallback CLOSED)
 
-Resume with: "lanjut Agent-Alpha — Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + Slice X (#410 default-cred single-source) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
 
 ---
 
@@ -18,6 +18,7 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **GAP-074 Odoo JSON-RPC Fallback (Slice 2c)** | **MERGED #416, Tier-1 PROVEN** | OdooAccessTool now implements transport fallback (GAP-067). WAF/CDN blocked XML-RPC endpoints automatically fall back to web JSON-RPC login. Resolves CI, SAST (Aikido/GitGuardian), and formatting issues. 29/29 PASS. |
 | **Auth Path Test Environment Isolation** | **MERGED #415, Tier-1 PROVEN** | Isolated `AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION` in `test_conductor_auth_path.py` fixture: prevents `.env` environment variables from leaking into domain verification tests. 10/10 PASS, 100% green CI. |
 | **Beta Offensive Profile Fail-Closed** | **MERGED #414, Tier-1 PROVEN** | Enforced ADR §12.36 fail-closed for Beta offensive run in `run_agent_task`: missing/invalid signed profile aborts and records `ENGAGEMENT_RUN_FAILED` (`missing_signed_profile`). Isolated to Beta role. 376/376 PASS. |
 | **Beta State-Leak Fix** | **MERGED #413, Tier-1 PROVEN** | Fixed `Beta._strike_attempted` state persistence: resets to `False` on `run_strike()` entry. Reused `Beta` instance across multi-target execution no longer skips subsequent targets. 7/7 PASS. |
@@ -50,7 +51,6 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 **High-leverage growth (next real slice — pick one, ONE at a time):**
 - **§12.61 historical-DNS origin discovery** ★ — opens full-CF targets (niagamas/bernofarm/ibudanbalita all ceiling only because origin isn't found; crt.sh/VT/OTX failed). Passive, datacenter-friendly, extends the moat. Wayback CDX API = priority candidate (free, no key, operator-autonomous). Then cert/favicon pivot, then leaked-cred stuffing (axis-B). MENU — one slice.
-- **GAP-074 Slice 2b / GAP-067 Odoo JSON-RPC fallback** — when XML-RPC is blocked by CF/WAF, fallback to `/web/session/authenticate` JSON-RPC endpoint for Odoo credential reuse.
 - **GAP-045 CF-ceiling honest-outcome report** — (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable integrated with CoverageLedger).
 
 **Non-blockers (schedule after):**
@@ -82,4 +82,4 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + Slice X (#410 default-cred single-source) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma. ALWAYS git pull + re-verify first.
+> lanjut Agent-Alpha — GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma. ALWAYS git pull + re-verify first.
