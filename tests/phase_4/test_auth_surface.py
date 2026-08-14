@@ -7,7 +7,11 @@ hosts only; ZERO reference to any specific client.
 
 from __future__ import annotations
 
-from agent_alpha.recon.auth_surface import detect_auth_surface_labels, scan_js_for_login_surface
+from agent_alpha.recon.auth_surface import (
+    detect_auth_surface_labels,
+    fingerprint_auth_mechanism,
+    scan_js_for_login_surface,
+)
 
 
 def test_form_login_password_input_any_stack() -> None:
@@ -221,3 +225,48 @@ def test_js_scan_bare_password_word_not_false_positive() -> None:
 def test_js_scan_empty_or_no_login() -> None:
     assert scan_js_for_login_surface("") is False
     assert scan_js_for_login_surface("export const sum=(a,b)=>a+b") is False
+
+
+# GAP-074: auth MECHANISM fingerprinting
+
+
+def _mech(status=200, headers=None, body=""):
+    return fingerprint_auth_mechanism(status_code=status, headers=headers or {}, body=body)
+
+
+def test_mech_http_basic() -> None:
+    assert _mech(status=401, headers={"WWW-Authenticate": 'Basic realm="x"'}) == "mech_http_basic"
+
+
+def test_mech_json_rpc() -> None:
+    assert (
+        _mech(headers={"Content-Type": "application/json"}, body='{"error":"unauthorized"}')
+        == "mech_json_rpc"
+    )
+
+
+def test_mech_jwt_from_js_hint() -> None:
+    assert _mech(body="localStorage.setItem('access_token', t)") == "mech_jwt"
+    assert _mech(body="var t='eyJhbGci.eyJzdWIi.sig'") == "mech_jwt"
+
+
+def test_mech_saml() -> None:
+    assert _mech(body='<input name="SAMLRequest" value="x">') == "mech_saml"
+
+
+def test_mech_oauth() -> None:
+    assert (
+        _mech(body='<a href="/oauth/authorize?response_type=code&client_id=abc">x</a>')
+        == "mech_oauth"
+    )
+
+
+def test_mech_form_post() -> None:
+    assert (
+        _mech(body='<form method="post"><input type="password" name="pw"></form>')
+        == "mech_form_post"
+    )
+
+
+def test_mech_none_when_no_auth() -> None:
+    assert _mech(body="<p>welcome</p>") is None

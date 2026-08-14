@@ -54,6 +54,27 @@ _WWW_AUTH_SCHEME: dict[str, str] = {
 # was wired into the factory.
 SPA_LOGIN_FORM = "spa-login-form"
 
+# GAP-074 auth MECHANISM labels (mech_* — ride the same tech_stack persist path as the
+# auth-type labels; feed the coverage denominator + later Beta mechanism-aware tool
+# selection, fixing "XML-RPC tool on a JSON-RPC target"). Universal, no framework catalog.
+MECH_HTTP_BASIC = "mech_http_basic"
+MECH_JSON_RPC = "mech_json_rpc"
+MECH_JWT = "mech_jwt"
+MECH_SAML = "mech_saml"
+MECH_OAUTH = "mech_oauth"
+MECH_FORM_POST = "mech_form_post"
+
+_FORM_POST_RE = re.compile(r"<form[^>]*method\s*=\s*['\"]?post", re.IGNORECASE)
+_SAML_RE = re.compile(r"SAMLRequest|SAMLResponse|urn:oasis:names:tc:SAML", re.IGNORECASE)
+_OAUTH_RE = re.compile(
+    r"/oauth/(?:authorize|token)|response_type=code|[?&]client_id=", re.IGNORECASE
+)
+_JWT_HINT_RE = re.compile(
+    r"eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\."  # a JWT literal in the page/JS
+    r"|(?:localStorage|sessionStorage)\.[gs]etItem\(\s*['\"](?:token|jwt|access_token)",
+    re.IGNORECASE,
+)
+
 # The subset Beta may actually strike this phase (auth-type only; the router adds
 # tech-stack fingerprints like wp/odoo that also imply a strikable login surface).
 # SPA_LOGIN_FORM added when SpaLoginApplicator landed (Slice-B) — JSON-API login
@@ -124,6 +145,34 @@ def _parse_www_authenticate_schemes(headers: Mapping[str, str]) -> list[str]:
             if scheme and "=" not in part.split(None, 1)[0]:
                 schemes.append(scheme)
     return schemes
+
+
+def fingerprint_auth_mechanism(
+    *, status_code: int, headers: Mapping[str, str], body: str
+) -> str | None:
+    """GAP-074: classify the AUTH MECHANISM of a login surface (not just its presence).
+
+    Returns one mech_* label or None. Pure + deterministic; universal signals only.
+    Precedence: HTTP Basic challenge > SAML/OAuth SSO markers > JWT/JSON API > HTML form POST.
+    (SPA/Vue json_rpc logins are labelled at the JS-bundle stage — the shell HTML carries
+    no form; see js_secret_probe SPA-login persist.)
+    """
+    body = body or ""
+    if any(scheme == "basic" for scheme in _parse_www_authenticate_schemes(headers)):
+        return MECH_HTTP_BASIC
+    if _SAML_RE.search(body):
+        return MECH_SAML
+    if _OAUTH_RE.search(body):
+        return MECH_OAUTH
+    if _JWT_HINT_RE.search(body):
+        return MECH_JWT
+    if _body_is_json(headers, body):
+        return MECH_JSON_RPC
+    if _FORM_POST_RE.search(body) and (
+        _PASSWORD_INPUT.search(body) or _NAME_ID_PASSWORD.search(body)
+    ):
+        return MECH_FORM_POST
+    return None
 
 
 def detect_auth_surface_labels(
