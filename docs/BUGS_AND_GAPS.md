@@ -2483,6 +2483,35 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 
+## GAP-153 — Engagement-scope coverage projection (generalizes §12.45; anti false-assurance)
+- Status: SLICE 1 BUILT 2026-08-14 (`agent_alpha/coverage/techniques.yaml` + `coverage_ledger.py`,
+  7 tests green, mypy/ruff clean). Omega report section = NEXT slice.
+- Priority: HIGH — the direct fix for engagement-wide false assurance. Lowest dependency of the
+  strategic layer (pure projection; independent of GAP-050 and the Conductor root-causes).
+- Category: RG · Stack: Conductor/Omega
+- What: §12.45 forbids "password safe" from one negative credential. The same lie exists at
+  engagement scope: "no findings" on surfaces never tested. This projects `{discovered surfaces}
+  × {technique catalog}` into 5 buckets (tested / not_run / blocked / capability_absent /
+  out_of_scope) + an engagement `not_assessed` list, so Omega states what WAS and WAS NOT tested.
+  `not_run` doubles as a runtime wiring-gate (capable-but-unfired = Lyndon #2 caught live).
+- Evidence: `agents/omega/roaster.py:_build_findings` builds POSITIVE findings only — no coverage
+  section. `validation_vs_scanner.py:272` already writes the honesty principle ("Nuclei has broader
+  coverage") but ONLY in the dev field-prove harness, never in the client report.
+- Files: `agent_alpha/coverage/techniques.yaml` (canonical denominator), `agent_alpha/coverage/
+  coverage_ledger.py` (projection). NEXT: `agents/omega/` consumes CoverageReport into the report.
+- Cross-ref: ADR §12.62 (Coverage-Honesty Doctrine — the decision), §12.45 (per-credential origin),
+  GAP-119 (per-credential caveat — this is its engagement-scope generalization), GAP-074 (auth
+  mechanism = auth-column denominator precision), GAP-073 (WAF mode = `blocked` precision),
+  GAP-079 (access-level = positive-cell depth), GAP-069 (trust surfaces = new rows; ledger reports
+  their absence honestly BEFORE 069 is built).
+- Effort: LOW (slice 1 done). NEXT slices: Omega section (MEDIUM), per-technique run events for
+  run-signal precision (MEDIUM — today recon techniques default conservatively to not_run).
+- Constraint: techniques.yaml is the SINGLE technique source (anti-#7) — playbook technique_id +
+  gap capability_absent derive from it. Payability stays binary (cross_verified).
+
+---
+
+
 # Enhancements to existing GAPs (2026-08-13)
 
 ## ENH-1 (GAP-113) — Automated token entropy analysis
