@@ -160,6 +160,57 @@ def test_handoff_addressed_to_conductor() -> None:
 # ── 4. False-success guard (anti-Lyndon #3): no access ⇒ FAILED ─────────────
 
 
+class _RecordingHttpClient:
+    """Records every GET so a test can prove the strike body actually ran."""
+
+    def __init__(self) -> None:
+        self.gets: list[str] = []
+
+    def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _Resp:
+        self.gets.append(url)
+        return _Resp(401, "<html>login required</html>", url=url)
+
+    def post(
+        self,
+        url: str,
+        *,
+        data: Any = None,
+        json_body: Any = None,
+        headers: Any = None,
+        cookies: Any = None,
+    ) -> _Resp:
+        return _Resp(403, "<html>forbidden</html>", url=url)
+
+
+def test_run_strike_is_rerunnable_resets_strike_attempted() -> None:
+    """State-leak guard: reusing ONE Beta across targets must NOT silently skip the 2nd
+    strike. run_strike resets per-run state — including ``_strike_attempted`` (init block
+    reset every other per-run field but missed this one). RED before the fix: the 2nd
+    target's entry point is never fetched because step() short-circuits on stale state."""
+    auth, eng = _new_auth()
+    _advance_to_active(auth, eng)
+    rec_client = _RecordingHttpClient()
+    second_entry = "http://lab-target.invalid/admin/login"  # same in-scope host, new path
+    beta = Beta(
+        cred_applicators=[
+            BoundApplicator(HttpFormApplicator(http_client=rec_client), IN_SCOPE_ENTRY)
+        ],
+        authorization=auth,
+        graph_store=NetworkXGraphStore(),
+        event_store=InMemoryEventStore(),
+        orchestrator=_StubOrchestrator(),
+        http_client=rec_client,
+    )
+
+    beta.run_strike(eng, IN_SCOPE_ENTRY)
+    assert IN_SCOPE_ENTRY in rec_client.gets, "1st strike body did not run"
+
+    beta.run_strike(eng, second_entry)  # REUSE the same Beta instance
+    assert second_entry in rec_client.gets, (
+        "2nd strike silently skipped — _strike_attempted not reset in run_strike (state leak)"
+    )
+
+
 def test_false_success_guard_empty_access_is_failed() -> None:
     """All default credentials rejected → FAILED, not COMPLETE.
 
