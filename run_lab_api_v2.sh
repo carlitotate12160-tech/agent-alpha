@@ -1,9 +1,12 @@
 #!/bin/bash
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-export AGENT_ALPHA_JWT_SECRET=agent-alpha-jwt-secret-2026-secure-32chars-min
-export AGENT_ALPHA_REDIS_URL='redis://:natanael12160@127.0.0.1:6379/0'
-export AGENT_ALPHA_PG_DSN='postgresql://agent_alpha:natanael12160@127.0.0.1:5432/agent_alpha'
-export AGENT_ALPHA_VAULT_KEY='eQXmkGZCFioJt-us7idUkfw7ZayZzUdWX14iYPDGvuU='
+if [ -f .env ]; then
+  set -a; source .env; set +a
+fi
+export AGENT_ALPHA_JWT_SECRET="${AGENT_ALPHA_JWT_SECRET:-agent-alpha-jwt-secret-2026-secure-32chars-min}"
+export AGENT_ALPHA_REDIS_URL="${AGENT_ALPHA_REDIS_URL:-redis://127.0.0.1:6379/0}"
+export AGENT_ALPHA_PG_DSN="${AGENT_ALPHA_PG_DSN:-postgresql://agent_alpha_app@127.0.0.1:5432/agent_alpha}"
+export AGENT_ALPHA_VAULT_KEY="${AGENT_ALPHA_VAULT_KEY:-}"
 BASE="http://127.0.0.1:8080"
 
 TOKEN=$(.venv312/bin/python3 /tmp/gen_jwt.py)
