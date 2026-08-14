@@ -225,6 +225,10 @@ class Beta:
         self._credential_refs = []
         self._session_token_refs = []
         self._proof_artifacts = []
+        # Reset the one-shot latch too: without this a REUSED Beta silently skips the
+        # strike on the 2nd+ target (step() short-circuits on stale True → FAILED that
+        # looks like "no access", not "never tried"). Per-run state must reset per run.
+        self._strike_attempted = False
 
         # ── Drive the offensive body through the cognitive loop ──
         run_cognitive_loop(
