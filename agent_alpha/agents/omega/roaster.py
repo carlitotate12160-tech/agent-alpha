@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from agent_alpha.agents.omega.report_html import render_report_html
 from agent_alpha.config import constants
+from agent_alpha.coverage.coverage_ledger import CoverageReport
 from agent_alpha.graph.narrative import (
     BlastRadius,
     ChainFinding,
@@ -297,6 +298,7 @@ class Report:
     target: str = ""
     engagement_id: str = ""
     assessed_at: str = ""
+    coverage: CoverageReport | None = None
 
     # Slice C: PDF export lives in omega_report_contract.md (narrative + flow + evidence).
     # PDF = follow-up (mermaid->SVG fixes offline viewing and enables PDF export embedding).
@@ -305,9 +307,40 @@ class Report:
         """Sellable headline string, or None when no proof was produced."""
         return format_duration(self.time_to_first_proof_s)
 
+    def coverage_section(self) -> str:
+        """Honest Coverage & Methodology text (§12.45/§12.62). NEVER a security verdict."""
+        return render_coverage_section(self.coverage)
+
     def to_html(self) -> str:
         """Render self as a single self-contained HTML client deliverable string."""
         return render_report_html(self)
+
+
+def render_coverage_section(coverage: CoverageReport | None) -> str:
+    """Render the Coverage & Methodology section — what WAS and WAS NOT tested.
+
+    §12.45/§12.62: absence is NEVER a security verdict. `not_assessed` (technique
+    classes this tool cannot yet run) is framed as scope, with an explicit disclaimer
+    that it does not mean the target is secure against those techniques.
+    """
+    if coverage is None:
+        return ""
+    tested = sorted({c.technique_id for c in coverage.cells if c.bucket == "tested"})
+    blocked = sorted({c.technique_id for c in coverage.cells if c.bucket == "blocked"})
+    lines = ["## Coverage & Methodology"]
+    lines.append("Tested (result-backed): " + (", ".join(tested) if tested else "none"))
+    if blocked:
+        lines.append("Blocked by target defenses: " + ", ".join(blocked))
+    if coverage.not_assessed:
+        lines.append(
+            "NOT assessed by this automated assessment (recommend complementary coverage): "
+            + ", ".join(coverage.not_assessed)
+        )
+    lines.append(
+        "This is a SCOPE statement, not a security verdict: the absence of a finding for an "
+        "un-assessed technique is NOT evidence the target is secure against it (§12.45/§12.62)."
+    )
+    return "\n".join(lines)
 
 
 class Omega:
@@ -328,6 +361,7 @@ class Omega:
         target: str = "",
         engagement_id: str = "",
         assessed_at: str = "",
+        coverage: CoverageReport | None = None,
     ) -> Report:
         """Generate a :class:`Report` from the current graph state.
 
@@ -347,6 +381,10 @@ class Omega:
                 "recommend authenticated retest: " + ", ".join(blocked_hosts)
             )
             narrative = narrative + "\n" + blocked_line
+
+        coverage_text = render_coverage_section(coverage)
+        if coverage_text:
+            narrative = narrative + "\n\n" + coverage_text
 
         # Collect unique, non-empty technique IDs from all edges.
         mitre_techniques = sorted(
@@ -466,6 +504,7 @@ class Omega:
             target=target,
             engagement_id=engagement_id,
             assessed_at=assessed_at,
+            coverage=coverage,
         )
 
     def _compute_blast_radius(self, from_node_id: str) -> BlastRadius:
