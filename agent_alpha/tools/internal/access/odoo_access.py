@@ -576,3 +576,149 @@ class XmlRpcOdooTransport:
         if not isinstance(uid, int) or uid <= 0:
             return OdooLoginResult(uid=None, blocked=False, requests_used=requests_used)
         return OdooLoginResult(uid=uid, blocked=False, requests_used=requests_used)
+
+
+class JsonRpcOdooTransport:
+    """Validate Odoo credentials over Odoo's web JSON-RPC login (``/web/session/authenticate``).
+
+    GAP-067 fallback body: when the XML-RPC endpoint (``/xmlrpc/2/*``) is WAF/CDN-blocked
+    (403/429/503), ``OdooAccessTool.run()`` falls back to this transport. Odoo's web login
+    speaks JSON-RPC 2.0 over ``/web/session/authenticate`` — a path that is typically
+    allowed by CDN/WAF rules because it is the normal browser login.
+
+    Wire contract mirrors ``XmlRpcOdooTransport`` exactly (blocked semantics, budget
+    discipline, uid-only proof ceiling). The JSON-RPC envelope is
+    ``{"jsonrpc":"2.0","method":"call","params":{...}}``.
+
+    Proof model: uid (>0) is the ceiling. No DB-manager actions, no master-password
+    (those are OFFENSIVE_APPROVED / Gamma, STOP-gated). The raw password is NEVER
+    returned anywhere (anti-#3).
+    """
+
+    name = "json_rpc"
+    auth_endpoint = "/web/session/authenticate"
+
+    # JSON-RPC endpoints on the Odoo web tier.
+    _DB_LIST_PATH = "/web/database/list"
+    _VERSION_PATH = "/web/webclient/version_info"
+    _AUTH_PATH = "/web/session/authenticate"
+
+    def __init__(self, http_client: Any) -> None:
+        self._http = http_client
+
+    def discover_databases(
+        self, base_url: str, max_reqs: int, requests_used: int
+    ) -> tuple[list[str], str, bool, int]:
+        """Enumerate databases via JSON-RPC ``/web/database/list``.
+
+        "enumerated" when the endpoint returned a db list; "guessed" when we fell back to
+        the hostname label (identical to ``XmlRpcOdooTransport``'s resilient fallback).
+        A 403/429/503 returns ``blocked=True`` so the tool skips this transport entirely.
+        """
+        host = urlparse(base_url).hostname or base_url
+        db_names: list[str] = []
+        db_source = "enumerated"
+        if requests_used < max_reqs:
+            try:
+                resp = self._http.post(
+                    f"{base_url}{self._DB_LIST_PATH}",
+                    json_body={"jsonrpc": "2.0", "method": "call", "params": {}},
+                    headers={"Content-Type": "application/json"},
+                )
+                requests_used += 1
+                status = getattr(resp, "status_code", 0)
+                if status in _ODOO_BLOCK_STATUSES:
+                    return [], "", True, requests_used  # WAF-blocked → fall back
+                if status == 200:
+                    parsed = _safe_json_result(getattr(resp, "text", ""))
+                    if isinstance(parsed, list):
+                        db_names = [str(d) for d in parsed if str(d)]
+            except Exception:  # noqa: BLE001 — unreachable/parse error → resilient host fallback
+                pass
+
+        if not db_names:
+            db_source = "guessed"
+            derived = host.split(".")[0] if host else ""
+            if derived:
+                db_names = [derived]
+
+        return db_names, db_source, False, requests_used
+
+    def server_version(
+        self, base_url: str, max_reqs: int, requests_used: int
+    ) -> tuple[str | None, int]:
+        """Best-effort Odoo version via JSON-RPC ``/web/webclient/version_info``."""
+        if requests_used + 2 > max_reqs:
+            return None, requests_used
+        try:
+            resp = self._http.post(
+                f"{base_url}{self._VERSION_PATH}",
+                json_body={"jsonrpc": "2.0", "method": "call", "params": {}},
+                headers={"Content-Type": "application/json"},
+            )
+            requests_used += 1
+            if getattr(resp, "status_code", 0) == 200:
+                parsed = _safe_json_result(getattr(resp, "text", ""))
+                if isinstance(parsed, dict):
+                    return parsed.get("server_version"), requests_used
+        except Exception:  # noqa: BLE001 — version is best-effort proof; never fatal
+            pass
+        return None, requests_used
+
+    def authenticate(
+        self, base_url: str, db: str, login: str, password: str, requests_used: int
+    ) -> OdooLoginResult:
+        """One JSON-RPC ``/web/session/authenticate`` — verify on a real uid (>0).
+
+        A 403/429/503 (or an unreachable endpoint) reports ``blocked=True`` so the tool
+        falls back to the next transport. A 200 that yields no positive uid is a wrong
+        credential (``blocked=False``) — keep trying candidates on THIS transport.
+        """
+        auth_url = f"{base_url}{self._AUTH_PATH}"
+        try:
+            resp = self._http.post(
+                auth_url,
+                json_body={
+                    "jsonrpc": "2.0",
+                    "method": "call",
+                    "params": {"db": db, "login": login, "password": password},
+                },
+                headers={"Content-Type": "application/json"},
+            )
+            requests_used += 1
+        except Exception:  # noqa: BLE001 — endpoint unreachable = a transport-level block
+            return OdooLoginResult(uid=None, blocked=True, requests_used=requests_used)
+
+        status = getattr(resp, "status_code", 0)
+        if status in _ODOO_BLOCK_STATUSES:
+            return OdooLoginResult(uid=None, blocked=True, requests_used=requests_used)
+        if status != 200:
+            return OdooLoginResult(uid=None, blocked=False, requests_used=requests_used)
+
+        parsed = _safe_json_result(getattr(resp, "text", ""))
+        if isinstance(parsed, dict):
+            uid = parsed.get("uid")
+            if isinstance(uid, int) and uid > 0:
+                return OdooLoginResult(uid=uid, blocked=False, requests_used=requests_used)
+        elif isinstance(parsed, int) and parsed > 0:
+            # Some Odoo versions return uid directly as the result value.
+            return OdooLoginResult(uid=parsed, blocked=False, requests_used=requests_used)
+
+        return OdooLoginResult(uid=None, blocked=False, requests_used=requests_used)
+
+
+def _safe_json_result(text: str) -> Any:
+    """Extract the ``result`` field from a JSON-RPC 2.0 response body.
+
+    Returns ``None`` on any parse error or missing ``result`` key — never raises.
+    """
+    import json as _json
+
+    try:
+        body = _json.loads(text)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(body, dict):
+        return body.get("result")
+    return None
+

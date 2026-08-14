@@ -30,6 +30,7 @@ from agent_alpha.tools.internal.access.default_creds import DefaultCredsTool
 from agent_alpha.tools.internal.access.odoo_access import (
     ODOO_XMLRPC_COMMON_PATH,
     ODOO_XMLRPC_DB_PATH,
+    JsonRpcOdooTransport,
     OdooAccessTool,
     OdooLoginResult,
     XmlRpcOdooTransport,
@@ -194,7 +195,13 @@ class _FakeHttp:
         self._routes = routes
         self.calls: list[str] = []
 
-    def post(self, url: str, data: str = "", headers: dict | None = None) -> _FakeResp:
+    def post(
+        self,
+        url: str,
+        data: str = "",
+        headers: dict | None = None,
+        json_body: dict | None = None,
+    ) -> _FakeResp:
         self.calls.append(url)
         for pattern, resp in self._routes.items():
             if pattern in url:
@@ -601,4 +608,91 @@ def test_fallback_allowed_when_first_transport_used_guessed_db() -> None:
     assert result.success is True
     assert json_rpc.auth_calls == 1
 
+
+# ── GAP-067: JsonRpcOdooTransport unit tests ─────────────────────────────────
+#
+# Mirror the XmlRpcOdooTransport tests above, proving the JSON-RPC fallback body:
+# (T1) success auth, (T2) wrong cred not blocked, (T3) WAF block, (T4) discovery
+# success, (T5) discovery block, (T6) raw secret never in returned fields.
+
+
+def _jsonrpc_resp(result: Any) -> str:
+    """Build a JSON-RPC 2.0 response body wrapping ``result``."""
+    import json
+
+    return json.dumps({"jsonrpc": "2.0", "id": None, "result": result})
+
+
+def test_jsonrpc_transport_authenticate_success() -> None:
+    """T1: 200 + {"result":{"uid":2}} → OdooLoginResult(uid=2, blocked=False)."""
+    body = _jsonrpc_resp({"uid": 2, "session_id": "abc"})
+    http = _FakeHttp({"/web/session/authenticate": _FakeResp(200, body)})
+    result = JsonRpcOdooTransport(http).authenticate(
+        "https://x.invalid", "erp", "admin", "admin", 0
+    )
+    assert result.uid == 2
+    assert result.blocked is False
+    assert result.requests_used == 1
+
+
+def test_jsonrpc_transport_wrong_creds_not_blocked() -> None:
+    """T2: 200 + {"result":false} → OdooLoginResult(uid=None, blocked=False).
+    Wrong credential is NOT a block — no fallback."""
+    body = _jsonrpc_resp(False)
+    http = _FakeHttp({"/web/session/authenticate": _FakeResp(200, body)})
+    result = JsonRpcOdooTransport(http).authenticate(
+        "https://x.invalid", "erp", "admin", "wrong", 0
+    )
+    assert result.uid is None
+    assert result.blocked is False
+
+
+def test_jsonrpc_transport_waf_block_on_authenticate() -> None:
+    """T3: 403 → OdooLoginResult(uid=None, blocked=True) — WAF block triggers fallback."""
+    http = _FakeHttp({"/web/session/authenticate": _FakeResp(403, "")})
+    result = JsonRpcOdooTransport(http).authenticate(
+        "https://x.invalid", "erp", "admin", "admin", 0
+    )
+    assert result.uid is None
+    assert result.blocked is True
+
+
+def test_jsonrpc_transport_discover_databases_success() -> None:
+    """T4: 200 + {"result":["erp"]} → (["erp"], "enumerated", False, used)."""
+    body = _jsonrpc_resp(["erp"])
+    http = _FakeHttp({"/web/database/list": _FakeResp(200, body)})
+    dbs, db_source, blocked, used = JsonRpcOdooTransport(http).discover_databases(
+        "https://x.invalid", 10, 0
+    )
+    assert dbs == ["erp"]
+    assert db_source == "enumerated"
+    assert blocked is False
+    assert used == 1
+
+
+def test_jsonrpc_transport_discover_databases_waf_block() -> None:
+    """T5: 503 on /web/database/list → ([], "", True, used) — WAF block."""
+    http = _FakeHttp({"/web/database/list": _FakeResp(503, "")})
+    dbs, db_source, blocked, used = JsonRpcOdooTransport(http).discover_databases(
+        "https://x.invalid", 10, 0
+    )
+    assert dbs == []
+    assert db_source == ""
+    assert blocked is True
+
+
+def test_jsonrpc_transport_never_leaks_raw_password() -> None:
+    """T6: the raw password NEVER appears in any OdooLoginResult field."""
+    secret_password = "s3cr3t_p@ssw0rd!"
+    body = _jsonrpc_resp({"uid": 2, "session_id": "abc"})
+    http = _FakeHttp({"/web/session/authenticate": _FakeResp(200, body)})
+    result = JsonRpcOdooTransport(http).authenticate(
+        "https://x.invalid", "erp", "admin", secret_password, 0
+    )
+    # OdooLoginResult only carries uid, blocked, requests_used — no password field.
+    assert secret_password not in str(result)
+    assert result.uid == 2
+    # Verify the dataclass fields explicitly.
+    assert not hasattr(result, "password")
+    assert not hasattr(result, "secret")
 
