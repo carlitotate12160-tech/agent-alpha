@@ -31,6 +31,8 @@ from agent_alpha.tools.internal.access.odoo_access import (
     ODOO_XMLRPC_COMMON_PATH,
     ODOO_XMLRPC_DB_PATH,
     OdooAccessTool,
+    OdooLoginResult,
+    XmlRpcOdooTransport,
 )
 from agent_alpha.tools.registry import ToolRegistry
 
@@ -456,3 +458,120 @@ def test_run_reused_credential_when_defaults_fail() -> None:
     assert "s3cr3t" not in proof_blob
     assert "password" not in finding["proof_request"]
     assert "password" not in finding["proof_response"]
+
+
+# ── GAP-067: transport fallback seam (Odoo JSON-RPC fallback when XML-RPC blocked) ──
+#
+# The JSON-RPC transport BODY is the DeepSeek/offensive lane; these tests exercise the
+# CLAUDE-lane orchestration with a fake transport standing in for it, proving: (1) a
+# BLOCKED transport falls back to the next; (2) a WRONG credential does NOT (fallback is
+# for endpoint-blocks, not auth failures); (3) the XML-RPC transport reports blocked on a
+# WAF status. The finding's proof_request.endpoint distinguishes which transport won.
+
+
+class _FakeTransport:
+    """Stand-in OdooTransport for the fallback orchestration tests."""
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        blocked_discovery: bool = False,
+        blocked_auth: bool = False,
+        uid: int | None = None,
+        dbs: tuple[str, ...] = ("erp",),
+    ) -> None:
+        self.name = name
+        self.auth_endpoint = f"/{name}/authenticate"
+        self._blocked_discovery = blocked_discovery
+        self._blocked_auth = blocked_auth
+        self._uid = uid
+        self._dbs = list(dbs)
+        self.auth_calls = 0
+
+    def discover_databases(
+        self, base_url: str, max_reqs: int, used: int
+    ) -> tuple[list[str], str, bool, int]:
+        if self._blocked_discovery:
+            return [], "", True, used
+        return self._dbs, "enumerated", False, used
+
+    def server_version(self, base_url: str, max_reqs: int, used: int) -> tuple[str | None, int]:
+        return "16.0", used
+
+    def authenticate(
+        self, base_url: str, db: str, login: str, password: str, used: int
+    ) -> OdooLoginResult:
+        self.auth_calls += 1
+        if self._blocked_auth:
+            return OdooLoginResult(uid=None, blocked=True, requests_used=used + 1)
+        return OdooLoginResult(uid=self._uid, blocked=False, requests_used=used + 1)
+
+
+def test_fallback_to_next_transport_when_first_blocked_at_discovery() -> None:
+    """CARDINAL: XML-RPC blocked at discovery → fall back to the JSON-RPC transport."""
+    xmlrpc = _FakeTransport("xmlrpc", blocked_discovery=True)
+    json_rpc = _FakeTransport("json_rpc", uid=2)
+    tool = OdooAccessTool(http_client=object(), transports=[xmlrpc, json_rpc])
+
+    result = tool.run(_odoo_ctx(), _budget())
+
+    assert result.success is True
+    assert result.findings[0]["uid"] == 2
+    assert result.findings[0]["proof_request"]["endpoint"] == "/json_rpc/authenticate"
+    assert json_rpc.auth_calls == 1
+
+
+def test_fallback_when_first_transport_blocked_at_authenticate() -> None:
+    """A mid-loop endpoint block (403 on authenticate) also falls back to the next transport."""
+    xmlrpc = _FakeTransport("xmlrpc", blocked_auth=True)  # discovery ok, auth endpoint blocked
+    json_rpc = _FakeTransport("json_rpc", uid=2)
+    tool = OdooAccessTool(http_client=object(), transports=[xmlrpc, json_rpc])
+
+    result = tool.run(_odoo_ctx(), _budget())
+
+    assert result.success is True
+    assert result.findings[0]["proof_request"]["endpoint"] == "/json_rpc/authenticate"
+
+
+def test_no_fallback_on_wrong_credentials() -> None:
+    """CARDINAL guard: a WRONG credential (endpoint answered, uid absent) must NOT fall
+    back — the second transport is never tried (fallback is for endpoint-blocks only,
+    else we double the lockout/request budget on a target where creds are simply wrong)."""
+    xmlrpc = _FakeTransport("xmlrpc", uid=None)  # endpoint answers, creds wrong, blocked=False
+    json_rpc = _FakeTransport("json_rpc", uid=2)
+    tool = OdooAccessTool(http_client=object(), transports=[xmlrpc, json_rpc])
+
+    result = tool.run(_odoo_ctx(), _budget())
+
+    assert result.success is False
+    assert json_rpc.auth_calls == 0  # NEVER tried — no fallback on auth failure
+
+
+def test_all_transports_blocked_reports_blocked_reason() -> None:
+    """Every transport blocked → honest failure naming the block (not a false 'no db')."""
+    tool = OdooAccessTool(
+        http_client=object(),
+        transports=[_FakeTransport("xmlrpc", blocked_discovery=True)],
+    )
+    result = tool.run(_odoo_ctx(), _budget())
+    assert result.success is False
+    assert "blocked" in (result.error or "").lower()
+
+
+def test_xmlrpc_transport_reports_blocked_on_waf_status() -> None:
+    """XmlRpcOdooTransport maps a WAF/CDN block status (403) to blocked=True — the seam
+    signal that distinguishes an endpoint block from a wrong credential."""
+    http = _FakeHttp({ODOO_XMLRPC_COMMON_PATH: _FakeResp(403, "")})
+    result = XmlRpcOdooTransport(http).authenticate("https://x.invalid", "erp", "admin", "admin", 0)
+    assert result.blocked is True
+    assert result.uid is None
+
+
+def test_xmlrpc_transport_wrong_creds_is_not_blocked() -> None:
+    """A 200 that yields no positive uid is a wrong credential, NOT a block (no fallback)."""
+    http = _FakeHttp({ODOO_XMLRPC_COMMON_PATH: _FakeResp(200, _xmlrpc_response_bool(False))})
+    result = XmlRpcOdooTransport(http).authenticate("https://x.invalid", "erp", "admin", "x", 0)
+    assert result.blocked is False
+    assert result.uid is None
+

