@@ -1,0 +1,97 @@
+# CANONICAL technique catalog — the coverage-ledger DENOMINATOR (single source, anti-#7).
+# This is ALSO the roadmap: every `capability_present: false` entry maps to a GAP.
+# playbook `technique_id` (what RUNS) + gap `capability_present:false` (what CAN'T yet)
+# must both derive from THIS file — do not maintain a third list.
+#
+# applies_to.surface: host | auth_surface | service | dns_record | fronted_host
+#                     | vendor | employee   (last two = GAP-069, capability_absent until built)
+# applies_to.auth_mechanism: refined by GAP-074 (v1 matches surface only; mechanism = future).
+# run_event: EventType whose payload.host marks this technique as TESTED on a surface.
+
+techniques:
+  # ── Capable today (a tool exists + is wired on the live path) ──────────────
+  - id: cred_reuse
+    mitre: T1078
+    surface: auth_surface
+    auth_mechanism: [form_post, http_basic]
+    capability_present: true
+    run_event: StrikeCandidateAttempted
+  - id: spa_json_login
+    mitre: T1078
+    surface: auth_surface
+    auth_mechanism: [json_rpc]
+    capability_present: true          # Slice B — closes GAP-097
+    gap_ref: GAP-097
+    run_event: StrikeCandidateAttempted
+  - id: default_creds_login
+    mitre: T1078.001
+    surface: auth_surface
+    capability_present: true
+    run_event: StrikeCandidateAttempted
+  - id: origin_exposure_bypass
+    mitre: T1090
+    surface: fronted_host
+    capability_present: true
+    run_event: OriginDirectAttempt
+  - id: git_exposure_leak
+    mitre: T1552.001
+    surface: host
+    capability_present: true
+  - id: js_secret_leak
+    mitre: T1552.001
+    surface: host
+    capability_present: true
+  - id: wp_rest_user_enum
+    mitre: T1087.001
+    surface: host
+    capability_present: true
+
+  # ── Capability ABSENT (roadmap — honest "we do NOT test this") ─────────────
+  - id: http_basic_auth_strike
+    mitre: T1110
+    surface: auth_surface
+    auth_mechanism: [http_basic]
+    capability_present: false
+    gap_ref: GAP-046
+  - id: sqli_auth_bypass
+    mitre: T1190
+    surface: auth_surface
+    auth_mechanism: [form_post, json_rpc]
+    capability_present: false
+    gap_ref: GAP-077
+  - id: mfa_challenge_honest
+    mitre: T1621
+    surface: auth_surface
+    capability_present: false
+    gap_ref: GAP-099
+  - id: network_service_exposure
+    mitre: T1046
+    surface: host
+    capability_present: false
+    gap_ref: GAP-081
+  - id: subdomain_takeover
+    mitre: T1584.001
+    surface: dns_record
+    capability_present: false
+    gap_ref: GAP-075
+  - id: dns_zone_transfer
+    mitre: T1590.002
+    surface: dns_record
+    capability_present: false
+    gap_ref: GAP-094
+  - id: breach_credential_reuse
+    mitre: T1589.001
+    surface: auth_surface
+    capability_present: false
+    gap_ref: GAP-104
+  - id: oauth_saml_jwt_forgery
+    mitre: T1606
+    surface: auth_surface
+    auth_mechanism: [jwt, saml, oauth]
+    capability_present: false
+    gap_ref: GAP-114
+  - id: trust_path_vendor_portal
+    mitre: T1199
+    surface: vendor          # GAP-069 row — no such surface exists yet → capability_absent
+    capability_present: false
+    gap_ref: GAP-069
