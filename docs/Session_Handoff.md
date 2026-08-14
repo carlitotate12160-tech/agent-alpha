@@ -2,7 +2,7 @@
 
 # Agent-Alpha — Session Handoff (2026-08-14, Coverage-Honesty & GAP-074 mechanism-aware auth arc CLOSED)
 
-Resume with: "lanjut Agent-Alpha — Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + Slice X (#410 default-cred single-source) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
 
 ---
 
@@ -18,6 +18,7 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **Slice X: Default-Cred Single-Source Catalog** | **MERGED #410, Tier-1 PROVEN** | Default-cred #7 divergence ditutup: externalized catalog to `default_credentials.yaml` via `default_credentials.py` loader. `default_creds` and `odoo_access` now single-source from YAML (odoo tak lagi punya daftar sendiri). 4/4 PASS. |
 | **GAP-074 Coverage Ledger Mechanism Precision (Slice 2b)** | **MERGED #409, Tier-1 PROVEN** | Denominator precision in `coverage_ledger.py`: maps `mech_*` to bare tokens via `bare_mechanisms()`. Excludes mismatched techniques from applicable denominator (e.g. form-only surface excludes `spa_json_login`). Fail-open when unknown. Known limitations documented in `BUGS_AND_GAPS.md`. 10/10 PASS. |
 | **GAP-074 Auth Mechanism Selection (Slice 2a)** | **MERGED #408, Tier-1 PROVEN** | Mechanism-aware applicator selection: reads canonical ASSET `tech_stack` `mech_*` labels. Single-source `MECH_TO_APPLICATOR_SERVICES` in `recon.auth_surface`. `applicator_factory._resolve_in_scope_targets` binds only matching services (e.g. JSON-RPC → SPA only, Form-POST → HTTP only). Fail-open when unclassified, fail-closed for any unmapped/unstrikable `mech_*`. 20/20 PASS. |
 | **GAP-074 Auth Mechanism Fingerprinting (Slice 1)** | **MERGED #406, Tier-1 PROVEN** | Universal recon fingerprinting in `scout._detect_auth_surface`: detects `mech_http_basic`, `mech_json_rpc`, `mech_jwt`, `mech_saml`, `mech_oauth`, `mech_form_post` without hardcoded catalogs. Persisted to ASSET `tech_stack`. |
@@ -76,4 +77,4 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma. ALWAYS git pull + re-verify first.
+> lanjut Agent-Alpha — Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + Slice X (#410 default-cred single-source) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma. ALWAYS git pull + re-verify first.
