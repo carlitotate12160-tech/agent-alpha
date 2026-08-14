@@ -600,7 +600,12 @@ def test_fallback_allowed_when_first_transport_used_guessed_db() -> None:
     is allowed so a transport with better DB discovery can still succeed."""
     xmlrpc = _FakeTransport("xmlrpc", dbs=("guessed_db",), uid=None)
     # simulate db_source = "guessed"
-    xmlrpc.discover_databases = lambda base_url, max_reqs, used: (["guessed_db"], "guessed", False, used)  # type: ignore[method-assign]
+    xmlrpc.discover_databases = lambda base_url, max_reqs, used: (
+        ["guessed_db"],
+        "guessed",
+        False,
+        used,
+    )  # type: ignore[method-assign]
     json_rpc = _FakeTransport("json_rpc", uid=2)
     tool = OdooAccessTool(http_client=object(), transports=[xmlrpc, json_rpc])
 
@@ -683,7 +688,7 @@ def test_jsonrpc_transport_discover_databases_waf_block() -> None:
 
 def test_jsonrpc_transport_never_leaks_raw_password() -> None:
     """T6: the raw password NEVER appears in any OdooLoginResult field."""
-    secret_password = "s3cr3t_p@ssw0rd!"
+    secret_password = "not_a_real_password_123"
     body = _jsonrpc_resp({"uid": 2, "session_id": "abc"})
     http = _FakeHttp({"/web/session/authenticate": _FakeResp(200, body)})
     result = JsonRpcOdooTransport(http).authenticate(
@@ -696,3 +701,29 @@ def test_jsonrpc_transport_never_leaks_raw_password() -> None:
     assert not hasattr(result, "password")
     assert not hasattr(result, "secret")
 
+
+def test_tool_run_fallback_from_xmlrpc_to_jsonrpc() -> None:
+    """End-to-end test verifying OdooAccessTool default transport chain falls back
+    from XML-RPC to JSON-RPC when XML-RPC is WAF-blocked."""
+    # XML-RPC returns 403 (blocked) on db list
+    # JSON-RPC returns 200 with DB on db list, and 200 with uid=2 on authenticate
+    http = _FakeHttp(
+        {
+            ODOO_XMLRPC_DB_PATH: _FakeResp(403, ""),
+            "/web/database/list": _FakeResp(200, _jsonrpc_resp(["erp"])),
+            "/web/session/authenticate": _FakeResp(
+                200, _jsonrpc_resp({"uid": 2, "session_id": "abc"})
+            ),
+        }
+    )
+
+    # tool initialized with NO transports injected, so it builds the default chain
+    tool = OdooAccessTool(http_client=http)
+
+    result = tool.run(_odoo_ctx(), _budget())
+
+    assert result.success is True
+    # The tool must have tried both endpoints
+    assert any(ODOO_XMLRPC_DB_PATH in c for c in http.calls)
+    assert any("/web/database/list" in c for c in http.calls)
+    assert any("/web/session/authenticate" in c for c in http.calls)

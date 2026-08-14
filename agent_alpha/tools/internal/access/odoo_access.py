@@ -208,7 +208,10 @@ class OdooAccessTool:
         # GAP-067: try each transport in order; fall back to the next when one is BLOCKED
         # (WAF/CDN at the endpoint), NOT when a credential is simply wrong. Default chain is
         # XML-RPC only; JSON-RPC joins it in __init__ once its DeepSeek body lands.
-        transports = self._transports or [XmlRpcOdooTransport(self._http_client)]
+        transports = self._transports or [
+            XmlRpcOdooTransport(self._http_client),
+            JsonRpcOdooTransport(self._http_client),
+        ]
 
         requests_used = 0
         any_db_resolved = False
@@ -721,4 +724,3 @@ def _safe_json_result(text: str) -> Any:
     if isinstance(body, dict):
         return body.get("result")
     return None
-
