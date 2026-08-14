@@ -143,6 +143,24 @@ def test_async_worker_runs_real_recon_pipeline(
     # Route the worker's tenant store to ours (same pattern as existing worker tests).
     m.store_provider._stores["tenant_a"] = store
 
+    # §12.36 fail-closed: the authorized worker path now REQUIRES a signed profile.
+    from agent_alpha.conductor.engagement_profile import EngagementProfile, dump_signed_profile
+    from agent_alpha.security.secrets import get_profile_signing_key
+
+    store.append(
+        event_type=EventType.ENGAGEMENT_PROFILE_SIGNED,
+        engagement_id=rec.engagement_id,
+        agent="CONDUCTOR",
+        payload=dump_signed_profile(
+            EngagementProfile(
+                engagement_id=rec.engagement_id,
+                client_id="client_lab",
+                targets=frozenset({"lab-target.invalid"}),
+            ),
+            key=get_profile_signing_key(),
+        ),
+    )
+
     graph = NetworkXGraphStore()
     orchestrator = LLMOrchestrator(
         playbook=PlaybookEngine.from_directory(PLAYBOOK_DIR), provider=_StubProvider()

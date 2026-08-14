@@ -354,18 +354,29 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
                 ),
                 None,
             )
+            # §12.36 fail-CLOSED (anti-downgrade): a missing signed profile is NOT
+            # recon-able — the profile is the SINGLE source of scope + capability
+            # authorization. NEVER null-and-continue (that was a fail-OPEN: recon would
+            # proceed on record-derived scope without the signed authorization of record).
             if not profile_envelope or not profile_envelope.payload:
-                raise ValueError("no signed profile event found")
+                _record_failure("missing_signed_profile")
+                return {"engagement_id": engagement_id, "status": "failed"}
             # Load and verify the signature using the single source of truth key.
             engagement_profile = load_signed_profile_from_dict(
                 profile_envelope.payload, key=signing_key
             )
         except ProfileSignatureError as exc:
-            # We must fail loud if the signature is invalid (anti-downgrade).
-            raise ValueError(f"profile signature invalid: {exc}") from exc
-        except Exception:  # noqa: BLE001 — profile load failure must not crash silently
+            # Invalid HMAC → fail loud (anti-downgrade); never recon on an unverified profile.
+            _log.warning("Signed EngagementProfile HMAC invalid for %s: %s", engagement_id, exc)
+            _record_failure("profile_signature_invalid")
+            return {"engagement_id": engagement_id, "status": "failed"}
+        except TransientStoreError:
+            raise  # offensive-run is no-retry; the outer handler records + fails
+        except Exception:  # noqa: BLE001 — any other load failure = no valid authz = fail-closed
             _log.exception("Failed to load signed EngagementProfile for %s", engagement_id)
-            engagement_profile = None
+            _record_failure("profile_load_error")
+            return {"engagement_id": engagement_id, "status": "failed"}
+        # engagement_profile is GUARANTEED non-None past this point (fail-closed above).
 
         # Build origin_discovery from authorized_origins in the signed profile.
         # This wires origin-direct reach: when a probe hits WAF/CF, Alpha can

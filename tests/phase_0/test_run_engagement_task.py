@@ -26,13 +26,34 @@ import pytest
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor import recon_runner
 from agent_alpha.conductor.authorization import AuthorizationStateMachine
+from agent_alpha.conductor.engagement_profile import EngagementProfile, dump_signed_profile
 from agent_alpha.conductor.main import celery_app, run_engagement_task
 from agent_alpha.conductor.models import Scope
 from agent_alpha.conductor.run_status import project_run_status
 from agent_alpha.config import constants
+from agent_alpha.events.event_types import EventType
+from agent_alpha.security.secrets import get_profile_signing_key
 
 os.environ.setdefault("AGENT_ALPHA_JWT_SECRET", "test-frontdoor-secret-32chars-min")
 os.environ.setdefault("DEEPSEEK_API_KEY", "test-key-for-eager-dispatch")
+
+
+def _append_signed_profile(store: object, engagement_id: str) -> None:
+    """Persist a valid HMAC-signed EngagementProfile event (the §12.36 authorization of
+    record). The worker RELOADS + verifies this before any recon runs; without it the
+    task must fail-closed (missing_signed_profile)."""
+    key = get_profile_signing_key()
+    profile = EngagementProfile(
+        engagement_id=engagement_id,
+        client_id="client_a",
+        targets=frozenset({"example.com"}),
+    )
+    store.append(  # type: ignore[attr-defined]
+        event_type=EventType.ENGAGEMENT_PROFILE_SIGNED,
+        engagement_id=engagement_id,
+        agent="CONDUCTOR",
+        payload=dump_signed_profile(profile, key=key),
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -100,6 +121,7 @@ def test_task_starts_authorized_engagement(celery_eager_config: None) -> None:
 
     # Ensure the store provider returns our test store for this tenant
     conductor_main.store_provider._stores["test-tenant"] = store
+    _append_signed_profile(store, engagement_id)  # §12.36: authorized path now requires it
 
     # Run the task body
     result = run_engagement_task(engagement_id, "test-tenant")
@@ -234,6 +256,7 @@ def test_task_records_generic_failure(celery_eager_config: None) -> None:
     auth.enable_recon(engagement_id=engagement_id, scope=scope)
 
     conductor_main.store_provider._stores["test-tenant"] = store
+    _append_signed_profile(store, engagement_id)  # §12.36: authorized path now requires it
 
     # Run the task normally to emit COMPLETED (C6a: real pipeline)
     result = run_engagement_task(engagement_id, "test-tenant")
@@ -276,6 +299,7 @@ def test_failure_visible_via_projection(celery_eager_config: None) -> None:
     auth.enable_recon(engagement_id=engagement_id, scope=scope)
 
     conductor_main.store_provider._stores["test-tenant"] = store
+    _append_signed_profile(store, engagement_id)
 
     # Run the task normally to emit STARTED
     run_engagement_task(engagement_id, "test-tenant")
@@ -315,6 +339,7 @@ def test_timeout_records_failure(celery_eager_config: None) -> None:
     auth.enable_recon(engagement_id=engagement_id, scope=scope)
 
     conductor_main.store_provider._stores["test-tenant"] = store
+    _append_signed_profile(store, engagement_id)  # §12.36: authorized path now requires it
 
     # Run the task normally to emit STARTED
     run_engagement_task(engagement_id, "test-tenant")
@@ -333,6 +358,80 @@ def test_timeout_records_failure(celery_eager_config: None) -> None:
     failed_events = [e for e in events if e.event_type == "EngagementRunFailed"]
     assert len(failed_events) == 1
     assert failed_events[0].payload["reason"] == "timeout"
+
+
+def test_task_fails_closed_without_signed_profile(
+    celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§12.36 CARDINAL fail-CLOSED (was fail-OPEN): an engagement that passes the auth
+    gate but has NO signed EngagementProfile must NOT recon. The task fails with
+    reason=missing_signed_profile and run_recon_for_engagement is NEVER called."""
+    from agent_alpha.conductor import main as conductor_main
+
+    store = conductor_main.event_store
+    auth = AuthorizationStateMachine(event_store=store)
+    record = auth.create_engagement(
+        client_id="client_a", target="10.0.0.0/24", tenant_id="test-tenant"
+    )
+    engagement_id = record.engagement_id
+    auth.enable_recon(
+        engagement_id=engagement_id,
+        scope=Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[]),
+    )
+    assert auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id)  # authorized…
+    conductor_main.store_provider._stores["test-tenant"] = store
+    # …but NO ENGAGEMENT_PROFILE_SIGNED event was appended (the fail-open condition).
+
+    called: list[dict] = []
+    monkeypatch.setattr(
+        recon_runner,
+        "run_recon_for_engagement",
+        lambda *a, **k: called.append(k) or SimpleNamespace(node_count=1, targets_scanned=1),
+    )
+
+    result = run_engagement_task(engagement_id, "test-tenant")
+
+    assert result["status"] == "failed"
+    assert called == [], "recon MUST NOT run without a signed profile (§12.36 fail-open)"
+    reasons = [
+        e.payload.get("reason")
+        for e in store.get_events(engagement_id)
+        if e.event_type == "EngagementRunFailed"
+    ]
+    assert "missing_signed_profile" in reasons
+
+
+def test_task_with_signed_profile_reaches_recon(
+    celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: WITH a valid signed profile, the worker reaches recon and passes the
+    verified (non-None) profile through — proving the gate admits the authorized path."""
+    from agent_alpha.conductor import main as conductor_main
+
+    store = conductor_main.event_store
+    auth = AuthorizationStateMachine(event_store=store)
+    record = auth.create_engagement(
+        client_id="client_a", target="10.0.0.0/24", tenant_id="test-tenant"
+    )
+    engagement_id = record.engagement_id
+    auth.enable_recon(
+        engagement_id=engagement_id,
+        scope=Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[]),
+    )
+    conductor_main.store_provider._stores["test-tenant"] = store
+    _append_signed_profile(store, engagement_id)
+
+    captured: dict = {}
+    monkeypatch.setattr(
+        recon_runner,
+        "run_recon_for_engagement",
+        lambda *a, **k: captured.update(k) or SimpleNamespace(node_count=1, targets_scanned=1),
+    )
+
+    result = run_engagement_task(engagement_id, "test-tenant")
+
+    assert result["status"] == "completed"
+    assert captured.get("engagement_profile") is not None
 
 
 def test_safe_retry_policy_configuration() -> None:

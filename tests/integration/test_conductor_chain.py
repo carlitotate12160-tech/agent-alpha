@@ -71,7 +71,14 @@ class _WpAutonomousFake:
         self.calls: list[str] = []
 
     def get(
-        self, url: str, *, headers: Any = None, cookies: Any = None, timeout: float = 10.0
+        self,
+        url: str,
+        *,
+        headers: Any = None,
+        cookies: Any = None,
+        timeout: float = 10.0,
+        allow_redirects: bool = True,
+        **_kwargs: Any,  # absorb OriginAwareClient pass-throughs (verify, …) like a real client
     ) -> _R:
         self.calls.append(url)
         if "wp-config.php.bak" in url:
@@ -99,6 +106,7 @@ class _WpAutonomousFake:
         headers: Any = None,
         cookies: Any = None,
         allow_redirects: bool = True,
+        **_kwargs: Any,  # absorb OriginAwareClient pass-throughs (verify, …) like a real client
     ) -> _R:
         self.calls.append(url)
         if "wp-login" in url:
@@ -142,6 +150,23 @@ def test_wp_cred_reuse_chain_is_cross_verified_autonomously(
     auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[host], exclusions=[]))
     auth.enable_active(rec.engagement_id)  # Beta gate = ACTIVE_APPROVED
     monkeypatch.setitem(m.store_provider._stores, "tenant_wp", store)
+
+    # §12.36 fail-closed: the authorized worker path now requires a signed profile.
+    from agent_alpha.conductor.engagement_profile import EngagementProfile, dump_signed_profile
+    from agent_alpha.events.event_types import EventType
+    from agent_alpha.security.secrets import get_profile_signing_key
+
+    store.append(
+        event_type=EventType.ENGAGEMENT_PROFILE_SIGNED,
+        engagement_id=rec.engagement_id,
+        agent="CONDUCTOR",
+        payload=dump_signed_profile(
+            EngagementProfile(
+                engagement_id=rec.engagement_id, client_id="wp_client", targets=frozenset({host})
+            ),
+            key=get_profile_signing_key(),
+        ),
+    )
 
     # 2) Alpha leg — real Alpha over the WP fake (build_recon_pipeline seam, like the async test).
     graph = NetworkXGraphStore()
