@@ -2,7 +2,7 @@
 
 # Agent-Alpha — Session Handoff (2026-08-14, Coverage-Honesty & GAP-074 mechanism-aware auth arc CLOSED)
 
-Resume with: "lanjut Agent-Alpha — CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + Slice X (#410 default-cred single-source) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) + Slice X (#410 default-cred single-source) + SpaLoginApplicator (#403) MERGED & PROVEN. Next slice = Beta._strike_attempted state-leak fix OR §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-074 Slice 2c (Odoo JSON-RPC fallback / GAP-067) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
 
 ---
 
@@ -18,6 +18,7 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **Signed Profile Fail-Closed** | **MERGED #412, Tier-1 PROVEN** | Enforced ADR §12.36 fail-closed: missing/invalid signed `EngagementProfile` records explicit failure (`missing_signed_profile`/`profile_signature_invalid`) and aborts immediately (never null-and-continue / fail-open). 375/375 PASS. |
 | **CI Security & Secret Hardening** | **MERGED #411, Tier-1 PROVEN** | Remediated Aikido SAST / CI findings: pinned `gitleaks-action` to immutable commit SHA `e0c47f4f...` (v3), added `persist-credentials: false` to all `actions/checkout@v4` workflows (CWE-522), removed ad-hoc runner scripts `run_lab*.sh`. 100% CI green, Aikido Deep Review PASS. |
 | **Slice X: Default-Cred Single-Source Catalog** | **MERGED #410, Tier-1 PROVEN** | Default-cred #7 divergence ditutup: externalized catalog to `default_credentials.yaml` via `default_credentials.py` loader. `default_creds` and `odoo_access` now single-source from YAML (odoo tak lagi punya daftar sendiri). 4/4 PASS. |
 | **GAP-074 Coverage Ledger Mechanism Precision (Slice 2b)** | **MERGED #409, Tier-1 PROVEN** | Denominator precision in `coverage_ledger.py`: maps `mech_*` to bare tokens via `bare_mechanisms()`. Excludes mismatched techniques from applicable denominator (e.g. form-only surface excludes `spa_json_login`). Fail-open when unknown. Known limitations documented in `BUGS_AND_GAPS.md`. 10/10 PASS. |
