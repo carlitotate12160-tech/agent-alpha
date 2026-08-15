@@ -235,29 +235,17 @@ class Alpha:
                 confidence=0.0,
             )
 
-        # ── Initialise per-run state ────────────────────────────
-        self._engagement_id = engagement_id
-        self._work_queue = [target_url]
-        self._probed = set()
-        self._findings = 0
-        self._seo_analyzed_hosts = set()
-        self._analyzable_probes = 0
-        self._ran_campaigns = set()
-        self._body_hashes = set()
-        self._soft404_sig = {}
-        self._soft404_calibrated = set()
-        self._current_objective = None
-        self._try_harder_fired = False
-        self._reach_attempted = set()
-        self._reach_class = {}
-        self._reach_body_cache = {}
-        self._bound_origin = {}
-        self._host_stack = {}
-        self._organic_crawl_count = {}
-        self._dead_hosts = set()
-        self._host_ok = set()
-        self._consecutive_transport_fail = 0
-        self._egress_blocked = False
+        # ── Initialise state (Bug #34) ──────────────────────────
+        # The autonomous path (recon_runner.run_recon_for_engagement) reuses ONE Alpha for
+        # `for url in targets: run_recon(...)`. Host/URL-keyed dedup state (probed URLs,
+        # dead/reachable hosts) must persist across targets or the engagement re-probes the
+        # same URLs and re-hits known-dead hosts (burns HTTP + LLM tokens, never converges).
+        # Reset it ONLY on a genuinely new engagement. Per-target state — INCLUDING the
+        # content-keyed body-hash set and the global egress latch, which are unsafe to share
+        # across hosts (Aikido/Greptile) — always resets.
+        if engagement_id != self._engagement_id:
+            self._reset_engagement_state()
+        self._reset_target_state(engagement_id, target_url)
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -324,6 +312,56 @@ class Alpha:
             findings_count=self._findings,
             confidence=confidence,
         )
+
+    # ── State lifetimes (Bug #34) ───────────────────────────────
+
+    def _reset_engagement_state(self) -> None:
+        """State scoped to the WHOLE engagement — reset ONLY on a new engagement, never
+        per target (Bug #34). ONLY host-keyed / URL-keyed knowledge is safe to persist
+        here: a probed URL is fully-qualified (host-unique) so it never needs re-fetching,
+        and a host proven dead/reachable stays so for the engagement. CONTENT-keyed and
+        GLOBAL egress state is deliberately NOT here — it lives in _reset_target_state
+        (Aikido/Greptile review: persisting a content-hash set false-skips a different
+        host serving identical bytes; persisting the egress latch aborts a healthy next
+        target)."""
+        self._probed = set()
+        self._dead_hosts = set()
+        self._host_ok = set()
+
+    def _reset_target_state(self, engagement_id: str, target_url: str) -> None:
+        """State scoped to ONE target/seed — reset on every run_recon call.
+
+        Includes state that is NOT safe to share across targets even within one engagement
+        (Aikido/Greptile review):
+          * ``_body_hashes`` — CONTENT-keyed (no host qualifier). Persisting it engagement-
+            wide would skip a DIFFERENT host serving byte-identical content (e.g. two default
+            WordPress pages) before that host is analysed at all — a false negative.
+          * ``_egress_blocked`` / ``_consecutive_transport_fail`` — a GLOBAL egress-block
+            latch + counter. Persisting the latch aborts the next HEALTHY target as
+            EGRESS_BLOCKED; persisting the counter couples unrelated targets. Reset per
+            target so a genuinely global IP-cut is re-detected (bounded cost) while a
+            host-specific or transient block never starves a healthy sibling.
+        Per-host fingerprint / soft-404 / reach caches also start empty per target (reusing
+        those across siblings is a separate efficiency refinement — tracked)."""
+        self._engagement_id = engagement_id
+        self._work_queue = [target_url]
+        self._findings = 0
+        self._seo_analyzed_hosts = set()
+        self._analyzable_probes = 0
+        self._ran_campaigns = set()
+        self._body_hashes = set()
+        self._soft404_sig = {}
+        self._soft404_calibrated = set()
+        self._current_objective = None
+        self._try_harder_fired = False
+        self._reach_attempted = set()
+        self._reach_class = {}
+        self._reach_body_cache = {}
+        self._bound_origin = {}
+        self._host_stack = {}
+        self._organic_crawl_count = {}
+        self._consecutive_transport_fail = 0
+        self._egress_blocked = False
 
     # ── Cognitive-loop step ─────────────────────────────────────
 
