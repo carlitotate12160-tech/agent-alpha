@@ -197,6 +197,7 @@
 | 156 | Candidate public IPs probed before engagement IP-scope check | OPEN | Low | RG | Med | resolve_and_bind_origin pre-binding canary probe before IP-range check |
 | 157 | Autonomous ACCESS_LEVEL missing ENABLES edge to CREDENTIAL | OPEN | Med | WI | Low | Provenance edge missing between harvested CREDENTIAL and ACCESS_LEVEL node |
 | 158 | Multi-target credential reuse pivot across sibling stacks | OPEN | Med | RG | Med | Beta stops after winning first target; doesn't pivot creds to remaining sibling hosts |
+| 159 | Cloud IAM Privilege Escalation & Policy Trust Graph | OPEN | High | RG | Med-High | Models AWS/GCP/Azure IAM policy traversal, sts:AssumeRole paths, and cross-account trust boundaries for automated cloud tenant takeover |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
@@ -2628,6 +2629,20 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
   run-signal precision (MEDIUM — today recon techniques default conservatively to not_run).
 - Constraint: techniques.yaml is the SINGLE technique source (anti-#7) — playbook technique_id +
   gap capability_absent derive from it. Payability stays binary (cross_verified).
+
+---
+
+## GAP-159 — Cloud IAM Privilege Escalation & Policy Trust Graph
+- Status: OPEN.
+- Priority: HIGH — When cloud credentials/tokens are harvested (via SSRF GAP-136, JS secrets GAP-058, or .env leak), there is no graph engine to evaluate multi-hop IAM privilege escalation and role-assumption trust paths.
+- Category: RG
+- Stack: Cloud (AWS / GCP / Azure)
+- What: Current Agent Alpha models external web infrastructure in `graph/nodes.py` (ASSET, VULNERABILITY, CREDENTIAL, ACCESS_LEVEL). Harvested cloud credentials (e.g. AWS access key / secret key, STS session tokens from IMDS `169.254.169.254`, or GCP service account JSON keys) are currently stored as flat CREDENTIAL nodes. Beta has no engine to evaluate Cloud IAM policies, role trust relationships (`sts:AssumeRole`), or permission abuse primitives (e.g. `iam:CreateAccessKey`, `iam:PassRole` + `lambda:CreateFunction`, `iam:AttachUserPolicy`, `iam:SetDefaultPolicyVersion`, `sts:AssumeRole` across accounts/environments). An automated cloud-capable agent needs an IAM Policy Graph (similar to AWSPX/PMapper) to discover multi-hop privilege escalation paths `[HarvestedRole] -[ASSUMES_ROLE]-> [StagingAdmin] -[PASS_ROLE]-> [ProductionCloudAdmin]` and prove tenant takeover without manual operator intervention.
+- Evidence: `agent_alpha/graph/nodes.py:13-21` — NodeType has no `IAM_ROLE`, `IAM_POLICY`, or `CLOUD_RESOURCE`. `agent_alpha/graph/nodes.py:29-36` — RelationshipType has no `ASSUMES_ROLE` or `ELEVATES_TO`. `agent_alpha/tools/internal/` has no Cloud IAM evaluation tool. When AWS keys are found in JS secrets, they produce an informational finding but no actionable IAM privilege escalation chain.
+- Files: `agent_alpha/graph/nodes.py` (add IAM node & edge types); `agent_alpha/tools/internal/cloud/iam_graph.py` (new IAM policy evaluator & traversal tool); `agent_alpha/conductor/execute_agent.py` (cloud privilege escalation dispatch).
+- Cross-ref: GAP-136 (SSRF + cloud metadata IMDS), GAP-076 (Cloud storage discovery), GAP-069 (Trust Graph), GAP-058 (JS secrets / API keys), GAP-070 (Credential-to-Asset correlation).
+- Impact: Harvested cloud credentials remain dead ends or require manual operator analysis. Agent cannot autonomously escalate from low-privilege cloud roles to full cloud environment control.
+- Effort: MED-HIGH. v1 = AWS IAM policy evaluation (`sts:GetCallerIdentity`, `iam:ListAttachedUserPolicies`, `iam:GetPolicyVersion`, standard 21 AWS privesc primitives traversal) + Graph projection.
 
 ---
 
