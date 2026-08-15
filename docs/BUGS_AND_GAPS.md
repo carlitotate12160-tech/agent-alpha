@@ -33,7 +33,7 @@
 | 24 | response_classifier `challenge-platform` FP on CF | FIXED | — | FS | Low | All CF-proxied sites misclassified |
 | 25 | DefaultCredsTool ignores harvested USER nodes | RESOLVED | — | RG | Med | Beta can't spray discovered usernames |
 | 26 | Generic blind probing → excessive 404s → WAF/CF block | OPEN | High | CW | Med | Agent blocked before finding anything |
-| 34 | `run_recon` resets engagement state across targets → thrash | OPEN | High | CW | Low | Egress-block/dead-host/dedup reset per target → never converges; burns HTTP + LLM tokens |
+| 34 | `run_recon` resets engagement state across targets → thrash | FIX VERIFIED 3.12 (v2, corrected post-review) — Oracle seal pending | High | CW | Low | Only host/URL-keyed state persists (`_probed`/`_dead_hosts`/`_host_ok`); content-keyed `_body_hashes` + global egress latch reset per target (Aikido: cross-host body false-skip; Greptile: healthy-target abort; CodeRabbit: sibling-URL test) |
 | 35 | `LLM_TOOL_SELECT_MAX_TOKENS=512` too small | FIXED (Oracle-sealed) | — | RM | Low | Reasoning model truncates → OrientationError |
 | 36 | `/wp-admin/*` login-gated pages enter frontier | OPEN | Med | CW | Low | Token burn for predictable non-findings |
 | 37 | Non-WP hosts have no crawl allowlist | OPEN | High | CW | Low | Alpha crawls 20+ content pages, 0 findings |
@@ -90,7 +90,7 @@
 | 048 | Soft-404 signature format-fragile | FIXED #388 | — | RM | Med | Regex normalization whack-a-mole |
 | 049 | STEALTH_BROWSER header contradiction | FIXED #396 | — | RM | Low | UA=Windows, sec-ch-ua-platform=macOS |
 | 050 | IntelligenceBase wiring: data exists, never reaches memory | OPEN | High | WI | Med | 3 wiring gaps (tech_stack, metadata, outcomes) |
-| 051 | `try_harder` is path-recovery only, not strategic pivot | OPEN | Med | RG | Med | Only 2 pivots needed: WAF_BLOCKED_ALL→origin, RECON_EXHAUSTED→cred OSINT |
+| 051 | `try_harder` is path-recovery only, not strategic pivot | PARTIAL (slice-1 detection 3.12; slice-2 hunt OPEN) | Med | RG | Med | Only 2 pivots needed: WAF_BLOCKED_ALL→origin, RECON_EXHAUSTED→cred OSINT |
 | 052 | WooCommerce version not extracted (system_status not fetched) | OPEN | P0 | RM | Low-Med | CVE-2026-3589 affects WC 5.4-10.5; no version = no CVE check |
 | 053 | WP plugin handler exists but never fires | OPEN | P0 | DC | Low | Handler correct but LLM orient fails on wp-admin → dead code |
 | 054 | WP REST user fields truncated (slug only) | OPEN | P0 | DD | Low | Email/roles dropped — needed for breach OSINT + admin targeting |
@@ -1355,13 +1355,23 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-051 — `try_harder` is path-recovery only, not strategic pivot (D2-c unbuilt)
-- Status: OPEN.
+- Status: PARTIAL — slice-1 (WAF-wall DETECTION) FIX VERIFIED 3.12, Oracle seal pending; slice-2 (active origin hunt) OPEN.
 - Priority: MEDIUM — after Bug #34 fix (reset) and Slice B (SPA-login).
 - Category: RG
 - Stack: Memory
 - What: Alpha's `try_harder` (`planner.py:43-101`) is a **path-level dead-end recovery**, not a **strategic pivot**. When Alpha exhausts its frontier, `try_harder` only re-seeds leak paths on hosts already in the graph — it never changes strategy. The D2-c extension point (HTN-style replan) is explicitly ma...
 - Files: agents/planner.py:13 — D2-c extension point (empty); agents/planner.py:43-101 — try_harder (path recovery only); agents/alpha/scout.py:2322-2345 — _try_harder_recovery; agents/alpha/scout.py:648-679 —...
 - Effort: Medium. The 2 pivot strategies:
+- Slice-1 DONE (2026-08-15, detection only): engagement-level WAF-wall verdict. NOTE — per-host origin
+  bypass ALREADY EXISTS (scout.py:740-1010, `choose_reach`→ORIGIN_DIRECT + two-proof binding); slice-1
+  did NOT touch it (anti-#6). Added `derive_wall_verdict` + `ENGAGEMENT_WALLED` audit event + `ReconRunResult.wall_verdict`
+  in conductor/recon_runner.py (read-only; walled ⟺ no target COMPLETE AND ≥1 WAF_BLOCKED host; dead≠walled).
+  A walled run is now recorded honestly instead of silent FAILED (anti-#3). This is the TRIGGER PRIMITIVE for slice-2.
+- Slice-2 OPEN (Axis A active hunt): on `ENGAGEMENT_WALLED`, Conductor drives an escalated engagement-level
+  origin hunt — behind the SAME `allow_origin_discovery`/`allow_evasion` consent gates the per-host reach enforces,
+  two-proof origin authorization. Sources: existing VT/OTX first, then §12.61 Wayback (GAP-115), GAP-093 cert-SAN,
+  GAP-062 MX/SPF added one at a time. Axis B (RECON_EXHAUSTED→cred-OSINT, GAP-054/DeHashed) = SEPARATE vertical,
+  different auth tier (cred-stuffing = OFFENSIVE_APPROVED, NOT recon).
 
 ---
 

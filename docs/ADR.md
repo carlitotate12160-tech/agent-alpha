@@ -3834,3 +3834,86 @@ GAP-119 (credential-result semantics — per-credential implementation of §12.4
 to this engagement-scope doctrine).
 
 
+### 12.63 Strategic pivot architecture — closed capability boundary × open plan composition (GAP-051)
+
+**Context.** When Alpha hits a dead-end (WAF-walled, or recon-exhausted with no findings), it
+should not surrender — it should PIVOT strategy (WAF → hunt the origin; clean-but-empty →
+identity/data OSINT). The open question raised in design: can the agent "think like a human"
+and generate strategies C/D/E dynamically, rather than switch over a fixed A/B state machine?
+
+**Decision.** The dichotomy "static A/B state machine vs open-ended human-like strategy" is
+FALSE. Agent strategy is **a closed typed set of strategy CLASSES (the auth/blast boundary) ×
+open LLM composition of typed primitives WITHIN an authorized class**. Concretely:
+
+1. **Closed capability boundary.** The set of `StrategyClass` members (RECON_SURFACE,
+   ORIGIN_HUNT, IDENTITY_OSINT, CRED_STUFFING, …) is a CLOSED, typed set. Each class carries
+   its own auth tier + blast gate. New classes are added DELIBERATELY as vetted, gated, tested
+   vertical slices — NEVER invented at runtime. This is a safety/sellability property, not a
+   limitation: an authorized red-team product that lets an LLM synthesise arbitrary offensive
+   strategy at runtime has uncontrolled blast radius and cannot be sold. A human pentester is
+   bounded by a signed SOW; the agent mirroring that is correct, not lesser.
+
+2. **Open plan composition.** "C/D/E" — human-like novelty — lives ONLY in the PLAN layer:
+   `next = f(AttackGraph state)`, an LLM (Claude lane) composing the next primitive or a NEW
+   chain of primitives from the tool catalog, bounded by the currently authorized class(es).
+   Novelty is in the composition/order/path, NOT in self-authored capability. This is exactly
+   what a human pentester does — recombine known primitives in target-driven order.
+
+3. **Self-modifying code = out of scope** (reaffirms the Learning=data/playbook-only
+   non-negotiable). Open-endedness is at the PLAN layer, never the capability layer: the agent
+   never writes its own tools/architecture; only data/playbook (IntelligenceBase) grows.
+
+4. **Detection before action; trigger primitive before response.** A strategic pivot is built
+   as two slices, never one: (slice-1) a READ-ONLY wall/dead-end DETECTION that produces a
+   typed honest outcome + an append-only trigger event; then (slice-2) the GATED active
+   response that consumes that event. Slice-1 stands alone as a complete vertical (it turns a
+   silent FAILED into an honest "walled" outcome — §12.62 coverage-honesty) and is NOT a
+   half-scaffold, because the event/verdict is consumed immediately (audit stream + report).
+
+5. **Phase placement.** Closed-set, graph-driven selection over typed classes = Phase 4 (now).
+   Full open-ended composition + reflection loop = Phase 6 (IntelligenceBase). Self-authorship
+   = never.
+
+**GAP-051 concretization (the first pivot).**
+- **Slice-1 (DONE 2026-08-15, detection only):** `derive_wall_verdict` + `ENGAGEMENT_WALLED`
+  audit event + `ReconRunResult.wall_verdict` in `conductor/recon_runner.py`. Read-only:
+  `walled ⟺ no target COMPLETE AND ≥1 WAF_BLOCKED host` (dead ≠ walled). Per-host origin
+  bypass ALREADY exists (`scout.py` `choose_reach`→ORIGIN_DIRECT + two-proof binding) and is
+  NOT touched (anti-#6) — engagement-level detection layers ON TOP.
+- **Slice-2 (OPEN, Axis A active hunt):** on `ENGAGEMENT_WALLED`, the Conductor drives an
+  escalated engagement-level origin hunt, behind the SAME `allow_evasion` / `allow_origin_
+  discovery` signed consent (§12.36) + two-proof origin authorization (§12.46). Sources:
+  existing VT/OTX first, then §12.61 Wayback / cert-SAN / MX one at a time.
+- **Axis B (RECON_EXHAUSTED → cred/identity OSINT)** is a SEPARATE vertical with a DIFFERENT
+  auth tier — cred-stuffing is an OFFENSIVE action (OFFENSIVE_APPROVED), NOT recon. It is not
+  smuggled in through the "recon" door.
+
+**Alternatives rejected.**
+- **Static `if waf then origin` pivot ladder** — a fixed step list regardless of graph state =
+  Lyndon #11 (hardcoded sequence = tool runner). The trigger AND the source selection must be
+  derived from event/graph state.
+- **Open-ended runtime strategy generation at the offensive layer** — uncontrolled blast
+  radius, per-class auth/legal scope collapses, unsellable. Openness belongs in PLAN, not at
+  the capability/auth boundary.
+- **Build both axes + all origin sources at once** — Lyndon #1/#5 (feature-before-foundation,
+  scope creep). One vertical slice; detection before action.
+
+**Consequence.** New pivots are added as vetted `StrategyClass` members with their own gate +
+tests, never as runtime inventions. The gap ledger tracks each as a slice (GAP-051 slice-1 done
+/ slice-2 open). The closed-boundary/open-composition split is the general rule for every future
+"can the agent be smarter?" request: enrich the graph + open the PLAN layer inside authorized
+bounds — do not open the auth boundary.
+
+**Anti-Lyndon.** #11 (pivot = f(state), not a fixed ladder). #1/#5 (one slice; detection before
+action). #2 (slice-1 event is consumed, not dead scaffold; slice-2 stays OUT until built, not
+half-scaffolded). #6 (per-host origin reach reused, not duplicated). #3 (walled is an honest
+outcome, never a silent FAILED/clean).
+
+**Cross-ref.** GAP-051 (the gap this decision concretizes). §12.36 (signed consent gates for
+evasion/origin-discovery). §12.46 (two-proof origin binding). §12.61 (Wayback origin source —
+slice-2 input). §12.62 (coverage-honesty — the walled verdict is a Tier-1 honest outcome).
+§12.23 (closed-vs-open discipline echoes the consensus-tier deferral: capability added
+deliberately, not by runtime escalation). §12.0 (next_action = f(state), never a fixed pipeline).
+
+
+
