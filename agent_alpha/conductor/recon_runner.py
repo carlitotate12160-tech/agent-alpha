@@ -261,9 +261,16 @@ def build_recon_pipeline(
         )
     # §12.49 / §12.50 / GAP-026: Stealth by default from the 1st request.
     # StealthPacer (human burst-and-pause pacing + Gaussian jitter) is injected
-    # unless engagement_profile explicitly sets opsec_stealth=False.
+    # when engagement_profile specifies opsec_stealth=True, or when running with
+    # default unconstrained pipeline (engagement_profile is None).
+    # When engagement_profile explicitly specifies opsec_stealth=False, fallback
+    # to fixed-interval RateLimiter.
     stealth_pacer: Pacer | None = None
-    if engagement_profile is None or getattr(engagement_profile, "opsec_stealth", True):
+    if engagement_profile is not None and getattr(engagement_profile, "opsec_stealth", False):
+        from agent_alpha.agents.stealth_pacer import StealthPacer
+
+        stealth_pacer = StealthPacer(seed=engagement_id)
+    elif engagement_profile is None:
         from agent_alpha.agents.stealth_pacer import StealthPacer
 
         stealth_pacer = StealthPacer(seed=engagement_id)

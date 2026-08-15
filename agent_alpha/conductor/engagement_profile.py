@@ -211,7 +211,7 @@ class EngagementProfile:
     scope_mode: str = "single"  # "single" | "multi"
     allow_subdomain_enum: bool = False
     allow_origin_discovery: bool = False  # §12.46: client consented to runtime origin-binding
-    opsec_stealth: bool = True  # §12.49 / GAP-026: StealthPacer default ON
+    opsec_stealth: bool = False  # §12.36: client consented to opsec_stealth pacing
     include_root: bool = False
     authorization_level: str = "RECON_ONLY"  # RECON_ONLY | ACTIVE_APPROVED | OFFENSIVE_APPROVED
     consent: ConsentRecord = field(default_factory=ConsentRecord)
