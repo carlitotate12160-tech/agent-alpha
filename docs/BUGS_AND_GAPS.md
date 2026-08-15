@@ -195,6 +195,8 @@
 | 154 | Passive enrichment skipped on total-CT-failure | VERIFIED (Oracle-seal pending) | — | WI | Med | DNS/OTX/VT/Wayback unblocked on total CT failure; seed empty map, runs unconditionally |
 | 155 | IPv6 origin candidates cannot bind (transport lacks URL bracketing) | OPEN | Low | RG | Med | origin_direct_fetch lacks [...] bracketing on IPv6 literals |
 | 156 | Candidate public IPs probed before engagement IP-scope check | OPEN | Low | RG | Med | resolve_and_bind_origin pre-binding canary probe before IP-range check |
+| 157 | Autonomous ACCESS_LEVEL missing ENABLES edge to CREDENTIAL | OPEN | Med | WI | Low | Provenance edge missing between harvested CREDENTIAL and ACCESS_LEVEL node |
+| 158 | Multi-target credential reuse pivot across sibling stacks | OPEN | Med | RG | Med | Beta stops after winning first target; doesn't pivot creds to remaining sibling hosts |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
@@ -1413,6 +1415,30 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - Residual today: the single pre-binding touch is benign (canary GET); an out-of-scope IP that does not serve
   the owned host's canary is REJECTED (no ORIGIN_BINDING_PROVEN, no reach). Acceptable interim for domain SOWs.
 - Cross-ref: §12.46 origin binding, §12.36 capability gate, assert_pivot_target (co-host default-DENY), GAP-155.
+
+---
+
+## GAP-157 — Autonomous ACCESS_LEVEL missing ENABLES edge to CREDENTIAL (J1a)
+- Status: OPEN (surfaced by autonomous characterization test `test_conductor_chain_characterize.py`)
+- Priority: Medium — breaks provenance audit trail in attack graph
+- Category: WI
+- Stack: Memory
+- What: In the autonomous Celery worker path (`run_beta` / `execute_agent`), when `WpLoginApplicator` or `CredReuse` succeeds in authenticating and produces an `ACCESS_LEVEL` node (e.g. `access_level='admin'`), the graph edge `(CREDENTIAL) -[ENABLES]-> (ACCESS_LEVEL)` is not minted. While the credential is encrypted in SecretsVault and access is confirmed, the AttackGraph loses the provenance linking the vaulted credential (e.g. from `wp-config.php.bak`) to the resulting access node.
+- Fix: In `run_beta` / `CredReuseAttestor`, ensure `graph_store.persist_edge(cred_node_id, access_node_id, EdgeType.ENABLES)` is called upon successful applicator verification when a harvested credential was used.
+- Tests: `tests/phase_4/test_conductor_chain_characterize.py` (J1a assertion).
+- Cross-ref: ADR §12.33, GAP-015, GAP-050.
+
+---
+
+## GAP-158 — Multi-target credential reuse pivot across sibling stacks (J4)
+- Status: OPEN (surfaced by autonomous characterization test `test_conductor_chain_characterize.py`)
+- Priority: Medium — stops multi-stack kill chains from executing autonomously
+- Category: RG
+- Stack: Memory
+- What: When an engagement has multiple in-scope targets (e.g. `wp.alpha-ai.web.id` and `odoo.alpha-ai.web.id`), Conductor's `run_beta` evaluates candidates in order. Once `WpLoginApplicator` wins `admin` access on the WordPress target, Beta completes without pivoting the valid stolen credentials to strike sibling stacks like Odoo (`OdooAccessTool` XML-RPC / JSON-RPC).
+- Fix: In Conductor's strike dispatch loop (`main.py` / `advance.py`), ensure credentials proven on one stack are prioritized and fanned out to test remaining in-scope sibling entry points (e.g. Odoo XML-RPC) before halting.
+- Tests: `tests/phase_4/test_conductor_chain_characterize.py` (J4 assertion).
+- Cross-ref: ADR §12.34, ADR §12.61, GAP-015, GAP-074.
 
 ---
 

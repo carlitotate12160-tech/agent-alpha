@@ -88,6 +88,7 @@ def _proof_request_method(payload: object) -> str | None:
     method = proof_request.get("method")
     return method if isinstance(method, str) else None
 
+
 # Self-owned alpha-ai.web.id siblings (see live_fire/lab_guard.py _LAB_HOSTS). Override via
 # env if the live vulnerable Odoo stack moves to a different self-owned host --- the
 # lab_guard allowlist is the enforced source of truth, not this default.
@@ -203,8 +204,8 @@ def test_conductor_autonomous_chain_characterization(
     # "applicators BOUND" precondition instead of asserting it blind.
     applicator_calls: list[int] = []
 
-    def _spy_beta_web_applicators(http_client: object) -> list[CredentialApplicator]:
-        candidates = beta_web_applicators(http_client)
+    def _spy_beta_web_applicators(*args: Any, **kwargs: Any) -> list[CredentialApplicator]:
+        candidates = beta_web_applicators(*args, **kwargs)
         applicator_calls.append(len(candidates))
         return candidates
 
@@ -228,10 +229,7 @@ def test_conductor_autonomous_chain_characterization(
     #    assert_origin_authorized_or_bound). This is the cardinal gate: if binding
     #    did NOT fire for _LEAK_HOST, the wp-config reach path cannot succeed (no
     #    origin authorized → choose_reach ≠ ORIGIN_DIRECT → CF blocks everything).
-    binding_events = [
-        e for e in events
-        if e.event_type == EventType.ORIGIN_BINDING_PROVEN
-    ]
+    binding_events = [e for e in events if e.event_type == EventType.ORIGIN_BINDING_PROVEN]
     leak_host_bound = any(
         isinstance(e.payload, dict) and e.payload.get("fronted_host") == _LEAK_HOST
         for e in binding_events
