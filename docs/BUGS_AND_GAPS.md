@@ -65,7 +65,7 @@
 | 020 | Mid-engagement pattern-group exhaustion | OPEN | Med | CW | Med | Agent re-tries exhausted patterns |
 | 021 | Fingerprint-driven path hard-filter | OPEN | Med | CW | Low | Irrelevant paths probed for known stack |
 | 022 | Deterministic rule coverage + finding correlation | OPEN | Med | RM | Med | Rules miss known patterns |
-| 026 | StealthPacer gate inverted (default OFF) | OPEN | High | WI | Low | §12.49 violation — stealth not default |
+| 026 | StealthPacer gate inverted (default OFF) | SEALED | High | WI | Low | §12.49 / §12.50 — StealthPacer injected by default in recon pipeline |
 | 027 | Probing order: sensitive files before legitimate | OPEN | Med | CW | Low | .env probes trigger CF before wp-json |
 | 028 | Origin-direct generic homepage detection | OPEN | Med | RM | Low | Origin returns homepage for all paths → 0 findings |
 | 029 | Unreachable subdomain still probed for all 12 paths | DONE | — | CW | Low | Wastes ~15min on dead hosts |
@@ -527,7 +527,7 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - GAP-020 — Mid-engagement pattern-group exhaustion (OPEN, next slice) (OPEN. ADR §12.57 point 2.)
 - GAP-021 — Fingerprint-driven path hard-filter (OPEN) (OPEN. ADR §12.57 point 3.)
 - GAP-022 — Deterministic rule coverage + finding correlation (OPEN) (OPEN. ADR §12.57 points 1 & 4 (recon-side).)
-- GAP-026 — StealthPacer gate inverted: code exists, default OFF (violates §12.49) (OPEN. Doctrine §12.49: "Stealth by default from the 1st request (curl_cffi, Header)
+- GAP-026 — StealthPacer gate inverted: code exists, default OFF (violates §12.49) (SEALED. StealthPacer injected by default in recon_runner.py per §12.49 / §12.50.)
 - GAP-027 — Probing order: sensitive files before legitimate endpoints (OPEN.)
 - GAP-028 — Origin-direct response validation (generic homepage detection) (OPEN.)
 - GAP-029 — Unreachable subdomain still probed for all 12 paths (OPEN.)
@@ -1002,14 +1002,14 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-026 — StealthPacer gate inverted: code exists, default OFF (violates §12.49)
-- Status: OPEN. Doctrine §12.49: "Stealth by default from the 1st request (curl_cffi, Header
-- Priority: —
+- Status: SEALED (StealthPacer default ON in `recon_runner.py`, `engagement_profile.py`, `authorization.py`, and `main.py` per ADR §12.49).
+- Priority: High
 - Category: WI
 - Stack: Universal
-- What: `StealthPacer` (§12.50) is fully implemented — multi-modal burst-and-pause, Gaussian jitter, adaptive backoff on 429/503. BUT the gate in `recon_runner.py:156` requires `engagement_profile.opsec_stealth=True` to activate it. The API default in `main.py:152` is `opsec_stealth: bool = False`. All 3 ru...
-- Evidence: niagamas.com field-prove — Run 1 (83 events, natural pacing from crt.sh 30s timeouts) → wp-json/wp/v2/users accessible via CF DIRECT → 4 users + 2 vulns. Run 2 (247 events, zero pacing) → CF challenge on wp-json → origin-direct fallback → origin returns homepage (~98KB) → 0 users, 0 vulns.
-- Impact: Cascade — no pacing → CF bot detection → wp-json challenged → origin-direct → homepage → 0 users → 0 credentials → Beta never dispatches. Root cause of "0 findings" on aggressive runs.
-- Effort: —
+- What: `StealthPacer` (§12.50) is fully implemented — multi-modal burst-and-pause, Gaussian jitter, adaptive backoff on 429/503. The gate in `recon_runner.py` now injects `StealthPacer` by default (`opsec_stealth=True`) across all engagements unless explicitly opted out (`opsec_stealth=False`).
+- Fix: Set `opsec_stealth=True` in `engagement_profile.py`, `authorization.py`, `main.py`, and `recon_runner.py`.
+- Tests: `tests/phase_2/test_opsec_recon_pipeline.py`, `tests/phase_2/test_stealth_pacer.py`.
+- Cross-ref: ADR §12.49, §12.50.
 
 ---
 

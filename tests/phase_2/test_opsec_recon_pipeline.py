@@ -50,9 +50,11 @@ def test_pipeline_injects_stealth_opsec_profile(
         policy=policy,
     )
 
+    from agent_alpha.agents.stealth_pacer import StealthPacer
+
     hc: HttpClient = pipeline.alpha.http_client
     assert hc._headers["User-Agent"] == constants.STEALTH_BROWSER["user_agent"]
-    assert hc._rate_limiter._min_interval == pytest.approx(1.0 / 2)
+    assert isinstance(hc._rate_limiter, StealthPacer)
 
 
 def test_evasion_profile_falls_back_to_baseline_stealth(policy: PolicyEnforcer) -> None:
