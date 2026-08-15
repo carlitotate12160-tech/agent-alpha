@@ -259,12 +259,11 @@ def build_recon_pipeline(
         opsec = policy.resolve_opsec_profile(
             constants.DEFAULT_OPSEC_PROFILE, evasion_authorized=False
         )
-    # §12.50: human burst-and-pause pacing when the signed profile consents to
-    # opsec_stealth (a §12.36 signed capability). Seeded per-engagement →
-    # deterministic replay, unpredictable in production. Otherwise the fixed-
-    # interval RateLimiter (built inside HttpClient) is used.
+    # §12.49 / §12.50 / GAP-026: Stealth by default from the 1st request.
+    # StealthPacer (human burst-and-pause pacing + Gaussian jitter) is injected
+    # unless engagement_profile explicitly sets opsec_stealth=False.
     stealth_pacer: Pacer | None = None
-    if engagement_profile is not None and getattr(engagement_profile, "opsec_stealth", False):
+    if engagement_profile is None or getattr(engagement_profile, "opsec_stealth", True):
         from agent_alpha.agents.stealth_pacer import StealthPacer
 
         stealth_pacer = StealthPacer(seed=engagement_id)

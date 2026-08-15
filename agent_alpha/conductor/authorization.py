@@ -518,7 +518,7 @@ def authorize_engagement(
     scope_mode: str = "single",
     authorized_origins: frozenset[str] | None = None,
     allow_subdomain_enum: bool = False,
-    opsec_stealth: bool = False,
+    opsec_stealth: bool = True,
     allow_evasion: bool = False,
     allow_origin_discovery: bool = False,
     include_root: bool = False,
@@ -580,14 +580,13 @@ def authorize_engagement(
     if (
         authorization_level in {"ACTIVE_APPROVED", "OFFENSIVE_APPROVED"}
         or allow_evasion
-        or opsec_stealth
         or allow_origin_discovery
         or allow_subdomain_enum
     ):
         if not consent_items or not signed_by or not signed_at:
             raise ConsentRequiredError(
-                f"Elevated authorization (level={authorization_level}, evasion={allow_evasion}, "
-                f"stealth={opsec_stealth}) strictly requires explicit consent "
+                f"Elevated authorization (level={authorization_level}, evasion={allow_evasion}) "
+                f"strictly requires explicit consent "
                 f"(items, signed_by, signed_at must be provided)."
             )
 

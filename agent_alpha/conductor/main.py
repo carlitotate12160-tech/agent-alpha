@@ -153,8 +153,8 @@ class AuthorizeBody(BaseModel):
     authorization_level: str = "RECON_ONLY"
     allow_evasion: bool = False
     allow_origin_discovery: bool = False
+    opsec_stealth: bool = True  # §12.49 / GAP-026: StealthPacer default ON
     allow_subdomain_enum: bool = False
-    opsec_stealth: bool = False
     authorized_origins: list[str] | None = None  # manual override (dev/cooperative)
     verification_mode: str = (
         "cooperative"  # "cooperative" (default, SOW-based) | "dns_txt" (strict)
