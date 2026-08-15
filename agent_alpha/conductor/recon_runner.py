@@ -16,8 +16,9 @@ import logging
 import os
 import pathlib
 import socket
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 from agent_alpha.a2a import a2a_pb2
@@ -116,7 +117,7 @@ class WallVerdict:
 
     walled: bool
     blocked_hosts: tuple[str, ...]
-    reason: str
+    reason: Literal["waf_walled", "clear", "dead"]
 
 
 @dataclass(frozen=True)
@@ -138,7 +139,11 @@ def _handoff_status(msg: a2a_pb2.A2AMessage) -> int:
 
 
 def derive_wall_verdict(
-    store: EventStore, engagement_id: str, target_statuses: list[int]
+    store: EventStore,
+    engagement_id: str,
+    target_statuses: Sequence[int],
+    *,
+    after_sequence: int = 0,
 ) -> WallVerdict:
     """(#51 slice-1) Read-only engagement wall verdict. Pure aggregation over data that
     already exists — the per-target run_recon statuses (previously discarded) crossed with
@@ -146,21 +151,27 @@ def derive_wall_verdict(
     action (anti-#6; the active hunt is slice-2). Verdict = f(state), never a hardcoded
     branch (anti-#11).
 
-    WAF-walled ⟺ no target ended COMPLETE AND at least one host emitted WAF_BLOCKED. This
-    distinguishes a WAF wall from (a) a clean-but-empty site (would have >=1 COMPLETE) and
-    (b) dead/unreachable hosts (HOST_ABANDONED/EGRESS, never WAF_BLOCKED).
+    ``after_sequence`` scopes the WAF_BLOCKED scan to events emitted AFTER that sequence
+    number — i.e. the CURRENT run only. An engagement can be re-run after done/failed; a
+    prior run's WAF evidence must never combine with this sweep's statuses, or a later
+    clean/dead re-run is falsely audited ``waf_walled`` (Greptile/Aikido review).
+
+    WAF-walled ⟺ no target ended COMPLETE AND at least one host emitted WAF_BLOCKED this
+    run. This distinguishes a WAF wall from (a) a clean-but-empty site (would have >=1
+    COMPLETE) and (b) dead/unreachable hosts (HOST_ABANDONED/EGRESS, never WAF_BLOCKED).
     """
     blocked_hosts = tuple(
         sorted(
             {
                 str(e.payload.get("host", ""))
-                for e in store.get_events(engagement_id)
+                for e in store.get_events(engagement_id, after_sequence)
                 if e.event_type == EventType.WAF_BLOCKED and e.payload.get("host")
             }
         )
     )
     any_complete = any(s == a2a_pb2.COMPLETE for s in target_statuses)
     walled = (not any_complete) and bool(blocked_hosts)
+    reason: Literal["waf_walled", "clear", "dead"]
     if walled:
         reason = "waf_walled"
     elif any_complete:
@@ -170,13 +181,35 @@ def derive_wall_verdict(
     return WallVerdict(walled=walled, blocked_hosts=blocked_hosts, reason=reason)
 
 
+def _sweep_targets(
+    pipeline: ReconPipeline, engagement_id: str, targets: Sequence[str]
+) -> list[int]:
+    """Run recon on each target, returning the readable handoff statuses. A run_recon that
+    yields no handoff (a stub / contract-loose double) is SKIPPED, not fatal — the wall
+    verdict is non-critical honesty and must never crash the engagement (resilience, same
+    spirit as anti-#3 non-analyzable probes)."""
+    statuses: list[int] = []
+    for url in targets:
+        handoff_msg = pipeline.alpha.run_recon(engagement_id, url)
+        if handoff_msg is not None:
+            statuses.append(_handoff_status(handoff_msg))
+    return statuses
+
+
 def _record_wall_verdict(
-    store: EventStore, engagement_id: str, target_count: int, target_statuses: list[int]
+    store: EventStore,
+    engagement_id: str,
+    target_count: int,
+    target_statuses: Sequence[int],
+    *,
+    after_sequence: int = 0,
 ) -> WallVerdict:
     """Derive the engagement wall verdict and, when walled, append the ENGAGEMENT_WALLED
     audit event (the trigger primitive slice-2 consumes). Returns the verdict for the
     caller to thread into ReconRunResult. Detection only — no offensive action."""
-    verdict = derive_wall_verdict(store, engagement_id, target_statuses)
+    verdict = derive_wall_verdict(
+        store, engagement_id, target_statuses, after_sequence=after_sequence
+    )
     if verdict.walled:
         store.append(
             EventType.ENGAGEMENT_WALLED,
@@ -526,12 +559,16 @@ def run_recon_for_engagement(
     # #51 slice-1: capture each target's handoff status (previously discarded) so the
     # engagement-level wall verdict can be derived after the sweep — a fully WAF-walled
     # engagement must be recorded honestly, never as a silent FAILED/clean (anti-#3).
-    target_statuses: list[int] = []
-    for url in targets:
-        handoff_msg = pipeline.alpha.run_recon(engagement_id, url)
-        target_statuses.append(_handoff_status(handoff_msg))
+    # Snapshot the stream head BEFORE the sweep so the verdict scans only THIS run's
+    # WAF_BLOCKED events — a re-run must not inherit a prior run's WAF evidence.
+    prior_events = store.get_events(engagement_id)
+    run_start_seq = prior_events[-1].sequence_number if prior_events else 0
 
-    wall_verdict = _record_wall_verdict(store, engagement_id, len(targets), target_statuses)
+    target_statuses = _sweep_targets(pipeline, engagement_id, targets)
+
+    wall_verdict = _record_wall_verdict(
+        store, engagement_id, len(targets), target_statuses, after_sequence=run_start_seq
+    )
 
     report = build_engagement_report(pipeline.graph_store, store, engagement_id, style="technical")
     return ReconRunResult(

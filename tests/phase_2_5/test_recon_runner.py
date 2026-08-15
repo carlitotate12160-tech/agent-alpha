@@ -91,6 +91,23 @@ def test_dead_hosts_not_reported_as_walled() -> None:
     assert v.blocked_hosts == ()
 
 
+def test_prior_run_waf_does_not_wall_a_clean_rerun() -> None:
+    """Greptile/Aikido regression: an engagement re-run after done/failed must NOT inherit
+    a PRIOR run's WAF_BLOCKED evidence. Scoping the scan to events after the current run's
+    start seq means a later dead/clean sweep (no NEW WAF) is honestly 'dead', not walled."""
+    store = InMemoryEventStore()
+    eng = _engagement(store)
+    _waf(store, eng, _HOST_A)  # a PRIOR run hit a WAF
+    run_start = store.get_events(eng)[-1].sequence_number  # snapshot after the prior run
+
+    # Current re-run: the target went dead (FAILED) and emitted NO new WAF_BLOCKED.
+    v = derive_wall_verdict(store, eng, [a2a_pb2.FAILED], after_sequence=run_start)
+
+    assert v.walled is False
+    assert v.reason == "dead"
+    assert v.blocked_hosts == ()
+
+
 # ── wiring: the autonomous path emits ENGAGEMENT_WALLED (RUNNER-SEAL != WIRED) ─
 
 
@@ -138,3 +155,36 @@ def test_run_recon_for_engagement_emits_engagement_walled(monkeypatch: pytest.Mo
     walled = [e for e in store.get_events(eng) if e.event_type == EventType.ENGAGEMENT_WALLED]
     assert len(walled) == 1
     assert _HOST_A in walled[0].payload.get("blocked_hosts", [])
+
+
+class _NoneReturningAlpha:
+    """Fake Alpha whose run_recon returns no handoff (stub) — the sweep must survive it."""
+
+    def run_recon(self, engagement_id: str, target_url: str) -> None:
+        return None
+
+
+def test_none_handoff_does_not_crash_sweep(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Greptile P1 regression: a run_recon returning None (stub/contract-loose double) must
+    NOT crash the engagement task over the non-critical wall verdict. The sweep completes;
+    with no readable status and no WAF this run, the verdict is honestly not-walled."""
+    store = InMemoryEventStore()
+    eng = _engagement(store)
+    auth = AuthorizationStateMachine(event_store=store)
+
+    pipeline = recon_runner.ReconPipeline(
+        alpha=_NoneReturningAlpha(), graph_store=NetworkXGraphStore()
+    )
+    monkeypatch.setattr(recon_runner, "build_recon_pipeline", lambda *a, **kw: pipeline)
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [f"https://{_HOST_A}/"])
+    monkeypatch.setattr(recon_runner, "certspotter_discover", lambda *a, **kw: None)
+    monkeypatch.setattr(recon_runner, "build_passive_discovery", lambda *a, **kw: None)
+    monkeypatch.setattr(recon_runner, "hackertarget_fallback", lambda *a, **kw: None)
+    monkeypatch.setattr(recon_runner, "enrich_with_dns", lambda intel, dns: intel)
+
+    result = recon_runner.run_recon_for_engagement(
+        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=object()
+    )
+
+    assert result.wall_verdict is not None
+    assert result.wall_verdict.walled is False
