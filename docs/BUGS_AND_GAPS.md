@@ -1389,6 +1389,31 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 
 ---
 
+## GAP-156 — Candidate public IPs are token-probed before engagement IP-scope check
+- Status: OPEN (deferred; design note from Greptile PR #421). NOT an SPF-parser bug — a binding-layer
+  question that applies to ALL IP-candidate sources (SPF, OTX, VT).
+- Priority: Low/Med — only relevant to IP-SCOPED engagements (Scope.ip_ranges non-empty); domain
+  engagements authorize by domain-ownership + token-canary binding BY DESIGN (empty ip_ranges).
+- Category: RG
+- Stack: Memory
+- What: `resolve_and_bind_origin` (§12.46) probes each candidate IP with the ownership-token canary
+  (a benign `GET Host:<owned-host> <canary-path>`) gated ONLY by: CF-edge skip, internal-IP SSRF guard,
+  and the binding proof itself. It does NOT consult `authorization.is_in_scope(ip)` first. So when an SOW
+  declares explicit `ip_ranges`, an SPF/OTX/VT-declared PUBLIC IP outside those ranges receives one
+  pre-binding canary probe before any IP-scope evaluation.
+- WHY NOT fix in parse_spf_ips: that would be Lyndon #10 (wrong layer — would not cover OTX/VT) and would
+  break the DOMAIN-engagement model, where ip_ranges is empty and `is_in_scope(ip)` returns False for every
+  origin candidate (binding-as-authorization is the intended proof). A naive IP-gate there disables origin
+  discovery entirely.
+- Fix (own vertical, auth-gated): in `resolve_and_bind_origin`, when `Scope.ip_ranges` is NON-EMPTY, require
+  each candidate IP to pass `is_in_scope(ip)` OR be bound — designed like the `assert_pivot_target` co-host
+  default-DENY gate. Event-sourced + Oracle-sealed. SINGLE source protects all IP-candidate producers.
+- Residual today: the single pre-binding touch is benign (canary GET); an out-of-scope IP that does not serve
+  the owned host's canary is REJECTED (no ORIGIN_BINDING_PROVEN, no reach). Acceptable interim for domain SOWs.
+- Cross-ref: §12.46 origin binding, §12.36 capability gate, assert_pivot_target (co-host default-DENY), GAP-155.
+
+---
+
 ## GAP-017 — PassiveIntelMap Enrichment Dead-End — Consumer Not Wired
 - Status: PARTIALLY — origin_ip_candidates consumer wired; protection_detected consumer (Slice A/B/C) still OPEN
 - Priority: Medium — enrichment data written to event store but read by nobody

@@ -1239,6 +1239,15 @@ def test_parse_spf_ips_ignores_non_spf_txt() -> None:
     assert parse_spf_ips([]) == ()
 
 
+def test_parse_spf_ips_rejects_ip4_prefixed_ipv6() -> None:
+    """Malformed 'ip4:<ipv6>' parses as a v6 network despite the ip4: prefix — the version
+    guard rejects it so no un-bindable IPv6 candidate leaks through (Aikido PR #421, GAP-155)."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    ips = parse_spf_ips(["v=spf1 ip4:2001:db8::1 ip4:198.51.100.5 -all"])
+    assert ips == ("198.51.100.5",)  # ipv6 dropped, valid ip4 kept
+
+
 def test_parse_spf_ips_expands_slash28_asian_isp() -> None:
     """Asian ISP /28 allocation (16 addrs, 14 usable) is expanded — the origin often sits
     beside the mail server in the same block on shared regional infra."""
@@ -1318,6 +1327,16 @@ def test_enrich_with_mx_spf_deduplicates_reemitted_candidates() -> None:
     out = enrich_with_mx_spf(base)
     assert out.origin_ip_candidates.count("203.0.113.7") == 1  # no dup IP
     assert out.subdomains.count("mail.acme.co.id") == 1  # no dup host
+
+
+def test_mx_origin_hosts_caps_in_domain_fanout() -> None:
+    """Aikido PR #421: a pathological in-domain MX list is capped at _MX_MAX_ORIGIN_HOSTS so
+    the downstream resolve/binding fan-out cannot storm (symmetric with the SPF aggregate cap)."""
+    from agent_alpha.recon.passive_intel import _MX_MAX_ORIGIN_HOSTS, _mx_origin_hosts
+
+    mx = tuple(f"10 mx{i}.acme.co.id" for i in range(_MX_MAX_ORIGIN_HOSTS + 5))
+    out = _mx_origin_hosts(mx, "acme.co.id")
+    assert len(out) == _MX_MAX_ORIGIN_HOSTS  # capped, not all 13
 
 
 def test_mx_spf_enrichment_on_live_path(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -242,6 +242,11 @@ _SPF_MAX_CIDR_HOSTS = 16
 #: stealth pacer. Normal SPF has a handful of IPs, so this is only hit on abuse.
 _SPF_MAX_TOTAL_CANDIDATES = 32
 
+#: Symmetric cap for in-domain MX hosts (Aikido PR #421). A target publishing dozens of
+#: in-domain MX records would otherwise seed an unbounded resolve/binding storm downstream.
+#: Real mail infra has a handful of MX hosts, so this only bites on abuse/misconfig.
+_MX_MAX_ORIGIN_HOSTS = 8
+
 
 def parse_spf_ips(
     txt_records: tuple[str, ...],
@@ -279,6 +284,8 @@ def parse_spf_ips(
                 net = ipaddress.ip_network(mech.split(":", 1)[1], strict=False)
             except (ValueError, IndexError):
                 continue
+            if net.version != 4:
+                continue  # malformed "ip4:<ipv6>" parses as v6 — reject (Aikido, GAP-155)
             if net.num_addresses > max_cidr_hosts:
                 continue  # too big to bind — binding gate would not scale
             # /31 and /32 yield their address(es) from .hosts() on Python >= 3.9 (Oracle is
@@ -293,14 +300,17 @@ def parse_spf_ips(
     return tuple(out)
 
 
-def _mx_origin_hosts(mx_records: tuple[str, ...], domain: str) -> tuple[str, ...]:
-    """IN-DOMAIN MX hostnames only — plausible origin candidates on self-/shared-hosting.
+def _mx_origin_hosts(
+    mx_records: tuple[str, ...], domain: str, *, max_hosts: int = _MX_MAX_ORIGIN_HOSTS
+) -> tuple[str, ...]:
+    """IN-DOMAIN MX hostnames only, capped at *max_hosts* — origin candidates on self-hosting.
 
     Off-domain mail infra (``mx.niagahoster.com``, ``*.outlook.com``) is third-party
     infrastructure OUTSIDE the authorized SOW; feeding it to origin binding would probe a
     system we were never authorized to touch (Aikido/Greptile PR #421). In-domain is the
-    bright-line scope rule (replaces the un-exhaustible big-cloud blocklist). ``mx_records``
-    may carry a priority prefix (``"10 mail.host."``) — take the host token.
+    bright-line scope rule (replaces the un-exhaustible big-cloud blocklist). The *max_hosts*
+    cap bounds the resolve/binding fan-out (symmetric with the SPF aggregate cap — Aikido).
+    ``mx_records`` may carry a priority prefix (``"10 mail.host."``) — take the host token.
     """
     domain_norm = domain.rstrip(".").lower()
     out: list[str] = []
@@ -314,6 +324,8 @@ def _mx_origin_hosts(mx_records: tuple[str, ...], domain: str) -> tuple[str, ...
             continue  # off-domain mail infra — out of authorized scope, never probe
         seen.add(host)
         out.append(host)
+        if len(out) >= max_hosts:
+            break  # cap fan-out — no resolve/binding storm on a pathological MX list
     return tuple(out)
 
 
