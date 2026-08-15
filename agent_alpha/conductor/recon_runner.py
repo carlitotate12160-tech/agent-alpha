@@ -30,6 +30,7 @@ from agent_alpha.conductor.domain_verification import DnspythonResolver
 from agent_alpha.conductor.policy import PolicyEnforcer
 from agent_alpha.conductor.reporting import build_engagement_report
 from agent_alpha.config import constants
+from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import EventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
@@ -107,6 +108,18 @@ class ReconPipeline:
 
 
 @dataclass(frozen=True)
+class WallVerdict:
+    """(#51 slice-1) Engagement-level wall verdict — read-only, derived from state that
+    already exists (per-target handoff statuses × WAF_BLOCKED events). ``walled`` is True
+    ONLY for a total WAF wall; a clean-but-empty engagement (has >=1 COMPLETE) and dead
+    hosts (no WAF_BLOCKED) are NOT walled. ``reason`` ∈ {"waf_walled", "clear", "dead"}."""
+
+    walled: bool
+    blocked_hosts: tuple[str, ...]
+    reason: str
+
+
+@dataclass(frozen=True)
 class ReconRunResult:
     """Opaque run metadata — never findings/report body (C1.8)."""
 
@@ -114,6 +127,68 @@ class ReconRunResult:
     report: Report
     targets_scanned: int
     enumerated_hosts: tuple[str, ...] = ()
+    wall_verdict: WallVerdict | None = None
+
+
+def _handoff_status(msg: a2a_pb2.A2AMessage) -> int:
+    """Extract the PhaseStatus int from a run_recon HandoffPayload."""
+    payload = a2a_pb2.HandoffPayload()
+    payload.ParseFromString(msg.payload)
+    return payload.status
+
+
+def derive_wall_verdict(
+    store: EventStore, engagement_id: str, target_statuses: list[int]
+) -> WallVerdict:
+    """(#51 slice-1) Read-only engagement wall verdict. Pure aggregation over data that
+    already exists — the per-target run_recon statuses (previously discarded) crossed with
+    the WAF_BLOCKED events on the stream. Touches NO per-host reach code and takes NO
+    action (anti-#6; the active hunt is slice-2). Verdict = f(state), never a hardcoded
+    branch (anti-#11).
+
+    WAF-walled ⟺ no target ended COMPLETE AND at least one host emitted WAF_BLOCKED. This
+    distinguishes a WAF wall from (a) a clean-but-empty site (would have >=1 COMPLETE) and
+    (b) dead/unreachable hosts (HOST_ABANDONED/EGRESS, never WAF_BLOCKED).
+    """
+    blocked_hosts = tuple(
+        sorted(
+            {
+                str(e.payload.get("host", ""))
+                for e in store.get_events(engagement_id)
+                if e.event_type == EventType.WAF_BLOCKED and e.payload.get("host")
+            }
+        )
+    )
+    any_complete = any(s == a2a_pb2.COMPLETE for s in target_statuses)
+    walled = (not any_complete) and bool(blocked_hosts)
+    if walled:
+        reason = "waf_walled"
+    elif any_complete:
+        reason = "clear"
+    else:
+        reason = "dead"
+    return WallVerdict(walled=walled, blocked_hosts=blocked_hosts, reason=reason)
+
+
+def _record_wall_verdict(
+    store: EventStore, engagement_id: str, target_count: int, target_statuses: list[int]
+) -> WallVerdict:
+    """Derive the engagement wall verdict and, when walled, append the ENGAGEMENT_WALLED
+    audit event (the trigger primitive slice-2 consumes). Returns the verdict for the
+    caller to thread into ReconRunResult. Detection only — no offensive action."""
+    verdict = derive_wall_verdict(store, engagement_id, target_statuses)
+    if verdict.walled:
+        store.append(
+            EventType.ENGAGEMENT_WALLED,
+            engagement_id,
+            "conductor",
+            {
+                "blocked_hosts": list(verdict.blocked_hosts),
+                "target_count": target_count,
+                "reason": verdict.reason,
+            },
+        )
+    return verdict
 
 
 def build_recon_pipeline(
@@ -448,8 +523,15 @@ def run_recon_for_engagement(
         if u not in targets:
             targets.append(u)
 
+    # #51 slice-1: capture each target's handoff status (previously discarded) so the
+    # engagement-level wall verdict can be derived after the sweep — a fully WAF-walled
+    # engagement must be recorded honestly, never as a silent FAILED/clean (anti-#3).
+    target_statuses: list[int] = []
     for url in targets:
-        pipeline.alpha.run_recon(engagement_id, url)
+        handoff_msg = pipeline.alpha.run_recon(engagement_id, url)
+        target_statuses.append(_handoff_status(handoff_msg))
+
+    wall_verdict = _record_wall_verdict(store, engagement_id, len(targets), target_statuses)
 
     report = build_engagement_report(pipeline.graph_store, store, engagement_id, style="technical")
     return ReconRunResult(
@@ -457,4 +539,5 @@ def run_recon_for_engagement(
         report=report,
         targets_scanned=len(targets),
         enumerated_hosts=tuple(sorted(enumerated)),
+        wall_verdict=wall_verdict,
     )

@@ -117,6 +117,15 @@ class EventType(enum.StrEnum):
     # {host, reason, trigger}. Append-only audit parity with WAF_BLOCKED so
     # the abandonment is replayable and never silently discarded.
 
+    # ── Phase 4 (#51 slice-1 — engagement-level wall verdict) ─────
+    ENGAGEMENT_WALLED = "EngagementWalled"
+    # ^ derive_wall_verdict(): EVERY target of the engagement ended non-COMPLETE AND at
+    # least one host emitted WAF_BLOCKED — the whole engagement is behind a WAF/CDN and
+    # the per-host origin reach did not save it. Append-only audit-of-record so a walled
+    # run is NEVER reported as "clean / nothing found" (anti-#3 false-success). The honest
+    # trigger primitive a future active origin-hunt (slice-2) consumes. Carries
+    # {blocked_hosts: [...], target_count, reason}.
+
     # ── Phase 6 (governance — §12.36 signed authorization gate) ───
     OWNERSHIP_CHALLENGE_ISSUED = "OwnershipChallengeIssued"
     # ^ Conductor minted a DNS-TXT challenge token for a domain. The operator

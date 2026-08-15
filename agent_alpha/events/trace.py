@@ -45,6 +45,7 @@ _TERMINAL_OUTCOME: dict[str, str] = {
     EventType.EXPLOIT_FAILED: "failed",
     EventType.ENGAGEMENT_RUN_FAILED: "failed",
     EventType.WAF_BLOCKED: "waf_blocked",
+    EventType.ENGAGEMENT_WALLED: "engagement_walled",
     EventType.CHAIN_COMPLETE: "chain_complete",
 }
 
