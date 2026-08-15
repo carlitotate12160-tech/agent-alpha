@@ -154,7 +154,7 @@
 | 112 | Offline hash cracking tool (hashcat/john integration) | OPEN | High | SS | High | No offline crack capability; online spray risks lockout |
 | 113 | Password reset abuse (host header injection, token prediction) | OPEN | Med | SS | Med | Reset endpoint abuse to change password without knowing old password |
 | 114 | OAuth/SAML/JWT token theft and forgery | OPEN | Med | SS | High | Token-based auth bypass via open redirect, weak signing key, JWT crack |
-| 115 | Historical DNS origin discovery (SecurityTrails/DNSHistory) | OPEN | High | RG | Med | ADR §12.61 A1 — biggest missing signal; crt.sh/VT/OTX failed on full-CF targets |
+| 115 | Historical DNS & Web Archive origin discovery (Wayback/DNSHistory) | OPEN | High | RG | Med | ADR §12.61 A1 — biggest missing signal; crt.sh/VT/OTX failed on full-CF targets |
 | 116 | Authenticated crawl / post-access re-recon implementation (§12.32) | OPEN | High | RG | Med | ADR LOCKED but code NOT BUILT; 0 auth-vs-unauth diff in codebase |
 | 117 | Credential pattern mutation implementation (§12.34) | OPEN | Med | SS | Med | ADR LOCKED but CredentialPatternMutator NOT BUILT; cred_reuse literal only |
 | 118 | Proof standard oracle — auth-vs-unauth diff (§12.43) | OPEN | High | RG | Med | CredReuseAttestor is provenance check, NOT independent oracle per §12.43 |
@@ -2229,18 +2229,18 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 
 # ADR §12.61 Flank-when-CF-hard Implementation
 
-## GAP-115 — Historical DNS origin discovery (SecurityTrails/DNSHistory)
+## GAP-115 — Historical DNS & Web Archive origin discovery (Wayback/DNSHistory)
 - Status: OPEN.
 - Priority: HIGH — ADR §12.61 A1 explicitly calls this "the biggest missing signal."
 - Category: RG
 - Stack: Universal
-- What: ADR §12.61 axis A1: "Historical DNS — the A-record BEFORE CF was fronted; origin IP often unchanged. HIGHEST leverage, passive." Agent-Alpha's current origin discovery uses crt.sh/VT/OTX (certificate transparency + threat intel) — which FAILED on 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket). All 4 are full-Cloudflare apex targets where crt.sh yielded 0 origin candidates. Historical DNS (SecurityTrails, DNSHistory, DNSDB, ViewDNS) queries the A-record history BEFORE the domain was fronted by Cloudflare — the origin IP is often unchanged and still live. This is the #1 technique for origin discovery on full-CF targets, and it is completely absent.
-- Evidence: `recon/origin_resolver.py` — uses crt.sh/VT/OTX composite. No historical DNS query. `grep "securitytrails|dnshistory|dnsdb|viewdns" ` in `agent_alpha/` = 0 results. ADR §12.61: "Agent today: only crt.sh/VT/OTX — which FAILED on these targets. This is the biggest missing signal."
-- Files: `agent_alpha/recon/origin_resolver.py` — no historical DNS source; `agent_alpha/recon/passive_discovery.py` — no historical DNS; no SecurityTrails/DNSHistory client module
+- What: ADR §12.61 axis A1: "Historical DNS & Archive — the A-record / subdomains BEFORE CF was fronted; origin IP often unchanged. HIGHEST leverage, passive." Agent-Alpha's origin discovery uses crt.sh/VT/OTX/Wayback CDX. Historical subdomains feed CompositeOriginDiscovery to resolve to origin IP candidates and verify two-proof binding (§12.46).
+- Evidence: `recon/osint_sources.py`, `recon/passive_intel.py`, `conductor/recon_runner.py`.
+- Files: `agent_alpha/recon/osint_sources.py`, `agent_alpha/recon/passive_intel.py`, `agent_alpha/conductor/recon_runner.py`, `agent_alpha/conductor/main.py`.
 - Cross-ref: ADR §12.61 A1 (HIGHEST leverage per ADR), GAP-042 (origin binding — historical IP needs two-proof binding), GAP-062 (MX/SPF — axis A2 complement), GAP-093 (cert SAN — axis A3 complement), GAP-086 (favicon hash — axis A3 complement), GAP-075 (subdomain takeover — axis A4/B8 complement). niagamas.com + bernofarm.com field-prove: both full-CF, crt.sh failed, historical DNS is the missing technique.
-- Impact: 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket) are full-CF apex where origin discovery FAILED. Without historical DNS, Agent-Alpha cannot find the origin and cannot flank. The entire §12.61 axis A is blocked at the first step. This is the single highest-leverage GAP for the full-CF target class.
-- Effort: MED (SecurityTrails API client + DNSHistory/ViewDNS fallback + historical A-record extraction + origin candidate emission. ~150 lines. Needs SecurityTrails API key (free tier: 50 queries/month, paid: $50/month for 5000). Fallback: ViewDNS.info free API (1 query/minute, no key). Must compose with existing two-proof origin binding (§12.46) — historical IP is a CANDIDATE, not a proven origin).
-- Constraint: Historical IP is a CANDIDATE only — must pass two-proof binding (domain ownership + origin binding, §12.46) before Beta can strike. Passive, 0 target touch (query external DNS history API, not target). SecurityTrails free tier sufficient for low-volume engagements. Open question (ADR §12.61): external API dependency/cost policy — keyless fallback (ViewDNS) + budget tracking.
+- Impact: 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket) are full-CF apex where origin discovery FAILED.
+- Effort: MED.
+- Constraint: Historical IP is a CANDIDATE only — must pass two-proof binding (domain ownership + origin binding, §12.46) before Beta can strike. Passive, 0 target touch.
 
 ---
 

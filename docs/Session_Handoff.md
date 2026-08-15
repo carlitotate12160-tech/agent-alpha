@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-15, Bug #34 & Bug #35 Tier-1 Validated)
+# Agent-Alpha — Session Handoff (2026-08-15, GAP-051 & GAP-115 Slice 1 Tier-1 Validated)
 
-Resume with: "lanjut Agent-Alpha — Bug #34 Engagement-Scoped State Reset (Tier-1 Validated) + Bug #35 LLM Orientation Budget & Retry Resilience (#417, Tier-1 Validated) + GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — GAP-115 Slice 1 (Wayback CDX Historical Recon, #420, Tier-1 Validated) + GAP-051 Slice 1 (Engagement-Level Wall Verdict / #419) + Bug #34 Engagement-Scoped State Reset (Tier-1 Validated) + Bug #35 LLM Orientation Budget & Retry Resilience (#417, Tier-1 Validated) + GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 MX/SPF origin discovery (GAP-062) OR GAP-051 Slice 2 Active Origin Hunt. Do NOT build Gamma."
 
 ---
 
@@ -18,6 +18,8 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **GAP-115: Keyless Wayback CDX Historical Recon (Slice 1)** | **PR #420, Tier-1 Validated** | Keyless `WaybackClient` queries `web.archive.org/cdx/search/cdx` API (HTTPS) to extract in-domain historical subdomains (for `CompositeOriginDiscovery` origin resolution) + historical URL paths. Additive `enrich_with_wayback` with per-row parsing error resilience. 52/52 PASS, 100% green CI. |
+| **GAP-051: Engagement-Level Wall Verdict (Slice 1)** | **MERGED #419, Tier-1 Validated** | Conductor sweep records `WallVerdict` with `reason: Literal["waf_walled", "clear", "dead"]` scoped to stream head (`run_start_seq`) after target sweep. Emits `ENGAGEMENT_WALLED` audit event when all targets encounter WAF blocks. 10/10 PASS, 100% green CI across all checks. |
 | **Bug #34: Engagement-Scoped State Reset** | **Tier-1 Validated** | Fixed deduplication and health state (probed URLs, dead/reachable hosts) to persist across sibling targets within the same engagement while keeping content-keyed and egress state target-scoped. State resets on a new engagement ID. 7/7 PASS. |
 | **Bug #35: LLM Orientation Budget & Retry Resilience** | **MERGED #417, Tier-1 Validated** | Right-sized orientation token budget (2048 primary, 4096 retry) for reasoning models (DeepSeek-v4-pro). Added one-shot retry resilience on `CompletionTruncatedError` (including non-empty truncated text) with accurate cost aggregation (`prior_cost`) and double-truncation fallback. 6/6 PASS, 100% green CI. |
 | **GAP-074 Odoo JSON-RPC Fallback (Slice 2c)** | **MERGED #416, Tier-1 PROVEN** | OdooAccessTool now implements transport fallback (GAP-067). WAF/CDN blocked XML-RPC endpoints automatically fall back to web JSON-RPC login. Resolves CI, SAST (Aikido/GitGuardian), and formatting issues. 29/29 PASS. |

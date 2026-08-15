@@ -472,6 +472,10 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         # enrichment skipped). VT finds origin IPs + grey-cloud subdomains that
         # crt.sh/OTX miss.
         task_vt = recon_runner.build_virustotal_client(engagement_id)
+        # §12.61: keyless Wayback CDX source — historical subdomains (→ origin candidates
+        # via CompositeOriginDiscovery) + historical paths. ALWAYS on (no key needed);
+        # the client fail-opens on any network error.
+        task_wayback = recon_runner.build_wayback_client(engagement_id)
 
         run_result = recon_runner.run_recon_for_engagement(
             engagement_id,
@@ -488,6 +492,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             browser_solve_viable=task_browser_solve_viable,
             otx_client=task_otx,
             vt_client=task_vt,
+            wayback_client=task_wayback,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report

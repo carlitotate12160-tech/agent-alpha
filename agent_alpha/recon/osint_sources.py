@@ -351,3 +351,91 @@ class VirusTotalClient:
         resols = self._get(VT_RESOLUTIONS_URL_TEMPLATE.format(domain=domain))
         subs = self._get(VT_SUBDOMAINS_URL_TEMPLATE.format(domain=domain))
         return tuple(parse_vt_origin_ips(resols)), tuple(parse_vt_subdomains(subs, domain))
+
+
+# ── §12.61: Wayback CDX historical-URL source (KEYLESS) ───────────────────────
+#
+# web.archive.org CDX → historical SUBDOMAINS (a pre-CF subdomain often still resolves
+# to the origin IP directly = CF bypass) + historical PATHS (probe-steering breadth).
+# Keyless → ALWAYS available (unlike OTX/VT). Fail-open. INDIRECT for the origin IP
+# (subdomain → resolve, done by CompositeOriginDiscovery); the DIRECT origin-IP source
+# is MX/SPF (next slice).
+
+WAYBACK_CDX_URL_TEMPLATE = (
+    "https://web.archive.org/cdx/search/cdx"
+    "?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit={limit}"
+)
+WAYBACK_CDX_LIMIT = 2000
+
+
+def parse_wayback_cdx(text: str, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Parse a Wayback CDX ``output=json`` response → (historical subdomains, paths).
+
+    CDX json is a list-of-lists; the first row is the ``["original"]`` header. Each data
+    row's first element is the archived URL. Extracted: the hostname if it is *domain* or
+    a dot-boundary subdomain of it (same scope guard as CompositeOriginDiscovery —
+    cross-domain hosts dropped), deduped; and the URL path (non-root), deduped.
+
+    Fail-open: malformed JSON / rows → empties, never raises. A returned host is a
+    CANDIDATE, never authorization — the token-canary binding gate confirms it downstream.
+    """
+    try:
+        rows = json.loads(text)
+    except (ValueError, TypeError):
+        return (), ()
+    if not isinstance(rows, list):
+        return (), ()
+    domain_norm = domain.rstrip(".").lower()
+    subs: list[str] = []
+    seen_subs: set[str] = set()
+    paths: list[str] = []
+    seen_paths: set[str] = set()
+    for row in rows:
+        if not isinstance(row, list) or not row:
+            continue
+        original = str(row[0])
+        if original == "original":  # CDX header row
+            continue
+        # Per-row guard (CodeRabbit): one malformed archived URL (e.g. a bad IPv6 literal
+        # → urlparse ValueError) must NOT discard the good rows — skip it, keep parsing.
+        try:
+            parsed = urlparse(original if "://" in original else f"http://{original}")
+            host = (parsed.hostname or "").rstrip(".").lower()
+            path = parsed.path
+        except ValueError:
+            continue
+        # Scope guard: only in-domain hosts contribute (host AND path) — a cross-domain
+        # archived URL is not this domain's origin candidate or historical path.
+        if not (host and (host == domain_norm or host.endswith("." + domain_norm))):
+            continue
+        if host not in seen_subs:
+            seen_subs.add(host)
+            subs.append(host)
+        if path and path != "/" and path not in seen_paths:
+            seen_paths.add(path)
+            paths.append(path)
+    return tuple(subs), tuple(paths)
+
+
+class WaybackClient:
+    """Keyless Wayback CDX source seam → historical subdomains + paths.
+
+    Fail-open: any transport/parse error yields empties, never raises. Keyless (no API
+    key) so it is ALWAYS constructed at the Conductor entry — unlike OTX/VT. Uses the
+    same stealth HttpClient as recon (anti self-identifying UA)."""
+
+    def __init__(self, http_client: Any) -> None:
+        self._http = http_client
+
+    def _get(self, url: str) -> str:
+        try:
+            resp = self._http.get(url)
+        except Exception:  # noqa: BLE001 — OSINT boundary; any error = no data (fail-open)
+            _log.warning("Wayback CDX fetch failed for %s — fail-open", url, exc_info=True)
+            return ""
+        return getattr(resp, "text", "") or ""
+
+    def subdomains_and_paths(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        """Return (historical_subdomains, historical_paths) for *domain*. Fail-open."""
+        text = self._get(WAYBACK_CDX_URL_TEMPLATE.format(domain=domain, limit=WAYBACK_CDX_LIMIT))
+        return parse_wayback_cdx(text, domain)

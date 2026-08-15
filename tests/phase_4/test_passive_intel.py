@@ -28,10 +28,12 @@ from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 from agent_alpha.llm.orchestrator import LLMOrchestrator
+from agent_alpha.recon.osint_sources import parse_wayback_cdx
 from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscoveryResult
 from agent_alpha.recon.passive_intel import (
     PassiveIntelMap,
     build_passive_intel_map,
+    enrich_with_wayback,
     record_passive_intel,
 )
 from agent_alpha.tools.playbook import PlaybookEngine
@@ -1019,6 +1021,7 @@ def test_enrich_with_virustotal_unions_ips_and_subs() -> None:
     )
     # Simulate OTX already filled origin_ip_candidates
     from agent_alpha.recon.passive_intel import enrich_with_otx
+
     otx_filled = enrich_with_otx(base, _StubOtx(("45.33.32.156",), ("/wp-login.php",)))
     # VT adds a NEW IP + a NEW subdomain
     out = enrich_with_virustotal(otx_filled, _StubVt(("157.230.37.62",), ("qs.ex.com",)))
@@ -1036,9 +1039,7 @@ def test_enrich_with_virustotal_unions_ips_and_subs() -> None:
 
 
 def test_enrich_with_virustotal_dedupes_existing_ips() -> None:
-    base = build_passive_intel_map(
-        PassiveDiscoveryResult("ex.com", ("ex.com",), ("ex.com",), ())
-    )
+    base = build_passive_intel_map(PassiveDiscoveryResult("ex.com", ("ex.com",), ("ex.com",), ()))
     otx_filled = enrich_with_otx(base, _StubOtx(("157.230.37.62",), ()))
     # VT returns the SAME IP — must not duplicate
     out = enrich_with_virustotal(otx_filled, _StubVt(("157.230.37.62",), ()))
@@ -1093,6 +1094,136 @@ def test_vt_enrichment_on_live_path_via_injected_client(monkeypatch: pytest.Monk
     assert "157.230.37.62" in payload["origin_ip_candidates"]
     assert any("qs." in s for s in payload["subdomains"])
     assert "virustotal" in payload["sources_used"]
+
+
+# ── §12.61: Wayback CDX historical source (subdomains → origin candidates + paths) ──
+
+
+def test_parse_wayback_cdx_extracts_domain_hosts_and_paths() -> None:
+    """CDX JSON → in-domain historical hostnames + non-root paths; header row skipped,
+    cross-domain host dropped (scope guard mirrors CompositeOriginDiscovery)."""
+    cdx = (
+        '[["original"],'
+        '["http://origin.acme.com/old-admin"],'
+        '["https://acme.com/login"],'
+        '["http://cdn.evil-other.com/x"]]'
+    )
+    subs, paths = parse_wayback_cdx(cdx, "acme.com")
+    assert set(subs) == {"origin.acme.com", "acme.com"}
+    assert "cdn.evil-other.com" not in subs
+    assert set(paths) == {"/old-admin", "/login"}
+
+
+def test_parse_wayback_cdx_fail_open_on_garbage() -> None:
+    assert parse_wayback_cdx("not json", "acme.com") == ((), ())
+    assert parse_wayback_cdx("", "acme.com") == ((), ())
+    assert parse_wayback_cdx("{}", "acme.com") == ((), ())
+
+
+def test_parse_wayback_cdx_skips_malformed_row_keeps_good() -> None:
+    """CodeRabbit: one malformed archived URL (bad IPv6 literal → urlparse ValueError)
+    must be skipped, NOT discard the good rows."""
+    cdx = (
+        '[["original"],'
+        '["http://good.acme.com/a"],'
+        '["http://[1:2:3:4/oops"],'
+        '["https://acme.com/b"]]'
+    )
+    subs, paths = parse_wayback_cdx(cdx, "acme.com")
+    assert "good.acme.com" in subs
+    assert "acme.com" in subs
+    assert "/a" in paths and "/b" in paths
+
+
+def test_wayback_cdx_url_is_https() -> None:
+    """Aikido/CodeRabbit/Sourcery consensus: the CDX endpoint must be HTTPS, not plaintext."""
+    from agent_alpha.recon.osint_sources import WAYBACK_CDX_URL_TEMPLATE
+
+    assert WAYBACK_CDX_URL_TEMPLATE.startswith("https://")
+
+
+class _StubWayback:
+    def __init__(self, subs: tuple[str, ...], paths: tuple[str, ...]) -> None:
+        self._subs = tuple(subs)
+        self._paths = tuple(paths)
+
+    def subdomains_and_paths(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        return self._subs, self._paths
+
+
+def test_enrich_with_wayback_unions_and_preserves_other_fields() -> None:
+    """ADDITIVE: historical subdomains + paths unioned+deduped; every other field
+    (incl. origin_ip_candidates, in_scope_subdomains) untouched."""
+    base = PassiveIntelMap(
+        domain="acme.com",
+        subdomains=("www.acme.com",),
+        in_scope_subdomains=("www.acme.com",),
+        origin_ip_candidates=("1.2.3.4",),
+        historical_paths=("/from-otx",),
+    )
+    out = enrich_with_wayback(base, _StubWayback(("origin.acme.com", "www.acme.com"), ("/wb",)))
+    assert out.subdomains == ("www.acme.com", "origin.acme.com")  # unioned, deduped, order kept
+    assert out.historical_paths == ("/from-otx", "/wb")
+    assert out.origin_ip_candidates == ("1.2.3.4",)  # additive — untouched
+    assert out.in_scope_subdomains == ("www.acme.com",)
+
+
+def test_enrich_with_wayback_fail_open_when_source_raises() -> None:
+    class _Boom:
+        def subdomains_and_paths(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+            raise RuntimeError("wayback down")
+
+    base = PassiveIntelMap(domain="acme.com", subdomains=("www.acme.com",), in_scope_subdomains=())
+    out = enrich_with_wayback(base, _Boom())
+    assert out.subdomains == ("www.acme.com",)  # unchanged; never raises
+
+
+def test_wayback_enrichment_on_live_path_via_injected_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§12.61 WIRED-PROOF (RUNNER-SEAL != WIRED): run_recon_for_engagement, given an
+    injected Wayback client, records the historical subdomain (→ origin candidate via
+    CompositeOriginDiscovery) + historical path + 'wayback' in sources_used on the live
+    event — enrich_with_wayback runs on the autonomous path, not an island (anti-#2)."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    graph = NetworkXGraphStore()
+    crt = _CrtShClient()
+    monkeypatch.setattr(
+        recon_runner, "build_recon_pipeline", lambda *a, **k: _fake_pipeline(auth, graph, store)
+    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
+    )
+    monkeypatch.setattr(
+        recon_runner,
+        "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+    )
+    monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient())
+
+    wb = _StubWayback(("origin." + _ROOT,), ("/legacy-admin",))
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
+        wayback_client=wb,
+    )
+
+    payload = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ][0].payload
+    assert "origin." + _ROOT in payload["subdomains"]
+    assert "/legacy-admin" in payload["historical_paths"]
+    assert "wayback" in payload["sources_used"]
 
 
 # ══════════════════════════════════════════════════════════════════════

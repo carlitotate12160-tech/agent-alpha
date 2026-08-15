@@ -42,11 +42,13 @@ from agent_alpha.recon.passive_intel import (
     OTXSource,
     PassiveDNSResolver,
     VirusTotalSource,
+    WaybackSource,
     build_passive_intel_map,
     certspotter_discover,
     enrich_with_dns,
     enrich_with_otx,
     enrich_with_virustotal,
+    enrich_with_wayback,
     hackertarget_fallback,
     record_passive_intel,
 )
@@ -372,6 +374,16 @@ def build_virustotal_client(engagement_id: str) -> VirusTotalSource | None:
     return VirusTotalClient(HttpClient(engagement_id=engagement_id), key)
 
 
+def build_wayback_client(engagement_id: str) -> WaybackSource:
+    """Build the keyless Wayback CDX source. §12.61: unlike OTX/VT (key-gated → may be
+    None), Wayback needs NO key, so it is ALWAYS available. Uses the stealth HttpClient
+    (anti self-identifying UA); the client itself fail-opens on any network error."""
+    from agent_alpha.agents.http_client import HttpClient
+    from agent_alpha.recon.osint_sources import WaybackClient
+
+    return WaybackClient(HttpClient(engagement_id=engagement_id))
+
+
 def build_osint_http_client(engagement_id: str) -> Any:
     """Module seam (monkeypatchable) for the OSINT-source HTTP client used by
     the §12.48 slice-2 keyless fallback. Same stealth ``HttpClient`` as recon
@@ -402,6 +414,7 @@ def run_recon_for_engagement(
     dns_resolver: PassiveDNSResolver | None = None,
     otx_client: OTXSource | None = None,
     vt_client: VirusTotalSource | None = None,
+    wayback_client: WaybackSource | None = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -544,6 +557,13 @@ def run_recon_for_engagement(
                             continue
                         if auth.is_in_scope(engagement_id, sub_norm):
                             discovered_in_scope.add(sub_norm)
+                # §12.61: Wayback historical subdomains → ORIGIN CANDIDATES (via
+                # CompositeOriginDiscovery) + historical paths → breadth. Placed AFTER the
+                # VT subdomain→target promotion so historical (often defunct) subdomains
+                # feed origin candidates ONLY, never new scan targets. Keyless → always on.
+                if wayback_client is not None:
+                    intel = enrich_with_wayback(intel, wayback_client)
+                    intel_sources = (*intel_sources, "wayback")
             else:
                 intel_sources = sources_used
             record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)
