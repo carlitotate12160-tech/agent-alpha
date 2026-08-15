@@ -165,3 +165,76 @@ def test_empty_target_is_failure_not_silent_success(alpha_factory, recon_engagem
     handoff = _handoff(msg)
     assert handoff.status == a2a_pb2.FAILED
     assert handoff.findings_count == 0
+
+
+# ── Bug #34: engagement-scoped state persists across targets, resets per engagement ──
+#
+# On the autonomous path (conductor/recon_runner.run_recon_for_engagement) ONE Alpha
+# instance scans EVERY target of an engagement in sequence — `for url in targets:
+# pipeline.alpha.run_recon(engagement_id, url)`. Dedup/health state that is scoped to
+# the whole engagement (already-probed URLs, dead hosts, an egress that was found
+# blocked, duplicate-body hashes) MUST survive across those targets. Wiping it every
+# call made the agent re-probe a blocked egress and re-analyse the same WAF wall on
+# every sibling target — burns HTTP + LLM tokens, never converges. It must still RESET
+# when a genuinely new engagement (fresh engagement_id) begins (no cross-engagement leak).
+
+
+def test_engagement_scoped_state_persists_across_targets(
+    alpha_factory, recon_engagement, http_client, hardened_target_url
+):
+    """Bug #34 CARDINAL: two targets in the SAME engagement on a reused Alpha — the
+    engagement's learned dedup/health state carries over to the second target instead of
+    being wiped (the old behaviour = re-probe a blocked egress / re-analyse the same
+    wall on every sibling → thrash)."""
+    auth, engagement_id = recon_engagement
+    agent, _ = alpha_factory(auth, http_client)
+
+    # First target of the engagement.
+    agent.run_recon(engagement_id, hardened_target_url)
+
+    # What the FIRST target learned that the engagement as a whole must remember:
+    # a URL already probed, a host proven dead, the same-wall body hash, and — the
+    # cardinal one — that the egress IP is blocked.
+    agent._probed.add("https://hardened.invalid/_sentinel_probed")
+    agent._dead_hosts.add("dead.invalid")
+    agent._body_hashes.add("sentinel-body-hash")
+    agent._egress_blocked = True
+    agent._consecutive_transport_fail = 3
+
+    # Second target, SAME engagement, SAME reused instance.
+    agent.run_recon(engagement_id, hardened_target_url)
+
+    assert "https://hardened.invalid/_sentinel_probed" in agent._probed
+    assert "dead.invalid" in agent._dead_hosts
+    assert "sentinel-body-hash" in agent._body_hashes
+    assert agent._egress_blocked is True
+    assert agent._consecutive_transport_fail == 3
+
+
+def test_new_engagement_id_resets_engagement_state(
+    alpha_factory, recon_engagement, http_client, hardened_target_url
+):
+    """Bug #34 boundary: a genuinely NEW engagement (fresh engagement_id) on a reused
+    Alpha MUST wipe the prior engagement's dedup/health state — otherwise stale
+    'egress blocked' / 'already probed' from engagement A silently starves engagement B
+    (cross-engagement leak, the opposite failure)."""
+    from agent_alpha.conductor.authorization import Scope
+
+    auth, eng1 = recon_engagement
+    agent, _ = alpha_factory(auth, http_client)
+
+    agent.run_recon(eng1, hardened_target_url)
+    agent._probed.add("https://hardened.invalid/_stale_from_eng1")
+    agent._egress_blocked = True
+
+    # A SECOND engagement on the same reused Alpha, scoped to the same host.
+    rec2 = auth.create_engagement(client_id="client_lab2", target="hardened.invalid")
+    auth.enable_recon(
+        rec2.engagement_id,
+        Scope(ip_ranges=["10.0.0.0/30"], domains=["hardened.invalid"], exclusions=[]),
+    )
+
+    agent.run_recon(rec2.engagement_id, hardened_target_url)
+
+    assert "https://hardened.invalid/_stale_from_eng1" not in agent._probed
+    assert agent._egress_blocked is False

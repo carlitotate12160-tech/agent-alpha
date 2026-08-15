@@ -235,29 +235,16 @@ class Alpha:
                 confidence=0.0,
             )
 
-        # ── Initialise per-run state ────────────────────────────
-        self._engagement_id = engagement_id
-        self._work_queue = [target_url]
-        self._probed = set()
-        self._findings = 0
-        self._seo_analyzed_hosts = set()
-        self._analyzable_probes = 0
-        self._ran_campaigns = set()
-        self._body_hashes = set()
-        self._soft404_sig = {}
-        self._soft404_calibrated = set()
-        self._current_objective = None
-        self._try_harder_fired = False
-        self._reach_attempted = set()
-        self._reach_class = {}
-        self._reach_body_cache = {}
-        self._bound_origin = {}
-        self._host_stack = {}
-        self._organic_crawl_count = {}
-        self._dead_hosts = set()
-        self._host_ok = set()
-        self._consecutive_transport_fail = 0
-        self._egress_blocked = False
+        # ── Initialise state (Bug #34) ──────────────────────────
+        # Engagement-scoped dedup/health state persists across every target of the SAME
+        # engagement — the autonomous path (recon_runner.run_recon_for_engagement) reuses
+        # ONE Alpha for `for url in targets: run_recon(...)`. Wiping it per target made the
+        # agent re-probe a blocked egress and re-analyse the same WAF wall on every sibling
+        # (burns HTTP + LLM tokens, never converges). Reset it ONLY when a genuinely new
+        # engagement begins; per-target state always resets.
+        if engagement_id != self._engagement_id:
+            self._reset_engagement_state()
+        self._reset_target_state(engagement_id, target_url)
 
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
@@ -324,6 +311,44 @@ class Alpha:
             findings_count=self._findings,
             confidence=confidence,
         )
+
+    # ── State lifetimes (Bug #34) ───────────────────────────────
+
+    def _reset_engagement_state(self) -> None:
+        """Dedup/health state scoped to the WHOLE engagement — reset ONLY on a new
+        engagement, never per target (Bug #34). Persisting within an engagement is
+        correct: a GET is deterministic (an already-probed URL / duplicate body never
+        needs re-fetching), a dead host stays dead, and an egress IP found blocked stays
+        blocked — re-attempting any of these on the next sibling target is pure waste
+        that also worsens the WAF/CDN block."""
+        self._probed = set()
+        self._body_hashes = set()
+        self._dead_hosts = set()
+        self._host_ok = set()
+        self._consecutive_transport_fail = 0
+        self._egress_blocked = False
+
+    def _reset_target_state(self, engagement_id: str, target_url: str) -> None:
+        """State scoped to ONE target/seed — reset on every run_recon call. The work
+        queue is re-seeded with target_url; per-host fingerprint / soft-404 / reach
+        caches start empty for each target (reusing those across sibling targets is a
+        separate efficiency refinement — tracked, NOT folded into this convergence fix)."""
+        self._engagement_id = engagement_id
+        self._work_queue = [target_url]
+        self._findings = 0
+        self._seo_analyzed_hosts = set()
+        self._analyzable_probes = 0
+        self._ran_campaigns = set()
+        self._soft404_sig = {}
+        self._soft404_calibrated = set()
+        self._current_objective = None
+        self._try_harder_fired = False
+        self._reach_attempted = set()
+        self._reach_class = {}
+        self._reach_body_cache = {}
+        self._bound_origin = {}
+        self._host_stack = {}
+        self._organic_crawl_count = {}
 
     # ── Cognitive-loop step ─────────────────────────────────────
 

@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-14, Bug #35 LLM Orientation Budget & Retry Resilience CLOSED)
+# Agent-Alpha — Session Handoff (2026-08-15, Bug #34 Engagement-Scoped State Reset & Bug #35 CLOSED)
 
-Resume with: "lanjut Agent-Alpha — Bug #35 LLM Orientation Budget & Retry Resilience (#417) + GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — Bug #34 Engagement-Scoped State Reset (Verified) + Bug #35 LLM Orientation Budget & Retry Resilience (#417) + GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma."
 
 ---
 
@@ -18,6 +18,7 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **Bug #34: Engagement-Scoped State Reset** | **FIX VERIFIED, Tier-1 PROVEN** | Fixed deduplication and health state (probed URLs, dead hosts, blocked egress) to persist correctly across sibling targets within the same engagement. State only resets on a new engagement ID, preventing WAF thrashing and token burn on recon sequences. 7/7 PASS. |
 | **Bug #35: LLM Orientation Budget & Retry Resilience** | **MERGED #417, Tier-1 PROVEN** | Right-sized orientation token budget (2048 primary, 4096 retry) for reasoning models (DeepSeek-v4-pro). Added one-shot retry resilience on `CompletionTruncatedError` (including non-empty truncated text) with accurate cost aggregation (`prior_cost`) and double-truncation fallback. 6/6 PASS, 100% green CI. |
 | **GAP-074 Odoo JSON-RPC Fallback (Slice 2c)** | **MERGED #416, Tier-1 PROVEN** | OdooAccessTool now implements transport fallback (GAP-067). WAF/CDN blocked XML-RPC endpoints automatically fall back to web JSON-RPC login. Resolves CI, SAST (Aikido/GitGuardian), and formatting issues. 29/29 PASS. |
 | **Auth Path Test Environment Isolation** | **MERGED #415, Tier-1 PROVEN** | Isolated `AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION` in `test_conductor_auth_path.py` fixture: prevents `.env` environment variables from leaking into domain verification tests. 10/10 PASS, 100% green CI. |
