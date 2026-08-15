@@ -212,6 +212,153 @@ def enrich_with_dns(intel: PassiveIntelMap, resolver: PassiveDNSResolver) -> Pas
     )
 
 
+# ── §12.61 A2: MX/SPF → origin candidates (pure consumer of enrich_with_dns data) ──
+#
+# The target's OWN records are strong origin hints: an IN-DOMAIN mail host (mail.target.com)
+# frequently resolves to the web origin on self-/shared-hosting, and SPF ip4 literals declare
+# the target's own sending IPs. SE-Asia shared hosting (cPanel/Plesk) co-locates web + mail
+# on ONE IP and declares the origin's small subnet (/29) in SPF — high-value locally.
+#
+# SCOPE BOUNDARY (Aikido/Greptile PR #421): off-domain mail infra (mx.niagahoster.com,
+# *.outlook.com) is THIRD-PARTY infrastructure OUTSIDE the authorized SOW. Feeding it to
+# CompositeOriginDiscovery would make resolve_and_bind_origin (§12.46) send an ownership-token
+# canary probe to a system we were never authorized to touch. So MX candidates are restricted
+# to IN-DOMAIN ONLY — a bright-line scope rule that REPLACES the un-exhaustible big-cloud
+# blocklist (deleted: in-domain filtering already excludes every off-domain provider, so the
+# blocklist became dead code — Lyndon #2). SPF ip4 stays: those IPs are declared BY the target.
+#
+# PRODUCER ONLY — every derived IP/host is a CANDIDATE, still proven by token-canary binding
+# (§12.46) before any reach. Zero new I/O: reads mx_records/txt_records already fetched by
+# enrich_with_dns.
+
+#: SPF ip4/ip6 CIDRs with <= this many addresses are EXPANDED to individual candidate IPs
+#: (a /28 = 16). Asian ISPs commonly allocate a /29 or /28 and co-locate web + mail in it,
+#: so the origin often sits 1-2 IPs beside the mail server. Larger blocks (/27 and up) are
+#: dropped — too many to token-bind, and the binding gate is the real filter anyway.
+_SPF_MAX_CIDR_HOSTS = 16
+
+#: Aggregate defence cap: total SPF-derived candidates per domain. A pathological SPF with
+#: many /28 blocks (5 × 14 = 70) would otherwise trigger a probe storm that wrecks the
+#: stealth pacer. Normal SPF has a handful of IPs, so this is only hit on abuse.
+_SPF_MAX_TOTAL_CANDIDATES = 32
+
+#: Symmetric cap for in-domain MX hosts (Aikido PR #421). A target publishing dozens of
+#: in-domain MX records would otherwise seed an unbounded resolve/binding storm downstream.
+#: Real mail infra has a handful of MX hosts, so this only bites on abuse/misconfig.
+_MX_MAX_ORIGIN_HOSTS = 8
+
+
+def parse_spf_ips(
+    txt_records: tuple[str, ...],
+    *,
+    max_cidr_hosts: int = _SPF_MAX_CIDR_HOSTS,
+    max_total: int = _SPF_MAX_TOTAL_CANDIDATES,
+) -> tuple[str, ...]:
+    """Extract SPF-declared origin-candidate IPs from TXT records (§12.61 A2).
+
+    A record is SPF only when its FIRST token is EXACTLY ``v=spf1`` — ``v=spf1evil`` and other
+    malformed prefixes are rejected (Aikido PR #421). From each SPF record take every
+    ``ip4:`` mechanism whose qualifier is PASS (bare or ``+``); ``-`` (fail), ``~`` (softfail)
+    and ``?`` (neutral) DISAVOW the sender — the target says "NOT my origin" — so those IPs are
+    NOT promoted (Aikido). SMALL CIDRs (<= *max_cidr_hosts* addresses, i.e. /28) are expanded;
+    larger ranges dropped. Total bounded by *max_total* (anti probe-storm). ``ip6:`` is dropped:
+    the reach transport does not yet bracket IPv6 literals in the probe URL, so an ip6 candidate
+    cannot bind (GAP-155) — ip4 only until that lands. Pure, fail-open: malformed tokens skipped,
+    never raises. Order-preserving dedup. A returned IP is a CANDIDATE, confirmed by binding.
+    """
+    import ipaddress
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for txt in txt_records:
+        parts = txt.strip().split()
+        if not parts or parts[0].lower() != "v=spf1":
+            continue
+        for token in parts[1:]:
+            if token[:1] in ("-", "~", "?"):
+                continue  # disavowed sender (fail/softfail/neutral) — never an origin
+            mech = token.lstrip("+")
+            if not mech.lower().startswith("ip4:"):
+                continue  # ip6 dropped (GAP-155: transport lacks IPv6 URL bracketing)
+            try:
+                net = ipaddress.ip_network(mech.split(":", 1)[1], strict=False)
+            except (ValueError, IndexError):
+                continue
+            if net.version != 4:
+                continue  # malformed "ip4:<ipv6>" parses as v6 — reject (Aikido, GAP-155)
+            if net.num_addresses > max_cidr_hosts:
+                continue  # too big to bind — binding gate would not scale
+            # /31 and /32 yield their address(es) from .hosts() on Python >= 3.9 (Oracle is
+            # 3.12.13), so the common single-ip4 SPF case is extracted correctly.
+            for ip in net.hosts():
+                s = str(ip)
+                if s not in seen:
+                    seen.add(s)
+                    out.append(s)
+                    if len(out) >= max_total:
+                        return tuple(out)  # aggregate cap — no probe storm
+    return tuple(out)
+
+
+def _mx_origin_hosts(
+    mx_records: tuple[str, ...], domain: str, *, max_hosts: int = _MX_MAX_ORIGIN_HOSTS
+) -> tuple[str, ...]:
+    """IN-DOMAIN MX hostnames only, capped at *max_hosts* — origin candidates on self-hosting.
+
+    Off-domain mail infra (``mx.niagahoster.com``, ``*.outlook.com``) is third-party
+    infrastructure OUTSIDE the authorized SOW; feeding it to origin binding would probe a
+    system we were never authorized to touch (Aikido/Greptile PR #421). In-domain is the
+    bright-line scope rule (replaces the un-exhaustible big-cloud blocklist). The *max_hosts*
+    cap bounds the resolve/binding fan-out (symmetric with the SPF aggregate cap — Aikido).
+    ``mx_records`` may carry a priority prefix (``"10 mail.host."``) — take the host token.
+    """
+    domain_norm = domain.rstrip(".").lower()
+    out: list[str] = []
+    seen: set[str] = set()
+    for mx in mx_records:
+        parts = mx.strip().split()
+        host = parts[-1].rstrip(".").lower() if parts else ""
+        if not host or host in seen:
+            continue
+        if host != domain_norm and not host.endswith("." + domain_norm):
+            continue  # off-domain mail infra — out of authorized scope, never probe
+        seen.add(host)
+        out.append(host)
+        if len(out) >= max_hosts:
+            break  # cap fan-out — no resolve/binding storm on a pathological MX list
+    return tuple(out)
+
+
+def enrich_with_mx_spf(intel: PassiveIntelMap) -> PassiveIntelMap:
+    """(§12.61 A2) Derive origin candidates from ALREADY-collected MX + SPF — ZERO new I/O.
+
+    SPF ip4 PASS-qualified (small CIDRs expanded) → ``origin_ip_candidates`` (direct IPs).
+    IN-DOMAIN MX hostnames → ``subdomains`` (CompositeOriginDiscovery resolves them; a
+    shared-hosting in-domain mail host resolves to the web origin). ADDITIVE ``replace``,
+    fail-open. Every candidate is still proven by token-canary binding (§12.46) before any
+    reach — no direct attack (#6), and off-domain infra is never touched (scope boundary).
+    """
+    spf_ips = parse_spf_ips(intel.txt_records)
+    mx_hosts = _mx_origin_hosts(intel.mx_records, intel.domain)
+    existing_ips = list(intel.origin_ip_candidates)
+    seen_ip = set(existing_ips)
+    for ip in spf_ips:
+        if ip not in seen_ip:
+            seen_ip.add(ip)
+            existing_ips.append(ip)
+    existing_subs = list(intel.subdomains)
+    seen_sub = set(existing_subs)
+    for host in mx_hosts:
+        if host not in seen_sub:
+            seen_sub.add(host)
+            existing_subs.append(host)
+    return replace(
+        intel,
+        origin_ip_candidates=tuple(existing_ips),
+        subdomains=tuple(existing_subs),
+    )
+
+
 # ── §12.48 slice-5: OTX enrichment (origin IP candidates + historical paths) ──
 #
 # ADDITIVE over slice-1/3 (anti-#10): fills origin_ip_candidates + historical_paths,

@@ -46,6 +46,7 @@ from agent_alpha.recon.passive_intel import (
     build_passive_intel_map,
     certspotter_discover,
     enrich_with_dns,
+    enrich_with_mx_spf,
     enrich_with_otx,
     enrich_with_virustotal,
     enrich_with_wayback,
@@ -374,6 +375,18 @@ def build_virustotal_client(engagement_id: str) -> VirusTotalSource | None:
     return VirusTotalClient(HttpClient(engagement_id=engagement_id), key)
 
 
+def _apply_mx_spf(intel: Any, sources: tuple[str, ...]) -> tuple[Any, tuple[str, ...]]:
+    """(§12.61 A2) Fold MX/SPF-derived origin candidates into *intel*, tagging ``"mx_spf"``
+    in *sources* ONLY when it actually contributed (honest attribution — a domain with no
+    usable MX/SPF adds nothing and is not tagged). Pure over already-collected DNS data;
+    extracted to keep ``run_recon_for_engagement`` under the complexity cap (anti-noqa)."""
+    before = (intel.origin_ip_candidates, intel.subdomains)
+    intel = enrich_with_mx_spf(intel)
+    if (intel.origin_ip_candidates, intel.subdomains) != before:
+        sources = (*sources, "mx_spf")
+    return intel, sources
+
+
 def build_wayback_client(engagement_id: str) -> WaybackSource:
     """Build the keyless Wayback CDX source. §12.61: unlike OTX/VT (key-gated → may be
     None), Wayback needs NO key, so it is ALWAYS available. Uses the stealth HttpClient
@@ -519,54 +532,67 @@ def run_recon_for_engagement(
         if result is not None:
             enumerated.update(result.enumerated)
             discovered_in_scope.update(result.in_scope)
-            # §12.48: build the unified PassiveIntelMap from the (crt.sh or
-            # fallback) result and record PASSIVE_INTEL_GATHERED BEFORE any active
-            # recon runs. sources_used records which OSINT source produced it.
-            intel = build_passive_intel_map(result)
-            # §12.48 slice-3: DNS enrichment is external network I/O. Gate it
-            # fail-closed behind the SAME RECON check crt.sh/HackerTarget use — a
-            # refused engagement performs ZERO network, incl. DNS (CodeRabbit #357-1,
-            # defense-in-depth). Refused → record the un-enriched crt.sh map (DNS
-            # fields stay empty), never query DNS.
-            if auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
-                intel = enrich_with_dns(intel, dns)
-                intel_sources = (*sources_used, "dns")
-                # §12.48 slice-5: OTX enrichment (origin-IP candidates + historical
-                # paths). Injected at the Conductor entry only when a key is set —
-                # None here = OTX off (existing tests + keyless deploys unaffected).
-                if otx_client is not None:
-                    intel = enrich_with_otx(intel, otx_client)
-                    intel_sources = (*intel_sources, "otx")
-                # §12.48 slice-2 (VT): VirusTotal enrichment (origin-IP candidates
-                # + grey-cloud subdomains). Injected at the Conductor entry only
-                # when a VT key is set — None here = VT off. VT finds origin IPs
-                # and subdomains that crt.sh/OTX miss (e.g. a grey-cloud
-                # subdomain → origin IP directly, no CF proxy).
-                if vt_client is not None:
-                    intel = enrich_with_virustotal(intel, vt_client)
-                    intel_sources = (*intel_sources, "virustotal")
-                    # §12.48 Strategy B: VT subdomains that pass is_in_scope become
-                    # independent targets (not just origin-IP candidates). This is
-                    # the "side door" path — subdomains not fronted by CF are probed
-                    # directly. is_in_scope is the sole authority (suffix match when
-                    # Scope.allow_subdomains is set from EngagementProfile).
-                    host_norm = host.rstrip(".").lower()
-                    for sub in intel.subdomains:
-                        sub_norm = sub.strip().lower().rstrip(".")
-                        if not sub_norm or sub_norm == host_norm:
-                            continue
-                        if auth.is_in_scope(engagement_id, sub_norm):
-                            discovered_in_scope.add(sub_norm)
-                # §12.61: Wayback historical subdomains → ORIGIN CANDIDATES (via
-                # CompositeOriginDiscovery) + historical paths → breadth. Placed AFTER the
-                # VT subdomain→target promotion so historical (often defunct) subdomains
-                # feed origin candidates ONLY, never new scan targets. Keyless → always on.
-                if wayback_client is not None:
-                    intel = enrich_with_wayback(intel, wayback_client)
-                    intel_sources = (*intel_sources, "wayback")
-            else:
-                intel_sources = sources_used
-            record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)
+        # GAP-154: enrichment (DNS/OTX/VT/MX-SPF/Wayback) does NOT depend on the CT
+        # logs — it must run even when EVERY CT source failed (result is None). A CT
+        # outage must never silently disable DNS/MX/SPF/Wayback origin discovery for
+        # the whole engagement (the GAP-154 root constraint). Seed an EMPTY
+        # PassiveIntelMap keyed to host when result is None; build from the CT surface
+        # otherwise. Enrich + record run UNCONDITIONALLY so PASSIVE_INTEL_GATHERED
+        # always fires — a total-CT-fail engagement is recorded honestly, with whatever
+        # DNS/MX/Wayback surfaces (anti-#3: never a silent empty skip).
+        seed = result if result is not None else PassiveDiscoveryResult(host, (), (), ())
+        # §12.48: build the unified PassiveIntelMap from the (crt.sh / fallback / empty)
+        # seed and record PASSIVE_INTEL_GATHERED BEFORE any active recon runs.
+        # sources_used records which OSINT source produced the CT surface (() on total fail).
+        intel = build_passive_intel_map(seed)
+        # §12.48 slice-3: DNS enrichment is external network I/O. Gate it
+        # fail-closed behind the SAME RECON check crt.sh/HackerTarget use — a
+        # refused engagement performs ZERO network, incl. DNS (CodeRabbit #357-1,
+        # defense-in-depth). Refused → record the un-enriched map (DNS
+        # fields stay empty), never query DNS.
+        if auth.can_agent_proceed(a2a_pb2.ALPHA, engagement_id):
+            intel = enrich_with_dns(intel, dns)
+            intel_sources = (*sources_used, "dns")
+            # §12.48 slice-5: OTX enrichment (origin-IP candidates + historical
+            # paths). Injected at the Conductor entry only when a key is set —
+            # None here = OTX off (existing tests + keyless deploys unaffected).
+            if otx_client is not None:
+                intel = enrich_with_otx(intel, otx_client)
+                intel_sources = (*intel_sources, "otx")
+            # §12.48 slice-2 (VT): VirusTotal enrichment (origin-IP candidates
+            # + grey-cloud subdomains). Injected at the Conductor entry only
+            # when a VT key is set — None here = VT off. VT finds origin IPs
+            # and subdomains that crt.sh/OTX miss (e.g. a grey-cloud
+            # subdomain → origin IP directly, no CF proxy).
+            if vt_client is not None:
+                intel = enrich_with_virustotal(intel, vt_client)
+                intel_sources = (*intel_sources, "virustotal")
+                # §12.48 Strategy B: VT subdomains that pass is_in_scope become
+                # independent targets (not just origin-IP candidates). This is
+                # the "side door" path — subdomains not fronted by CF are probed
+                # directly. is_in_scope is the sole authority (suffix match when
+                # Scope.allow_subdomains is set from EngagementProfile).
+                host_norm = host.rstrip(".").lower()
+                for sub in intel.subdomains:
+                    sub_norm = sub.strip().lower().rstrip(".")
+                    if not sub_norm or sub_norm == host_norm:
+                        continue
+                    if auth.is_in_scope(engagement_id, sub_norm):
+                        discovered_in_scope.add(sub_norm)
+            # §12.61 A2: MX/SPF-derived origin candidates from the DNS records already
+            # fetched by enrich_with_dns (zero new I/O). AFTER VT target-promotion so MX
+            # hosts feed origin candidates ONLY, never new scan targets.
+            intel, intel_sources = _apply_mx_spf(intel, intel_sources)
+            # §12.61: Wayback historical subdomains → ORIGIN CANDIDATES (via
+            # CompositeOriginDiscovery) + historical paths → breadth. Placed AFTER the
+            # VT subdomain→target promotion so historical (often defunct) subdomains
+            # feed origin candidates ONLY, never new scan targets. Keyless → always on.
+            if wayback_client is not None:
+                intel = enrich_with_wayback(intel, wayback_client)
+                intel_sources = (*intel_sources, "wayback")
+        else:
+            intel_sources = sources_used
+        record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)
 
     # §12.41: extend targets with in-scope passive-discovered subdomains that
     # are not already targeted.  run_recon enforces auth/scope per-target, and

@@ -461,8 +461,12 @@ def test_fallback_fires_when_crtsh_down(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_fallback_down_both_fail_is_non_fatal(monkeypatch: pytest.MonkeyPatch) -> None:
-    """crt.sh down AND HackerTarget empty → engagement still completes, no crash,
-    no intel event with a surface (fail-open end-to-end)."""
+    """crt.sh down AND HackerTarget empty → engagement still completes, no crash.
+
+    GAP-154: enrichment no longer depends on the CT surface — on total CT failure a
+    PASSIVE_INTEL_GATHERED event STILL fires (anti-#3: recorded honestly, never a
+    silent skip), but with an EMPTY surface here because DNS is null and no MX/SPF/
+    Wayback data exists. sources_used == ["dns"] (CT contributed nothing, DNS ran)."""
     store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=store)
     rec = auth.create_engagement("client_lab", _ROOT)
@@ -481,6 +485,59 @@ def test_fallback_down_both_fail_is_non_fatal(monkeypatch: pytest.MonkeyPatch) -
     )
     assert result is not None and result.report is not None
     assert tuple(result.enumerated_hosts) == ()
+
+    intel_evs = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ]
+    assert len(intel_evs) == 1, "GAP-154: intel event fires even on total CT failure (anti-#3)"
+    assert intel_evs[0].payload["sources_used"] == ["dns"], "no CT source contributed; DNS ran"
+    assert intel_evs[0].payload["subdomains"] == []
+    assert intel_evs[0].payload["in_scope_subdomains"] == []
+    assert intel_evs[0].payload["origin_ip_candidates"] == []
+
+
+def test_enrichment_runs_on_total_ct_failure_with_dns_data(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GAP-154 headline: EVERY CT source down/empty (result is None) must NOT disable
+    DNS/MX/SPF enrichment. With SPF declaring an origin IP, the emitted intel event
+    carries that origin candidate — proving enrichment is no longer gated on CT."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    # Total CT failure: CertSpotter empty (via _wire), crt.sh DOWN, HackerTarget empty.
+    _wire(monkeypatch, auth, store, _DownCrtSh(), _HtHttp(""))
+
+    # DNS DOES resolve: SPF declares the origin's own /32, MX is an in-domain mail host.
+    dns = _StubDNS(
+        mx=["10 mail.lab-target.invalid."],
+        txt=["v=spf1 ip4:203.0.113.7 -all"],
+    )
+
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=dns,
+    )
+
+    intel_evs = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ]
+    assert len(intel_evs) == 1, "intel event must fire on total CT failure"
+    payload = intel_evs[0].payload
+    # SPF ip4 → origin candidate; in-domain MX → subdomain candidate. Both derived with
+    # ZERO CT surface — the gate-fix delivered origin discovery a CT outage used to kill.
+    assert "203.0.113.7" in payload["origin_ip_candidates"]
+    assert "mail.lab-target.invalid" in payload["subdomains"]
+    assert "dns" in payload["sources_used"] and "mx_spf" in payload["sources_used"]
+    assert "crtsh" not in payload["sources_used"]
+    assert "hackertarget" not in payload["sources_used"]
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -1140,6 +1197,192 @@ def test_wayback_cdx_url_is_https() -> None:
     from agent_alpha.recon.osint_sources import WAYBACK_CDX_URL_TEMPLATE
 
     assert WAYBACK_CDX_URL_TEMPLATE.startswith("https://")
+
+
+# ── §12.61 A2: MX/SPF → origin candidates (pure consumer of already-collected DNS) ──
+
+
+def test_parse_spf_ips_extracts_pass_ip4_only() -> None:
+    """PASS-qualified ip4 (bare or +) extracted; SMALL CIDRs expanded, big /24 dropped.
+    DISAVOWED mechanisms (-ip4/~/?) are NOT promoted (Aikido: target says 'not my sender').
+    ip6 is dropped (GAP-155: transport lacks IPv6 URL bracketing)."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    txt = ["v=spf1 +ip4:198.51.100.5 -ip4:203.0.113.0/30 ip4:192.0.2.0/24 ip6:2001:db8::1 ~all"]
+    ips = parse_spf_ips(txt)
+    assert "198.51.100.5" in ips  # PASS-qualified (+) single ip4
+    assert not any(ip.startswith("203.0.113.") for ip in ips)  # -ip4 DISAVOWED → NOT promoted
+    assert not any(ip.startswith("192.0.2.") for ip in ips)  # /24 too big → dropped
+    assert not any(":" in ip for ip in ips)  # ip6 dropped (GAP-155)
+
+
+def test_parse_spf_ips_rejects_malformed_header_and_disavowed() -> None:
+    """'v=spf1evil' is NOT SPF (exact first-token match, Aikido); softfail/neutral dropped."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    assert parse_spf_ips(["v=spf1evil ip4:198.51.100.9 -all"]) == ()  # malformed header
+    assert parse_spf_ips(["v=spf1 ~ip4:198.51.100.9 ?ip4:198.51.100.10 -all"]) == ()  # disavowed
+
+
+def test_parse_spf_ips_extracts_single_ip4_slash32() -> None:
+    """The COMMON case: a single-IP SPF (implicit /32) IS extracted — .hosts() on Python>=3.9
+    (Oracle 3.12.13) yields the /32 address (Sourcery's 'empty /32' does not apply to our env)."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    assert parse_spf_ips(["v=spf1 ip4:203.0.113.7 -all"]) == ("203.0.113.7",)
+
+
+def test_parse_spf_ips_ignores_non_spf_txt() -> None:
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    assert parse_spf_ips(["google-site-verification=abc", "v=DMARC1; p=none"]) == ()
+    assert parse_spf_ips([]) == ()
+
+
+def test_parse_spf_ips_rejects_ip4_prefixed_ipv6() -> None:
+    """Malformed 'ip4:<ipv6>' parses as a v6 network despite the ip4: prefix — the version
+    guard rejects it so no un-bindable IPv6 candidate leaks through (Aikido PR #421, GAP-155)."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    ips = parse_spf_ips(["v=spf1 ip4:2001:db8::1 ip4:198.51.100.5 -all"])
+    assert ips == ("198.51.100.5",)  # ipv6 dropped, valid ip4 kept
+
+
+def test_parse_spf_ips_expands_slash28_asian_isp() -> None:
+    """Asian ISP /28 allocation (16 addrs, 14 usable) is expanded — the origin often sits
+    beside the mail server in the same block on shared regional infra."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    ips = parse_spf_ips(["v=spf1 ip4:103.150.20.16/28 ~all"])
+    assert "103.150.20.17" in ips
+    assert len(ips) == 14  # /28 usable hosts (network + broadcast excluded)
+
+
+def test_parse_spf_ips_aggregate_cap_prevents_probe_storm() -> None:
+    """A pathological multi-/28 SPF (3 × 14 = 42) is capped at the aggregate limit."""
+    from agent_alpha.recon.passive_intel import _SPF_MAX_TOTAL_CANDIDATES, parse_spf_ips
+
+    spf = "v=spf1 ip4:10.0.0.0/28 ip4:10.0.1.0/28 ip4:10.0.2.0/28 ~all"
+    ips = parse_spf_ips([spf])
+    assert len(ips) == _SPF_MAX_TOTAL_CANDIDATES  # 32, not 42
+
+
+def test_mx_spf_keeps_in_domain_drops_off_domain_mx() -> None:
+    """SCOPE BOUNDARY (Aikido/Greptile #421): off-domain mail infra — big-cloud relays AND
+    third-party regional hosting (xserver.ne.jp) alike — is out of the authorized SOW and must
+    NOT become an origin-binding target. Only in-domain MX hosts are kept."""
+    from agent_alpha.recon.passive_intel import enrich_with_mx_spf
+
+    base = PassiveIntelMap(
+        domain="corp.cn",
+        subdomains=(),
+        in_scope_subdomains=(),
+        mx_records=(
+            "10 mxn.mxhichina.com",  # off-domain big-cloud
+            "10 mail.exmail.qq.com",  # off-domain big-cloud
+            "10 sv123.xserver.ne.jp",  # off-domain third-party hosting
+            "10 mail.corp.cn",  # IN-DOMAIN — kept
+        ),
+        txt_records=(),
+    )
+    out = enrich_with_mx_spf(base)
+    assert out.subdomains == ("mail.corp.cn",)  # ONLY the in-domain MX host
+
+
+def test_enrich_with_mx_spf_derives_candidates_additive() -> None:
+    """SPF ip4 → origin_ip_candidates; IN-DOMAIN MX → subdomains (off-domain infra dropped —
+    scope boundary); every other field preserved (additive)."""
+    from agent_alpha.recon.passive_intel import enrich_with_mx_spf
+
+    base = PassiveIntelMap(
+        domain="acme.co.id",
+        subdomains=("www.acme.co.id",),
+        in_scope_subdomains=(),
+        origin_ip_candidates=("1.1.1.1",),
+        mx_records=("10 mail.acme.co.id", "20 aspmx.l.google.com", "10 mx.niagahoster.com"),
+        txt_records=("v=spf1 ip4:103.150.20.17 ~all",),
+    )
+    out = enrich_with_mx_spf(base)
+    assert "103.150.20.17" in out.origin_ip_candidates  # SPF ip4
+    assert "1.1.1.1" in out.origin_ip_candidates  # additive — kept
+    assert "mail.acme.co.id" in out.subdomains  # in-domain MX kept
+    assert not any("google" in s for s in out.subdomains)  # off-domain big-cloud dropped
+    assert not any("niagahoster" in s for s in out.subdomains)  # off-domain hosting dropped
+    assert "www.acme.co.id" in out.subdomains  # additive — kept
+
+
+def test_enrich_with_mx_spf_deduplicates_reemitted_candidates() -> None:
+    """Re-emit safety (Sourcery #421): an SPF IP / in-domain MX already present in the map is
+    NOT duplicated — enrich is idempotent on its own output (additive-dedup)."""
+    from agent_alpha.recon.passive_intel import enrich_with_mx_spf
+
+    base = PassiveIntelMap(
+        domain="acme.co.id",
+        subdomains=("mail.acme.co.id",),  # MX host already present
+        in_scope_subdomains=(),
+        origin_ip_candidates=("203.0.113.7",),  # SPF IP already present
+        mx_records=("10 mail.acme.co.id",),
+        txt_records=("v=spf1 ip4:203.0.113.7 -all",),
+    )
+    out = enrich_with_mx_spf(base)
+    assert out.origin_ip_candidates.count("203.0.113.7") == 1  # no dup IP
+    assert out.subdomains.count("mail.acme.co.id") == 1  # no dup host
+
+
+def test_mx_origin_hosts_caps_in_domain_fanout() -> None:
+    """Aikido PR #421: a pathological in-domain MX list is capped at _MX_MAX_ORIGIN_HOSTS so
+    the downstream resolve/binding fan-out cannot storm (symmetric with the SPF aggregate cap)."""
+    from agent_alpha.recon.passive_intel import _MX_MAX_ORIGIN_HOSTS, _mx_origin_hosts
+
+    mx = tuple(f"10 mx{i}.acme.co.id" for i in range(_MX_MAX_ORIGIN_HOSTS + 5))
+    out = _mx_origin_hosts(mx, "acme.co.id")
+    assert len(out) == _MX_MAX_ORIGIN_HOSTS  # capped, not all 13
+
+
+def test_mx_spf_enrichment_on_live_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§12.61 A2 WIRED-PROOF: SPF ip4 → origin_ip_candidates and a non-big-cloud MX host →
+    subdomains land on the live PASSIVE_INTEL_GATHERED event with 'mx_spf' in sources_used —
+    enrich_with_mx_spf runs on the autonomous path (non-island, anti-#2)."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    graph = NetworkXGraphStore()
+    crt = _CrtShClient()
+    monkeypatch.setattr(
+        recon_runner, "build_recon_pipeline", lambda *a, **k: _fake_pipeline(auth, graph, store)
+    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
+    )
+    monkeypatch.setattr(
+        recon_runner,
+        "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+    )
+    monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient())
+
+    dns = _StubDNS(
+        mx=["10 mail." + _ROOT, "20 aspmx.l.google.com"],
+        txt=["v=spf1 ip4:203.0.113.7 include:_spf.google.com ~all"],
+        ns=[],
+    )
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=rec, dns_resolver=dns
+    )
+
+    payload = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ][0].payload
+    assert "203.0.113.7" in payload["origin_ip_candidates"]  # SPF ip4 literal
+    assert "mail." + _ROOT in payload["subdomains"]  # in-domain MX host
+    assert not any("google.com" in s for s in payload["subdomains"])  # big-cloud MX dropped
+    assert "mx_spf" in payload["sources_used"]
 
 
 class _StubWayback:

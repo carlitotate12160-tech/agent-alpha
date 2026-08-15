@@ -58,7 +58,7 @@
 | 013 | Credential pattern mutation | MOVED → §12.34 | — | — | — | — |
 | 014 | Fan-out parallel worker wiring (Shape A not wired) | OPEN | Med | WI | Med | Parallel target scanning not available |
 | 015 | Credential spray tool (harvested usernames × passwords) | DONE | — | RG | Med | Beta can't spray discovered usernames |
-| 016 | Wayback Machine pre-intel | OPEN | Low | RG | Med | No archive-driven probe selection |
+| 016 | Wayback Machine pre-intel | VERIFIED (Oracle-sealed, field-prove pending) | — | RG | Med | Wayback CDX origin source: historical subdomains → origin candidates + historical_paths |
 | 017 | PassiveIntelMap enrichment dead-end (consumer not wired) | OPEN | Med | WI | Med | OSINT data collected but not consumed |
 | 018 | LiveOriginDiscovery doesn't seed in-scope siblings | RESOLVED | — | RG | Med | Origin discovery fails when crt.sh down |
 | 019 | Per-host origin-resolution cache | RESOLVED | — | CW | Low | Redundant DNS lookups |
@@ -192,6 +192,9 @@
 | 150 | CSP analysis for attack surface mapping | OPEN | Low | RM | Low | GAP-055 = presence only; script-src trusted external = attack surface |
 | 151 | CDN origin shield bypass (Argo/CloudFront shield) | OPEN | Med | RM | Med | Shield IP discovery = bypass edge entirely |
 | 152 | DNS rebinding for SSRF bypass | OPEN | Low | SS | Med | Domain resolves to 127.0.0.1 after first DNS check; bypass SSRF allowlist |
+| 154 | Passive enrichment skipped on total-CT-failure | VERIFIED (Oracle-seal pending) | — | WI | Med | DNS/OTX/VT/Wayback unblocked on total CT failure; seed empty map, runs unconditionally |
+| 155 | IPv6 origin candidates cannot bind (transport lacks URL bracketing) | OPEN | Low | RG | Med | origin_direct_fetch lacks [...] bracketing on IPv6 literals |
+| 156 | Candidate public IPs probed before engagement IP-scope check | OPEN | Low | RG | Med | resolve_and_bind_origin pre-binding canary probe before IP-range check |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
@@ -1325,11 +1328,91 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-016 — Wayback Machine Pre-Intel — Archive-Driven Probe Selection
-- Status: OPEN
+- Status: VERIFIED (§12.61, 2026-08-15) — Oracle-sealed (test_passive_intel 52/52). Tier-3 field-prove
+  (niagamas/bernofarm) pending (§12.60).
 - Priority: Medium — Agent probes blind paths, causing 404 noise and WAF/CF blocks (Bug #26)
 - Category: RG
 - Stack: Memory
 - Effort: Low-Medium (single module + CDX API query, no target interaction)
+- Slice: `WaybackClient` (keyless CDX over HTTPS) + `parse_wayback_cdx` (per-row-resilient) +
+  `WaybackSource` Protocol + `enrich_with_wayback` (additive `replace`, fail-open), wired at the
+  conductor passive phase (`recon_runner`), ALWAYS on (keyless). Historical subdomains → ORIGIN
+  CANDIDATES via `CompositeOriginDiscovery` (bound by token-canary §12.46; anti-#6 — no second origin
+  path); `historical_paths` → probe-steering breadth (the original GAP-016 intent). Follows OTX/VT
+  precedent. NOTE: INDIRECT origin discovery (subdomain→resolve); the DIRECT historical-A-record
+  technique is GAP-115 (SecurityTrails/DNSHistory, still OPEN), and the DIRECT origin-IP source is
+  GAP-062 (MX/SPF, next). KNOWN LIMITATION → GAP-154 (enrichment skipped on total-CT-failure) — VERIFIED 2026-08-15: enrichment now runs unconditionally.
+
+---
+
+## GAP-154 — Passive enrichment skipped on total-CT-failure (gate limitation)
+- Status: VERIFIED (sandbox 3.12.3) — PENDING Oracle ARM64 seal. NOT "DONE" until Oracle green
+  (Lyndon #9). Sandbox run: test_passive_intel + phase_4/phase_2_5 green; Oracle re-run required.
+- Priority: Medium — caps Wayback/DNS/OTX/VT exactly in the full-CF case they matter most
+- Category: WI
+- Stack: Memory
+- What: In `recon_runner.run_recon_for_engagement` the passive-intel enrichment block (DNS, OTX, VT,
+  Wayback) WAS gated on `if result is not None` — a `PassiveIntelMap` was built only when a CT source
+  (CertSpotter/crt.sh/HackerTarget) returned. If ALL THREE throw (total CT failure), no map was built,
+  no enrichment ran, no `PASSIVE_INTEL_GATHERED` event was emitted → Wayback/historical-DNS signal was
+  DEAD exactly in the total-CT-failure scenario (§12.61 A1: "crt.sh/VT/OTX FAILED on these targets").
+- Fix (shipped): `if result is not None:` now ONLY unions the CT surface (enumerated/in_scope). The
+  intel build + auth-gated enrichment + `record_passive_intel` are DEDENTED out of that guard and run
+  UNCONDITIONALLY. On total CT failure a `seed = PassiveDiscoveryResult(host, (), (), ())` empty map is
+  built, so DNS/OTX/VT/MX-SPF/Wayback still fire and `PASSIVE_INTEL_GATHERED` is always emitted
+  (anti-#3: recorded honestly, never a silent skip). `sources_used` reflects the truth — `()` from CT,
+  `("dns", ...)` from what actually enriched.
+- WIRED (not runner-island): the change is INSIDE `run_recon_for_engagement`, the Conductor autonomous
+  recon path (main.py → run_recon_for_engagement). WIRED-PROOF test exercises the real stream.
+- Tests: `test_passive_intel.py::test_fallback_down_both_fail_is_non_fatal` (now asserts the empty event
+  fires on total CT fail) + `test_enrichment_runs_on_total_ct_failure_with_dns_data` (RED-first: SPF
+  ip4 → origin_ip_candidates + in-domain MX → subdomains, with ZERO CT surface).
+- Cross-ref: GAP-016 (Wayback — surfaced this), GAP-115 (historical DNS — now unblocked, same path), ADR §12.61 A1.
+
+---
+
+## GAP-155 — IPv6 origin candidates cannot bind (transport lacks URL bracketing)
+- Status: OPEN (deferred; surfaced by GAP-062 MX/SPF review, Greptile PR #421)
+- Priority: Low — IPv6-only origins are rare in the SE-Asia SMB target market; ip4 covers the field cases
+- Category: RG
+- Stack: Memory
+- What: `reach_transport.origin_direct_fetch` builds the probe URL as `f"https://{origin_ip}{path}"`. For an
+  IPv6 literal (e.g. `2001:db8::1`) this yields `https://2001:db8::1/`, which httpx rejects — IPv6 in a URL
+  authority MUST be bracketed: `https://[2001:db8::1]/`. So ANY ip6 origin candidate (SPF ip6, or an OTX/VT
+  AAAA record) is un-bindable → a broken capability if emitted.
+- Interim (shipped in #421): `parse_spf_ips` DROPS ip6 mechanisms entirely (no half-working candidate emitted
+  — anti-#2). OTX/VT ip6 candidates, if any, hit the same latent bug.
+- Fix (own vertical): bracket IPv6 authorities at the SINGLE source — `origin_direct_fetch` — so every ip6
+  candidate from any source binds (anti-#7/#10: fix the transport interface, not each producer). Keep bare
+  canonical IPs in `origin_ip_candidates` (is_cloudflare_ip/is_internal_ip/probe_as_origin expect bare IPs);
+  bracket ONLY at URL construction. Then re-enable ip6 in `parse_spf_ips`. Touches SEALED reach transport →
+  Oracle re-seal of reach tests required. Add a transport test asserting the `[...]` URL form.
+- Cross-ref: GAP-062 (MX/SPF — deferred ip6 here), §12.46 origin binding, ADR §12.33 verify-posture.
+
+---
+
+## GAP-156 — Candidate public IPs are token-probed before engagement IP-scope check
+- Status: OPEN (deferred; design note from Greptile PR #421). NOT an SPF-parser bug — a binding-layer
+  question that applies to ALL IP-candidate sources (SPF, OTX, VT).
+- Priority: Low/Med — only relevant to IP-SCOPED engagements (Scope.ip_ranges non-empty); domain
+  engagements authorize by domain-ownership + token-canary binding BY DESIGN (empty ip_ranges).
+- Category: RG
+- Stack: Memory
+- What: `resolve_and_bind_origin` (§12.46) probes each candidate IP with the ownership-token canary
+  (a benign `GET Host:<owned-host> <canary-path>`) gated ONLY by: CF-edge skip, internal-IP SSRF guard,
+  and the binding proof itself. It does NOT consult `authorization.is_in_scope(ip)` first. So when an SOW
+  declares explicit `ip_ranges`, an SPF/OTX/VT-declared PUBLIC IP outside those ranges receives one
+  pre-binding canary probe before any IP-scope evaluation.
+- WHY NOT fix in parse_spf_ips: that would be Lyndon #10 (wrong layer — would not cover OTX/VT) and would
+  break the DOMAIN-engagement model, where ip_ranges is empty and `is_in_scope(ip)` returns False for every
+  origin candidate (binding-as-authorization is the intended proof). A naive IP-gate there disables origin
+  discovery entirely.
+- Fix (own vertical, auth-gated): in `resolve_and_bind_origin`, when `Scope.ip_ranges` is NON-EMPTY, require
+  each candidate IP to pass `is_in_scope(ip)` OR be bound — designed like the `assert_pivot_target` co-host
+  default-DENY gate. Event-sourced + Oracle-sealed. SINGLE source protects all IP-candidate producers.
+- Residual today: the single pre-binding touch is benign (canary GET); an out-of-scope IP that does not serve
+  the owned host's canary is REJECTED (no ORIGIN_BINDING_PROVEN, no reach). Acceptable interim for domain SOWs.
+- Cross-ref: §12.46 origin binding, §12.36 capability gate, assert_pivot_target (co-host default-DENY), GAP-155.
 
 ---
 
@@ -2562,7 +2645,7 @@ The following GAPs are implementations of ADR §12.61 "Flank-when-CF-hard" axes.
 
 | §12.61 Technique | GAP | Status | Notes |
 |------------------|-----|--------|-------|
-| A1: Historical DNS (SecurityTrails/DNSHistory) | **GAP-115** | OPEN | Biggest missing signal per ADR. crt.sh/VT/OTX failed on 4 field targets. |
+| A1: Historical DNS (SecurityTrails/DNSHistory) | **GAP-115** | OPEN | Biggest missing signal per ADR. crt.sh/VT/OTX failed on 4 field targets. Wayback CDX (**GAP-016**, DONE) is a keyless INDIRECT partial (historical subdomains→origin); GAP-115 = direct A-records, still OPEN. |
 | A2: Mail/MX/SPF → origin netblock | **GAP-062** | OPEN | MX records reveal origin infrastructure (mail servers on origin, not CF). |
 | A3: Cert/favicon pivot (Shodan/Censys) | **GAP-093** + **GAP-086** | OPEN | Cert SAN reveals internal hostnames. Favicon hash matches origin via Shodan/Censys. |
 | A4: Grey-cloud/forgotten subdomains | **GAP-075** | OPEN | Subdomain takeover checks dangling CNAME. Grey-cloud subdomains bypass CF. |
