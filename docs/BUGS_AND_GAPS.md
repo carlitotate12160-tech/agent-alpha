@@ -65,7 +65,7 @@
 | 020 | Mid-engagement pattern-group exhaustion | OPEN | Med | CW | Med | Agent re-tries exhausted patterns |
 | 021 | Fingerprint-driven path hard-filter | OPEN | Med | CW | Low | Irrelevant paths probed for known stack |
 | 022 | Deterministic rule coverage + finding correlation | OPEN | Med | RM | Med | Rules miss known patterns |
-| 026 | StealthPacer gate inverted (default OFF) | OPEN | High | WI | Low | §12.49 violation — stealth not default |
+| 026 | StealthPacer gate inverted (default OFF) | SEALED | High | WI | Low | §12.49 / §12.50 — StealthPacer injected by default in recon pipeline |
 | 027 | Probing order: sensitive files before legitimate | OPEN | Med | CW | Low | .env probes trigger CF before wp-json |
 | 028 | Origin-direct generic homepage detection | OPEN | Med | RM | Low | Origin returns homepage for all paths → 0 findings |
 | 029 | Unreachable subdomain still probed for all 12 paths | DONE | — | CW | Low | Wastes ~15min on dead hosts |
@@ -527,7 +527,7 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - GAP-020 — Mid-engagement pattern-group exhaustion (OPEN, next slice) (OPEN. ADR §12.57 point 2.)
 - GAP-021 — Fingerprint-driven path hard-filter (OPEN) (OPEN. ADR §12.57 point 3.)
 - GAP-022 — Deterministic rule coverage + finding correlation (OPEN) (OPEN. ADR §12.57 points 1 & 4 (recon-side).)
-- GAP-026 — StealthPacer gate inverted: code exists, default OFF (violates §12.49) (OPEN. Doctrine §12.49: "Stealth by default from the 1st request (curl_cffi, Header)
+- GAP-026 — StealthPacer gate inverted: code exists, default OFF (violates §12.49) (SEALED. StealthPacer injected by default in recon_runner.py per §12.49 / §12.50.)
 - GAP-027 — Probing order: sensitive files before legitimate endpoints (OPEN.)
 - GAP-028 — Origin-direct response validation (generic homepage detection) (OPEN.)
 - GAP-029 — Unreachable subdomain still probed for all 12 paths (OPEN.)
