@@ -313,9 +313,7 @@ class WaybackSource(Protocol):
     subdomains (→ origin candidates via CompositeOriginDiscovery) and historical paths
     (→ probe-steering breadth)."""
 
-    def subdomains_and_paths(
-        self, domain: str
-    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    def subdomains_and_paths(self, domain: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
         raise NotImplementedError
 
 
