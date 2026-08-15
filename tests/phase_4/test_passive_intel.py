@@ -1120,6 +1120,28 @@ def test_parse_wayback_cdx_fail_open_on_garbage() -> None:
     assert parse_wayback_cdx("{}", "acme.com") == ((), ())
 
 
+def test_parse_wayback_cdx_skips_malformed_row_keeps_good() -> None:
+    """CodeRabbit: one malformed archived URL (bad IPv6 literal → urlparse ValueError)
+    must be skipped, NOT discard the good rows."""
+    cdx = (
+        '[["original"],'
+        '["http://good.acme.com/a"],'
+        '["http://[1:2:3:4/oops"],'
+        '["https://acme.com/b"]]'
+    )
+    subs, paths = parse_wayback_cdx(cdx, "acme.com")
+    assert "good.acme.com" in subs
+    assert "acme.com" in subs
+    assert "/a" in paths and "/b" in paths
+
+
+def test_wayback_cdx_url_is_https() -> None:
+    """Aikido/CodeRabbit/Sourcery consensus: the CDX endpoint must be HTTPS, not plaintext."""
+    from agent_alpha.recon.osint_sources import WAYBACK_CDX_URL_TEMPLATE
+
+    assert WAYBACK_CDX_URL_TEMPLATE.startswith("https://")
+
+
 class _StubWayback:
     def __init__(self, subs: tuple[str, ...], paths: tuple[str, ...]) -> None:
         self._subs = tuple(subs)

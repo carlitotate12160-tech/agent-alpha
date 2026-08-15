@@ -362,7 +362,7 @@ class VirusTotalClient:
 # is MX/SPF (next slice).
 
 WAYBACK_CDX_URL_TEMPLATE = (
-    "http://web.archive.org/cdx/search/cdx"
+    "https://web.archive.org/cdx/search/cdx"
     "?url=*.{domain}/*&output=json&fl=original&collapse=urlkey&limit={limit}"
 )
 WAYBACK_CDX_LIMIT = 2000
@@ -396,8 +396,14 @@ def parse_wayback_cdx(text: str, domain: str) -> tuple[tuple[str, ...], tuple[st
         original = str(row[0])
         if original == "original":  # CDX header row
             continue
-        parsed = urlparse(original if "://" in original else f"http://{original}")
-        host = (parsed.hostname or "").rstrip(".").lower()
+        # Per-row guard (CodeRabbit): one malformed archived URL (e.g. a bad IPv6 literal
+        # → urlparse ValueError) must NOT discard the good rows — skip it, keep parsing.
+        try:
+            parsed = urlparse(original if "://" in original else f"http://{original}")
+            host = (parsed.hostname or "").rstrip(".").lower()
+            path = parsed.path
+        except ValueError:
+            continue
         # Scope guard: only in-domain hosts contribute (host AND path) — a cross-domain
         # archived URL is not this domain's origin candidate or historical path.
         if not (host and (host == domain_norm or host.endswith("." + domain_norm))):
@@ -405,7 +411,6 @@ def parse_wayback_cdx(text: str, domain: str) -> tuple[tuple[str, ...], tuple[st
         if host not in seen_subs:
             seen_subs.add(host)
             subs.append(host)
-        path = parsed.path
         if path and path != "/" and path not in seen_paths:
             seen_paths.add(path)
             paths.append(path)
