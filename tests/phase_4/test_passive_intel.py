@@ -1202,17 +1202,34 @@ def test_wayback_cdx_url_is_https() -> None:
 # ── §12.61 A2: MX/SPF → origin candidates (pure consumer of already-collected DNS) ──
 
 
-def test_parse_spf_ips_extracts_and_expands_small_cidr() -> None:
-    """ip4/ip6 literals (qualifier +/-/~/? stripped); SMALL CIDRs (<=/29) expanded — SE-Asia
-    shared hosting declares the origin's /29 in SPF; a big /24 is dropped (too many to bind)."""
+def test_parse_spf_ips_extracts_pass_ip4_only() -> None:
+    """PASS-qualified ip4 (bare or +) extracted; SMALL CIDRs expanded, big /24 dropped.
+    DISAVOWED mechanisms (-ip4/~/?) are NOT promoted (Aikido: target says 'not my sender').
+    ip6 is dropped (GAP-155: transport lacks IPv6 URL bracketing)."""
     from agent_alpha.recon.passive_intel import parse_spf_ips
 
     txt = ["v=spf1 +ip4:198.51.100.5 -ip4:203.0.113.0/30 ip4:192.0.2.0/24 ip6:2001:db8::1 ~all"]
     ips = parse_spf_ips(txt)
-    assert "198.51.100.5" in ips  # single ip4, qualifier stripped
-    assert "203.0.113.1" in ips and "203.0.113.2" in ips  # /30 expanded to usable hosts
+    assert "198.51.100.5" in ips  # PASS-qualified (+) single ip4
+    assert not any(ip.startswith("203.0.113.") for ip in ips)  # -ip4 DISAVOWED → NOT promoted
     assert not any(ip.startswith("192.0.2.") for ip in ips)  # /24 too big → dropped
-    assert "2001:db8::1" in ips  # ip6 single
+    assert not any(":" in ip for ip in ips)  # ip6 dropped (GAP-155)
+
+
+def test_parse_spf_ips_rejects_malformed_header_and_disavowed() -> None:
+    """'v=spf1evil' is NOT SPF (exact first-token match, Aikido); softfail/neutral dropped."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    assert parse_spf_ips(["v=spf1evil ip4:198.51.100.9 -all"]) == ()  # malformed header
+    assert parse_spf_ips(["v=spf1 ~ip4:198.51.100.9 ?ip4:198.51.100.10 -all"]) == ()  # disavowed
+
+
+def test_parse_spf_ips_extracts_single_ip4_slash32() -> None:
+    """The COMMON case: a single-IP SPF (implicit /32) IS extracted — .hosts() on Python>=3.9
+    (Oracle 3.12.13) yields the /32 address (Sourcery's 'empty /32' does not apply to our env)."""
+    from agent_alpha.recon.passive_intel import parse_spf_ips
+
+    assert parse_spf_ips(["v=spf1 ip4:203.0.113.7 -all"]) == ("203.0.113.7",)
 
 
 def test_parse_spf_ips_ignores_non_spf_txt() -> None:
@@ -1241,26 +1258,31 @@ def test_parse_spf_ips_aggregate_cap_prevents_probe_storm() -> None:
     assert len(ips) == _SPF_MAX_TOTAL_CANDIDATES  # 32, not 42
 
 
-def test_mx_spf_drops_asian_big_cloud_mail_keeps_regional() -> None:
-    """Alibaba/Tencent mail relays dropped (not the target origin); a regional hosting MX
-    (xserver.ne.jp) is kept for CompositeOriginDiscovery to resolve + bind."""
+def test_mx_spf_keeps_in_domain_drops_off_domain_mx() -> None:
+    """SCOPE BOUNDARY (Aikido/Greptile #421): off-domain mail infra — big-cloud relays AND
+    third-party regional hosting (xserver.ne.jp) alike — is out of the authorized SOW and must
+    NOT become an origin-binding target. Only in-domain MX hosts are kept."""
     from agent_alpha.recon.passive_intel import enrich_with_mx_spf
 
     base = PassiveIntelMap(
         domain="corp.cn",
         subdomains=(),
         in_scope_subdomains=(),
-        mx_records=("10 mxn.mxhichina.com", "10 mail.exmail.qq.com", "10 sv123.xserver.ne.jp"),
+        mx_records=(
+            "10 mxn.mxhichina.com",  # off-domain big-cloud
+            "10 mail.exmail.qq.com",  # off-domain big-cloud
+            "10 sv123.xserver.ne.jp",  # off-domain third-party hosting
+            "10 mail.corp.cn",  # IN-DOMAIN — kept
+        ),
         txt_records=(),
     )
     out = enrich_with_mx_spf(base)
-    assert not any("mxhichina" in s or "exmail.qq" in s for s in out.subdomains)  # big-cloud dropped
-    assert "sv123.xserver.ne.jp" in out.subdomains  # regional hosting kept
+    assert out.subdomains == ("mail.corp.cn",)  # ONLY the in-domain MX host
 
 
 def test_enrich_with_mx_spf_derives_candidates_additive() -> None:
-    """SPF ip4 → origin_ip_candidates; non-big-cloud MX → subdomains (in-domain AND regional
-    shared-hosting kept, Google dropped); every other field preserved (additive)."""
+    """SPF ip4 → origin_ip_candidates; IN-DOMAIN MX → subdomains (off-domain infra dropped —
+    scope boundary); every other field preserved (additive)."""
     from agent_alpha.recon.passive_intel import enrich_with_mx_spf
 
     base = PassiveIntelMap(
@@ -1274,10 +1296,28 @@ def test_enrich_with_mx_spf_derives_candidates_additive() -> None:
     out = enrich_with_mx_spf(base)
     assert "103.150.20.17" in out.origin_ip_candidates  # SPF ip4
     assert "1.1.1.1" in out.origin_ip_candidates  # additive — kept
-    assert "mail.acme.co.id" in out.subdomains  # in-domain MX
-    assert "mx.niagahoster.com" in out.subdomains  # regional shared-hosting MX kept
-    assert not any("google" in s for s in out.subdomains)  # big-cloud MX dropped
+    assert "mail.acme.co.id" in out.subdomains  # in-domain MX kept
+    assert not any("google" in s for s in out.subdomains)  # off-domain big-cloud dropped
+    assert not any("niagahoster" in s for s in out.subdomains)  # off-domain hosting dropped
     assert "www.acme.co.id" in out.subdomains  # additive — kept
+
+
+def test_enrich_with_mx_spf_deduplicates_reemitted_candidates() -> None:
+    """Re-emit safety (Sourcery #421): an SPF IP / in-domain MX already present in the map is
+    NOT duplicated — enrich is idempotent on its own output (additive-dedup)."""
+    from agent_alpha.recon.passive_intel import enrich_with_mx_spf
+
+    base = PassiveIntelMap(
+        domain="acme.co.id",
+        subdomains=("mail.acme.co.id",),  # MX host already present
+        in_scope_subdomains=(),
+        origin_ip_candidates=("203.0.113.7",),  # SPF IP already present
+        mx_records=("10 mail.acme.co.id",),
+        txt_records=("v=spf1 ip4:203.0.113.7 -all",),
+    )
+    out = enrich_with_mx_spf(base)
+    assert out.origin_ip_candidates.count("203.0.113.7") == 1  # no dup IP
+    assert out.subdomains.count("mail.acme.co.id") == 1  # no dup host
 
 
 def test_mx_spf_enrichment_on_live_path(monkeypatch: pytest.MonkeyPatch) -> None:

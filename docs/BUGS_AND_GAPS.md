@@ -1344,8 +1344,8 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-154 — Passive enrichment skipped on total-CT-failure (gate limitation)
-- Status: DONE (2026-08-15) — VERIFIED on 3.12 sandbox (60/60 test_passive_intel, 776/3s phase_4+2_5).
-  RE-SEAL on Oracle ARM64 required before claiming closed (Lyndon #9).
+- Status: VERIFIED (sandbox 3.12.3) — PENDING Oracle ARM64 seal. NOT "DONE" until Oracle green
+  (Lyndon #9). Sandbox run: test_passive_intel + phase_4/phase_2_5 green; Oracle re-run required.
 - Priority: Medium — caps Wayback/DNS/OTX/VT exactly in the full-CF case they matter most
 - Category: WI
 - Stack: Memory
@@ -1366,6 +1366,26 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
   fires on total CT fail) + `test_enrichment_runs_on_total_ct_failure_with_dns_data` (RED-first: SPF
   ip4 → origin_ip_candidates + in-domain MX → subdomains, with ZERO CT surface).
 - Cross-ref: GAP-016 (Wayback — surfaced this), GAP-115 (historical DNS — now unblocked, same path), ADR §12.61 A1.
+
+---
+
+## GAP-155 — IPv6 origin candidates cannot bind (transport lacks URL bracketing)
+- Status: OPEN (deferred; surfaced by GAP-062 MX/SPF review, Greptile PR #421)
+- Priority: Low — IPv6-only origins are rare in the SE-Asia SMB target market; ip4 covers the field cases
+- Category: RG
+- Stack: Memory
+- What: `reach_transport.origin_direct_fetch` builds the probe URL as `f"https://{origin_ip}{path}"`. For an
+  IPv6 literal (e.g. `2001:db8::1`) this yields `https://2001:db8::1/`, which httpx rejects — IPv6 in a URL
+  authority MUST be bracketed: `https://[2001:db8::1]/`. So ANY ip6 origin candidate (SPF ip6, or an OTX/VT
+  AAAA record) is un-bindable → a broken capability if emitted.
+- Interim (shipped in #421): `parse_spf_ips` DROPS ip6 mechanisms entirely (no half-working candidate emitted
+  — anti-#2). OTX/VT ip6 candidates, if any, hit the same latent bug.
+- Fix (own vertical): bracket IPv6 authorities at the SINGLE source — `origin_direct_fetch` — so every ip6
+  candidate from any source binds (anti-#7/#10: fix the transport interface, not each producer). Keep bare
+  canonical IPs in `origin_ip_candidates` (is_cloudflare_ip/is_internal_ip/probe_as_origin expect bare IPs);
+  bracket ONLY at URL construction. Then re-enable ip6 in `parse_spf_ips`. Touches SEALED reach transport →
+  Oracle re-seal of reach tests required. Add a transport test asserting the `[...]` URL form.
+- Cross-ref: GAP-062 (MX/SPF — deferred ip6 here), §12.46 origin binding, ADR §12.33 verify-posture.
 
 ---
 
