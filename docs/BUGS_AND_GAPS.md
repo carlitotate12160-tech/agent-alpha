@@ -33,7 +33,7 @@
 | 24 | response_classifier `challenge-platform` FP on CF | FIXED | — | FS | Low | All CF-proxied sites misclassified |
 | 25 | DefaultCredsTool ignores harvested USER nodes | RESOLVED | — | RG | Med | Beta can't spray discovered usernames |
 | 26 | Generic blind probing → excessive 404s → WAF/CF block | OPEN | High | CW | Med | Agent blocked before finding anything |
-| 34 | `run_recon` resets engagement state across targets → thrash | FIX VERIFIED 3.12 — Oracle seal pending | High | CW | Low | Egress-block/dead-host/dedup reset per target → never converges; burns HTTP + LLM tokens |
+| 34 | `run_recon` resets engagement state across targets → thrash | OPEN | High | CW | Low | Egress-block/dead-host/dedup reset per target → never converges; burns HTTP + LLM tokens |
 | 35 | `LLM_TOOL_SELECT_MAX_TOKENS=512` too small | FIXED (Oracle-sealed) | — | RM | Low | Reasoning model truncates → OrientationError |
 | 36 | `/wp-admin/*` login-gated pages enter frontier | OPEN | Med | CW | Low | Token burn for predictable non-findings |
 | 37 | Non-WP hosts have no crawl allowlist | OPEN | High | CW | Low | Alpha crawls 20+ content pages, 0 findings |

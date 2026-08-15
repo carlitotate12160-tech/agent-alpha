@@ -179,36 +179,48 @@ def test_empty_target_is_failure_not_silent_success(alpha_factory, recon_engagem
 # when a genuinely new engagement (fresh engagement_id) begins (no cross-engagement leak).
 
 
-def test_engagement_scoped_state_persists_across_targets(
-    alpha_factory, recon_engagement, http_client, hardened_target_url
+def test_host_keyed_state_persists_but_content_and_egress_reset_across_targets(
+    alpha_factory, recon_engagement, http_client, hardened_target_url, laravel_target_url
 ):
-    """Bug #34 CARDINAL: two targets in the SAME engagement on a reused Alpha — the
-    engagement's learned dedup/health state carries over to the second target instead of
-    being wiped (the old behaviour = re-probe a blocked egress / re-analyse the same
-    wall on every sibling → thrash)."""
+    """Bug #34 CARDINAL (corrected after Aikido/Greptile/CodeRabbit review): across two
+    targets of the SAME engagement on a reused Alpha, ONLY host-keyed / URL-keyed state
+    may persist. Content-keyed and global egress state MUST reset per target:
+
+      * PERSIST — _probed (URL-keyed), _dead_hosts / _host_ok (host-keyed): safe, and the
+        convergence fix (no re-probing the same URLs / re-hitting known-dead hosts).
+      * RESET — _body_hashes (CONTENT-keyed): persisting false-skips a DIFFERENT host
+        serving identical bytes before it is analysed (Aikido). _egress_blocked /
+        _consecutive_transport_fail (GLOBAL): persisting aborts a healthy next target as
+        EGRESS_BLOCKED and couples unrelated targets (Greptile).
+
+    The second target is a SIBLING url (different host), mirroring the autonomous path
+    `for url in targets: run_recon(...)` (CodeRabbit)."""
     auth, engagement_id = recon_engagement
     agent, _ = alpha_factory(auth, http_client)
 
     # First target of the engagement.
     agent.run_recon(engagement_id, hardened_target_url)
 
-    # What the FIRST target learned that the engagement as a whole must remember:
-    # a URL already probed, a host proven dead, the same-wall body hash, and — the
-    # cardinal one — that the egress IP is blocked.
+    # Host/URL-keyed knowledge the engagement must remember (SAFE to persist):
     agent._probed.add("https://hardened.invalid/_sentinel_probed")
     agent._dead_hosts.add("dead.invalid")
+    agent._host_ok.add("hardened.invalid")
+    # Content-keyed + global egress state that must NOT leak into the next target:
     agent._body_hashes.add("sentinel-body-hash")
     agent._egress_blocked = True
     agent._consecutive_transport_fail = 3
 
-    # Second target, SAME engagement, SAME reused instance.
-    agent.run_recon(engagement_id, hardened_target_url)
+    # Second target — a SIBLING url in the SAME engagement, SAME reused instance.
+    agent.run_recon(engagement_id, laravel_target_url)
 
+    # Persisted (host/URL-keyed) — the convergence fix:
     assert "https://hardened.invalid/_sentinel_probed" in agent._probed
     assert "dead.invalid" in agent._dead_hosts
-    assert "sentinel-body-hash" in agent._body_hashes
-    assert agent._egress_blocked is True
-    assert agent._consecutive_transport_fail == 3
+    assert "hardened.invalid" in agent._host_ok
+    # Reset (content-keyed / global) — regression guards for Aikido + Greptile:
+    assert "sentinel-body-hash" not in agent._body_hashes  # Aikido: no cross-host body skip
+    assert agent._egress_blocked is False  # Greptile: healthy sibling not pre-aborted
+    assert agent._consecutive_transport_fail == 0  # Greptile: counter not carried over
 
 
 def test_new_engagement_id_resets_engagement_state(

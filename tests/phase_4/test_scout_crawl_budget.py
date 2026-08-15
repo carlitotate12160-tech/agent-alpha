@@ -197,7 +197,7 @@ def test_catalog_seeds_bypass_organic_budget() -> None:
 
 def test_budget_resets_between_run_recon_calls() -> None:
     """The organic crawl counter is per-run state, not per-instance.
-    A second run_recon() must start with a fresh budget."""
+    A second run_recon() with a new engagement must start with a fresh budget."""
     homepage = _make_hrefs(_HOST, "product", 30)
     routes = {_SITE_ROOT: FakeResponse(200, homepage)}
     for i in range(30):
@@ -214,8 +214,12 @@ def test_budget_resets_between_run_recon_calls() -> None:
     # Reset http client to track second run
     http.get_calls.clear()
 
-    # Second run — budget must be fresh
-    alpha.run_recon(eng_id, _SITE_ROOT)
+    # Second run with a new engagement on reused Alpha — budget must be fresh
+    rec2 = alpha.authorization.create_engagement(client_id="budget_lab_2", target=_HOST)
+    alpha.authorization.enable_recon(
+        rec2.engagement_id, Scope(ip_ranges=[], domains=[_HOST], exclusions=[])
+    )
+    alpha.run_recon(rec2.engagement_id, _SITE_ROOT)
     second_count = len([c for c in http.get_calls if "/product/" in c])
     assert second_count == constants.MAX_ORGANIC_CRAWL_PER_HOST, (
         f"Budget must reset between runs; second run got {second_count} "
