@@ -1341,7 +1341,7 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
   path); `historical_paths` → probe-steering breadth (the original GAP-016 intent). Follows OTX/VT
   precedent. NOTE: INDIRECT origin discovery (subdomain→resolve); the DIRECT historical-A-record
   technique is GAP-115 (SecurityTrails/DNSHistory, still OPEN), and the DIRECT origin-IP source is
-  GAP-062 (MX/SPF, next). KNOWN LIMITATION → GAP-154 (enrichment skipped on total-CT-failure) — CLOSED 2026-08-15: enrichment now runs unconditionally.
+  GAP-062 (MX/SPF, next). KNOWN LIMITATION → GAP-154 (enrichment skipped on total-CT-failure) — VERIFIED 2026-08-15: enrichment now runs unconditionally.
 
 ---
 
