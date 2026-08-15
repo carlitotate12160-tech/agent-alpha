@@ -302,6 +302,60 @@ def enrich_with_virustotal(intel: PassiveIntelMap, vt: VirusTotalSource) -> Pass
     )
 
 
+# ── §12.61: Wayback historical source (subdomains → origin candidates + paths) ──
+
+
+class WaybackSource(Protocol):
+    """Seam for the keyless Wayback CDX historical-URL source (fail-open).
+
+    Structurally satisfied by ``osint_sources.WaybackClient``. Keyless — unlike OTX/VT it
+    needs no API key, so it is ALWAYS injected at the Conductor entry. Yields historical
+    subdomains (→ origin candidates via CompositeOriginDiscovery) and historical paths
+    (→ probe-steering breadth)."""
+
+    def subdomains_and_paths(
+        self, domain: str
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]: ...  # pragma: no cover
+
+
+def enrich_with_wayback(intel: PassiveIntelMap, wayback: WaybackSource) -> PassiveIntelMap:
+    """Return *intel* enriched with Wayback historical subdomains + paths.
+
+    ADDITIVE (anti-#10): NEW frozen map via replace. Historical subdomains are UNIONED
+    with crt.sh/VT subdomains (deduped, order preserved) → each becomes an ORIGIN
+    CANDIDATE that CompositeOriginDiscovery resolves and verify_origin_binding proves
+    (§12.61: a pre-CF subdomain often resolves to the origin IP directly). Historical
+    paths are unioned with existing (OTX) paths for probe-steering breadth.
+
+    PRODUCER ONLY — a historical subdomain is a CANDIDATE, never authorization: acted on
+    only after token-canary binding to the owned host. Wayback is INDIRECT for the origin
+    IP (subdomain→resolve); the DIRECT origin-IP source is MX/SPF (next slice).
+
+    Fail-open: any error from the source → *intel* unchanged. Never raises.
+    """
+    try:
+        wb_subs, wb_paths = wayback.subdomains_and_paths(intel.domain)
+    except Exception:  # noqa: BLE001 — OSINT boundary; fail-open = no enrichment
+        return intel
+    existing_subs = list(intel.subdomains)
+    seen_subs = set(existing_subs)
+    for sub in wb_subs:
+        if sub not in seen_subs:
+            seen_subs.add(sub)
+            existing_subs.append(sub)
+    existing_paths = list(intel.historical_paths)
+    seen_paths = set(existing_paths)
+    for p in wb_paths:
+        if p not in seen_paths:
+            seen_paths.add(p)
+            existing_paths.append(p)
+    return replace(
+        intel,
+        subdomains=tuple(existing_subs),
+        historical_paths=tuple(existing_paths),
+    )
+
+
 # ── Event-sourced audit (§12.48: PASSIVE_INTEL_GATHERED before active recon) ───
 
 
