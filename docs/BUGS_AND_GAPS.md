@@ -1328,7 +1328,7 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-016 — Wayback Machine Pre-Intel — Archive-Driven Probe Selection
-- Status: DONE (§12.61, 2026-08-15) — Oracle-sealed (test_passive_intel 52/52). Tier-2 field-prove
+- Status: VERIFIED (§12.61, 2026-08-15) — Oracle-sealed (test_passive_intel 52/52). Tier-3 field-prove
   (niagamas/bernofarm) pending (§12.60).
 - Priority: Medium — Agent probes blind paths, causing 404 noise and WAF/CF blocks (Bug #26)
 - Category: RG
