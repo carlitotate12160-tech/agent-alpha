@@ -58,7 +58,7 @@
 | 013 | Credential pattern mutation | MOVED → §12.34 | — | — | — | — |
 | 014 | Fan-out parallel worker wiring (Shape A not wired) | OPEN | Med | WI | Med | Parallel target scanning not available |
 | 015 | Credential spray tool (harvested usernames × passwords) | DONE | — | RG | Med | Beta can't spray discovered usernames |
-| 016 | Wayback Machine pre-intel | OPEN | Low | RG | Med | No archive-driven probe selection |
+| 016 | Wayback Machine pre-intel | DONE (§12.61; Oracle-sealed, field-prove pending) | — | RG | Med | Wayback CDX origin source: historical subdomains → origin candidates + historical_paths |
 | 017 | PassiveIntelMap enrichment dead-end (consumer not wired) | OPEN | Med | WI | Med | OSINT data collected but not consumed |
 | 018 | LiveOriginDiscovery doesn't seed in-scope siblings | RESOLVED | — | RG | Med | Origin discovery fails when crt.sh down |
 | 019 | Per-host origin-resolution cache | RESOLVED | — | CW | Low | Redundant DNS lookups |
@@ -192,6 +192,7 @@
 | 150 | CSP analysis for attack surface mapping | OPEN | Low | RM | Low | GAP-055 = presence only; script-src trusted external = attack surface |
 | 151 | CDN origin shield bypass (Argo/CloudFront shield) | OPEN | Med | RM | Med | Shield IP discovery = bypass edge entirely |
 | 152 | DNS rebinding for SSRF bypass | OPEN | Low | SS | Med | Domain resolves to 127.0.0.1 after first DNS check; bypass SSRF allowlist |
+| 154 | Passive enrichment skipped on total-CT-failure | DONE | — | WI | Med | DNS/OTX/VT/Wayback unblocked on total CT failure; seed empty map, runs unconditionally |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
@@ -1325,11 +1326,46 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 ---
 
 ## GAP-016 — Wayback Machine Pre-Intel — Archive-Driven Probe Selection
-- Status: OPEN
+- Status: DONE (§12.61, 2026-08-15) — Oracle-sealed (test_passive_intel 52/52). Tier-2 field-prove
+  (niagamas/bernofarm) pending (§12.60).
 - Priority: Medium — Agent probes blind paths, causing 404 noise and WAF/CF blocks (Bug #26)
 - Category: RG
 - Stack: Memory
 - Effort: Low-Medium (single module + CDX API query, no target interaction)
+- Slice: `WaybackClient` (keyless CDX over HTTPS) + `parse_wayback_cdx` (per-row-resilient) +
+  `WaybackSource` Protocol + `enrich_with_wayback` (additive `replace`, fail-open), wired at the
+  conductor passive phase (`recon_runner`), ALWAYS on (keyless). Historical subdomains → ORIGIN
+  CANDIDATES via `CompositeOriginDiscovery` (bound by token-canary §12.46; anti-#6 — no second origin
+  path); `historical_paths` → probe-steering breadth (the original GAP-016 intent). Follows OTX/VT
+  precedent. NOTE: INDIRECT origin discovery (subdomain→resolve); the DIRECT historical-A-record
+  technique is GAP-115 (SecurityTrails/DNSHistory, still OPEN), and the DIRECT origin-IP source is
+  GAP-062 (MX/SPF, next). KNOWN LIMITATION → GAP-154 (enrichment skipped on total-CT-failure) — CLOSED 2026-08-15: enrichment now runs unconditionally.
+
+---
+
+## GAP-154 — Passive enrichment skipped on total-CT-failure (gate limitation)
+- Status: DONE (2026-08-15) — VERIFIED on 3.12 sandbox (60/60 test_passive_intel, 776/3s phase_4+2_5).
+  RE-SEAL on Oracle ARM64 required before claiming closed (Lyndon #9).
+- Priority: Medium — caps Wayback/DNS/OTX/VT exactly in the full-CF case they matter most
+- Category: WI
+- Stack: Memory
+- What: In `recon_runner.run_recon_for_engagement` the passive-intel enrichment block (DNS, OTX, VT,
+  Wayback) WAS gated on `if result is not None` — a `PassiveIntelMap` was built only when a CT source
+  (CertSpotter/crt.sh/HackerTarget) returned. If ALL THREE throw (total CT failure), no map was built,
+  no enrichment ran, no `PASSIVE_INTEL_GATHERED` event was emitted → Wayback/historical-DNS signal was
+  DEAD exactly in the total-CT-failure scenario (§12.61 A1: "crt.sh/VT/OTX FAILED on these targets").
+- Fix (shipped): `if result is not None:` now ONLY unions the CT surface (enumerated/in_scope). The
+  intel build + auth-gated enrichment + `record_passive_intel` are DEDENTED out of that guard and run
+  UNCONDITIONALLY. On total CT failure a `seed = PassiveDiscoveryResult(host, (), (), ())` empty map is
+  built, so DNS/OTX/VT/MX-SPF/Wayback still fire and `PASSIVE_INTEL_GATHERED` is always emitted
+  (anti-#3: recorded honestly, never a silent skip). `sources_used` reflects the truth — `()` from CT,
+  `("dns", ...)` from what actually enriched.
+- WIRED (not runner-island): the change is INSIDE `run_recon_for_engagement`, the Conductor autonomous
+  recon path (main.py → run_recon_for_engagement). WIRED-PROOF test exercises the real stream.
+- Tests: `test_passive_intel.py::test_fallback_down_both_fail_is_non_fatal` (now asserts the empty event
+  fires on total CT fail) + `test_enrichment_runs_on_total_ct_failure_with_dns_data` (RED-first: SPF
+  ip4 → origin_ip_candidates + in-domain MX → subdomains, with ZERO CT surface).
+- Cross-ref: GAP-016 (Wayback — surfaced this), GAP-115 (historical DNS — now unblocked, same path), ADR §12.61 A1.
 
 ---
 
@@ -2562,7 +2598,7 @@ The following GAPs are implementations of ADR §12.61 "Flank-when-CF-hard" axes.
 
 | §12.61 Technique | GAP | Status | Notes |
 |------------------|-----|--------|-------|
-| A1: Historical DNS (SecurityTrails/DNSHistory) | **GAP-115** | OPEN | Biggest missing signal per ADR. crt.sh/VT/OTX failed on 4 field targets. |
+| A1: Historical DNS (SecurityTrails/DNSHistory) | **GAP-115** | OPEN | Biggest missing signal per ADR. crt.sh/VT/OTX failed on 4 field targets. Wayback CDX (**GAP-016**, DONE) is a keyless INDIRECT partial (historical subdomains→origin); GAP-115 = direct A-records, still OPEN. |
 | A2: Mail/MX/SPF → origin netblock | **GAP-062** | OPEN | MX records reveal origin infrastructure (mail servers on origin, not CF). |
 | A3: Cert/favicon pivot (Shodan/Censys) | **GAP-093** + **GAP-086** | OPEN | Cert SAN reveals internal hostnames. Favicon hash matches origin via Shodan/Censys. |
 | A4: Grey-cloud/forgotten subdomains | **GAP-075** | OPEN | Subdomain takeover checks dangling CNAME. Grey-cloud subdomains bypass CF. |
