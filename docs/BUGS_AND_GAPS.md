@@ -58,7 +58,7 @@
 | 013 | Credential pattern mutation | MOVED → §12.34 | — | — | — | — |
 | 014 | Fan-out parallel worker wiring (Shape A not wired) | OPEN | Med | WI | Med | Parallel target scanning not available |
 | 015 | Credential spray tool (harvested usernames × passwords) | DONE | — | RG | Med | Beta can't spray discovered usernames |
-| 016 | Wayback Machine pre-intel | DONE (§12.61; Oracle-sealed, field-prove pending) | — | RG | Med | Wayback CDX origin source: historical subdomains → origin candidates + historical_paths |
+| 016 | Wayback Machine pre-intel | VERIFIED (Oracle-sealed, field-prove pending) | — | RG | Med | Wayback CDX origin source: historical subdomains → origin candidates + historical_paths |
 | 017 | PassiveIntelMap enrichment dead-end (consumer not wired) | OPEN | Med | WI | Med | OSINT data collected but not consumed |
 | 018 | LiveOriginDiscovery doesn't seed in-scope siblings | RESOLVED | — | RG | Med | Origin discovery fails when crt.sh down |
 | 019 | Per-host origin-resolution cache | RESOLVED | — | CW | Low | Redundant DNS lookups |
@@ -192,7 +192,9 @@
 | 150 | CSP analysis for attack surface mapping | OPEN | Low | RM | Low | GAP-055 = presence only; script-src trusted external = attack surface |
 | 151 | CDN origin shield bypass (Argo/CloudFront shield) | OPEN | Med | RM | Med | Shield IP discovery = bypass edge entirely |
 | 152 | DNS rebinding for SSRF bypass | OPEN | Low | SS | Med | Domain resolves to 127.0.0.1 after first DNS check; bypass SSRF allowlist |
-| 154 | Passive enrichment skipped on total-CT-failure | DONE | — | WI | Med | DNS/OTX/VT/Wayback unblocked on total CT failure; seed empty map, runs unconditionally |
+| 154 | Passive enrichment skipped on total-CT-failure | VERIFIED (Oracle-seal pending) | — | WI | Med | DNS/OTX/VT/Wayback unblocked on total CT failure; seed empty map, runs unconditionally |
+| 155 | IPv6 origin candidates cannot bind (transport lacks URL bracketing) | OPEN | Low | RG | Med | origin_direct_fetch lacks [...] bracketing on IPv6 literals |
+| 156 | Candidate public IPs probed before engagement IP-scope check | OPEN | Low | RG | Med | resolve_and_bind_origin pre-binding canary probe before IP-range check |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
