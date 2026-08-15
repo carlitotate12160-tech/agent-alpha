@@ -315,7 +315,8 @@ class WaybackSource(Protocol):
 
     def subdomains_and_paths(
         self, domain: str
-    ) -> tuple[tuple[str, ...], tuple[str, ...]]: ...  # pragma: no cover
+    ) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        raise NotImplementedError
 
 
 def enrich_with_wayback(intel: PassiveIntelMap, wayback: WaybackSource) -> PassiveIntelMap:

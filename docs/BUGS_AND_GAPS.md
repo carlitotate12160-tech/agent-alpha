@@ -154,7 +154,7 @@
 | 112 | Offline hash cracking tool (hashcat/john integration) | OPEN | High | SS | High | No offline crack capability; online spray risks lockout |
 | 113 | Password reset abuse (host header injection, token prediction) | OPEN | Med | SS | Med | Reset endpoint abuse to change password without knowing old password |
 | 114 | OAuth/SAML/JWT token theft and forgery | OPEN | Med | SS | High | Token-based auth bypass via open redirect, weak signing key, JWT crack |
-| 115 | Historical DNS & Web Archive origin discovery (Wayback/DNSHistory) | PARTIAL | High | RG | Med | ADR §12.61 A1 — Slice 1 Wayback CDX historical subdomains & paths implemented; Slice 2 Direct DNS complement |
+| 115 | Historical DNS & Web Archive origin discovery (Wayback/DNSHistory) | OPEN | High | RG | Med | ADR §12.61 A1 — biggest missing signal; crt.sh/VT/OTX failed on full-CF targets |
 | 116 | Authenticated crawl / post-access re-recon implementation (§12.32) | OPEN | High | RG | Med | ADR LOCKED but code NOT BUILT; 0 auth-vs-unauth diff in codebase |
 | 117 | Credential pattern mutation implementation (§12.34) | OPEN | Med | SS | Med | ADR LOCKED but CredentialPatternMutator NOT BUILT; cred_reuse literal only |
 | 118 | Proof standard oracle — auth-vs-unauth diff (§12.43) | OPEN | High | RG | Med | CredReuseAttestor is provenance check, NOT independent oracle per §12.43 |
@@ -2230,16 +2230,16 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 # ADR §12.61 Flank-when-CF-hard Implementation
 
 ## GAP-115 — Historical DNS & Web Archive origin discovery (Wayback/DNSHistory)
-- Status: PARTIAL (Slice 1: Keyless Wayback CDX historical subdomains & paths implemented; Slice 2: Direct DNS history complement).
+- Status: OPEN.
 - Priority: HIGH — ADR §12.61 A1 explicitly calls this "the biggest missing signal."
 - Category: RG
 - Stack: Universal
-- What: ADR §12.61 axis A1: "Historical DNS & Archive — the A-record / subdomains BEFORE CF was fronted; origin IP often unchanged. HIGHEST leverage, passive." Agent-Alpha's current origin discovery uses crt.sh/VT/OTX (certificate transparency + threat intel) + Wayback CDX (keyless historical subdomains & paths). Historical subdomains feed CompositeOriginDiscovery to resolve to origin IP candidates and verify two-proof binding (§12.46).
-- Evidence: `recon/osint_sources.py` — `WaybackClient`, `parse_wayback_cdx`, `enrich_with_wayback` in `passive_intel.py`, wired into `recon_runner.py` and `main.py`. Test suite in `tests/phase_4/test_passive_intel.py`.
+- What: ADR §12.61 axis A1: "Historical DNS & Archive — the A-record / subdomains BEFORE CF was fronted; origin IP often unchanged. HIGHEST leverage, passive." Agent-Alpha's origin discovery uses crt.sh/VT/OTX/Wayback CDX. Historical subdomains feed CompositeOriginDiscovery to resolve to origin IP candidates and verify two-proof binding (§12.46).
+- Evidence: `recon/osint_sources.py`, `recon/passive_intel.py`, `conductor/recon_runner.py`.
 - Files: `agent_alpha/recon/osint_sources.py`, `agent_alpha/recon/passive_intel.py`, `agent_alpha/conductor/recon_runner.py`, `agent_alpha/conductor/main.py`.
 - Cross-ref: ADR §12.61 A1 (HIGHEST leverage per ADR), GAP-042 (origin binding — historical IP needs two-proof binding), GAP-062 (MX/SPF — axis A2 complement), GAP-093 (cert SAN — axis A3 complement), GAP-086 (favicon hash — axis A3 complement), GAP-075 (subdomain takeover — axis A4/B8 complement). niagamas.com + bernofarm.com field-prove: both full-CF, crt.sh failed, historical DNS is the missing technique.
-- Impact: 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket) are full-CF apex where origin discovery FAILED. Slice 1 gives keyless historical subdomain and path breadth.
-- Effort: MED (Slice 1 completed; Slice 2 Direct DNS history).
+- Impact: 4 recent field targets (niagamas, bernofarm, ibudanbalita, busonlineticket) are full-CF apex where origin discovery FAILED.
+- Effort: MED.
 - Constraint: Historical IP is a CANDIDATE only — must pass two-proof binding (domain ownership + origin binding, §12.46) before Beta can strike. Passive, 0 target touch.
 
 ---
