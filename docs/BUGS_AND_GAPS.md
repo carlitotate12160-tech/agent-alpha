@@ -201,6 +201,33 @@
 | 158 | Multi-target credential reuse pivot across sibling stacks | OPEN | Med | RG | Med | Beta stops after winning first target; doesn't pivot creds to remaining sibling hosts |
 | 159 | Cloud IAM Privilege Escalation & Policy Trust Graph | OPEN | High | RG | Med-High | Models AWS/GCP/Azure IAM policy traversal, sts:AssumeRole paths, and cross-account trust boundaries for automated cloud tenant takeover |
 | 160 | Origin-candidate exclusion is Cloudflare-only | OPEN | Med | RM | Med | Shopify/Fastly/Akamai/Sucuri/Imperva edge IPs crowd out origin probes (§12.61 A1) |
+| 161 | scout.py god-object drift (#8) + missing size ratchet | OPEN | Med | WI | Med | Maintenance debt |
+| 162 | conductor/main.py mixes HTTP layer + Celery tasks; C901 hotspot | OPEN | Med | WI | Med | Maintenance debt |
+| 163 | Missing Referer header in HTTP egress (bot fingerprint signal) | OPEN | Med | RM | Low | OPSEC signal |
+| 164 | No persistent cookie jar per host session | OPEN | Med | CW | Med | Crawl quality / session loss |
+| 165 | Single static User-Agent profile (Chrome 124 Windows) | OPEN | Med | RM | Low | OPSEC fingerprinting |
+| 166 | HTTP method variation missing (OPTIONS/HEAD/TRACE/PUT probes) | OPEN | Med | RM | Low | Discovery signal |
+| 167 | Secret pattern catalog missing (API keys, cloud creds, private keys) | OPEN | High | RM | Med | Sensitive data extraction |
+| 168 | VCS leak paths limited to .git/config only (no .svn, .hg, .bzr) | OPEN | Med | RM | Low | Source code leak paths |
+| 169 | Fingerprint-first probe strategy (eliminate blind path spray) | OPEN | P0 | CW | High | Recon strategy / 73% waste |
+| 170 | Deterministic tool selection (reduce LLM-as-router) | OPEN | P0 | RG | Med | LLM cost and latency waste |
+| 171 | Intelligence feedback loop between hosts (target model) | OPEN | P0 | RG | High | Cross-host learning |
+| 172 | Vendor default page detection and content crawl suppression | OPEN | High | CW | Med | Crawling junk pages |
+| 173 | phpinfo() deep extraction (10+ findings from one response) | OPEN | Med | DD | Low | High-value signal discarded |
+| 175 | Search engine OSINT integration (Google dorking) | OPEN | Med | RM | High | External attack surface |
+| 176 | HTML comment and inline metadata extraction | OPEN | Med | DD | Low | Intel discarded |
+| 177 | 404 response body/header information leakage analysis | OPEN | Med | RM | Low | Hidden paths / stack leak |
+| 178 | Cloudflare infrastructure 5xx circuit breaker | OPEN | Med | CW | Low | Probe waste on edge errors |
+| 179 | Subdomain prioritization by business value | OPEN | High | RG | Med | Wasting time on dead hosts |
+| 180 | www.* subdomain duplication wastes entire probe budget | OPEN | Med | CW | Low | 50% probe waste on CNAMEs |
+| 181 | Identical small-body hosts not consolidated (482-byte pattern) | OPEN | Med | CW | Med | Waste on shared default pages |
+| 182 | karir.bernofarm.com never reached (Bug #37 field-prove incomplete) | OPEN | Low | EC | Low | Field-prove pending |
+| 183 | Email address harvesting from page content | OPEN | Med | DD | Low | Missing intel / pivot |
+| 184 | Redirect chain not followed for discovery (HTTP 302 bodies ignored) | OPEN | Med | DD | Low | Missing redirect intel |
+| 185 | ISBerno/Java app not fingerprinted (custom framework detection gap) | OPEN | Med | SS | Med | Missing Java specific probes |
+| 186 | Identical-body hosts still get full 11-path well-known probe | OPEN | Med | CW | Low | Shared-IP probe duplication |
+| 187 | Coverage Ledger is NOT a runtime wiring gate (Lyndon #2 at Phase 2) | OPEN | P0 | FS | Med | False assurance |
+| 188 | Alpha Handoff Asymmetry (Architectural Debt D3 blocker) | OPEN | P0 | RG | High | Broken autonomous chain |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
