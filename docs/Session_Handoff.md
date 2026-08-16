@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-15, GAP-051 & GAP-115 Slice 1 Tier-1 Validated)
+# Agent-Alpha — Session Handoff (2026-08-16, GAP-026, GAP-062, GAP-154, GAP-115 Slice 1 MERGED)
 
-Resume with: "lanjut Agent-Alpha — GAP-115 Slice 1 (Wayback CDX Historical Recon, #420, Tier-1 Validated) + GAP-051 Slice 1 (Engagement-Level Wall Verdict / #419) + Bug #34 Engagement-Scoped State Reset (Tier-1 Validated) + Bug #35 LLM Orientation Budget & Retry Resilience (#417, Tier-1 Validated) + GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 MX/SPF origin discovery (GAP-062) OR GAP-051 Slice 2 Active Origin Hunt. Do NOT build Gamma."
+Resume with: "lanjut Agent-Alpha — GAP-026 StealthPacer default ON (#423) + GAP-062 MX/SPF Origin Candidates & GAP-154 Unconditional Enrichment (#421) + GAP-115 Slice 1 (Wayback CDX Historical Recon, #420) + GAP-051 Slice 1 (Engagement-Level Wall Verdict / #419) + Bug #34/#35 MERGED & PROVEN. NEW deferred GAPs: GAP-155 (ip6 URL bracketing) + GAP-156 (IP-scope pre-binding) + GAP-157/158/159. NEXT SLICE = GAP-115 historical-DNS origin discovery (§12.61 A1 DIRECT A-records) — keyless-first source seam, compose with §12.46 binding, drop ip6; DECISION NEEDED: source/key policy (ViewDNS keyless vs SecurityTrails paid key). Do NOT build Gamma. ALWAYS git pull + re-verify first."
 
 ---
 
@@ -18,9 +18,11 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
-| **GAP-115: Keyless Wayback CDX Historical Recon (Slice 1)** | **PR #420, Tier-1 Validated** | Keyless `WaybackClient` queries `web.archive.org/cdx/search/cdx` API (HTTPS) to extract in-domain historical subdomains (for `CompositeOriginDiscovery` origin resolution) + historical URL paths. Additive `enrich_with_wayback` with per-row parsing error resilience. 52/52 PASS, 100% green CI. |
+| **GAP-026: StealthPacer Default ON Across Conductor** | **MERGED #423, Tier-1 Validated** | Pacer default ON across conductor per ADR §12.49 with strict §12.36 consent gate preserved. 100% green CI. |
+| **GAP-062: MX/SPF Origin Candidates & GAP-154 Gate-Fix** | **MERGED #421, Tier-1 Validated** | In-domain MX subdomains + SPF pass-ip4 origin candidates. Unconditional enrichment on total CT failure (DNS/OTX/VT/MX-SPF/Wayback always fire; `PASSIVE_INTEL_GATHERED` always emitted; anti-#3). Fan-out cap (8), `net.version!=4` IPv6 drop (interim per GAP-155). 247+ test assertions PASS. |
+| **GAP-115: Keyless Wayback CDX Historical Recon (Slice 1)** | **MERGED #420, Tier-1 Validated** | Keyless `WaybackClient` queries `web.archive.org/cdx/search/cdx` API (HTTPS) to extract in-domain historical subdomains (for `CompositeOriginDiscovery` origin resolution) + historical URL paths. Additive `enrich_with_wayback` with per-row parsing error resilience. 52/52 PASS, 100% green CI. |
 | **GAP-051: Engagement-Level Wall Verdict (Slice 1)** | **MERGED #419, Tier-1 Validated** | Conductor sweep records `WallVerdict` with `reason: Literal["waf_walled", "clear", "dead"]` scoped to stream head (`run_start_seq`) after target sweep. Emits `ENGAGEMENT_WALLED` audit event when all targets encounter WAF blocks. 10/10 PASS, 100% green CI across all checks. |
-| **Bug #34: Engagement-Scoped State Reset** | **Tier-1 Validated** | Fixed deduplication and health state (probed URLs, dead/reachable hosts) to persist across sibling targets within the same engagement while keeping content-keyed and egress state target-scoped. State resets on a new engagement ID. 7/7 PASS. |
+| **Bug #34: Engagement-Scoped State Reset** | **MERGED #418, Tier-1 Validated** | Fixed deduplication and health state (probed URLs, dead/reachable hosts) to persist across sibling targets within the same engagement while keeping content-keyed and egress state target-scoped. State resets on a new engagement ID. 7/7 PASS. |
 | **Bug #35: LLM Orientation Budget & Retry Resilience** | **MERGED #417, Tier-1 Validated** | Right-sized orientation token budget (2048 primary, 4096 retry) for reasoning models (DeepSeek-v4-pro). Added one-shot retry resilience on `CompletionTruncatedError` (including non-empty truncated text) with accurate cost aggregation (`prior_cost`) and double-truncation fallback. 6/6 PASS, 100% green CI. |
 | **GAP-074 Odoo JSON-RPC Fallback (Slice 2c)** | **MERGED #416, Tier-1 PROVEN** | OdooAccessTool now implements transport fallback (GAP-067). WAF/CDN blocked XML-RPC endpoints automatically fall back to web JSON-RPC login. Resolves CI, SAST (Aikido/GitGuardian), and formatting issues. 29/29 PASS. |
 | **Auth Path Test Environment Isolation** | **MERGED #415, Tier-1 PROVEN** | Isolated `AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION` in `test_conductor_auth_path.py` fixture: prevents `.env` environment variables from leaking into domain verification tests. 10/10 PASS, 100% green CI. |
@@ -53,16 +55,20 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 ## OPEN / NOT DONE (registered, prioritised)
 
-**High-leverage growth (next real slice — pick one, ONE at a time):**
-- **§12.61 historical-DNS origin discovery** ★ — opens full-CF targets (niagamas/bernofarm/ibudanbalita all ceiling only because origin isn't found; crt.sh/VT/OTX failed). Passive, datacenter-friendly, extends the moat. Wayback CDX API = priority candidate (free, no key, operator-autonomous). Then cert/favicon pivot, then leaked-cred stuffing (axis-B). MENU — one slice.
+**High-leverage growth (next real slice — GAP-115, agreed 2026-08-15; ONE at a time):**
+- **GAP-115 historical-DNS origin discovery** ★ (§12.61 A1 DIRECT) — DIRECT pre-CF A-records (the origin IP a domain pointed to BEFORE going behind CF, often still live/unprotected). This is the ADR's "biggest missing signal": 4 field targets (niagamas/bernofarm/ibudanbalita/busonlineticket) are full-CF where crt.sh/VT/OTX ALL failed. GAP-154 now lets this enrichment run even when crt.sh is down (the exact field case). DESIGN GATE (locked, build in a NEW session): keyless-FIRST source seam (ViewDNS/DNSHistory keyless; SecurityTrails key-gated OPTIONAL like OTX/VT, None=off, keyless-safe) → `enrich_with_historical_dns(intel, source)` additive → emits ip4 `origin_ip_candidates` (DROP ip6 per GAP-155) → composes with §12.46 two-proof binding (historical IP = CANDIDATE, stale IP fails binding = fail-closed, the niagamas lesson). Moat = the COMPOSITION (historical A → proven pre-CF origin), NOT the commodity lookup. **DECISION NEEDED FROM NATANAEL:** source/key policy — keyless-only (ViewDNS, rate-limited, autonomous) vs +SecurityTrails paid key (his to provide for Tier-2 field-prove). Then cert/favicon pivot (GAP-093/086), then axis-B. MENU — one slice.
 - **GAP-045 CF-ceiling honest-outcome report** — (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable integrated with CoverageLedger).
 
-**Non-blockers (schedule after):**
-- GAP-043 CDN edge IP filter only covers Cloudflare (Sucuri/Incapsula/Akamai).
-- GAP-042 origin probe bypasses stealth HttpClient (opsec debt).
-- GAP-046 basic-auth applicator, GAP-047 username-harvest breadth — deferred (cred-acquisition).
-- GAP-026 stealth-by-default = option A (product/SOP): stealth toggle at engagement creation.
-- GAP-036 LLM tool-pick on auth pages — root = DUPLICATE password detection.
+**Deferred GAPs (registered, own verticals — do NOT fold into recon slices):**
+- **GAP-155** IPv6 origin candidates can't bind — `origin_direct_fetch` lacks `[...]` URL bracketing; ip6 dropped interim.
+- **GAP-156** Candidate public IPs token-probed before `is_in_scope(ip)` when Scope.ip_ranges non-empty — binding-layer, all IP sources; domain SOWs unaffected by design.
+- **GAP-157** Autonomous ACCESS_LEVEL missing ENABLES edge to CREDENTIAL node in graph projection (#422).
+- **GAP-158** Multi-target credential reuse pivot across sibling stacks (#422).
+- **GAP-159** Cloud IAM Privilege Escalation & Policy Trust Graph (AWS/GCP/Azure policy traversal).
+- **GAP-043** CDN edge IP filter only covers Cloudflare (Sucuri/Incapsula/Akamai).
+- **GAP-042** Origin probe bypasses stealth HttpClient (opsec debt).
+- **GAP-046/047** Basic-auth applicator, username-harvest breadth — deferred (cred-acquisition).
+- **GAP-036** LLM tool-pick on auth pages — root = DUPLICATE password detection.
 
 **Needs a log to diagnose (do NOT guess — anti-mis-fix):**
 - **Spectranet frontier cycling** (Bug #34) — run did not converge, repeated same paths across 3+ cycles.
@@ -77,7 +83,7 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 - **GAP-074 Single-Source Mechanism Resolution** — mechanism-to-applicator mapping is centralized in `recon.auth_surface`. ASSET `tech_stack` is the canonical projection. Unknown/unmapped mechanisms fail-closed.
 - **Soft-404: two-probe differential > regex whack-a-mole** — let the target reveal its volatile tokens by diffing two catch-all samples; don't enumerate token formats. Verified empirically + Tier-2 catchall.lab proven.
 - **GAP-034: read-model over events, not node-schema mutation** (event-sourced; AttackGraph = projection).
-- **GAP-026: stealth is consent-gated (§12.36 enforced)** — TEMPO is operator baseline but stays consent-gated.
+- **GAP-026: stealth is consent-gated (§12.36 enforced)** — TEMPO is operator baseline but stays consent-gated. StealthPacer default ON per ADR §12.49.
 - **GAP-031: crash FIXED (graceful decline + Omega); residual = CF ceiling, NOT a code slice.**
 - **Code quality target**: military-grade engineering (fail-safe, deterministic, audited, no false-success) that ENCODES APT tradecraft.
 - **Verify-before-ship, every time**: green ≠ proven; always `git pull` before writing a patch; RUNNER-SEAL ≠ AUTONOMOUS-WIRED; Oracle is the seal.
@@ -85,4 +91,4 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — GAP-074 Slice 2c (Odoo JSON-RPC Fallback / #416) + Auth Path Test Environment Isolation (#415) + Beta Offensive Profile Fail-Closed (#414) + Beta State-Leak Fix (#413) + Signed Profile Fail-Closed (#412) + CI & Secret Hardening (#411) + Coverage-Honesty (§12.62, #404/#407) + GAP-074 Slices 1, 2a, 2b (#406/#408/#409) MERGED & PROVEN. Next slice = §12.61 historical-DNS origin discovery (Wayback CDX) OR GAP-045 CF-ceiling honest-outcome. Do NOT build Gamma. ALWAYS git pull + re-verify first.
+> lanjut Agent-Alpha — GAP-026 StealthPacer default ON (#423) + GAP-062 MX/SPF (PR #421) + GAP-154 total-CT-failure gate-fix (#421) + GAP-115 Wayback CDX (#420) + GAP-051 Wall Verdict (#419) + Bug #34/#35 MERGED & PROVEN. NEW deferred GAPs: GAP-155 (ip6 URL bracketing) + GAP-156 (IP-scope pre-binding) + GAP-157/158/159. NEXT SLICE (agreed) = GAP-115 historical-DNS origin discovery (§12.61 A1 DIRECT A-records) — keyless-first source seam, compose with §12.46 binding, drop ip6; DECISION NEEDED: source/key policy (ViewDNS keyless vs SecurityTrails paid key). Do NOT build Gamma. Do NOT fold GAP-155/156 into recon slices. ALWAYS git pull + re-verify on Oracle first; RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
