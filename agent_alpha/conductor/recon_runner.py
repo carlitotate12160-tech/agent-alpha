@@ -39,6 +39,7 @@ from agent_alpha.llm.routing import resolve_reasoning_provider
 from agent_alpha.recon.net_guard import is_internal_ip
 from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscoveryResult
 from agent_alpha.recon.passive_intel import (
+    HistoricalDnsSource,
     OTXSource,
     PassiveDNSResolver,
     VirusTotalSource,
@@ -46,6 +47,7 @@ from agent_alpha.recon.passive_intel import (
     build_passive_intel_map,
     certspotter_discover,
     enrich_with_dns,
+    enrich_with_historical_dns,
     enrich_with_mx_spf,
     enrich_with_otx,
     enrich_with_virustotal,
@@ -403,6 +405,14 @@ def build_wayback_client(engagement_id: str) -> WaybackSource:
     return WaybackClient(HttpClient(engagement_id=engagement_id))
 
 
+def build_mnemonic_client(engagement_id: str) -> HistoricalDnsSource:
+    """Build the keyless Mnemonic PDNS historical-A-record source. §12.61 A1."""
+    from agent_alpha.agents.http_client import HttpClient
+    from agent_alpha.recon.osint_sources import MnemonicPdnsClient
+
+    return MnemonicPdnsClient(HttpClient(engagement_id=engagement_id))
+
+
 def build_osint_http_client(engagement_id: str) -> Any:
     """Module seam (monkeypatchable) for the OSINT-source HTTP client used by
     the §12.48 slice-2 keyless fallback. Same stealth ``HttpClient`` as recon
@@ -416,7 +426,7 @@ def build_osint_http_client(engagement_id: str) -> Any:
 _log = logging.getLogger(__name__)
 
 
-def run_recon_for_engagement(
+def run_recon_for_engagement(  # noqa: C901
     engagement_id: str,
     tenant_id: str | None,
     auth: AuthorizationStateMachine,
@@ -434,6 +444,7 @@ def run_recon_for_engagement(
     otx_client: OTXSource | None = None,
     vt_client: VirusTotalSource | None = None,
     wayback_client: WaybackSource | None = None,
+    mnemonic_client: HistoricalDnsSource | None = None,
 ) -> ReconRunResult:
     """Scan every in-scope target with Alpha, then produce the Omega report.
 
@@ -596,6 +607,9 @@ def run_recon_for_engagement(
             if wayback_client is not None:
                 intel = enrich_with_wayback(intel, wayback_client)
                 intel_sources = (*intel_sources, "wayback")
+            if mnemonic_client is not None:
+                intel = enrich_with_historical_dns(intel, mnemonic_client)
+                intel_sources = (*intel_sources, "mnemonic_pdns")
         else:
             intel_sources = sources_used
         record_passive_intel(store, engagement_id, intel, sources_used=intel_sources)

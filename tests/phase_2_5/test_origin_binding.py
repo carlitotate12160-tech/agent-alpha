@@ -604,3 +604,56 @@ def test_otx_candidate_reaches_binding_and_is_proven(monkeypatch: pytest.MonkeyP
     proven = [e for e in store.get_events(eng) if e.event_type == EventType.ORIGIN_BINDING_PROVEN]
     assert len(proven) == 1
     assert proven[0].payload["origin_ip"] == _OTX_IP
+
+
+# ── §12.61 A1: Mnemonic PDNS Historical A Records ────────────────────────────
+
+
+def test_composite_mnemonic_cf_era_boundary_derived() -> None:
+    """T5a: CF-era boundary derived: origin with last_seen < cf_first_seen ranks
+    BEFORE one with last_seen >= cf_first_seen; both rank before an is_cloudflare_ip
+    edge IP (edge excluded)."""
+    store = InMemoryEventStore()
+    eng = "eng-mnemonic"
+    # CF first seen = 150.
+    # IP1 last seen = 100 (pre-CF era) -> tier 1
+    # IP2 last seen = 200 (CF era) -> tier 2
+    # CF IP (edge) -> filtered out
+    triples = (
+        ("104.16.0.1", 150, 300),  # CF edge
+        ("198.51.100.1", 50, 100),  # Pre-CF
+        ("198.51.100.2", 160, 200),  # CF-era
+    )
+    store.append(
+        event_type=EventType.PASSIVE_INTEL_GATHERED,
+        engagement_id=eng,
+        agent="alpha",
+        payload={"domain": "ex.com", "historical_a_records": triples, "sources_used": ["mnemonic_pdns"]},
+    )
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery([]), store, eng)
+    cands = comp.candidates("ex.com")
+    assert len(cands) == 2
+    assert cands[0] == "198.51.100.1"  # tier 1 (pre-CF) FIRST
+    assert cands[1] == "198.51.100.2"  # tier 2 SECOND
+    assert "1.1.1.1" not in cands      # edge excluded
+
+
+def test_composite_mnemonic_no_cf_fallback() -> None:
+    """T5b: no CF-range IP in history -> deterministic option-1 fallback, never raises."""
+    store = InMemoryEventStore()
+    eng = "eng-mnemonic"
+    triples = (
+        ("198.51.100.1", 50, 100),
+        ("198.51.100.2", 160, 200),
+    )
+    store.append(
+        event_type=EventType.PASSIVE_INTEL_GATHERED,
+        engagement_id=eng,
+        agent="alpha",
+        payload={"domain": "ex.com", "historical_a_records": triples, "sources_used": ["mnemonic_pdns"]},
+    )
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery([]), store, eng)
+    cands = comp.candidates("ex.com")
+    assert len(cands) == 2
+    assert cands[0] == "198.51.100.2"  # simple last_seen DESC fallback
+    assert cands[1] == "198.51.100.1"

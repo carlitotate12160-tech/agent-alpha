@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from agent_alpha.recon.reach_strategy import is_cloudflare_ip
+
 
 class OriginDiscovery(Protocol):
     """Seam for discovering candidate origin IPs behind a fronted host."""
@@ -95,6 +97,29 @@ class CompositeOriginDiscovery:
                 if ip not in seen:
                     seen.add(ip)
                     out.append(ip)
+
+            # 1.5 historical_a_records (Mnemonic PDNS) with two-tier pre-CF ranking
+            triples = payload.get("historical_a_records", []) or []
+            cf_seen = [f for (ip, f, last) in triples if is_cloudflare_ip(ip)]
+            cf_first_seen = min(cf_seen) if cf_seen else None
+            origins = [
+                (ip, f, last) for (ip, f, last) in triples if not is_cloudflare_ip(ip)
+            ]  # CF edge ≠ origin
+            if cf_first_seen is None:
+                ranked = sorted(origins, key=lambda t: t[2], reverse=True)  # option-1 fallback
+            else:
+                tier1 = sorted(
+                    (t for t in origins if t[2] < cf_first_seen), key=lambda t: t[2], reverse=True
+                )
+                tier2 = sorted(
+                    (t for t in origins if t[2] >= cf_first_seen), key=lambda t: t[2], reverse=True
+                )
+                ranked = tier1 + tier2  # pre-CF FIRST
+            for ip, _f, _last in ranked:
+                if ip not in seen:
+                    seen.add(ip)
+                    out.append(ip)
+
             # 2. VT subdomains — DNS-resolve each as an additional origin candidate.
             # Grey-cloud subdomains (e.g. a grey-cloud subdomain → origin IP)
             # resolve directly to the origin IP, bypassing CF. These are HOSTS, not

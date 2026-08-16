@@ -70,6 +70,7 @@ class PassiveIntelMap:
     protection_detected: str | None = None
     nameservers: tuple[str, ...] = field(default_factory=tuple)
     historical_paths: tuple[str, ...] = field(default_factory=tuple)
+    historical_a_records: tuple[tuple[str, int, int], ...] = field(default_factory=tuple)
 
 
 # ── crt.sh slice: PassiveDiscoveryResult → PassiveIntelMap (pure, no I/O) ──────
@@ -502,6 +503,47 @@ def enrich_with_wayback(intel: PassiveIntelMap, wayback: WaybackSource) -> Passi
     )
 
 
+# ── §12.61 A1: Historical DNS source (Mnemonic) ───────────────────────────────
+
+
+class HistoricalDnsSource(Protocol):
+    """Seam for the keyless Historical DNS A-record source (fail-open)."""
+
+    def historical_a_records(
+        self, domain: str
+    ) -> tuple[tuple[str, int, int], ...]: ...  # pragma: no cover
+
+
+def enrich_with_historical_dns(
+    intel: PassiveIntelMap, source: HistoricalDnsSource
+) -> PassiveIntelMap:
+    """Return *intel* enriched with historical A records from *source*.
+
+    ADDITIVE (anti-#10): NEW frozen map via replace. historical_a_records set to the
+    triples AND their IPs unioned into origin_ip_candidates (so any existing consumer
+    still sees them).
+
+    Fail-open: any error from the source → *intel* unchanged. Never raises.
+    """
+    try:
+        records = source.historical_a_records(intel.domain)
+    except Exception:  # noqa: BLE001 — OSINT boundary; fail-open = no enrichment
+        return intel
+
+    existing_ips = list(intel.origin_ip_candidates)
+    seen_ips = set(existing_ips)
+    for ip, _f, _l in records:
+        if ip not in seen_ips:
+            seen_ips.add(ip)
+            existing_ips.append(ip)
+
+    return replace(
+        intel,
+        historical_a_records=records,
+        origin_ip_candidates=tuple(existing_ips),
+    )
+
+
 # ── Event-sourced audit (§12.48: PASSIVE_INTEL_GATHERED before active recon) ───
 
 
@@ -533,6 +575,7 @@ def record_passive_intel(
             "protection_detected": intel.protection_detected,
             "nameservers": list(intel.nameservers),
             "historical_paths": list(intel.historical_paths),
+            "historical_a_records": list(intel.historical_a_records),
             "sources_used": list(sources_used),
         },
     )
