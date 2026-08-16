@@ -33,6 +33,7 @@ from agent_alpha.recon.passive_discovery import PassiveDiscovery, PassiveDiscove
 from agent_alpha.recon.passive_intel import (
     PassiveIntelMap,
     build_passive_intel_map,
+    enrich_with_historical_dns,
     enrich_with_wayback,
     record_passive_intel,
 )
@@ -1467,6 +1468,113 @@ def test_wayback_enrichment_on_live_path_via_injected_client(monkeypatch: pytest
     assert "origin." + _ROOT in payload["subdomains"]
     assert "/legacy-admin" in payload["historical_paths"]
     assert "wayback" in payload["sources_used"]
+
+
+# ── §12.61 A1: Mnemonic PDNS historical source (A records) ────────────────────
+
+
+def test_parse_mnemonic_a_records_extracts_and_dedups() -> None:
+    """T1: valid envelope (responseCode 200, data[] rrtype=a) → deduped
+    public-IPv4 triples, last_seen DESC, ms timestamps preserved."""
+    from agent_alpha.recon.osint_sources import parse_mnemonic_a_records
+
+    # ip1: two records (take min first, max last)
+    # ip2: one record
+    # ip3: rrtype != a (dropped)
+    # ip4: private (dropped)
+    body = """{
+        "responseCode": 200,
+        "data": [
+            {"rrtype": "a", "answer": "8.8.8.8", "firstSeenTimestamp": 100, "lastSeenTimestamp": 300},
+            {"rrtype": "A", "answer": "8.8.8.8", "firstSeenTimestamp": 50, "lastSeenTimestamp": 200},
+            {"rrtype": "a", "answer": "9.9.9.9", "firstSeenTimestamp": 400, "lastSeenTimestamp": 500},
+            {"rrtype": "aaaa", "answer": "2001:db8::1", "firstSeenTimestamp": 0, "lastSeenTimestamp": 1},
+            {"rrtype": "a", "answer": "192.168.1.1", "firstSeenTimestamp": 0, "lastSeenTimestamp": 1}
+        ]
+    }"""
+    triples = parse_mnemonic_a_records(body)
+    assert len(triples) == 2
+    # last_seen DESC -> ip3 (500) then ip1 (300)
+    assert triples[0] == ("9.9.9.9", 400, 500)
+    assert triples[1] == ("8.8.8.8", 50, 300)
+
+
+def test_parse_mnemonic_a_records_fail_open() -> None:
+    """T3: non-200 envelope / bare array / malformed JSON / missing data → () (fail-open)."""
+    from agent_alpha.recon.osint_sources import parse_mnemonic_a_records
+
+    assert parse_mnemonic_a_records('{"responseCode": 429, "data": []}') == ()
+    assert parse_mnemonic_a_records("[]") == ()
+    assert parse_mnemonic_a_records("not json") == ()
+    assert parse_mnemonic_a_records('{"responseCode": 200}') == ()
+
+
+class _StubHistoricalDns:
+    def __init__(self, triples: tuple[tuple[str, int, int], ...]) -> None:
+        self._triples = triples
+
+    def historical_a_records(self, domain: str) -> tuple[tuple[str, int, int], ...]:
+        return self._triples
+
+
+def test_enrich_with_historical_dns_additive() -> None:
+    """T4: historical_a_records set AND IPs unioned into origin_ip_candidates
+    (existing consumer intact)."""
+    base = PassiveIntelMap(
+        domain="acme.com",
+        subdomains=(),
+        in_scope_subdomains=(),
+        origin_ip_candidates=("1.1.1.1",),
+    )
+    triples = (("198.51.100.5", 10, 20), ("1.1.1.1", 5, 15))
+    out = enrich_with_historical_dns(base, _StubHistoricalDns(triples))
+    assert out.historical_a_records == triples
+    assert out.origin_ip_candidates == ("1.1.1.1", "198.51.100.5")  # unioned, deduped
+
+
+def test_historical_dns_enrichment_on_live_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """T6: Mnemonic PDNS client injected into recon_runner autonomous path."""
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement("client_lab", _ROOT)
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=[_ROOT], exclusions=[]))
+    eng = rec.engagement_id
+
+    graph = NetworkXGraphStore()
+    crt = _CrtShClient()
+    monkeypatch.setattr(
+        recon_runner, "build_recon_pipeline", lambda *a, **k: _fake_pipeline(auth, graph, store)
+    )
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [_TARGET_URL])
+    monkeypatch.setattr(
+        recon_runner,
+        "build_passive_discovery",
+        lambda *a, **k: PassiveDiscovery(http_client=crt, authorization=auth, event_store=store),
+    )
+    monkeypatch.setattr(
+        recon_runner,
+        "certspotter_discover",
+        lambda eid, host, **k: PassiveDiscoveryResult(host, (), (), ()),
+    )
+    monkeypatch.setattr(recon_runner, "build_osint_http_client", lambda *a, **k: _ScanHttpClient())
+
+    hdns = _StubHistoricalDns((("198.51.100.99", 10, 20),))
+    recon_runner.run_recon_for_engagement(
+        engagement_id=eng,
+        tenant_id=None,
+        auth=auth,
+        store=store,
+        record=rec,
+        dns_resolver=_NULL_DNS,
+        mnemonic_client=hdns,
+    )
+
+    payload = [
+        e for e in store.get_events(eng) if e.event_type == EventType.PASSIVE_INTEL_GATHERED
+    ][0].payload
+    assert ("198.51.100.99", 10, 20) in payload["historical_a_records"]
+    assert "mnemonic_pdns" in payload["sources_used"]
+
 
 
 # ══════════════════════════════════════════════════════════════════════

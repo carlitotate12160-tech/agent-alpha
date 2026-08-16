@@ -476,6 +476,9 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         # via CompositeOriginDiscovery) + historical paths. ALWAYS on (no key needed);
         # the client fail-opens on any network error.
         task_wayback = recon_runner.build_wayback_client(engagement_id)
+        # §12.61 A1: keyless Mnemonic PDNS source — historical A records (→ origin candidates).
+        # ALWAYS on; the client fail-opens on any network error.
+        task_mnemonic = recon_runner.build_mnemonic_client(engagement_id)
 
         run_result = recon_runner.run_recon_for_engagement(
             engagement_id,
@@ -493,6 +496,7 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             otx_client=task_otx,
             vt_client=task_vt,
             wayback_client=task_wayback,
+            mnemonic_client=task_mnemonic,
         )
 
         # C1.8: only OPAQUE metadata leaves to the event store — never the report

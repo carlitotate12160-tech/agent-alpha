@@ -89,6 +89,12 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     "build_otx_client": (
         "conductor/main.py",
     ),  # §12.48 slice-5: OTX source built + injected on the live Conductor path
+    "build_mnemonic_client": (
+        "conductor/recon_runner.py",
+    ),  # §12.61 A1: Mnemonic PDNS client built + injected on the live Conductor path
+    "enrich_with_historical_dns": (
+        "conductor/recon_runner.py",
+    ),  # §12.61 A1: Mnemonic PDNS enrichment wired into the passive stage
     "CompositeOriginDiscovery": (
         "conductor/main.py",
     ),  # GAP-017: OTX origin_ip_candidates unioned into the binding candidate path (consumer wired)

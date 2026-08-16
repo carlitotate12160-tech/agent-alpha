@@ -439,3 +439,67 @@ class WaybackClient:
         """Return (historical_subdomains, historical_paths) for *domain*. Fail-open."""
         text = self._get(WAYBACK_CDX_URL_TEMPLATE.format(domain=domain, limit=WAYBACK_CDX_LIMIT))
         return parse_wayback_cdx(text, domain)
+
+
+# ── §12.61 A1: Mnemonic PassiveDNS historical-A-record source (KEYLESS) ───────
+#
+# Keyless, zero-vendor historical-DNS source wired through the Conductor path.
+# Used to prioritise pre-Cloudflare-era origin IPs.
+
+MNEMONIC_PDNS_URL_TEMPLATE = "https://api.mnemonic.no/pdns/v3/{domain}?limit=1000"
+
+
+def parse_mnemonic_a_records(body: str) -> tuple[tuple[str, int, int], ...]:
+    """Parse Mnemonic PDNS JSON response into historical A records.
+
+    Mnemonic v3 returns an envelope. Fails open -> () on any error.
+    Returns (ip, first_seen_ms, last_seen_ms) deduped and sorted by last_seen DESC.
+    """
+    try:
+        doc = json.loads(body)
+    except (ValueError, TypeError):
+        return ()
+    if not isinstance(doc, dict) or doc.get("responseCode") != 200:
+        return ()  # error / rate-limit envelope → no data
+    rows = doc.get("data")
+    if not isinstance(rows, list):
+        return ()
+    best: dict[str, tuple[int, int]] = {}  # ip -> (min first, max last), ms epoch
+    for r in rows:
+        if not isinstance(r, dict) or str(r.get("rrtype", "")).lower() != "a":
+            continue
+        ip = str(r.get("answer", "")).strip()
+        if not _is_public_ipv4(ip):  # reuse existing guard; ipv6/aaaa dropped (GAP-155)
+            continue
+        try:
+            first = int(r.get("firstSeenTimestamp") or 0)
+            last = int(r.get("lastSeenTimestamp") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ip in best:
+            pf, pl = best[ip]
+            best[ip] = (min(pf, first), max(pl, last))
+        else:
+            best[ip] = (first, last)
+    triples = [(ip, f, last) for ip, (f, last) in best.items()]
+    triples.sort(key=lambda t: t[2], reverse=True)  # last_seen DESC
+    return tuple(triples)
+
+
+class MnemonicPdnsClient:
+    """Keyless Mnemonic PDNS source seam -> historical A records.
+
+    Fail-open: any transport/parse error yields empties, never raises. Uses stealth
+    HttpClient.
+    """
+
+    def __init__(self, http_client: Any) -> None:
+        self._http = http_client
+
+    def historical_a_records(self, domain: str) -> tuple[tuple[str, int, int], ...]:
+        try:
+            resp = self._http.get(MNEMONIC_PDNS_URL_TEMPLATE.format(domain=domain))
+        except Exception:  # noqa: BLE001 — OSINT boundary; any error = no data (fail-open)
+            _log.warning("Mnemonic pDNS fetch failed for %s — fail-open", domain, exc_info=True)
+            return ()
+        return parse_mnemonic_a_records(getattr(resp, "text", "") or "")
