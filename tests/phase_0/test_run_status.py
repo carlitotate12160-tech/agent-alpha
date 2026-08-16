@@ -115,6 +115,25 @@ def test_failed_sets_status_failed() -> None:
     assert status.updated_at is not None
 
 
+def test_partial_after_completed_sets_status_partial() -> None:
+    """GAP-189: RUN_COMPLETED (task-lifecycle) followed by RUN_PARTIAL (walled outcome)
+    → "partial", NOT "done". Latest-wins means the honest recon outcome surfaces to
+    /run-status even though the task itself ran to completion."""
+    events = [
+        _make_event(
+            EventType.ENGAGEMENT_RUN_QUEUED,
+            payload={"task_id": "task-123", "tenant_id": "tenant-a"},
+        ),
+        _make_event(EventType.ENGAGEMENT_RUN_STARTED),
+        _make_event(EventType.ENGAGEMENT_RUN_COMPLETED),
+        _make_event(EventType.ENGAGEMENT_RUN_PARTIAL, payload={"reason": "waf_walled"}),
+    ]
+    status = project_run_status(events)
+
+    assert status.status == "partial"
+    assert status.task_id == "task-123"
+
+
 def test_refused_sets_status_refused() -> None:
     """REFUSED → "refused"."""
     events = [

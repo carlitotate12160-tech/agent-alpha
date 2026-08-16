@@ -4002,3 +4002,40 @@ The event stream must be the single source of truth for phase transitions.
 ### Impact
 - Severity: CRITICAL — Blocks the fully autonomous kill chain (Alpha → Beta auto-advance).
 - Cross-ref: execute_agent.py module docstring (tracks this as Debt D3).
+
+> **STATUS CORRECTION (2026-08-16, code-verified at HEAD 90a1217):** the "chain broken at
+> the first link / Beta only via island scripts" claim is **STALE**. `main.py::run_engagement_task`
+> DOES emit `EventType.HANDOFF_READY` (via `emit_handoff_and_advance`) and enqueue
+> `advance_engagement_task`; `advance.route_next` routes ALPHA→BETA from the graph. Alpha→Beta
+> autonomous advance is FUNCTIONAL. The real residual is **MEDIUM cleanliness debt**: Alpha's
+> emit bypasses the `execute_agent` wrapper (no `_has_terminal_handoff` idempotency — a Celery
+> retry could re-emit). The CRITICAL false-success was NOT here; it was the hardcoded
+> `status=COMPLETE` (see GAP-187 / 187a).
+
+---
+
+## GAP-189 — `/run-status` conflates task-done with recon-outcome (Aikido MEDIUM, 187a boundary)
+
+### Problem Statement
+`run_engagement_task` emits `ENGAGEMENT_RUN_COMPLETED` unconditionally; `project_run_status`
+maps it to `"done"`. After 187a the handoff status can be `FAILED` (walled / incomplete recon),
+so an external caller polling `/run-status` sees `done` even when recon did not succeed. This is
+the same false-success family (#3) as 187a, one layer up — latent before 187a (the hardcoded
+COMPLETE hid it), exposed by it. Offensive-safety is intact (the autonomous spine already routes
+FAILED→OMEGA); this is an EXTERNAL OBSERVABILITY lie only.
+
+### Design tension (GAP-045)
+A blunt `non-COMPLETE → "failed"` mapping is ALSO wrong: a WAF-walled sweep is a *sellable
+defensive-validation outcome* (GAP-045), not a failure. The honest surface needs three states.
+
+### Fix (Option B — RESOLVED, additive per doctrine)
+- New `EventType.ENGAGEMENT_RUN_PARTIAL`; `RunStatusLiteral += "partial"`.
+- `run_engagement_task` keeps `ENGAGEMENT_RUN_COMPLETED` (task-lifecycle + audit metrics) and
+  LAYERS the outcome on top: COMPLETE → `done`; walled → `RUN_PARTIAL` → `partial`; other
+  non-COMPLETE → `RUN_FAILED` → `failed` (latest-wins in `project_run_status`).
+- Not folded into 187a (external-contract change; anti-#10). The Celery task RETURN dict stays
+  `{"status": "completed"}` (task-lifecycle, C1.8-locked) — out of scope, noted.
+
+### Impact
+- Severity: MEDIUM (external observability). RESOLVED alongside 187a follow-up.
+- Cross-ref: GAP-187/187a (the spine half), GAP-045 (walled = sellable), `run_status.py`.

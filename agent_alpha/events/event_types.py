@@ -53,6 +53,10 @@ class EventType(enum.StrEnum):
     ENGAGEMENT_RUN_STARTED = "EngagementRunStarted"
     ENGAGEMENT_RUN_COMPLETED = "EngagementRunCompleted"
     ENGAGEMENT_RUN_FAILED = "EngagementRunFailed"
+    # GAP-189: recon ran but its OUTCOME was not a clean COMPLETE — a WAF-walled sweep
+    # (a sellable defensive-validation result per GAP-045, NOT a failure). Layered on top
+    # of ENGAGEMENT_RUN_COMPLETED (task-lifecycle/audit) so /run-status reports honestly.
+    ENGAGEMENT_RUN_PARTIAL = "EngagementRunPartial"
     ENGAGEMENT_RUN_REFUSED = "EngagementRunRefused"
 
     # ── Phase 3 (fan-out dispatch, §12.13 / C5) ────────────────
