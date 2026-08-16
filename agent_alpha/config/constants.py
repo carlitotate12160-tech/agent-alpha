@@ -103,6 +103,7 @@ __all__ = [
     "STEALTH_DISTRACTION_PAUSE_S",
     "STEALTH_BACKOFF_FACTOR",
     "STEALTH_BACKOFF_CAP",
+    "AUTOINDEX_SORT_QUERY_RE",
 ]
 
 # ── LLM Providers ──────────────────────────────────────────
@@ -686,6 +687,14 @@ ODOO_DBMANAGER_EXPOSURE_CVSS: float = 7.5
 # Only counts failures on hosts that previously succeeded, so it never fires on
 # many-dead-from-start subdomains (that is GAP-029's job). Single source (anti-#7).
 EGRESS_BLOCK_THRESHOLD: int = 5
+
+# GAP-035: entry-selection strikes EVERY in-scope auth-surface, bounded to avoid
+# overwhelming the runner or target.
+MAX_BETA_ENTRY_STRIKES_PER_HOST: int = 10
+
+# Apache mod_autoindex column-sort query strings (Bug #37). col∈{N,M,S,D} dir∈{A,D}.
+# Covers: compact no-eq (ND), compact eq (N=D), long (C=N;O=A / C=N&O=A).
+AUTOINDEX_SORT_QUERY_RE = r"^(?:[NMSD]=?[AD]|C=[NMSD][;&]O=[AD])$"
 
 # GAP-035: entry-selection strikes EVERY in-scope auth-surface, bounded to avoid
 # Celery queue sprawl. When a target exposes multiple in-scope login surfaces

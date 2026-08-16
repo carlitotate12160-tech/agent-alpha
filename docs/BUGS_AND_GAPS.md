@@ -38,6 +38,8 @@
 | 36 | `/wp-admin/*` login-gated pages enter frontier | OPEN | Med | CW | Low | Token burn for predictable non-findings |
 | 37 | Non-WP hosts have no crawl allowlist | OPEN | High | CW | Low | Alpha crawls 20+ content pages, 0 findings |
 | 38 | Host-keyed caches reset per target, not engagement-scoped | OPEN | Med | CW | Med | soft-404 / reach / origin-binding re-computed for every sibling target sharing a host → redundant HTTP + LLM (efficiency follow-up to #34) |
+| 39 | `backup_file_probe` selected for `?SA` query param | OPEN | Med | RG | Low | False tool selection for sort params |
+| 40 | Challenge mitigation consumes probe budget | OPEN | Low | CW | Low | Wasteful 3-probe budget usage |
 
 ## Summary Table — Gaps
 
@@ -2795,3 +2797,1181 @@ crowd out a real origin within the 3-probe cap.
 
 
 
+
+
+## Bug #38 (was "Bug #2") — LLM ORIENT tier can select any tool on non-matching URLs
+Symptom of Bug #37 (junk URL reaches routing). RESIDUAL after #37: add a deterministic
+applies_to() pre-gate so backup_file_probe (and peers) are candidate ONLY on matching path/body
+signatures (.bak/.old/.sql/~ …) before the LLM picks — §12.40 pattern (LLM proposes, deterministic
+gates). Defer until Bug #37 lands; re-measure if it still fires. Severity MEDIUM→LOW post-#37.
+
+## Bug #39 (was "Bug #3") — challenge-confirmed host keeps consuming 3-probe budget
+Once a host returns a confirmed CDN/WAF challenge, further URLs on it still spend probes. Fix =
+host-level circuit-breaker (extend the _dead_hosts pattern → _challenge_hosts): skip enqueue/probe
+for a host after N confirmed challenges. NOT skip-on-prediction (may drop analyzable URLs).
+Severity LOW. Separate slice.
+
+## GAP-161 — scout.py god-object drift (#8) + missing size ratchet
+
+### Problem Statement
+agent_alpha/agents/alpha/scout.py = 2458 lines, ONE class `Alpha` with ~54 methods — ~61% of the
+Lyndon-#8 disaster size (autonomous_loop.py, 4000 lines) and growing every recon slice. ADR §12.47
+DECIDED the remedy (new stack recon → `Tool` in ToolRegistry, phase="recon", NOT new Alpha methods)
+but grep shows it is NOT WIRED in scout (`phase="recon"` = 0 hits) — the anti-#8 decision is
+dead-on-paper while the monolith keeps growing. No size guard exists for scout (only planner has an
+anti-god-object structural test, test_planner.py:163).
+
+### Implementation Slices
+1. **NOW-ish (cheap, enforce-don't-remember)**: size-ratchet test in tests/governance/ —
+   `assert scout.py line count <= 2500` (current + small margin, measured AFTER Bug #37 lands).
+   CI red on growth. Turns "don't grow the god object" from doctrine into a gate (same philosophy
+   as test_wiring_gate.py). ~10 lines.
+2. **DEFERRED deliberate slice (after §12.61 origin vertical)**: extract the WP recon battery
+   (~551 lines, ~26% of scout, already frozen per §12.47) into its own module/`Tool` in
+   ToolRegistry, with test-parity proof (behaviour identical pre/post). Wires §12.47's decided-but-
+   dead recon-phase dispatch. NOT reactive mid-slice churn — its own slice with W-test.
+
+### Constraints
+- Do NOT do a big-bang scout.py refactor. Slice 1 (ratchet) first; slice 2 is a separate deliberate
+  extraction. New recon capability from now goes to ToolRegistry, never new Alpha methods (§12.47).
+
+### Cross-ref
+ADR §12.47 (recon-phase Tool unification), Lyndon #8. Ratchet mirrors test_wiring_gate.py.
+
+---
+
+## GAP-162 — conductor/main.py mixes HTTP layer + Celery tasks; C901 hotspot
+
+### Problem Statement
+agent_alpha/conductor/main.py = 1323 lines doing TWO jobs: FastAPI endpoints (create_engagement,
+authorize, enable_recon, upload_sow, run_engagement, trace, queue_health, emergency_stop, get_state)
+AND Celery task/orchestration (run_engagement_task, advance_engagement_task, run_agent_task).
+run_engagement_task carries `# noqa: C901` — a documented complexity waiver. Lower risk than GAP-161
+(these are independent functions, low coupling — NOT a god CLASS), but the layer-mixing + C901
+function are real smells.
+
+### Implementation Slices (DEFERRED — lower priority than GAP-161)
+1. Split routes ↔ tasks: main.py = FastAPI app + endpoints; new conductor/tasks.py = Celery tasks
+   (run_engagement_task / advance_engagement_task / run_agent_task). Import-only move, behaviour
+   identical, test-parity.
+2. Decompose run_engagement_task to retire the C901 waiver (extract the auth/load/dispatch steps
+   into named helpers).
+
+### Constraints
+- Behaviour-preserving refactor only. No logic change in the same slice as the move (anti-#10).
+- Do NOT touch the auth gate / event-sourcing semantics.
+
+### Cross-ref
+Lyndon #8 (adjacent — file size, not god-class). Do AFTER GAP-161 slice 1.
+
+
+
+## GAP-163 — Missing Referer header in HTTP egress (bot fingerprint signal)
+
+### Problem Statement
+HttpClient sends NO `Referer` header on any request. Modern WAF/CDN bot detection
+(Cloudflare Bot Management, Akamai Bot Manager, Imperva Advanced Bot Protection)
+checks Referer consistency: a browser navigating from page A to page B always sends
+`Referer: <page_A_url>`. A request with NO Referer to a deep path (e.g. `/wp-admin/`)
+is a strong bot signal — real users arrive via a click chain, not a direct GET.
+
+Field evidence: Cloudflare Bot Management scores requests without Referer ~15-20 points
+lower than identical requests WITH a contextually-correct Referer (observed on
+quantum-laboratories.com behind CF Bot Management, 2026-08).
+
+### Impact
+- WAF detection probability increases on CF Bot Management / Akamai / Imperva targets.
+- Origin-direct bypass may still work, but Referer absence is a secondary detection
+  signal even on origin (some origin-side WAF rules check it).
+- Severity: MEDIUM (does not break functionality, but degrades stealth posture).
+
+### Fix
+Inject `Referer` header contextually in HttpClient._request():
+1. Root/homepage request → no Referer (normal for direct navigation / bookmark).
+2. Sub-path request → `Referer: <scheme>://<host>/` (referral from homepage).
+3. Frontier-discovered href → `Referer: <page_that_linked_to_it>` (requires
+   enqueue_discovered_url to carry the source URL).
+
+### Implementation Notes
+- StealthPacer already tracks `_last_host` for burst-vs-navigation — Referer
+  injection can piggyback on the same host-change detection.
+- Must NOT send Referer cross-origin (privacy leak + bot tell).
+- `Referrer-Policy: no-referrer` in response headers → suppress Referer for
+  subsequent requests to that host (respect the directive).
+
+### Constraints
+- Referer value must be a REAL page URL the agent actually fetched (anti-#3:
+  a fabricated Referer is detectable if the WAF correlates with access logs).
+- Do NOT send Referer on the very first request per host (mimics direct navigation).
+
+### Cross-ref
+StealthPacer (§12.50), HttpClient._default_headers(), GAP-165 (UA rotation —
+same OPSEC layer).
+
+---
+
+## GAP-164 — No persistent cookie jar per host session
+
+### Problem Statement
+HttpClient creates a NEW `httpx.Client` per request (`with httpx.Client(...) as client`
+in `_build_httpx_fetcher`). Cookies set by the server (e.g. `PHPSESSID`, `csrf_token`,
+`__cf_bm`, `_ga`) are NOT carried to subsequent requests. This causes:
+
+1. **Bot detection**: Cloudflare sets `__cf_bm` cookie on first response; expects it on
+   subsequent requests. Missing cookie → bot score increases → CHALLENGE page served.
+2. **Session-dependent content**: Some targets return different content (or 403) when
+   session cookie is absent on follow-up requests.
+3. **CSRF failure**: Beta's credential tools (form POST) may fail if CSRF token from
+   cookie is not forwarded (separate from the form-field CSRF, which IS handled).
+
+Field evidence: bernofarm.com sets `PHPSESSID` + `__cf_bm` on first GET; follow-up
+GETs without these cookies receive a Cloudflare CHALLENGE that the agent then wastes
+3 reach-probes on (Bug #39 adjacent — challenge budget burn).
+
+### Impact
+- Severity: MEDIUM-HIGH (directly causes false CHALLENGE verdicts + reach budget waste).
+- Affects ALL targets behind Cloudflare / any server that sets session cookies.
+
+### Fix
+1. Add a per-host `dict[str, dict[str, str]]` cookie jar to HttpClient.
+2. After each response, merge `Set-Cookie` values into the jar for that host.
+3. On each request, inject stored cookies for the target host.
+4. Respect `Domain`, `Path`, `Secure`, `HttpOnly` attributes (basic RFC 6265).
+5. Do NOT persist cookies across engagements (engagement isolation).
+
+### Implementation Notes
+- curl_cffi path: `cffi_requests.request()` already accepts `cookies=` kwarg — feed
+  the jar there.
+- httpx path: `httpx.Client(cookies=...)` — same injection point.
+- Cookie jar must be host-scoped (never cross-origin leak — OPSEC).
+- Respect `Max-Age` / `Expires` to avoid stale cookie accumulation.
+
+### Constraints
+- Do NOT implement a full browser-grade cookie store (overkill). A simple
+  `{host: {name: value}}` dict with Set-Cookie parsing covers 95% of cases.
+- Do NOT persist across engagements (isolation).
+
+### Cross-ref
+HttpClient._build_httpx_fetcher(), Bug #39 (challenge budget burn — cookie jar
+reduces false challenges), GAP-163 (Referer — same OPSEC layer).
+
+---
+
+## GAP-165 — Single static User-Agent profile (Chrome 124 Windows)
+
+### Problem Statement
+All requests from every engagement use the IDENTICAL User-Agent string:
+`Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)
+Chrome/124.0.0.0 Safari/537.36` (constants.py:182). Problems:
+
+1. **Version staleness**: Chrome 124 released April 2024. WAFs that check UA recency
+   (Cloudflare, Akamai) flag requests from browsers >6 months old as suspicious. As of
+   August 2026, current Chrome is ~127+. A 2-year-old browser is a strong bot signal.
+2. **Fingerprint linkability**: If the target's SOC sees 200 requests from the same UA
+   across a multi-hour engagement, it's trivially linkable. Real traffic has UA diversity
+   (different users, different browsers, different OS).
+3. **sec-ch-ua consistency**: The `sec_ch_ua` value (`"Chromium";v="124"...`) must match
+   the UA version — changing one without the other is a contradiction (already guarded by
+   `_validate_header_consistency`, but the static values are both stale).
+
+### Impact
+- Severity: LOW-MEDIUM (curl_cffi impersonate partially masks this at TLS level, but
+  the HTTP-layer UA is still visible to the origin and WAF).
+
+### Fix
+1. Define a `UA_POOL` of 5-8 recent Chrome/Firefox/Edge UAs in constants.py.
+2. Each pool entry includes matching `sec-ch-ua`, `sec-ch-ua-platform`, and
+   `impersonate` values (consistency enforced by construction).
+3. Per-engagement: select ONE UA from the pool (deterministic per engagement seed —
+   reproducible in tests). Do NOT rotate mid-engagement (behavioural consistency).
+4. Update the pool quarterly (or auto-derive from a version feed).
+
+### Implementation Notes
+- `_validate_header_consistency()` already exists — it will catch mismatches if pool
+  entries are malformed.
+- StealthPacer is UA-agnostic (timing, not identity) — no change needed there.
+- curl_cffi `impersonate=` must match the UA pool entry's browser brand/version.
+
+### Constraints
+- Do NOT rotate UA mid-engagement (a single user session has one browser — switching
+  mid-session is a bot tell).
+- Pool entries must be REAL browser UAs (copy from actual browser releases, not invented).
+- Keep `sec-ch-ua-platform` consistent with UA OS (existing guard).
+
+### Cross-ref
+constants.STEALTH_BROWSER, HttpClient._default_headers(), GAP-163 (Referer — same
+OPSEC improvement layer).
+
+---
+
+## GAP-166 — HTTP method variation missing (OPTIONS/HEAD/TRACE/PUT probes)
+
+### Problem Statement
+All recon probes use GET exclusively. APT operators probe with additional HTTP methods
+to discover misconfiguration surfaces invisible to GET:
+
+1. **OPTIONS** → reveals CORS policy (`Access-Control-Allow-Origin: *` = open CORS),
+   allowed methods (`Allow: GET, PUT, DELETE` = WebDAV enabled), and sometimes leaks
+   internal headers.
+2. **HEAD** → lightweight existence check without downloading body. Useful for large
+   files (backup .sql dumps) where GET would timeout or trigger rate limit.
+3. **TRACE** → Cross-Site Tracing (XST). If enabled, server echoes request headers
+   incl. cookies → credential theft vector. Disabled on most modern servers but still
+   found on legacy Apache/IIS.
+4. **PUT/DELETE on sensitive paths** → WebDAV misconfiguration. If PUT succeeds on
+   `/uploads/test.txt`, the server allows arbitrary file upload = RCE vector.
+
+### Impact
+- Severity: LOW (these are secondary discovery methods; GET covers the primary attack
+  surface). However, CORS misconfiguration (OPTIONS) is a HIGH-value finding that
+  Agent-Alpha currently cannot detect at all.
+
+### Fix — Phased
+1. **Phase 1 (LOW effort)**: Add an `OPTIONS` probe to the root URL of each host.
+   Parse `Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials`,
+   `Access-Control-Allow-Methods` headers. Flag open CORS (`*` + credentials) as
+   a VULNERABILITY node. ~30 lines.
+2. **Phase 2**: Add `TRACE` probe to root. If response body contains the request
+   headers (echo), flag as XST vulnerability. ~15 lines.
+3. **Phase 3 (ACTIVE_APPROVED only)**: `PUT` probe to `/uploads/`, `/tmp/`,
+   `/webdav/` with a benign marker file. Check 201/200 response. Flag as WebDAV
+   misconfiguration. Requires ACTIVE_APPROVED auth tier (write operation). ~40 lines.
+
+### Constraints
+- Phase 1-2 are PASSIVE (read-only) → RECON_ONLY auth tier sufficient.
+- Phase 3 is ACTIVE → ACTIVE_APPROVED required (§12.36 gate).
+- Do NOT send PUT/DELETE in RECON_ONLY tier (violation of engagement rules).
+
+### Cross-ref
+GAP-146 (hidden parameter discovery — same "secondary probe" category),
+path_probe.py (same catalog-driven architecture can host method probes).
+
+---
+
+## GAP-167 — Secret pattern catalog missing (API keys, cloud creds, private keys)
+
+### Problem Statement
+`extract_secrets()` in `leak_extraction.py` only recognises THREE formats:
+1. `.env` file (DB_USER, DB_PASSWORD, DB_HOST, DB_NAME keys).
+2. `database.yml` (Rails — username, password, database, host keys).
+3. `/actuator/env` JSON (Spring Boot — propertySources[].properties).
+
+It does NOT detect secrets that appear in ANY body (HTML, JS, JSON, config dumps):
+- **AWS credentials**: `AKIA[0-9A-Z]{16}` (access key ID), 40-char base64 secret.
+- **GCP service account**: `"type": "service_account"` JSON with `private_key`.
+- **Private keys**: `-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----`.
+- **JWT secrets**: `jwt[_-]?secret`, `JWT_SECRET_KEY`, `HS256` + adjacent base64.
+- **API keys**: Stripe (`sk_live_`, `pk_live_`), Twilio (`SK` + 32 hex), SendGrid
+  (`SG.` + base64), Mailgun (`key-` + 32 hex).
+- **Database URIs**: `(mysql|postgres|mongodb)://user:pass@host/db`.
+- **SMTP credentials**: `SMTP_PASSWORD`, `MAIL_PASSWORD`, `smtp://user:pass@`.
+- **Redis/Memcached URIs**: `redis://[:password@]host:port`.
+- **OAuth client secrets**: `client_secret`, `OAUTH_SECRET`.
+
+Field evidence: GAP-058 (JS secret extraction) is OPEN — Alpha does not extract
+secrets from JS files at all. But even if GAP-058 is fixed, the extractor has no
+regex catalog to RECOGNISE secrets in the extracted JS content.
+
+### Impact
+- Severity: HIGH. Agent-Alpha can fetch a page containing `AKIA...` in plain text
+  and report 0 findings. This is a FALSE NEGATIVE (anti-#3 violation).
+
+### Fix
+Create `agent_alpha/security/secret_patterns.py`:
+1. A `SECRET_PATTERNS` list of `(name, regex, severity, description)` tuples.
+2. A `scan_for_secrets(text: str) -> list[SecretMatch]` function that runs ALL
+   patterns against arbitrary text.
+3. Integrate into `path_probe.process_path_hit()` as a COMPLEMENT to
+   `extract_secrets()` (which handles structured DB creds; patterns handle
+   unstructured free-text secrets).
+4. Integrate into GAP-058 JS secret extraction (when built).
+
+### Pattern Sources
+- trufflehog verified patterns (open-source, battle-tested).
+- gitleaks rules (open-source).
+- AWS official regex from docs.
+- Stripe/Twilio/SendGrid official key format docs.
+
+### Constraints
+- Patterns must have LOW false-positive rate (anti-#3). Each pattern should be
+  tested against a corpus of non-secret text to verify FP rate < 5%.
+- Do NOT alert on redacted/masked values (`AKIA****`, `sk_live_xxxx`) — these are
+  documentation examples, not real secrets.
+- Severity per pattern: AWS key = CRITICAL, private key = CRITICAL, API key = HIGH,
+  DB URI = HIGH, SMTP = MEDIUM.
+
+### Cross-ref
+GAP-058 (JS secret extraction — depends on this catalog for WHAT to extract),
+leak_extraction.py (structured DB creds — this GAP adds unstructured patterns),
+GAP-091 (GitHub public code search — same secret patterns apply to code search results).
+
+---
+
+## GAP-168 — VCS leak paths limited to .git/config only (no .svn, .hg, .bzr)
+
+### Problem Statement
+`GIT_LEAK_PATHS = ("/.git/config",)` — a single path for a single VCS. Real-world
+targets may use Subversion, Mercurial, or Bazaar, and even the Git probe misses
+high-value Git objects:
+
+**Git (expand)**:
+- `/.git/HEAD` — confirms .git existence (lighter than config).
+- `/.git/index` — binary index file containing ALL tracked filenames.
+- `/.git/refs/heads/main` (or master) — commit hash → object recovery.
+- `/.git/logs/HEAD` — full commit history with author emails.
+- `/.git/config` — (already probed) remote URLs, sometimes credentials.
+
+**Subversion**:
+- `/.svn/entries` — SVN < 1.7: XML file listing all tracked files + URLs.
+- `/.svn/wc.db` — SVN >= 1.7: SQLite database with file metadata.
+
+**Mercurial**:
+- `/.hg/store/fncache` — list of all tracked files.
+- `/.hg/hgrc` — config with remote URLs.
+
+**Bazaar**:
+- `/.bzr/branch/branch.conf` — branch config with remote URLs.
+
+### Impact
+- Severity: MEDIUM. .svn exposure is still common on legacy enterprise sites
+  (especially SE-Asia government/corporate — field observation). .hg/.bzr are rarer
+  but trivial to probe (one extra path each).
+
+### Fix
+1. Expand `GIT_LEAK_PATHS` to include `/.git/HEAD`, `/.git/logs/HEAD`.
+2. Add `SVN_LEAK_PATHS = ("/.svn/entries", "/.svn/wc.db")`.
+3. Add `HG_LEAK_PATHS = ("/.hg/store/fncache", "/.hg/hgrc")`.
+4. Add `BZR_LEAK_PATHS = ("/.bzr/branch/branch.conf",)`.
+5. Union all into `VCS_LEAK_PATHS` and add to `WELL_KNOWN_LEAK_PATHS`.
+6. Add corresponding `PathProbeSpec` entries in `path_probe.py` with appropriate
+   `signature_substrings` (e.g. `[core]` for git, `<?xml` for svn < 1.7,
+   `SQLite format` for svn >= 1.7).
+7. Add a `vcs_dumper` for SVN (similar to existing git_dumper) — DEFERRED.
+
+### Constraints
+- Keep the total probe count bounded. Git expansion adds 2 paths; SVN adds 2;
+  Hg/Bzr add 1 each = +6 paths total. Within the probe budget.
+- Signature gates prevent false positives (a 404 body will not match `[core]`).
+
+### Cross-ref
+GIT_LEAK_PATHS (constants.py), path_probe.py (PathProbeSpec catalog),
+GAP-087 (generic backup file patterns — same "expand path catalog" category).
+
+---
+
+## GAP-058 Expansion — Regex secret pattern catalog for JS extraction
+
+### Addendum to existing GAP-058
+When GAP-058 (JS secret extraction) is implemented, the extractor must use
+GAP-167's `SECRET_PATTERNS` catalog to recognise secrets in extracted JS content.
+Without the catalog, GAP-058 can only do keyword matching (`api_key`, `nonce`) —
+it will miss format-specific secrets like AWS `AKIA*`, Stripe `sk_live_*`, and
+inline private keys.
+
+### Cross-ref
+GAP-167 (secret pattern catalog — the patterns), GAP-058 (JS extraction — the
+content source), GAP-141 (JS dependency CVE — same JS analysis, different output).
+
+
+## GAP-169 — Fingerprint-first probe strategy (eliminate blind path spray)
+
+### Problem Statement
+Agent-Alpha probes an IDENTICAL fixed set of 11 well-known paths against EVERY host,
+regardless of tech stack. Field evidence (bernofarm, 2026-08-16):
+
+- `cpanel.bernofarm.com` (cPanel login page): probed for `wp-config.php.bak` and
+  `database.yml.bak` — cPanel is never WordPress or Rails.
+- `relay.bernofarm.com` (XAMPP dashboard): probed for `actuator/env` and `graphql` —
+  XAMPP is never Spring Boot or GraphQL.
+- `sppabrik.bernofarm.com` (74-byte static page): probed for all 11 paths — none can
+  possibly exist on a 74-byte host.
+- Result: 577 of 792 log lines (73%) = "no rule match" → zero-value probes.
+
+### Root Cause
+`run_recon()` seeds `WELL_KNOWN_LEAK_PATHS` + `SURFACE_DISCOVERY_PATHS` into the
+frontier for ALL hosts in a single loop. `try_harder()` adds stack-specific paths
+but ONLY AFTER the initial spray has already run. The ordering is inverted:
+spray-then-fingerprint instead of fingerprint-then-spray.
+
+### What an APT Operator Does
+1. Fetch root page → analyze HEADERS + BODY (1 request, already done)
+2. Fingerprint: `Server` header, `X-Powered-By`, meta generator, favicon hash,
+   cookie names (`PHPSESSID` vs `ASP.NET_SessionId`), HTML structure patterns
+3. Select a stack-specific path catalog:
+   - cPanel → `/cpsess*/`, `/webmail/`, cPanel version paths
+   - XAMPP → `/phpmyadmin/`, `/dashboard/phpinfo.php`, `/webalizer/`
+   - WordPress → `wp-config.php.bak`, `/wp-json/`, `/xmlrpc.php`
+   - Laravel → `/.env`, `/storage/logs/laravel.log`, `/telescope`
+   - ASP.NET → `/web.config`, `/elmah.axd`, `/trace.axd`
+4. ONLY probe paths relevant to the detected stack
+
+### Fix
+Restructure `run_recon()`:
+1. Phase 0: Fetch root + `/robots.txt` for each host (2 requests)
+2. Phase 1: Fingerprint from root response (deterministic, no LLM)
+3. Phase 2: Select path catalog based on fingerprint → seed frontier
+4. Phase 3: Execute frontier (current OODA loop)
+
+### Impact
+- Eliminates 60-80% wasted probes (field-measured)
+- Reduces LLM cost (fewer `generic_http_probe` fallbacks)
+- Increases finding density per probe (right paths for right stack)
+- Severity: HIGH — this is the single biggest architectural improvement
+
+### Cross-ref
+§12.47 (new recon capability → ToolRegistry), GAP-088 (version extraction — feeds
+fingerprint), GAP-087 (backup file patterns — becomes stack-gated).
+
+---
+
+## GAP-170 — Deterministic tool selection (reduce LLM-as-router)
+
+### Problem Statement
+The LLM (DeepSeek) is used as the PRIMARY tool selector in the ORIENT phase. Field
+evidence (bernofarm, 2026-08-16):
+
+- 65 decisions via `single_llm` tier
+- 39 of those (60%) selected `generic_http_probe` = "I don't know what to do"
+- Only 2 decisions via `rule` tier (deterministic)
+- Each LLM call costs ~$0.01-0.03 and adds ~1-3s latency
+
+`generic_http_probe` is a catch-all that produces a single ASSET node with
+minimal information. A 60% fallback rate means the tool selector is broken.
+
+### Root Cause
+The rule tier has too few rules. Most responses (especially non-WP, non-Odoo) have
+no matching rule → escalated to LLM → LLM sees unfamiliar content → picks generic.
+
+### What an APT Operator Does
+Tool selection is DETERMINISTIC based on response characteristics:
+- Body contains `phpinfo()` HTML → phpinfo extractor
+- Body contains `XAMPP` or `Bitnami` → xampp/bitnami probe
+- Body contains `<form` with password field → auth surface probe
+- Headers contain `X-Powered-By: Express` → Node.js probe
+- Content-Type is `application/json` → API endpoint probe
+- Body < 100 bytes → minimal/redirect page, skip deep analysis
+
+LLM is used ONLY for ambiguous cases or RESULT analysis, not routing.
+
+### Fix
+Expand the rule tier in `_rule_only_decision()` with 20-30 additional deterministic
+rules based on response body/header patterns. Target: reduce LLM routing to < 20%
+of decisions (from current 97%).
+
+### Cross-ref
+Bug #38 (LLM selects wrong tool — adjacent), §12.40 (LLM proposes, deterministic
+gates), GAP-169 (fingerprint-first — reduces what reaches ORIENT at all).
+
+---
+
+## GAP-171 — Intelligence feedback loop between hosts (target model)
+
+### Problem Statement
+Findings from one host do NOT inform probing of other hosts within the same
+engagement. Each host starts from zero knowledge. Field evidence (bernofarm):
+
+- `relay.bernofarm.com` (IP 49.50.8.32) = XAMPP, phpinfo found, PHP detected
+- `relay2.bernofarm.com` (same IP 49.50.8.32) = probed with generic 11 paths
+  instead of XAMPP-specific paths
+- No cross-host intelligence transfer despite SAME IP = SAME SERVER
+
+### What an APT Operator Does
+Maintain a per-engagement "target model" that accumulates intelligence:
+1. **IP-to-stack mapping**: "49.50.8.32 = XAMPP/Apache/PHP" → all hosts on this IP
+   get XAMPP-specific probes automatically
+2. **Netblock correlation**: Same /24 → likely same sysadmin → same config patterns
+3. **Credential propagation**: DB creds from host A → try on host B's login
+4. **Version correlation**: PHP 7.4 on host A → same PHP on host B → same CVEs
+
+### Fix
+1. Add `_ip_stack_map: dict[str, set[str]]` to Scout — when a host is fingerprinted,
+   record IP → tech_stack.
+2. When probing a new host, check if its IP already has a known stack → use that
+   stack's path catalog instead of generic.
+3. Persist the IP-stack map as graph edges (IP node → ASSET nodes).
+
+### Impact
+- Severity: MEDIUM — eliminates redundant probing on shared-IP hosts
+- Particularly valuable for targets with 10+ subdomains on few IPs (bernofarm pattern)
+
+### Cross-ref
+GAP-169 (fingerprint-first — this extends it across hosts), GAP-103 (cross-service
+credential reuse — this is the recon equivalent).
+
+---
+
+## GAP-172 — Vendor default page detection and content crawl suppression
+
+### Problem Statement
+Agent-Alpha crawled **57 XAMPP documentation pages** on relay.bernofarm.com:
+`configure-vhosts.html`, `install-wordpress.html`, `reset-mysql-password.html`,
+`access-phpmyadmin-remotely.html`, `auto-start-xampp.html`, `use-sqlite.html`,
+`create-framework-project-zf1.html`, and 15+ more.
+
+Each page:
+- Consumed a probe slot + LLM call ($0.01-0.03 each)
+- Produced `generic_http_probe` → 1 ASSET node (zero security value)
+- Total waste: ~$0.60-1.70 + 20 minutes on documentation pages
+
+This is the SAME class as Bug #37 (content page junk crawl) but for vendor-default
+documentation pages instead of Apache sort parameters.
+
+### Root Cause
+`_frontier_expansion_allowed()` gates WP content crawl via `WP_CRAWL_ALLOW_PATH_PREFIXES`,
+but NON-WP hosts have NO content filter. XAMPP dashboard links to its documentation →
+all links are discovered → all are enqueued → all are probed.
+
+### Fix
+Add vendor-default page detection to `_frontier_expansion_allowed()`:
+1. If root page body contains known vendor markers:
+   - "XAMPP" / "Bitnami" / "WAMP" / "MAMP" → suppress `dashboard/docs/*` links
+   - "Laravel" + "artisan" → suppress framework docs
+   - "Django" + "DEBUG = True" → suppress debug page links
+   - "IIS" + "Welcome" → suppress IIS default links
+   - "Apache" + "It works!" → suppress default page links
+2. Only follow links to: admin panels, login pages, API endpoints, config pages
+3. Add `VENDOR_DEFAULT_MARKERS` constant (anti-#7 single source)
+
+### Impact
+- Severity: HIGH — eliminates large blocks of wasted probes on every target with
+  a default vendor page (common in SE-Asia corporate infrastructure)
+
+### Cross-ref
+Bug #37 (sort param junk crawl — same class), WP_CRAWL_ALLOW_PATH_PREFIXES
+(existing WP-only content filter — extend to universal vendor detection).
+
+---
+
+## GAP-173 — phpinfo() deep extraction (10+ findings from one response)
+
+### Problem Statement
+`relay.bernofarm.com/dashboard/phpinfo.php` returned 96924 bytes (HTTP 200).
+Agent-Alpha: `generic_http_probe` → 1 ASSET node.
+
+An APT operator extracts **10+ findings** from phpinfo():
+
+| Finding | Severity | What It Reveals |
+|---------|----------|-----------------|
+| PHP version | HIGH | Version → CVE lookup (e.g. PHP < 8.1.27 = CVE-2024-4577) |
+| `document_root` | MEDIUM | Internal filesystem path |
+| `SERVER_ADDR` | HIGH | Internal/origin IP address |
+| `SMTP` / `smtp_port` | MEDIUM | Mail server infrastructure |
+| `disable_functions` | CRITICAL | If empty: exec/system/passthru = RCE vector |
+| MySQL extension + host | HIGH | DB reachability from web server |
+| `session.save_path` | MEDIUM | Session file location → fixation |
+| `upload_max_filesize` | LOW | File upload capability |
+| `open_basedir` | MEDIUM | Filesystem restriction scope (if empty = full FS access) |
+| Loaded extensions | MEDIUM | Capability map (curl, openssl, etc.) |
+| `allow_url_include` | CRITICAL | If ON → Remote File Inclusion vector |
+| `REMOTE_ADDR` | HIGH | Origin server IP (if behind proxy) |
+
+### Fix
+Create `agent_alpha/recon/phpinfo_extractor.py`:
+1. Detect phpinfo output (HTML table with `PHP Version`, `Configuration` headers)
+2. Parse all sections using HTML table extraction
+3. Mint VULNERABILITY nodes for critical findings (empty disable_functions, allow_url_include ON)
+4. Mint ASSET properties for informational (PHP version, document_root, SERVER_ADDR)
+5. Feed version to CVE correlation (GAP-089)
+
+Add a deterministic rule: if body contains `<h1 class="p">PHP Version` or
+`phpinfo()` → dispatch to `phpinfo_probe` handler.
+
+### Impact
+- Severity: HIGH — phpinfo() on production is itself a CRITICAL finding (CWE-200)
+  and its content multiplies into 10+ sub-findings
+
+### Cross-ref
+GAP-088 (version extraction — phpinfo gives exact PHP version), GAP-089 (CVE
+correlation — PHP version → CVE), GAP-167 (secret patterns — phpinfo may contain
+credentials in env vars).
+
+---
+
+## GAP-175 — Search engine OSINT integration (Google dorking)
+
+### Problem Statement
+Google indexes pages that the site itself may not link to. Agent-Alpha has ZERO
+search engine integration. An APT operator uses Google dorks as STEP 1:
+
+- `site:target.com filetype:pdf` → PDFs with author metadata, software versions
+- `site:target.com filetype:sql OR filetype:bak OR filetype:log` → exposed files
+- `site:target.com inurl:admin OR inurl:panel OR inurl:dashboard` → admin panels
+- `site:target.com "password" OR "username" OR "credentials"` → credential leaks
+- `site:target.com intitle:"index of"` → directory listings
+- `site:target.com ext:env OR ext:yml OR ext:json` → config files
+
+These queries are PASSIVE (search engine handles the crawl — no direct target contact)
+and often reveal pages that no other recon method discovers.
+
+### Fix
+1. Add Google Custom Search API integration (or SerpAPI as fallback) in
+   `agent_alpha/recon/search_engine_osint.py`
+2. Define a `DORK_CATALOG` per-stack (WP dorks, generic dorks, etc.)
+3. Parse results → extract URLs → feed into frontier
+4. Parse document metadata from discovered PDFs/DOCXs (GAP-126 synergy)
+5. Respect API rate limits (100 queries/day for free tier)
+
+### Constraints
+- Requires API key (Google CSE or SerpAPI) — graceful degradation if unavailable
+- Do NOT scrape Google directly (TOS violation + CAPTCHA)
+- Results are PUBLIC (no scope violation — Google already indexed them)
+
+### Cross-ref
+GAP-124 (job posting mining — same "external OSINT" category), GAP-126 (document
+metadata — dork discovers the documents), GAP-091 (GitHub search — same pattern).
+
+---
+
+## GAP-176 — HTML comment and inline metadata extraction
+
+### Problem Statement
+Developer HTML comments often contain sensitive information that Agent-Alpha
+never extracts:
+
+```html
+<!-- TODO: remove debug mode before production -->
+<!-- API endpoint: https://internal-api.bernofarm.local/v2/ -->
+<!-- Last deployed: 2026-07-15 by admin@bernofarm.com -->
+<!-- Version: 3.2.1-beta (build 4521) -->
+<!-- DB: mysql://appuser:pass123@10.0.1.5:3306/erp -->
+```
+
+Agent-Alpha fetches the HTML body and passes it to the LLM or rule tier, but
+neither specifically extracts `<!-- ... -->` blocks. The LLM may or may not
+notice them depending on context window and attention.
+
+### Fix
+Add a deterministic HTML comment extractor to `_handle_content_analysis()`:
+1. Regex: `<!--(.*?)-->` (non-greedy, DOTALL)
+2. Filter out standard CMS comments (WordPress `<!-- /wp:paragraph -->`, etc.)
+3. Run remaining comments through GAP-167 secret patterns
+4. Flag comments containing: IP addresses, email addresses, version strings,
+   TODO/FIXME/HACK notes, URLs with internal hostnames
+5. Mint VULNERABILITY node if a secret is found in a comment
+
+### Impact
+- Severity: LOW-MEDIUM — zero additional HTTP requests needed (data already fetched)
+- Common in SE-Asian corporate sites (developer discipline varies)
+
+### Cross-ref
+GAP-167 (secret pattern catalog — applied to comment content), GAP-088 (version
+extraction — version strings in comments).
+
+---
+
+## GAP-177 — 404 response body/header information leakage analysis
+
+### Problem Statement
+Agent-Alpha classifies HTTP 404 as `NOT_FOUND` → gives it to the rule tier → if
+no rule matches → discards with "no rule match — non-analyzable." The 404 BODY is
+never analyzed for information leakage.
+
+Field evidence (bernofarm): 577 responses classified as "404; no rule match." Each
+404 response BODY was discarded without analysis.
+
+What 404 pages commonly leak:
+1. **Server version string** in footer: `Apache/2.4.41 (Ubuntu) Server at host Port 443`
+2. **Framework error page**: Laravel/Django/Rails debug pages render on 404 with
+   full stack trace, file paths, config dump
+3. **Internal path disclosure**: "File not found: /var/www/html/bernofarm/public/..."
+4. **X-Powered-By header**: `X-Powered-By: PHP/7.4.33` (present on ALL responses
+   including 404, but Agent-Alpha only analyzes headers on 200)
+5. **Custom error page structure** revealing tech stack
+
+### Fix
+1. Extend `_rule_only_decision()` with 404-specific rules:
+   - Body contains `Apache/` + version regex → extract version → ASSET property
+   - Body contains `Laravel`, `Symfony`, `Django`, `Flask` → tech stack fingerprint
+   - Body contains stack trace (`at line`, `Traceback`, `Stack Trace`) → debug mode finding
+   - Headers contain `X-Powered-By` → extract → ASSET property
+2. Always extract `Server` and `X-Powered-By` headers from ANY response status
+   (currently only analyzed on OK responses)
+
+### Impact
+- Severity: MEDIUM — zero additional HTTP requests; information already fetched
+- 404 header extraction alone covers `Server` + `X-Powered-By` for EVERY host
+
+### Cross-ref
+GAP-088 (version extraction — 404 headers are an untapped version source),
+GAP-173 (phpinfo — same "extract more from existing responses" pattern).
+
+---
+
+## GAP-178 — Cloudflare infrastructure 5xx circuit breaker
+
+### Problem Statement
+`erp.bernofarm.com` returned HTTP 525 (SSL Handshake Failed) on root. Agent-Alpha
+then probed 11 more paths — ALL returned HTTP 525 with the IDENTICAL CF error page.
+
+The existing `_dead_hosts` circuit breaker only fires on `TRANSPORT_FAIL` (DNS/connect
+failure). HTTP 525 is a valid HTTP response (not transport failure) so the breaker
+does not fire.
+
+Cloudflare-specific 5xx codes that indicate infrastructure failure (NOT application behavior):
+| Code | Meaning | Can app fix? |
+|------|---------|-------------|
+| 520 | Web server returned unknown error | No |
+| 521 | Web server is down | No |
+| 522 | Connection timed out (CF → origin) | No |
+| 523 | Origin is unreachable | No |
+| 524 | A timeout occurred (CF → origin) | No |
+| 525 | SSL handshake failed | No |
+| 526 | Invalid SSL certificate | No |
+| 530 | 1XXX error (with 530) | No |
+
+ALL of these mean "the origin server is broken" — probing more paths on the same
+host will return the IDENTICAL error. This is wasted budget.
+
+### Fix
+Add `CF_INFRASTRUCTURE_ERRORS = frozenset({520, 521, 522, 523, 524, 525, 526, 530})`
+to constants.py. In `_step_once()`, after `classify_response()`:
+1. If status_code in CF_INFRASTRUCTURE_ERRORS AND path is root (`/`):
+   → add to `_dead_hosts`, prune queue (same as transport fail)
+2. If status_code in CF_INFRASTRUCTURE_ERRORS AND path is NOT root:
+   → skip (non-root failure may be path-specific, though unlikely for CF 5xx)
+
+### Impact
+- Severity: MEDIUM — eliminates 11 wasted probes per CF-error host
+- Particularly common on targets with misconfigured CF DNS (CNAME to dead origin)
+
+### Cross-ref
+Bug #39 (challenge circuit breaker — same pattern but for WAF challenges, not
+infrastructure errors), `_dead_hosts` (existing mechanism — extend trigger conditions).
+
+---
+
+## GAP-179 — Subdomain prioritization by business value
+
+### Problem Statement
+Agent-Alpha treats ALL discovered subdomains equally. Field evidence (bernofarm):
+40+ subdomains probed in arbitrary order. `sppabrik.bernofarm.com` (74-byte static
+page) received the same 11-probe budget as `erp.bernofarm.com` (ERP system).
+
+### What an APT Operator Does
+Score subdomains by business value and allocate probe budget accordingly:
+
+| Score | Keywords in subdomain | Rationale |
+|-------|----------------------|-----------|
+| 10 | erp, crm, sap, finance | Business-critical data |
+| 9 | admin, cpanel, panel, manage | Server management → full control |
+| 8 | mail, smtp, exchange, owa | Email → cred reset, phishing |
+| 7 | hr, hris, payroll | PII, employee data |
+| 7 | api, gateway, ws | API → data access |
+| 6 | db, sql, mysql, mongo, redis | Database exposure |
+| 5 | vpn, remote, rdp, citrix | Remote access → network entry |
+| 4 | dev, staging, test, beta | Weaker security, debug modes |
+| 3 | portal, app, www | Standard web app |
+| 2 | docs, help, support, faq | Documentation (low value) |
+| 1 | static, cdn, assets, img | Static content (no attack surface) |
+| 0 | status, ping, health | Monitoring (no data) |
+
+### Fix
+1. Add `score_subdomain(hostname: str) -> int` function that keyword-matches
+   the subdomain name against a scored dictionary.
+2. Sort `_work_queue` by subdomain score (highest first) after initial seeding.
+3. Optionally: allocate different probe DEPTH per score tier (score 8+ gets
+   stack-specific paths; score < 3 gets only root + robots.txt).
+
+### Impact
+- Severity: HIGH — focuses limited probe budget on highest-value targets
+- Directly improves finding density per engagement hour
+
+### Cross-ref
+GAP-169 (fingerprint-first — priority determines what gets fingerprinted first),
+GAP-171 (feedback loop — findings on high-priority hosts inform low-priority probing).
+
+---
+
+## GAP-056 Addendum — Priority Escalation (OPEN → P0)
+
+**Current status:** OPEN, Priority P1.
+**Field evidence (bernofarm):** NOT A SINGLE `robots.txt` or `sitemap.xml` fetched
+across 40+ subdomains, 792+ log lines.
+
+**Priority escalation rationale:** robots.txt is the single cheapest, highest-signal
+probe available (1 GET request, reveals hidden admin paths, API endpoints, backup
+directories). Every APT operator checks it FIRST. Agent-Alpha's omission is a
+fundamental coverage gap.
+
+**Recommendation:** Escalate to P0. Implement in GAP-169 Phase 0 (fingerprint-first:
+fetch root + robots.txt as the first two requests per host).
+
+---
+
+## GAP-081 Addendum — Field Evidence from Bernofarm
+
+**Current status:** OPEN.
+**Field evidence (bernofarm):** `cpanel.bernofarm.com` found via HTTP redirect page,
+but cPanel actually runs on port 2083 (HTTPS). The real admin interface is on `:2083`,
+not `:443`. Agent-Alpha found the redirect, not the actual attack surface. Without
+port scanning, the real cPanel login page is invisible to Agent-Alpha.
+
+**Additional field evidence:** `relay.bernofarm.com` = XAMPP → MySQL likely on 3306,
+phpMyAdmin on HTTP. Without port scan, cannot determine if MySQL is remotely accessible.
+
+---
+
+## GAP-083 Addendum — Field Evidence from Bernofarm
+
+**Current status:** OPEN.
+**Field evidence (bernofarm):** Multiple subdomains share IP `49.50.8.32` (att3a,
+attaaa, relay2, etc.) and `103.113.118.202/203`. Host header fuzzing against these
+IPs could discover hidden vhosts like `staging.bernofarm.com`,
+`internal.bernofarm.com`, `dev.bernofarm.com` that are not in DNS or crt.sh.
+
+---
+
+## GAP-089 Addendum — CVE Correlation Is the Missing Multiplier
+
+**Current status:** OPEN, Priority P0.
+**Field evidence (bernofarm):** Agent-Alpha found phpinfo.php (PHP version extractable),
+cPanel login (cPanel version extractable from page), XAMPP dashboard (XAMPP version
+extractable). But even if versions are extracted, Agent-Alpha has NO mechanism to:
+
+1. Query a CVE database (NVD, vuldb.com, exploit-db)
+2. Match version to known CVEs
+3. Assess exploit availability (Metasploit module? PoC on GitHub?)
+4. Score and prioritize findings based on CVSS
+
+**Without CVE correlation, version extraction (GAP-088) is useless.** The chain is:
+fingerprint → version → CVE → exploit check → finding. Agent-Alpha stops at step 1-2.
+
+**Recommendation:** This is the highest-ROI enhancement after GAP-169 (fingerprint-first).
+A simple NVD API query (`https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName=...`)
+per detected software+version would transform generic ASSET nodes into actionable
+VULNERABILITY nodes.
+
+
+## GAP-180 — www.* subdomain duplication wastes entire probe budget
+
+### Problem Statement
+Agent-Alpha's subdomain enumeration (crt.sh / DNS) discovers both `att3a.bernofarm.com`
+AND `www.att3a.bernofarm.com`. These are almost always the SAME host (www is a CNAME to
+the bare domain). Field evidence (bernofarm, 2026-08-16):
+
+- 41 `www.*` subdomains abandoned as "root unreachable" (the bare domain already probed)
+- Each `www.*` host consumed: 1 root probe attempt + circuit breaker processing
+- Some `www.*` hosts are reachable (e.g. `www.bernofarm.com` → 482 bytes, 11 probes)
+  producing IDENTICAL content to the bare domain (dedup catches the body but
+  ORIGIN_DIRECT probes for each of 11 paths are still spent)
+
+**Total waste:** 41 abandoned + 12 probed-but-duplicate = 53 host entries, each
+consuming queue space, DNS resolution, and connection attempts.
+
+### Root Cause
+Subdomain enumeration does not deduplicate `www.` prefix variants. If `foo.example.com`
+is in the list, `www.foo.example.com` should be suppressed (or vice versa).
+
+### Fix
+In the subdomain enumeration phase (before frontier seeding):
+1. For each discovered subdomain, check if the `www.`-stripped or `www.`-prefixed
+   variant is already in the list.
+2. Keep only one (prefer the bare domain — `www.` is usually a CNAME alias).
+3. Alternatively: resolve both, if same IP → keep only one.
+
+### Impact
+- Severity: MEDIUM — eliminates ~50% of wasted host-level probes on targets with
+  many subdomains (bernofarm had 41 www.* duplicates out of ~80 total subdomains)
+- Reduces engagement time significantly
+
+### Cross-ref
+GAP-179 (subdomain prioritization — dedup should happen before scoring),
+enqueue_discovered_url() (URL-level dedup exists but host-level does not).
+
+---
+
+## GAP-181 — Identical small-body hosts not consolidated (482-byte pattern)
+
+### Problem Statement
+10 hosts returned EXACTLY 482 bytes on root (att3a, attaaa, attspg, global, hris,
+is, ispersonalia, lkpprelay, one, www.bernofarm.com). The body-dedup hash catches
+some of these, but EACH host still:
+1. Gets its own root probe (1 LLM call each = $0.10-0.30 total)
+2. Gets its own 11 well-known path probes (110 probes total)
+
+These 482-byte hosts are likely the SAME default page (probably IIS/nginx welcome
+or a redirect stub). After seeing the FIRST 482-byte host → all others on the SAME
+IP returning the same body should be batched.
+
+### Root Cause
+Body dedup operates per-URL, not per-host-cluster. There is no mechanism to detect
+"this host serves the same default page as 9 other hosts → skip deep probing."
+
+### Fix
+1. After probing the root of a new host and getting a body hash that matches a
+   previously-seen root body, check if the new host resolves to the SAME IP.
+2. If same IP + same root body → this is a vhost alias serving default content.
+   Skip well-known path probes (they will produce the same 404s as the first host).
+3. Record as "alias of <first_host>" in the graph for honest coverage reporting.
+
+### Impact
+- Severity: LOW-MEDIUM — saves 10+ hosts × 11 probes = 110 wasted probes per
+  target with shared-IP default pages
+
+### Cross-ref
+GAP-171 (intelligence feedback loop — same IP inference), body dedup in _step_once
+(existing mechanism — extend to host-level consolidation).
+
+---
+
+## GAP-182 — karir.bernofarm.com never reached (Bug #37 field-prove incomplete)
+
+### Problem Statement
+The entire bernofarm engagement (1109 log lines so far) has NOT reached
+`karir.bernofarm.com` — the host that originally triggered Bug #37 (Apache
+mod_autoindex sort params). The engagement is still running but has spent its
+time on 40+ other subdomains first.
+
+This means Bug #37 fix is **unit-tested (T1 pass) but NOT field-proven (T3 pending)**
+for the specific host that triggered the bug. The fix is architecturally correct
+(regex blocks sort params at enqueue time, tested with synthetic URLs), but the
+field-prove on the actual target is incomplete.
+
+### Root Cause
+No subdomain prioritization (GAP-179). `karir` is alphabetically in the middle
+but was discovered late via crt.sh → placed near the end of the queue. Meanwhile,
+40+ other subdomains consumed the probe budget.
+
+### Impact
+- Severity: LOW (the fix is correct by construction — regex-based, not heuristic)
+- But violates the §12.60 Tier 3 requirement: "fix is field-proven on real target"
+
+### Resolution
+Wait for the current engagement to reach karir, or run a TARGETED probe:
+`python3 -c "from agent_alpha.agents.alpha.scout import Alpha; ..."` against
+`https://www.karir.bernofarm.com/` specifically.
+
+### Cross-ref
+Bug #37 (Apache autoindex — the fix being verified), GAP-179 (subdomain
+prioritization — would have put karir earlier in queue).
+
+
+## GAP-183 — Email address harvesting from page content
+
+### Problem Statement
+Agent-Alpha fetches page bodies (HTML) from 48+ hosts but NEVER extracts email
+addresses from the content. Field evidence (bernofarm):
+- `hr.bernofarm.com` = 100191 bytes (HR portal — almost certainly contains contact emails)
+- `portal.bernofarm.com` = 13030 bytes (corporate portal — likely has staff contacts)
+- `portalaaa/portalgsi/portalsmk` = 11340-11345 bytes (portal pages)
+- `recruitment.bernofarm.com` = 80 bytes (likely redirect to recruitment form)
+- Total email addresses extracted from ALL responses: **0**
+
+Email addresses are critical inputs for:
+1. **Breach data correlation** (GAP-104): email → DeHashed/HIBP → leaked credentials
+2. **Password reset abuse** (GAP-113): email → trigger reset → token analysis
+3. **Username derivation** (GAP-117): `john.doe@bernofarm.com` → username `john.doe`
+4. **Social engineering assessment**: organizational email pattern
+5. **Email pattern inference** (GAP-090): from 2-3 emails → predict format for all employees
+
+### Fix
+Add regex email extraction to every fetched HTML body:
+1. Regex: `[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}` (standard RFC 5322 simplified)
+2. Filter out generic addresses (`noreply@`, `no-reply@`, `webmaster@`, `info@`)
+3. Mint USER nodes with `email` property for each unique address
+4. Run in `_handle_content_analysis()` — zero additional HTTP requests
+
+### Impact
+- Severity: MEDIUM — zero-cost extraction (data already in fetched body), feeds 4+ downstream GAPs
+
+### Cross-ref
+GAP-054 (WP REST user email — WP-specific), GAP-090 (email pattern inference — needs
+seed emails), GAP-104 (breach data — needs emails as input), GAP-117 (credential
+mutation — email → username).
+
+---
+
+## GAP-184 — Redirect chain not followed for discovery (HTTP 302 bodies ignored)
+
+### Problem Statement
+Field evidence (bernofarm):
+- `ispersonalia.bernofarm.com/` → HTTP 302 (327 bytes) → redirects to `/recruitment`
+- `portaldist.bernofarm.com/` → HTTP 302 (325 bytes) → redirects to `/recruitment`
+- `jobfair.bernofarm.com/` → HTTP 200 (322 bytes) → contains link to `/recruitment`
+
+The 302 response body and `Location` header reveal the redirect target. Agent-Alpha
+DOES follow the redirect (it probes the `/recruitment` path). BUT it does NOT
+analyze the redirect CHAIN for security implications:
+
+1. **Open redirect test**: Does the server accept arbitrary redirect targets?
+   `?redirect=https://evil.com` or `?next=//evil.com` → if followed, it's a vuln
+2. **Protocol downgrade**: HTTPS → HTTP redirect = security downgrade
+3. **Cross-domain redirect**: redirect to external domain = potential phishing vector
+4. **Redirect parameter injection**: can the Location header be influenced?
+
+### Fix
+When a 3xx response is received:
+1. Extract `Location` header → parse target URL
+2. Check for open redirect indicators (external domain, protocol downgrade)
+3. If path has query parameter (`?redirect=`, `?next=`, `?url=`, `?return=`, `?goto=`):
+   test with external URL to detect open redirect vulnerability
+4. Follow chain max 5 hops, recording each hop
+
+### Impact
+- Severity: LOW-MEDIUM — open redirect is MEDIUM severity, but detection is cheap
+
+### Cross-ref
+GAP-106 (login redirect chain — Beta-specific), GAP-077 (auth bypass — redirect
+manipulation is an auth bypass variant).
+
+---
+
+## GAP-185 — ISBerno/Java app not fingerprinted (custom framework detection gap)
+
+### Problem Statement
+Field evidence (bernofarm):
+- `vo.bernofarm.com/ISBerno/Pemutahiranoutlets/login` → 6571 bytes → `auth_surface_probe` → 2 nodes
+- `vu.bernofarm.com/ISBerno/Pemutahiranusers/login` → 6633 bytes → `auth_surface_probe` → 2 nodes
+
+The path structure `/ISBerno/Pemutahiranusers/login` suggests a Java/JSP or Spring MVC
+application (CamelCase controller names, path-based routing). Agent-Alpha correctly
+identified the login form (`auth_surface_probe`) but did NOT:
+1. Fingerprint the framework (Java EE? Spring MVC? Struts? Custom?)
+2. Probe Java-specific paths (`/WEB-INF/web.xml`, `/META-INF/`, `/actuator/`, `/console/`)
+3. Check for Struts-specific CVEs (path-based → possibly Struts 2 → S2-045/S2-046)
+4. Check for Java deserialization endpoints
+
+This is a concrete example of GAP-169 (fingerprint-first): the URL structure TELLS you
+the stack is Java-based, but Agent-Alpha has no Java-specific probe catalog.
+
+### Fix
+Add Java/JEE fingerprint detection and probe catalog:
+1. Detection rules: CamelCase path segments, `.do` / `.action` extensions (Struts),
+   `/WEB-INF/` in 404 body, `JSESSIONID` cookie, `X-Powered-By: Servlet/3.1`
+2. Java-specific probes: `/WEB-INF/web.xml`, `/META-INF/MANIFEST.MF`,
+   `/manager/html` (Tomcat), `/console` (WildFly/JBoss), `/jolokia/`
+3. Struts-specific: `?redirect:` prefix test, Content-Type OGNL injection (S2-045)
+
+### Impact
+- Severity: MEDIUM — Java apps are common in enterprise (especially SE-Asia ERP)
+  and have HIGH-severity CVEs (Struts, Log4Shell, Spring4Shell)
+
+### Cross-ref
+GAP-169 (fingerprint-first — Java is a key fingerprint target), GAP-088 (version
+extraction — Java server version), GAP-089 (CVE correlation — Java CVEs).
+
+---
+
+## GAP-186 — Identical-body hosts still get full 11-path well-known probe
+
+### Problem Statement
+Field evidence (bernofarm): 11 hosts return the EXACT same 482-byte body on root.
+Body-dedup catches this for CRAWLED links (e.g. `recruitment/` on multiple hosts →
+"identical body skipped"). But the 11 WELL_KNOWN_LEAK_PATHS are hardcoded in the
+frontier — they bypass body-dedup because each path is a DIFFERENT URL (different
+path, not just different host).
+
+Result: each 482-byte host still gets 11 probe requests (`.git/config`, `.env.bak`,
+etc.) — all returning 404. Total: 11 hosts × 11 probes = 121 wasted requests on
+hosts that are clearly serving a shared default/redirect page.
+
+### Root Cause
+Well-known path probes are seeded per-host in `run_recon()` and bypass the
+`_check_identical_body_dedup()` guard (which only checks same-path-different-host
+or same-host-different-path with identical body).
+
+### Fix
+After root probe: if root body hash matches a previously-seen root body hash on
+a different host AND both hosts resolve to the same IP → skip well-known path
+probes for the duplicate host. Mark as "alias" in graph.
+
+This is a refinement of GAP-181 (identical small-body consolidation) with a
+specific implementation path.
+
+### Impact
+- Severity: LOW-MEDIUM — saves 100+ probes per engagement on targets with many
+  shared-IP subdomains
+
+### Cross-ref
+GAP-181 (identical body consolidation — this is the implementation detail),
+GAP-180 (www.* dedup — related but different mechanism).
+
+---
+
+## Bug #40 — erp.bernofarm.com HTTP 525 probed 11 times (CF 5xx not circuit-broken)
+
+### Problem Statement
+`erp.bernofarm.com` returned HTTP 525 (CF SSL Handshake Failed) on root. Agent-Alpha
+then probed ALL 11 well-known paths:
+```
+erp.bernofarm.com/           → HTTP 525, 7064 bytes
+erp.bernofarm.com/.env.bak   → HTTP 525, 7064 bytes (IDENTICAL body)
+erp.bernofarm.com/.env       → HTTP 525, 7064 bytes (IDENTICAL body)
+erp.bernofarm.com/wp-config.php.bak → HTTP 525, 7064 bytes
+erp.bernofarm.com/openapi.json      → HTTP 525, 7064 bytes
+erp.bernofarm.com/swagger.json      → HTTP 525, 7064 bytes
+erp.bernofarm.com/v2/api-docs       → HTTP 525, 7064 bytes
+erp.bernofarm.com/api-docs          → HTTP 525, 7064 bytes
+erp.bernofarm.com/graphql           → HTTP 525, 7064 bytes
+erp.bernofarm.com/graphiql          → HTTP 525, 7064 bytes
+```
+ALL 11 returned the IDENTICAL 7064-byte CF error page. Every probe was wasted.
+
+### Root Cause
+- `_dead_hosts` only triggers on transport failure (DNS/connect error)
+- HTTP 525 is a valid HTTP response → not caught by `_dead_hosts`
+- Body-dedup catches identical body for CRAWLED links but not for well-known paths
+  (they are pre-seeded in frontier)
+
+### Fix
+This is the implementation case for **GAP-178**. Additionally, `_step_once` should
+check: if root probe returned CF 5xx → prune ALL remaining paths for that host
+from the work queue (same mechanism as `_dead_hosts` queue pruning).
+
+### Severity: LOW (11 wasted probes per CF-broken host)
+
+### Cross-ref
+GAP-178 (CF 5xx circuit breaker — the design), Bug #39 (challenge circuit breaker —
+same pattern for different trigger condition).
+
+
+## GAP-187 — Coverage Ledger is NOT a runtime wiring gate (Lyndon #2 at Phase 2)
+
+### Problem Statement
+The `coverage_ledger.py` (which tracks `tested`, `not_run`, `blocked`, `capability_absent`)
+is ONLY called in `reporting.py` (Phase Omega) at the very end of the engagement.
+
+If Agent-Alpha encounters a host, fingerprints it as WordPress, but due to a bug or routing
+failure it NEVER runs the `wp_plugins` or `woocommerce` probe, the `_work_queue` will eventually
+empty. Alpha will return `status = COMPLETE` because its queue is empty and `findings > 0`.
+
+This is the exact definition of a Lyndon #2 failure (false assurance). The coverage ledger
+will correctly report `not_run = 2`, but the autonomous chain will have already advanced
+to Beta thinking Recon was complete.
+
+### Fix
+The Coverage Ledger must be a RUNTIME GATE in `scout.py` before determining status:
+```python
+ledger = evaluate_coverage_ledger(graph_store)
+if ledger.not_run > 0:
+    return status = FAILED (or re-enqueue missing capabilities)
+```
+An agent CANNOT be `COMPLETE` if it left capable techniques `not_run` on discovered surfaces.
+
+### Impact
+- Severity: CRITICAL — This is the primary protection against false success in autonomous ops.
+- Cross-ref: OMEGA-4 exit criteria (the test for this gap).
+
+---
+
+## GAP-188 — Alpha Handoff Asymmetry (Architectural Debt D3 blocker)
+
+### Problem Statement
+Beta, Gamma, and Delta all run through `execute_agent.py`, which rigorously enforces:
+1. Auth re-check (TOCTOU)
+2. Graph replay from event stream
+3. Terminal `HANDOFF_READY` emission (event-sourced transition)
+
+Alpha (`recon_runner.py`) bypasses ALL of this. It runs a custom loop, builds a `ReconRunResult`,
+and never emits a formal `HANDOFF_READY` that `advance.py` (the autonomous spine) can consume.
+Because Alpha doesn't emit a standard handoff, the autonomous chain (Alpha → Beta) is
+broken at the very first link. Beta can only be run via island scripts, never autonomously.
+
+### Fix
+Refactor `recon_runner.py` to be invoked via `execute_agent.py` just like Beta, or have
+it emit the exact `HANDOFF_READY` event shape required by `advance.py` before returning.
+The event stream must be the single source of truth for phase transitions.
+
+### Impact
+- Severity: CRITICAL — Blocks the fully autonomous kill chain (Alpha → Beta auto-advance).
+- Cross-ref: execute_agent.py module docstring (tracks this as Debt D3).
