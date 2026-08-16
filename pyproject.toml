@@ -31,7 +31,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "git-dumper",
     "camoufox[geoip]>=0.5.4",
-    "dnspython>=2.6.1",
+    "dnspython>=2.8.0",
     "curl_cffi",
     "publicsuffix2==2.20191221",
 ]
