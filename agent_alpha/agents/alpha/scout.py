@@ -57,6 +57,7 @@ from agent_alpha.recon.reach_transport import (
     origin_direct_fetch,
     tls_impersonate_fetch,
 )
+from agent_alpha.recon.recon_coverage import emit_recon_technique_attempt
 from agent_alpha.recon.response_classifier import (  # noqa: F401
     VOLATILE_HEADERS,
     Verdict,
@@ -630,6 +631,10 @@ class Alpha:
 
         # ── ACT / VERIFY / PERSIST ──────────────────────────────
         self._emit("ACT", f"Running {decision.tool} against {url}")
+        # §12.64 Step 0: mark the technique attempted on dispatch (before the JSON-body
+        # mismatch re-route below) so a technique directed at a responding surface is never
+        # left `not_run`. No-op unless decision.tool maps to a coverage technique.
+        emit_recon_technique_attempt(self.event_store, self._engagement_id, decision.tool, url)
         nodes_added = 0
 
         handler = self._dispatch_registry.get(decision.tool)
@@ -1483,6 +1488,13 @@ class Alpha:
         for follow_tool in spec.follow_up_tools:
             handler = self._dispatch_registry.get(follow_tool)
             if handler is not None:
+                # §12.64 Step 0: SECOND dispatch site — mark attempt here too so a
+                # follow-up tool that maps to a coverage technique is never left `not_run`
+                # (today only wp_plugins follows, which has no technique → no-op; this keeps
+                # the emit drift-proof if a covered tool is added to follow_up_tools).
+                emit_recon_technique_attempt(
+                    self.event_store, self._engagement_id, follow_tool, url
+                )
                 handler(resp, SimpleNamespace(tool=follow_tool), url)
 
         # R2 selective crawl (tag AFTER seeds/follow-ups above so this

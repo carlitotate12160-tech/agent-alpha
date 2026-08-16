@@ -214,3 +214,15 @@ def test_alpha_recon_handoff_status_is_not_hardcoded_complete():
         "run_engagement_task must hand off status=run_result.status (the derived honest "
         "terminal status), not a literal — else recon false-success reaches the spine (#3)."
     )
+
+
+def test_recon_technique_attempt_is_called_at_dispatch():
+    """§12.64 Step 0: the attempt emit (extracted to recon.recon_coverage so the Alpha
+    god-object stays size-frozen, GAP-161) must be CALLED at the dispatch site(s), not just
+    imported — else a covered recon technique dispatched without it stays permanent `not_run`
+    (Lyndon #2). Counts the import + the two dispatch call sites (ORIENT/ACT + follow-up)."""
+    scout_src = _read("agents/alpha/scout.py")
+    assert scout_src.count("emit_recon_technique_attempt") >= 3, (
+        "emit_recon_technique_attempt must be imported AND invoked at every dispatch site "
+        "(>=2 calls) — a covered technique dispatched without it stays not_run (§12.64 / #2)."
+    )

@@ -55,6 +55,45 @@ def test_not_run_is_runtime_wiring_gate() -> None:
     assert b["spa_json_login"] == "not_run"
 
 
+def _host_ev(host: str) -> _Ev:
+    return _Ev("NodeDiscovered", {"type": "asset", "properties": {"host": host}})
+
+
+def test_recon_attempt_marks_tested_by_identity() -> None:
+    """§12.64 Step 0: a RECON_TECHNIQUE_ATTEMPTED event marks its OWN technique tested on
+    the host — the fix for the permanent `not_run` of recon techniques with no run_event."""
+    host = _host_ev("h.x")
+    before = _buckets(project_coverage([host]), "host")
+    assert (
+        before["git_exposure_leak"] == "not_run"
+    )  # the bug: permanent not_run w/o instrumentation
+
+    attempt = _Ev("ReconTechniqueAttempted", {"host": "h.x", "technique_id": "git_exposure_leak"})
+    after = _buckets(project_coverage([host, attempt]), "host")
+    assert after["git_exposure_leak"] == "tested"
+
+
+def test_recon_attempt_does_not_false_mark_sibling() -> None:
+    """§12.64 Step 0 CARDINAL: attempting ONE technique must NOT mark a sibling tested on the
+    same host — matched by IDENTITY (host, technique_id), never by a shared event type."""
+    host = _host_ev("h.x")
+    attempt = _Ev("ReconTechniqueAttempted", {"host": "h.x", "technique_id": "git_exposure_leak"})
+    b = _buckets(project_coverage([host, attempt]), "host")
+    assert b["git_exposure_leak"] == "tested"
+    assert b["js_secret_leak"] == "not_run"
+    assert b["wp_rest_user_enum"] == "not_run"
+
+
+def test_tool_to_technique_is_catalog_derived() -> None:
+    """§12.64: the tool→technique join is single-source (derived from techniques.yaml)."""
+    from agent_alpha.coverage.coverage_ledger import tool_to_technique
+
+    m = tool_to_technique()
+    assert m["git_exposure_probe"] == "git_exposure_leak"
+    assert m["js_secret_probe"] == "js_secret_leak"
+    assert m["wp_rest_users"] == "wp_rest_user_enum"
+
+
 def test_blocked_beats_tested_for_capable() -> None:
     events = [
         _node_ev("hub.x", ["login-form"]),
