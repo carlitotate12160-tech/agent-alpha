@@ -198,6 +198,7 @@
 | 157 | Autonomous ACCESS_LEVEL missing ENABLES edge to CREDENTIAL | OPEN | Med | WI | Low | Provenance edge missing between harvested CREDENTIAL and ACCESS_LEVEL node |
 | 158 | Multi-target credential reuse pivot across sibling stacks | OPEN | Med | RG | Med | Beta stops after winning first target; doesn't pivot creds to remaining sibling hosts |
 | 159 | Cloud IAM Privilege Escalation & Policy Trust Graph | OPEN | High | RG | Med-High | Models AWS/GCP/Azure IAM policy traversal, sts:AssumeRole paths, and cross-account trust boundaries for automated cloud tenant takeover |
+| 160 | Origin-candidate exclusion is Cloudflare-only | OPEN | Med | RM | Med | Shopify/Fastly/Akamai/Sucuri/Imperva edge IPs crowd out origin probes (§12.61 A1) |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
@@ -2748,5 +2749,49 @@ An auth-surface label was binary (`login-form`, `spa-login-form`, `http_basic_au
 ### Known Limitations (Precision vs. False-Clean Trade-off)
 1. **Misclassification Omission (Recon Error)**: When a host that actually uses JSON-RPC is misclassified as `mech_form_post` (e.g. due to a static HTML post form in the shell), `coverage_ledger.project_coverage()` excludes `spa_json_login` from the applicable denominator. As a result, `spa_json_login` will NOT appear as `not_run` on that host (silent omission). This is an accepted trade-off to keep the coverage denominator free of false `not_run` noise on verified form-only targets.
 2. **Shared `run_event` on Unclassified Surfaces**: On a surface with unclassified mechanism (fail-open), executing any credential applicator emits `StrikeCandidateAttempted`. Because `cred_reuse`, `spa_json_login`, and `default_creds_login` currently share `run_event: StrikeCandidateAttempted`, attempting a form strike marks all unclassified auth techniques on that host as `tested`. Future refinement may introduce technique-specific run events or payload tags.
+
+---
+
+## GAP-160 — Origin-candidate exclusion is Cloudflare-only (multi-CDN edges leak into ranking)
+
+### Problem Statement
+`CompositeOriginDiscovery.candidates()` (origin_discovery.py, §12.61 A1) excludes only
+Cloudflare edge IPs via `is_cloudflare_ip`. Other fronting providers (Shopify, Fastly,
+Akamai, Sucuri, Imperva) front a site the same way CF does — a Host-header request to
+their edge IP never reaches origin — but their ranges are NOT excluded, so they survive
+as "origin candidates" and consume the §12.46 per-host probe budget (3 probes/host).
+
+Not a security hole: `verify_origin_binding` token-canary REJECTS a fronted edge (it does
+not serve the ownership canary). It is a BUDGET/precision defect — a doomed candidate can
+crowd out a real origin within the 3-probe cap.
+
+### Field Evidence (PR #426 field-prove, 2026-08-16)
+- niagamas.com ranked candidates INCLUDED `23.227.38.65` (Shopify edge, verified ∉ CF_IP_RANGES)
+  even though the run reported "Cloudflare edges filtered." Shopify was ranked #2.
+- The repo already KNOWS these vendors by NS-name hint (passive_intel.py:166-170:
+  akamai/sucuri/imperva; Sucuri IP-block noted constants.py) but that knowledge does not
+  feed the origin CIDR exclusion.
+
+### Implementation Slices
+1. Add `FRONTED_EDGE_IP_RANGES` to config/constants.py — SINGLE source (anti-#7), seeded with
+   Shopify / Fastly / Akamai / Sucuri / Imperva published IPv4 CIDRs, documented with source URL
+   + fetch date. CF_IP_RANGES stays separate and is UNIONED in (do not duplicate CF ranges).
+2. Add `is_fronted_edge_ip(ip)` in reach_strategy.py (mirror `is_cloudflare_ip`, backed by the
+   union). REUSE — do not re-list CF ranges (anti-#6).
+3. origin_discovery.py candidates(): change the ORIGIN filter from `is_cloudflare_ip` →
+   `is_fronted_edge_ip`. KEEP `cf_first_seen` on `is_cloudflare_ip` (it is specifically the CF
+   migration boundary — broadening it would corrupt the tier split).
+4. Test (extend test_origin_binding.py — NO new file): a Shopify-range IP (23.227.38.0/24) is
+   excluded from candidates(); a real non-CDN IP survives.
+
+### Known Limitations / Field Observation (tracked, NOT a build track)
+- Two-tier pre-CF ranking (PR #426) fired on 0/4 field targets (niagamas, solusibersama,
+  bernofarm, quantum-laboratories) — Mnemonic returned no CF-range IP in any history, so all
+  hit the `cf_first_seen=None` last_seen-DESC fallback. The fallback is the de-facto production
+  ranker and performed well (quantum surfaced a live DO origin at rank 1). If two-tier stays
+  dormant across future targets, consider SIMPLIFYING to a pure recency ranker rather than
+  adding more temporal logic. Decision deferred pending more field data (§12.60 ratchet) — do
+  NOT act now; harmless and unit-tested.
+
 
 
