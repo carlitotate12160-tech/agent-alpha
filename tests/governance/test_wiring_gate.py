@@ -201,18 +201,16 @@ def test_alpha_recon_handoff_status_is_not_hardcoded_complete():
     """187a (anti-Lyndon #3): the Alpha recon handoff must carry the HONEST engagement
     status derived from the run (recon_runner.derive_terminal_status → ReconRunResult.status),
     never a hardcoded COMPLETE. A hardcoded COMPLETE would false-advance the kill chain to
-    Beta even on a failed / WAF-walled recon. This is the CI teeth for the fix."""
+    Beta even on a failed / WAF-walled recon. This is the CI tripwire for the fix; the
+    behavioural teeth are in tests/phase_2_5/test_recon_runner.py (result.status == FAILED on
+    a walled sweep) and tests/phase_3/test_advance_wiring.py.
+
+    Pure text-scan by design (this module runs import-free on any Python — see header).
+    The POSITIVE assertion is the ratchet: reverting the emit to a hardcoded COMPLETE deletes
+    ``status=run_result.status`` → this fails. That is sufficient and format-robust; a
+    substring-window negative check was dropped as brittle (Sourcery)."""
     main_src = _read("conductor/main.py")
     assert "status=run_result.status" in main_src, (
         "run_engagement_task must hand off status=run_result.status (the derived honest "
         "terminal status), not a literal — else recon false-success reaches the spine (#3)."
     )
-    # Defense in depth: the Alpha emit must not regress to a hardcoded COMPLETE.
-    idx = main_src.find("from_agent=a2a_pb2.ALPHA")
-    assert idx != -1, "run_engagement_task Alpha handoff emit not found — wiring moved?"
-    window = main_src[idx : idx + 120]
-    assert "status=a2a_pb2.COMPLETE" not in window, (
-        "Alpha recon handoff regressed to a hardcoded status=a2a_pb2.COMPLETE (Lyndon #3). "
-        "Derive it from the run outcome via derive_terminal_status instead."
-    )
-
