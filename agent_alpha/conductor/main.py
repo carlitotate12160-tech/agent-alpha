@@ -550,7 +550,9 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
                         payload={"reason": "waf_walled", "tenant_id": tenant_id},
                     )
                 except Exception:  # noqa: BLE001 — audit must not crash the task
-                    _log.exception("Failed to append EngagementRunPartial event for %s", engagement_id)
+                    _log.exception(
+                        "Failed to append EngagementRunPartial event for %s", engagement_id
+                    )
             else:
                 _record_failure("recon_incomplete")
 
