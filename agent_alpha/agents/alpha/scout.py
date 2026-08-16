@@ -2218,6 +2218,10 @@ class Alpha:
         for prefix in constants.CDN_INFRA_EXCLUDE_PREFIXES:
             if parsed.path.startswith(prefix):
                 return False
+        q = parsed.query.strip()
+        path_is_dir = parsed.path.endswith("/") or "." not in parsed.path.rsplit("/", 1)[-1]
+        if q and path_is_dir and re.fullmatch(constants.AUTOINDEX_SORT_QUERY_RE, q):
+            return False  # Apache autoindex sort permutation — never enqueue (Bug #37)
         host = parsed.hostname or parsed.netloc
         # Instinct #2 (GAP-029): refuse to enqueue paths for a host whose root
         # already raised HttpClientError this run (host is transport-unreachable).

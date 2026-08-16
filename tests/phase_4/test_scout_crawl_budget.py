@@ -276,3 +276,46 @@ def test_duplicate_hrefs_do_not_consume_budget() -> None:
     finally:
         # Restore original cap
         constants.MAX_ORGANIC_CRAWL_PER_HOST = original_cap
+
+
+# ── 7. Apache mod_autoindex sort parameter dropping (Bug #37) ───────────────
+
+
+def test_apache_autoindex_sort_permutations_dropped() -> None:
+    """Apache mod_autoindex sort parameter permutations MUST NOT be enqueued (Bug #37)."""
+    http = FakeHttpClient()
+    alpha, eng_id = _alpha(http)
+
+    # T1: Compact form on dir path -> False (skipped)
+    assert not alpha.enqueue_discovered_url("https://h/?ND")
+    assert not alpha.enqueue_discovered_url("https://h/?N=D")
+    assert not alpha.enqueue_discovered_url("https://h/?MA")
+    assert not alpha.enqueue_discovered_url("https://h/dir/?SA")
+    assert not alpha.enqueue_discovered_url("https://h/dir/?MD")
+    assert not alpha.enqueue_discovered_url("https://h/dir/?SD")
+
+    # T2: Long form on dir path -> False
+    assert not alpha.enqueue_discovered_url("https://h/?C=N;O=A")
+    assert not alpha.enqueue_discovered_url("https://h/dir/?C=N&O=A")
+
+    # T3: NEGATIVE (no false-positive): real params or non-dir path -> True
+    # (assuming it's in scope, but we mock scope check. Wait, enqueue_discovered_url checks scope.)
+    # Need to use _HOST so it's in scope!
+
+    assert not alpha.enqueue_discovered_url(f"https://{_HOST}/?ND")
+    assert not alpha.enqueue_discovered_url(f"https://{_HOST}/dir/?MA")
+    assert not alpha.enqueue_discovered_url(f"https://{_HOST}/dir/?C=N;O=A")
+
+    assert alpha.enqueue_discovered_url(f"https://{_HOST}/page.php?SD=1")
+
+    # T4 field-repro: feed the karir.bernofarm listing HTML through _extract_hrefs->enqueue
+    listing_html = """
+    <tr><th valign="top"><img src="/icons/blank.gif" alt="[ICO]"></th><th><a href="?C=N;O=D">Name</a></th><th><a href="?C=M;O=A">Last modified</a></th><th><a href="?C=S;O=A">Size</a></th><th><a href="?C=D;O=A">Description</a></th></tr>
+    <tr><th colspan="5"><hr></th></tr>
+    <tr><td valign="top"><img src="/icons/folder.gif" alt="[DIR]"></td><td><a href="css/">css/</a></td><td align="right">2026-08-01 12:00  </td><td align="right">  - </td><td>&nbsp;</td></tr>
+    """
+    hrefs = alpha._extract_hrefs(listing_html, f"https://{_HOST}/")
+    enqueued = [href for href in hrefs if alpha.enqueue_discovered_url(href)]
+    assert f"https://{_HOST}/css/" in enqueued
+    # assert 0 new sort parameter permutations enqueued
+    assert len([h for h in enqueued if "?" in h]) == 0
