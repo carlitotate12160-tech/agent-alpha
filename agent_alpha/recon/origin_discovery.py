@@ -71,7 +71,9 @@ class CompositeOriginDiscovery:
         # single exclusion choke — a fronted-edge (CF/Shopify/Fastly/…) IP is NEVER an origin,
         # regardless of which source produced it. Applied to EVERY append site so no source can
         # bypass it (GAP-160 / Aikido+Greptile: origin_ip_candidates fed edges in unfiltered).
-        out: list[str] = [ip for ip in self._base.candidates(fronted_host) if not is_fronted_edge_ip(ip)]
+        out: list[str] = [
+            ip for ip in self._base.candidates(fronted_host) if not is_fronted_edge_ip(ip)
+        ]
         seen = set(out)
 
         def _add(ip: str) -> None:
@@ -117,8 +119,12 @@ class CompositeOriginDiscovery:
             if cf_first_seen is None:
                 ranked = sorted(origins, key=lambda t: t[2], reverse=True)
             else:
-                tier1 = sorted((t for t in origins if t[2] < cf_first_seen),  key=lambda t: t[2], reverse=True)
-                tier2 = sorted((t for t in origins if t[2] >= cf_first_seen), key=lambda t: t[2], reverse=True)
+                tier1 = sorted(
+                    (t for t in origins if t[2] < cf_first_seen), key=lambda t: t[2], reverse=True
+                )
+                tier2 = sorted(
+                    (t for t in origins if t[2] >= cf_first_seen), key=lambda t: t[2], reverse=True
+                )
                 ranked = tier1 + tier2
             for ip, _f, _last in ranked:
                 _add(ip)
