@@ -620,7 +620,7 @@ def test_composite_mnemonic_cf_era_boundary_derived() -> None:
     # IP2 last seen = 200 (CF era) -> tier 2
     # CF IP (edge) -> filtered out
     triples = (
-        ("104.16.0.1", 10, 150),  # CF edge
+        ("104.16.0.1", 150, 300),  # CF edge
         ("198.51.100.1", 50, 100),  # Pre-CF
         ("198.51.100.2", 160, 200),  # CF-era
     )
