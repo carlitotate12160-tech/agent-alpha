@@ -238,6 +238,13 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
         "dns-txt:agent-alpha=client-approved",
         "#378",
     ),
+    # Client-approved external target (WP + Apache, Nigeria ISP).
+    LabHost(
+        "spectranet.com.ng",
+        "natanael",
+        "dns-txt:agent-alpha=client-approved",
+        "#398",
+    ),
     # -----------------------------------------------------------------------
     # Public test targets — platforms that EXPLICITLY authorize security
     # testing in their ToS. Authorization comes from the platform, not from
