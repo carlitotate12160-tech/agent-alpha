@@ -195,3 +195,24 @@ def test_origin_discovery_is_wired_with_real_instance():
         "origin_discovery is not wired into the Conductor path with a real instance — "
         "the seam is injected None (island, Lyndon #2)."
     )
+
+
+def test_alpha_recon_handoff_status_is_not_hardcoded_complete():
+    """187a (anti-Lyndon #3): the Alpha recon handoff must carry the HONEST engagement
+    status derived from the run (recon_runner.derive_terminal_status → ReconRunResult.status),
+    never a hardcoded COMPLETE. A hardcoded COMPLETE would false-advance the kill chain to
+    Beta even on a failed / WAF-walled recon. This is the CI teeth for the fix."""
+    main_src = _read("conductor/main.py")
+    assert "status=run_result.status" in main_src, (
+        "run_engagement_task must hand off status=run_result.status (the derived honest "
+        "terminal status), not a literal — else recon false-success reaches the spine (#3)."
+    )
+    # Defense in depth: the Alpha emit must not regress to a hardcoded COMPLETE.
+    idx = main_src.find("from_agent=a2a_pb2.ALPHA")
+    assert idx != -1, "run_engagement_task Alpha handoff emit not found — wiring moved?"
+    window = main_src[idx : idx + 120]
+    assert "status=a2a_pb2.COMPLETE" not in window, (
+        "Alpha recon handoff regressed to a hardcoded status=a2a_pb2.COMPLETE (Lyndon #3). "
+        "Derive it from the run outcome via derive_terminal_status instead."
+    )
+

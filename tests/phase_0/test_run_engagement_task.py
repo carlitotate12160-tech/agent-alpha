@@ -62,11 +62,11 @@ def _stub_recon_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
     the worker's authorized path. These tests exercise the worker's gate / status /
     failure mechanics, NOT the pipeline (that is covered hermetically by
     tests/phase_2/test_async_kill_chain.py), so stub the run seam. The worker reads
-    only ``node_count`` + ``targets_scanned`` off the result."""
+    only ``node_count``, ``targets_scanned`` + ``status`` (187a) off the result."""
     monkeypatch.setattr(
         recon_runner,
         "run_recon_for_engagement",
-        lambda *a, **k: SimpleNamespace(node_count=1, targets_scanned=1),
+        lambda *a, **k: SimpleNamespace(node_count=1, targets_scanned=1, status=a2a_pb2.COMPLETE),
     )
 
 
@@ -386,7 +386,8 @@ def test_task_fails_closed_without_signed_profile(
     monkeypatch.setattr(
         recon_runner,
         "run_recon_for_engagement",
-        lambda *a, **k: called.append(k) or SimpleNamespace(node_count=1, targets_scanned=1),
+        lambda *a, **k: called.append(k)
+        or SimpleNamespace(node_count=1, targets_scanned=1, status=a2a_pb2.COMPLETE),
     )
 
     result = run_engagement_task(engagement_id, "test-tenant")
@@ -425,7 +426,8 @@ def test_task_with_signed_profile_reaches_recon(
     monkeypatch.setattr(
         recon_runner,
         "run_recon_for_engagement",
-        lambda *a, **k: captured.update(k) or SimpleNamespace(node_count=1, targets_scanned=1),
+        lambda *a, **k: captured.update(k)
+        or SimpleNamespace(node_count=1, targets_scanned=1, status=a2a_pb2.COMPLETE),
     )
 
     result = run_engagement_task(engagement_id, "test-tenant")

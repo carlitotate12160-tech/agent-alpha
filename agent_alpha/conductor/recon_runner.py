@@ -132,6 +132,12 @@ class ReconRunResult:
     node_count: int
     report: Report
     targets_scanned: int
+    # 187a: the ENGAGEMENT-level terminal PhaseStatus, derived from the per-target
+    # run_recon statuses (derive_terminal_status). NEVER hardcoded COMPLETE (anti-#3):
+    # the caller (main.run_engagement_task) hands this to emit_handoff_and_advance so
+    # the autonomous spine (advance.route_next) only advances to Beta on an honest
+    # COMPLETE, and routes an incomplete recon to OMEGA for a partial report.
+    status: int
     enumerated_hosts: tuple[str, ...] = ()
     wall_verdict: WallVerdict | None = None
 
@@ -141,6 +147,35 @@ def _handoff_status(msg: a2a_pb2.A2AMessage) -> int:
     payload = a2a_pb2.HandoffPayload()
     payload.ParseFromString(msg.payload)
     return payload.status
+
+
+def derive_terminal_status(target_statuses: Sequence[int]) -> int:
+    """Engagement-level terminal PhaseStatus from the per-target run_recon statuses.
+
+    187a — kills the hardcoded ``status=a2a_pb2.COMPLETE`` on the Alpha handoff
+    (the exact "hardcoded COMPLETE" false-success, Lyndon #3). Status = f(real
+    outcome), never a literal.
+
+    Rule: ``COMPLETE`` iff at least one target finished recon (``>=1`` COMPLETE) —
+    i.e. at least one surface was actually mapped and is worth handing forward
+    (``advance.route_next`` then decides Beta-vs-Omega FROM THE GRAPH, so this
+    function must NOT re-derive that, anti-#6/#7). Otherwise ``FAILED``: nothing
+    was mapped, so the chain must not advance offensively; route_next sends
+    FAILED -> OMEGA for an honest partial report.
+
+    Mixed ([COMPLETE, FAILED, ...]) is COMPLETE: an operator advances on the
+    surface they mapped, without discarding it because a sibling target was dead.
+    All-failed / all-blocked / WAF-walled / empty all yield FAILED. The WAF-wall
+    story is preserved INDEPENDENTLY via ENGAGEMENT_WALLED (derive_wall_verdict),
+    so walled -> FAILED loses no information and keeps this derivation minimal.
+
+    FAILED vs BLOCKED is intentionally collapsed to FAILED: decide_advance treats
+    every non-COMPLETE status identically (OMEGA-only), so the distinction would
+    add no behaviour.
+    """
+    if any(s == a2a_pb2.COMPLETE for s in target_statuses):
+        return a2a_pb2.COMPLETE
+    return a2a_pb2.FAILED
 
 
 def derive_wall_verdict(
@@ -641,6 +676,7 @@ def run_recon_for_engagement(  # noqa: C901
         node_count=pipeline.graph_store.node_count(),
         report=report,
         targets_scanned=len(targets),
+        status=derive_terminal_status(target_statuses),
         enumerated_hosts=tuple(sorted(enumerated)),
         wall_verdict=wall_verdict,
     )

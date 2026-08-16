@@ -516,13 +516,18 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
         except Exception:  # noqa: BLE001 — failure to audit must not crash the task
             _log.exception("Failed to append EngagementRunCompleted event for %s", engagement_id)
 
-        # Emit handoff + advance — NOT swallowed (#4/#15)
+        # Emit handoff + advance — NOT swallowed (#4/#15).
+        # 187a: status is the HONEST engagement-terminal status derived from the
+        # per-target run_recon outcomes (recon_runner.derive_terminal_status), NEVER
+        # a hardcoded COMPLETE (anti-#3). An incomplete/failed/WAF-walled recon now
+        # hands off FAILED -> advance.route_next routes it to OMEGA for a partial
+        # report instead of falsely auto-advancing the kill chain to Beta.
         emit_handoff_and_advance(
             event_store=target_store,
             engagement_id=engagement_id,
             tenant_id=tenant_id,
             from_agent=a2a_pb2.ALPHA,
-            status=a2a_pb2.COMPLETE,
+            status=run_result.status,
             next_recommended=a2a_pb2.CONDUCTOR,
             advance_fn=lambda eid, tid: advance_engagement_task.delay(eid, tid),
         )

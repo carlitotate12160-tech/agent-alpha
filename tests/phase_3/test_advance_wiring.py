@@ -33,6 +33,8 @@ def mock_recon():
     with patch("agent_alpha.conductor.main.recon_runner.run_recon_for_engagement") as m:
         m.return_value.node_count = 5
         m.return_value.targets_scanned = 1
+        # 187a: recon hands off its derived terminal status; a successful recon is COMPLETE.
+        m.return_value.status = a2a_pb2.COMPLETE
         yield m
 
 

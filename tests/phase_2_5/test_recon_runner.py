@@ -25,7 +25,7 @@ import pytest
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.conductor import recon_runner
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.conductor.recon_runner import derive_wall_verdict
+from agent_alpha.conductor.recon_runner import derive_terminal_status, derive_wall_verdict
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
@@ -108,6 +108,34 @@ def test_prior_run_waf_does_not_wall_a_clean_rerun() -> None:
     assert v.blocked_hosts == ()
 
 
+# ── 187a: derive_terminal_status — honest handoff status, never hardcoded COMPLETE ─
+
+
+def test_terminal_status_complete_when_all_targets_complete() -> None:
+    """All targets finished recon → COMPLETE (chain may advance)."""
+    assert derive_terminal_status([a2a_pb2.COMPLETE, a2a_pb2.COMPLETE]) == a2a_pb2.COMPLETE
+
+
+def test_terminal_status_complete_on_mixed_when_any_complete() -> None:
+    """CARDINAL: an operator advances on the surface they mapped — one COMPLETE among
+    failures is still COMPLETE (route_next then decides Beta-vs-Omega from the graph)."""
+    assert derive_terminal_status([a2a_pb2.FAILED, a2a_pb2.COMPLETE]) == a2a_pb2.COMPLETE
+    assert derive_terminal_status([a2a_pb2.COMPLETE, a2a_pb2.BLOCKED]) == a2a_pb2.COMPLETE
+
+
+def test_terminal_status_failed_when_no_target_completes() -> None:
+    """CARDINAL (anti-#3): zero COMPLETE — all-failed, all-blocked, or WAF-walled — must
+    be FAILED, never a hardcoded COMPLETE that would false-advance the chain to Beta."""
+    assert derive_terminal_status([a2a_pb2.FAILED, a2a_pb2.FAILED]) == a2a_pb2.FAILED
+    assert derive_terminal_status([a2a_pb2.BLOCKED, a2a_pb2.BLOCKED]) == a2a_pb2.FAILED
+    assert derive_terminal_status([a2a_pb2.FAILED, a2a_pb2.BLOCKED]) == a2a_pb2.FAILED
+
+
+def test_terminal_status_failed_on_empty() -> None:
+    """No readable per-target status (stub sweep / zero targets) → FAILED, fail-closed."""
+    assert derive_terminal_status([]) == a2a_pb2.FAILED
+
+
 # ── wiring: the autonomous path emits ENGAGEMENT_WALLED (RUNNER-SEAL != WIRED) ─
 
 
@@ -152,6 +180,8 @@ def test_run_recon_for_engagement_emits_engagement_walled(monkeypatch: pytest.Mo
 
     assert result.wall_verdict is not None
     assert result.wall_verdict.walled is True
+    # 187a: a walled sweep (0 COMPLETE) hands off FAILED, not a hardcoded COMPLETE.
+    assert result.status == a2a_pb2.FAILED
     walled = [e for e in store.get_events(eng) if e.event_type == EventType.ENGAGEMENT_WALLED]
     assert len(walled) == 1
     assert _HOST_A in walled[0].payload.get("blocked_hosts", [])
@@ -188,3 +218,42 @@ def test_none_handoff_does_not_crash_sweep(monkeypatch: pytest.MonkeyPatch) -> N
 
     assert result.wall_verdict is not None
     assert result.wall_verdict.walled is False
+    # 187a: no readable per-target status → FAILED (fail-closed), never COMPLETE.
+    assert result.status == a2a_pb2.FAILED
+
+
+class _CompletingAlpha:
+    """Fake Alpha that hands off COMPLETE (recon finished on the target)."""
+
+    def run_recon(self, engagement_id: str, target_url: str) -> a2a_pb2.A2AMessage:
+        msg = a2a_pb2.A2AMessage()
+        payload = a2a_pb2.HandoffPayload(status=a2a_pb2.COMPLETE, findings_count=1)
+        msg.payload = payload.SerializeToString()
+        return msg
+
+
+def test_run_recon_for_engagement_status_complete_when_target_completes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-regression: a target that finishes recon hands off COMPLETE, so the autonomous
+    spine can still advance (route_next → Beta/Omega). 187a must not break the happy path."""
+    store = InMemoryEventStore()
+    eng = _engagement(store)
+    auth = AuthorizationStateMachine(event_store=store)
+
+    pipeline = recon_runner.ReconPipeline(
+        alpha=_CompletingAlpha(), graph_store=NetworkXGraphStore()
+    )
+    monkeypatch.setattr(recon_runner, "build_recon_pipeline", lambda *a, **kw: pipeline)
+    monkeypatch.setattr(recon_runner, "resolve_recon_targets", lambda record: [f"https://{_HOST_A}/"])
+    monkeypatch.setattr(recon_runner, "certspotter_discover", lambda *a, **kw: None)
+    monkeypatch.setattr(recon_runner, "build_passive_discovery", lambda *a, **kw: None)
+    monkeypatch.setattr(recon_runner, "hackertarget_fallback", lambda *a, **kw: None)
+    monkeypatch.setattr(recon_runner, "enrich_with_dns", lambda intel, dns: intel)
+
+    result = recon_runner.run_recon_for_engagement(
+        engagement_id=eng, tenant_id=None, auth=auth, store=store, record=object()
+    )
+
+    assert result.status == a2a_pb2.COMPLETE
+
