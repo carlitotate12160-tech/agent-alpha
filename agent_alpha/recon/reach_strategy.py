@@ -8,12 +8,16 @@ separate (§12.33).  No network I/O lives here; pure decision logic.
 import enum
 import ipaddress
 
-from agent_alpha.config.constants import CF_IP_RANGES
+from agent_alpha.config.constants import CF_IP_RANGES, FRONTED_EDGE_IP_RANGES
 from agent_alpha.recon.transport_resilience import MitigationClass
 
 # Cache parsed networks once at module load (not per-call).
 _CF_NETWORKS: tuple[ipaddress.IPv4Network, ...] = tuple(
     ipaddress.IPv4Network(r) for r in CF_IP_RANGES
+)
+
+_FRONTED_EDGE_NETS: tuple[ipaddress.IPv4Network, ...] = tuple(
+    ipaddress.IPv4Network(r) for r in FRONTED_EDGE_IP_RANGES
 )
 
 
@@ -29,6 +33,17 @@ def is_cloudflare_ip(ip: str) -> bool:
     except ValueError:
         return False  # IPv6 or malformed — not in our CF list
     return any(addr in net for net in _CF_NETWORKS)
+
+
+def is_fronted_edge_ip(ip: str) -> bool:
+    """True iff *ip* is a Cloudflare OR other known CDN/platform edge (never an origin)."""
+    if is_cloudflare_ip(ip):
+        return True
+    try:
+        addr = ipaddress.IPv4Address(ip)
+    except (ipaddress.AddressValueError, ValueError):
+        return False
+    return any(addr in net for net in _FRONTED_EDGE_NETS)
 
 
 class ReachStrategy(enum.StrEnum):

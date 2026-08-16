@@ -657,3 +657,34 @@ def test_composite_mnemonic_no_cf_fallback() -> None:
     assert len(cands) == 2
     assert cands[0] == "198.51.100.2"  # simple last_seen DESC fallback
     assert cands[1] == "198.51.100.1"
+
+
+def test_composite_excludes_multi_cdn_edges() -> None:
+    """GAP-160: Verify Shopify and Fastly IPs are excluded, real origin survives, and CF tier boundary holds."""
+    store = InMemoryEventStore()
+    eng = "eng-multi-cdn"
+    triples = (
+        ("198.51.100.1", 50, 100),       # Pre-CF (should survive, Tier 1)
+        ("104.16.0.1", 150, 300),        # CF edge (excluded, but anchors Tier boundary)
+        ("68.183.237.190", 160, 200),    # DO origin post-CF (should survive, Tier 2)
+        ("23.227.38.65", 170, 250),      # Shopify edge (excluded)
+        ("151.101.1.1", 180, 260),       # Fastly edge (excluded)
+    )
+    store.append(
+        event_type=EventType.PASSIVE_INTEL_GATHERED,
+        engagement_id=eng,
+        agent="alpha",
+        payload={"domain": "multi-cdn.com", "historical_a_records": triples, "sources_used": ["mnemonic_pdns"]},
+    )
+    comp = CompositeOriginDiscovery(StaticOriginDiscovery([]), store, eng)
+    cands = comp.candidates("multi-cdn.com")
+    
+    # T1/T2: CDN edges excluded, T3: DO origin survives
+    assert "23.227.38.65" not in cands
+    assert "151.101.1.1" not in cands
+    assert "104.16.0.1" not in cands
+    
+    # T4: CF boundary holds (198.51.100.1 was before CF's 150, DO was after)
+    assert len(cands) == 2
+    assert cands[0] == "198.51.100.1"  # Tier 1
+    assert cands[1] == "68.183.237.190"  # Tier 2

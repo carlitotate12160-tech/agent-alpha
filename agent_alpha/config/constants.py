@@ -627,6 +627,21 @@ CF_IP_RANGES: tuple[str, ...] = (
     "131.0.72.0/22",
 )
 
+# Non-Cloudflare fronted-provider (CDN/platform) edge IPv4 ranges. A Host-header request to
+# these reaches the PROVIDER edge, never origin — same false-origin class as CF_IP_RANGES.
+# SEED ONLY (stable, field-confirmed providers). Extend via §12.60 field-feedback ratchet, not
+# a one-shot bulk import. Source + fetch date REQUIRED per entry. Akamai/Imperva omitted on
+# purpose: their ranges are large/dynamic — CIDR listing = dead weight; revisit if a field miss
+# proves the need. Single source (anti-#7).
+FRONTED_EDGE_IP_RANGES: tuple[str, ...] = (
+    # Shopify storefront edge — field-confirmed leak on niagamas.com (2026-08-16).
+    "23.227.38.0/24",
+    # Fastly anycast (https://api.fastly.com/public-ip-list — VERIFY at fetch date).
+    "151.101.0.0/16",
+    "199.232.0.0/16",
+    "146.75.0.0/16",
+)
+
 # ── Organic-Crawl Budget (stack-agnostic backstop) ───────────────
 # Universal per-host cap on ORGANIC-crawl hrefs (hrefs parsed from page HTML
 # by _extract_hrefs).  Catalog seeds (WELL_KNOWN_LEAK_PATHS,

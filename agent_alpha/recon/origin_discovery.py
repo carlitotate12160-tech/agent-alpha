@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from agent_alpha.recon.reach_strategy import is_cloudflare_ip
+from agent_alpha.recon.reach_strategy import is_cloudflare_ip, is_fronted_edge_ip
 
 
 class OriginDiscovery(Protocol):
@@ -103,8 +103,8 @@ class CompositeOriginDiscovery:
             cf_seen = [f for (ip, f, last) in triples if is_cloudflare_ip(ip)]
             cf_first_seen = min(cf_seen) if cf_seen else None
             origins = [
-                (ip, f, last) for (ip, f, last) in triples if not is_cloudflare_ip(ip)
-            ]  # CF edge ≠ origin
+                (ip, f, last) for (ip, f, last) in triples if not is_fronted_edge_ip(ip)
+            ]  # Fronted edge ≠ origin
             if cf_first_seen is None:
                 ranked = sorted(origins, key=lambda t: t[2], reverse=True)  # option-1 fallback
             else:
