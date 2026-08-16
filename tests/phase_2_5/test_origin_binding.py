@@ -660,31 +660,57 @@ def test_composite_mnemonic_no_cf_fallback() -> None:
 
 
 def test_composite_excludes_multi_cdn_edges() -> None:
-    """GAP-160: Verify Shopify and Fastly IPs are excluded, real origin survives, and CF tier boundary holds."""
+    """GAP-160: Verify Shopify and Fastly IPs are excluded across ALL sources,
+    and the CF-tiering boundary holds (T1', T2, T3, T4)."""
     store = InMemoryEventStore()
     eng = "eng-multi-cdn"
+
+    # T1' Bug Repro: Shopify edge is in BOTH origin_ip_candidates and historical_a_records
+    shopify_ip = "23.227.38.65"
+
+    # T2 boundary check: Fastly /17 vs /16.
+    # 146.75.0.0/17 ranges from 146.75.0.0 to 146.75.127.255
+    fastly_inside_17 = "146.75.100.1"   # Excluded
+    fastly_outside_17 = "146.75.130.1"  # Inside /16 but outside /17 -> SURVIVES
+    fastly_anchor = "151.101.1.1"       # Inside /16 anchor -> Excluded
+
     triples = (
         ("198.51.100.1", 50, 100),       # Pre-CF (should survive, Tier 1)
-        ("104.16.0.1", 150, 300),        # CF edge (excluded, but anchors Tier boundary)
+        ("104.16.0.1", 150, 300),        # CF edge (excluded, anchors Tier boundary)
         ("68.183.237.190", 160, 200),    # DO origin post-CF (should survive, Tier 2)
-        ("23.227.38.65", 170, 250),      # Shopify edge (excluded)
-        ("151.101.1.1", 180, 260),       # Fastly edge (excluded)
+        (shopify_ip, 170, 250),          # Shopify edge (excluded)
+        (fastly_inside_17, 180, 260),    # Fastly edge /17 (excluded)
+        (fastly_outside_17, 190, 270),   # NOT Fastly (survives, Tier 2)
     )
     store.append(
         event_type=EventType.PASSIVE_INTEL_GATHERED,
         engagement_id=eng,
         agent="alpha",
-        payload={"domain": "multi-cdn.com", "historical_a_records": triples, "sources_used": ["mnemonic_pdns"]},
+        payload={
+            "domain": "multi-cdn.com",
+            "historical_a_records": triples,
+            "origin_ip_candidates": [shopify_ip, fastly_anchor],
+            "sources_used": ["mnemonic_pdns", "otx"],
+        },
     )
-    comp = CompositeOriginDiscovery(StaticOriginDiscovery([]), store, eng)
+
+    # T3: base.candidates returns an edge IP
+    base = StaticOriginDiscovery([shopify_ip, "192.0.2.1"])
+    comp = CompositeOriginDiscovery(base, store, eng)
     cands = comp.candidates("multi-cdn.com")
-    
-    # T1/T2: CDN edges excluded, T3: DO origin survives
-    assert "23.227.38.65" not in cands
-    assert "151.101.1.1" not in cands
+
+    # T1' and T3: Edges excluded despite coming from base or origin_ip_candidates
+    assert shopify_ip not in cands
+    assert fastly_anchor not in cands
+    assert fastly_inside_17 not in cands
     assert "104.16.0.1" not in cands
-    
-    # T4: CF boundary holds (198.51.100.1 was before CF's 150, DO was after)
-    assert len(cands) == 2
-    assert cands[0] == "198.51.100.1"  # Tier 1
-    assert cands[1] == "68.183.237.190"  # Tier 2
+
+    # T2 boundary check: outside the /17 survives
+    assert fastly_outside_17 in cands
+
+    # T4: CF boundary holds (198.51.100.1 Tier 1; 192.0.2.1 base; DO origin Tier 2; fastly_outside_17 Tier 2)
+    # Order should be base first, then Tier 1, then Tier 2.
+    assert cands[0] == "192.0.2.1"
+    assert cands[1] == "198.51.100.1"  # Tier 1 (before CF)
+    assert cands[2] == fastly_outside_17 # Tier 2 (after CF, last_seen=270)
+    assert cands[3] == "68.183.237.190"  # Tier 2 (after CF, last_seen=200)

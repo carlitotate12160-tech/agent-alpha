@@ -627,19 +627,37 @@ CF_IP_RANGES: tuple[str, ...] = (
     "131.0.72.0/22",
 )
 
-# Non-Cloudflare fronted-provider (CDN/platform) edge IPv4 ranges. A Host-header request to
-# these reaches the PROVIDER edge, never origin — same false-origin class as CF_IP_RANGES.
-# SEED ONLY (stable, field-confirmed providers). Extend via §12.60 field-feedback ratchet, not
-# a one-shot bulk import. Source + fetch date REQUIRED per entry. Akamai/Imperva omitted on
-# purpose: their ranges are large/dynamic — CIDR listing = dead weight; revisit if a field miss
-# proves the need. Single source (anti-#7).
+# Non-Cloudflare fronted-provider edge IPv4 ranges (§12.61 / GAP-160). Same false-origin class
+# as CF_IP_RANGES — a Host-header request reaches the provider edge, never origin.
+# POLICY (two axes): (a) PROVIDER SELECTION is a growing seed — CF+Shopify+Fastly now;
+# Akamai/Imperva deferred (large/dynamic ranges, revisit on field miss, §12.60). (b) WITHIN a
+# selected provider, use its FULL published list at a DATED snapshot — a partial subset of a
+# knowable list re-introduces the leak. Do NOT duplicate CF ranges here (anti-#7).
 FRONTED_EDGE_IP_RANGES: tuple[str, ...] = (
-    # Shopify storefront edge — field-confirmed leak on niagamas.com (2026-08-16).
+    # Shopify storefront edge — field-confirmed leak, niagamas.com 2026-08-16.
     "23.227.38.0/24",
-    # Fastly anycast (https://api.fastly.com/public-ip-list — VERIFY at fetch date).
+    # Fastly — FULL published IPv4 list, fetch api.fastly.com/public-ip-list at implement + date it.
+    # Verified corrections: 146.75.0.0 is /17 (NOT /16, CodeRabbit). Anchors: 151.101.0.0/16,
+    # 199.232.0.0/16, 146.75.0.0/17. Fetched 2026-08-16.
+    "23.235.32.0/20",
+    "43.249.72.0/22",
+    "103.244.50.0/24",
+    "103.245.222.0/23",
+    "103.245.224.0/24",
+    "104.156.80.0/20",
+    "140.248.64.0/18",
+    "140.248.128.0/17",
+    "146.75.0.0/17",
     "151.101.0.0/16",
+    "157.52.64.0/18",
+    "167.82.0.0/17",
+    "167.82.128.0/20",
+    "167.82.160.0/20",
+    "167.82.224.0/20",
+    "172.111.64.0/18",
+    "185.31.16.0/22",
+    "199.27.72.0/21",
     "199.232.0.0/16",
-    "146.75.0.0/16",
 )
 
 # ── Organic-Crawl Budget (stack-agnostic backstop) ───────────────
