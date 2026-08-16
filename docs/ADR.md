@@ -3914,6 +3914,111 @@ evasion/origin-discovery). §12.46 (two-proof origin binding). §12.61 (Wayback 
 slice-2 input). §12.62 (coverage-honesty — the walled verdict is a Tier-1 honest outcome).
 §12.23 (closed-vs-open discipline echoes the consensus-tier deferral: capability added
 deliberately, not by runtime escalation). §12.0 (next_action = f(state), never a fixed pipeline).
+### 12.64 Recon Coverage Honesty: Step 0 (attempt instrumentation) + 187b (runtime coverage gate)
 
+**Status:** PROPOSED / LOCKED
+**Phase:** 2 (cognitive-loop honesty) — regression surfaced on the Phase-4 autonomous path
+**Depends on:** 187a (honest Alpha handoff status — MERGED-pending)
+**Lane / MODEL:** Security-critical events + ledger logic → Claude Opus 4.8 Medium (alt: GPT-5.4 High Thinking)
 
+#### 1. Context — why this ADR exists
 
+187a killed the *hardcoded* `status=COMPLETE` on the Alpha handoff (`main.py`), deriving an
+honest terminal status from per-target run_recon outcomes. But that only closes the
+**status** lie. GAP-187's second half — *"an agent CANNOT be COMPLETE if it left capable
+techniques `not_run` on discovered surfaces"* — cannot be shipped yet, because the signal it
+would gate on (`coverage_ledger` bucket `not_run`) is **currently untrustworthy**.
+
+##### Verified defect (audit of `techniques.yaml`, HEAD 90a1217)
+
+Of 17 techniques with `capability_present: true`:
+
+| group | count | run_event | can ever reach `tested`? |
+|-------|-------|-----------|--------------------------|
+| strike/origin (cred_reuse, spa_json_login, default_creds_login, origin_exposure_bypass) | 4 | `StrikeCandidateAttempted` / `OriginDirectAttempt` (emitted on **attempt**) | yes |
+| **recon (git_exposure_leak, js_secret_leak, wp_rest_user_enum)** | **3** | **none** | **NO — permanent `not_run`** |
+
+`_classify` marks a cell `tested` only when `t.run_event and (t.run_event, host) in ran`.
+The 3 recon techniques have no `run_event`, so their surfaces are **permanently `not_run`**.
+`wp_rest_user_enum` applies to *every* WordPress surface.
+
+Worse, the handlers that would prove the attempt emit **on finding, not on attempt**:
+`_handle_wp_rest_users` returns 0 with no event when no slugs are found; `process_path_hit`
+(git) and `verify_js_secret_leak` emit `WAF_BLOCKED` (→ `blocked`) or `NODE_DISCOVERED`
+(→ finding), never a plain "attempted this technique on this host" signal.
+
+**Consequence:** any `not_run` runtime gate built today is a false-signal machine.
+- Strict-fail (block Beta on `not_run>0`) → **permanently bricks autonomy** on WP/git/JS targets.
+- Re-enqueue → **infinite-loops** on the 3 uninstrumented techniques until budget burns.
+
+`not_run` currently *conflates* "genuinely not attempted" with "attempted but not
+instrumented" — two different failure modes. Gating on a conflated signal is Lyndon #3 in a
+new costume. **The prerequisite is instrumentation, not a gate.** That is Step 0.
+
+#### 2. Step 0 — Recon-technique attempt instrumentation (make `not_run` honest)
+
+##### Decision
+
+Introduce a single, uniform **attempt** signal for recon techniques, emitted **once,
+centrally**, so no future tool can silently re-pollute `not_run`.
+
+**2.1 New event (single source, anti-#7):**
+```
+EventType.RECON_TECHNIQUE_ATTEMPTED = "ReconTechniqueAttempted"
+payload = {"host": <surface host>, "technique_id": <coverage-catalog technique id>}
+```
+Emitted **on attempt**, regardless of finding — mirrors the semantics of
+`StrikeCandidateAttempted` that already works for the 4 strike techniques.
+
+**2.2 One emit site (anti-#6/#8 — no per-handler drift):** in `scout._step_once`, at the
+ACT step, immediately before `handler(resp, decision, url)` is dispatched:
+```python
+tech_id = TOOL_TO_TECHNIQUE.get(decision.tool)   # single-source map, from techniques.yaml
+if tech_id is not None:
+    self.event_store.append(
+        EventType.RECON_TECHNIQUE_ATTEMPTED, self._engagement_id, "alpha",
+        {"host": urlparse(url).hostname or "", "technique_id": tech_id},
+    )
+```
+`TOOL_TO_TECHNIQUE` is derived from the existing catalog (`techniques.yaml` already carries
+the playbook `technique_id`) — NOT a second hand-maintained list.
+
+**2.3 Ledger matches technique identity, not just event+host** (`coverage_ledger`):
+build `attempted: set[tuple[str, str]]` of `(host, technique_id)` from
+`RECON_TECHNIQUE_ATTEMPTED` events; in `_classify`, a capable+applicable+unblocked cell is
+`tested` iff its existing `run_event` matched (unchanged, strike techniques) **OR**
+`(surface_id, t.id) in attempted` (new, recon techniques). The 3 recon techniques get
+`run_event: ReconTechniqueAttempted` (or a dedicated `attempt_by_technique: true` flag) in
+`techniques.yaml`.
+
+##### Why this converges (the load-bearing property)
+
+`not_run` = capable ∧ applicable ∧ surface **not** blocked ∧ no run/attempt event. Once a
+technique is genuinely attempted, `RECON_TECHNIQUE_ATTEMPTED` fires → the cell leaves
+`not_run` (→ `tested`), OR a `WAF_BLOCKED` fires → `blocked`. It cannot remain `not_run`
+after a real attempt. So `not_run` becomes a **strictly shrinking** set — the precondition
+that makes 187b's gate (and any re-enqueue policy) terminate.
+
+#### 3. 187b — Runtime coverage gate + recon-completion policy (only after Step 0)
+
+##### Decision — B-primary + fail-closed boundary (two parts of one policy)
+
+**3.1 Primary (B): recon self-completes its own coverage** within the existing cognitive-loop
+stop conditions. In scout, before a per-target handoff is emitted COMPLETE, evaluate coverage
+over *this target's* discovered surfaces; for each `not_run` capable technique, **re-seed its
+frontier entry** (bounded by `max_iterations` / `time_budget` / `cost_budget` /
+`no_progress` — NO new outer loop, anti-#8/#11). Because Step 0 makes `not_run` shrinking,
+this terminates: each re-seeded technique is attempted (→ `tested`) or blocked (→ `blocked`).
+
+**3.2 Boundary (fail-closed, A-shaped — terminal only):** if a stop condition bites with
+genuine `not_run` remaining, recon is **incomplete** → the engagement-terminal status is NOT
+COMPLETE. Encoded as FAILED (route_next → OMEGA, honest partial), never COMPLETE. The chain
+does **not** advance offensively onto unproven ground. Reason recorded honestly
+(`coverage_incomplete`, `not_run` count) so Omega reports "recon incomplete, N techniques
+unreached" — not "clear."
+
+**3.3 Engagement-level gate as independent verifier (Axiom):** the engagement-scope
+`project_coverage` check at the recon-completion boundary (`recon_runner` /
+`derive_terminal_status`) is retained as a **second, independent** gate whose failure mode
+differs from scout's per-target self-check — catching a bug in the per-target logic (defense
+in depth, not a duplicate re-walk).
