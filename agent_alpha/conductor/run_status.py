@@ -6,7 +6,7 @@ from typing import Literal
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import AgentEvent
 
-RunStatusLiteral = Literal["queued", "running", "done", "failed", "refused", "none"]
+RunStatusLiteral = Literal["queued", "running", "done", "partial", "failed", "refused", "none"]
 
 
 @dataclass(frozen=True)
@@ -40,6 +40,12 @@ def project_run_status(events: Iterable[AgentEvent]) -> RunStatus:
             updated_at = event.timestamp_utc
         elif event.event_type == EventType.ENGAGEMENT_RUN_FAILED:
             status = "failed"
+            updated_at = event.timestamp_utc
+        elif event.event_type == EventType.ENGAGEMENT_RUN_PARTIAL:
+            # GAP-189: recon ran but outcome was not a clean COMPLETE (e.g. WAF-walled).
+            # Layered AFTER ENGAGEMENT_RUN_COMPLETED so latest-wins reports the honest
+            # outcome, not "done". A partial report exists (sellable per GAP-045).
+            status = "partial"
             updated_at = event.timestamp_utc
         elif event.event_type == EventType.ENGAGEMENT_RUN_REFUSED:
             status = "refused"

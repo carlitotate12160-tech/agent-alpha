@@ -131,6 +131,71 @@ def test_task_starts_authorized_engagement(celery_eager_config: None) -> None:
     assert result["engagement_id"] == engagement_id
 
 
+def _authorized_engagement(store, tenant: str = "test-tenant"):
+    """Create + enable-recon + sign an engagement; wire the store provider. Returns id."""
+    from agent_alpha.conductor import main as conductor_main
+
+    auth = AuthorizationStateMachine(event_store=store)
+    record = auth.create_engagement(client_id="client_a", target="10.0.0.0/24", tenant_id=tenant)
+    auth.enable_recon(
+        engagement_id=record.engagement_id,
+        scope=Scope(ip_ranges=["10.0.0.0/24"], domains=["example.com"], exclusions=[]),
+    )
+    conductor_main.store_provider._stores[tenant] = store
+    _append_signed_profile(store, record.engagement_id)
+    return record.engagement_id
+
+
+def test_task_walled_recon_projects_partial_status(
+    celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GAP-189: a WAF-walled recon (status FAILED + wall_verdict.walled) surfaces to
+    /run-status as "partial" (sellable defensive outcome, GAP-045), NOT "done" — even
+    though the task ran to completion and emitted ENGAGEMENT_RUN_COMPLETED."""
+    from agent_alpha.conductor import main as conductor_main
+
+    store = conductor_main.event_store
+    engagement_id = _authorized_engagement(store)
+    monkeypatch.setattr(
+        recon_runner,
+        "run_recon_for_engagement",
+        lambda *a, **k: SimpleNamespace(
+            node_count=0,
+            targets_scanned=1,
+            status=a2a_pb2.FAILED,
+            wall_verdict=SimpleNamespace(walled=True),
+        ),
+    )
+
+    run_engagement_task(engagement_id, "test-tenant")
+
+    assert project_run_status(store.get_events(engagement_id)).status == "partial"
+
+
+def test_task_dead_recon_projects_failed_status(
+    celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GAP-189: a non-walled failed recon (nothing mapped) surfaces as "failed", not "done"."""
+    from agent_alpha.conductor import main as conductor_main
+
+    store = conductor_main.event_store
+    engagement_id = _authorized_engagement(store)
+    monkeypatch.setattr(
+        recon_runner,
+        "run_recon_for_engagement",
+        lambda *a, **k: SimpleNamespace(
+            node_count=0,
+            targets_scanned=1,
+            status=a2a_pb2.FAILED,
+            wall_verdict=SimpleNamespace(walled=False),
+        ),
+    )
+
+    run_engagement_task(engagement_id, "test-tenant")
+
+    assert project_run_status(store.get_events(engagement_id)).status == "failed"
+
+
 def test_task_refuses_tenant_mismatch(celery_eager_config: None) -> None:
     """Worker enforces tenant ownership: tenant_id mismatch → refusal."""
     # Use the global event_store that the task closes over

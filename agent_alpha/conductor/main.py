@@ -532,6 +532,28 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
             advance_fn=lambda eid, tid: advance_engagement_task.delay(eid, tid),
         )
 
+        # GAP-189 (Aikido MEDIUM): ENGAGEMENT_RUN_COMPLETED above is the task-lifecycle +
+        # audit-metrics marker (the task ran). Layer the honest recon OUTCOME on top so
+        # /run-status (project_run_status, latest-wins) does not report "done" when recon
+        # did not cleanly complete. COMPLETE stays "done"; a WAF-walled sweep → "partial"
+        # (a sellable defensive-validation outcome per GAP-045, NOT a failure); any other
+        # non-COMPLETE recon → "failed". The autonomous spine already routed this correctly
+        # (187a); this only fixes the external status surface.
+        if run_result.status != a2a_pb2.COMPLETE:
+            walled = run_result.wall_verdict is not None and run_result.wall_verdict.walled
+            if walled:
+                try:
+                    target_store.append(
+                        event_type=EventType.ENGAGEMENT_RUN_PARTIAL,
+                        engagement_id=engagement_id,
+                        agent="CONDUCTOR",
+                        payload={"reason": "waf_walled", "tenant_id": tenant_id},
+                    )
+                except Exception:  # noqa: BLE001 — audit must not crash the task
+                    _log.exception("Failed to append EngagementRunPartial event for %s", engagement_id)
+            else:
+                _record_failure("recon_incomplete")
+
         return {"engagement_id": engagement_id, "status": "completed"}
 
     except SoftTimeLimitExceeded:
