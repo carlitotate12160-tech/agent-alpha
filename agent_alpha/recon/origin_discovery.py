@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from agent_alpha.recon.reach_strategy import is_cloudflare_ip
+from agent_alpha.recon.reach_strategy import is_cloudflare_ip, is_fronted_edge_ip
 
 
 class OriginDiscovery(Protocol):
@@ -68,13 +68,25 @@ class CompositeOriginDiscovery:
     def candidates(self, fronted_host: str) -> list[str]:
         from agent_alpha.events.event_types import EventType
 
-        out: list[str] = list(self._base.candidates(fronted_host))
+        # single exclusion choke — a fronted-edge (CF/Shopify/Fastly/…) IP is NEVER an origin,
+        # regardless of which source produced it. Applied to EVERY append site so no source can
+        # bypass it (GAP-160 / Aikido+Greptile: origin_ip_candidates fed edges in unfiltered).
+        out: list[str] = [
+            ip for ip in self._base.candidates(fronted_host) if not is_fronted_edge_ip(ip)
+        ]
         seen = set(out)
+
+        def _add(ip: str) -> None:
+            if ip not in seen and not is_fronted_edge_ip(ip):
+                seen.add(ip)
+                out.append(ip)
+
         try:
             events = self._event_store.get_events(self._engagement_id)
         except Exception:  # noqa: BLE001 — event read boundary; degrade to base only
             return out
-        host_norm = fronted_host.rstrip(".").lower()
+        host_norm = fronted_host.strip().lower()
+
         for ev in events:
             if getattr(ev, "event_type", None) != EventType.PASSIVE_INTEL_GATHERED:
                 continue
@@ -92,21 +104,20 @@ class CompositeOriginDiscovery:
             domain_norm = payload.get("domain", "").rstrip(".").lower()
             if host_norm != domain_norm and not host_norm.endswith("." + domain_norm):
                 continue
-            # 1. origin_ip_candidates (OTX/VT historical DNS — already IPs)
-            for ip in payload.get("origin_ip_candidates", []) or []:
-                if ip not in seen:
-                    seen.add(ip)
-                    out.append(ip)
 
-            # 1.5 historical_a_records (Mnemonic PDNS) with two-tier pre-CF ranking
+            # 1. origin_ip_candidates (OTX/VT/Mnemonic union)
+            for ip in payload.get("origin_ip_candidates", []) or []:
+                _add(ip)
+
+            # 1.5 historical_a_records — two-tier pre-CF ranking.
+            #     cf_first_seen stays is_cloudflare_ip (the CF MIGRATION boundary — do NOT broaden).
+            #     origins excludes fronted-edge so doomed IPs aren't ranked; _add is the final gate.
             triples = payload.get("historical_a_records", []) or []
             cf_seen = [f for (ip, f, last) in triples if is_cloudflare_ip(ip)]
             cf_first_seen = min(cf_seen) if cf_seen else None
-            origins = [
-                (ip, f, last) for (ip, f, last) in triples if not is_cloudflare_ip(ip)
-            ]  # CF edge ≠ origin
+            origins = [(ip, f, last) for (ip, f, last) in triples if not is_fronted_edge_ip(ip)]
             if cf_first_seen is None:
-                ranked = sorted(origins, key=lambda t: t[2], reverse=True)  # option-1 fallback
+                ranked = sorted(origins, key=lambda t: t[2], reverse=True)
             else:
                 tier1 = sorted(
                     (t for t in origins if t[2] < cf_first_seen), key=lambda t: t[2], reverse=True
@@ -114,24 +125,18 @@ class CompositeOriginDiscovery:
                 tier2 = sorted(
                     (t for t in origins if t[2] >= cf_first_seen), key=lambda t: t[2], reverse=True
                 )
-                ranked = tier1 + tier2  # pre-CF FIRST
+                ranked = tier1 + tier2
             for ip, _f, _last in ranked:
-                if ip not in seen:
-                    seen.add(ip)
-                    out.append(ip)
+                _add(ip)
 
-            # 2. VT subdomains — DNS-resolve each as an additional origin candidate.
-            # Grey-cloud subdomains (e.g. a grey-cloud subdomain → origin IP)
-            # resolve directly to the origin IP, bypassing CF. These are HOSTS, not
-            # IPs — resolve them here. The binding gate still confirms each before use.
+            # 2. VT subdomains → resolve → _add (edge-filtered too)
             for sub in payload.get("subdomains", []) or []:
                 sub_norm = sub.strip().lower().rstrip(".")
                 if not sub_norm or sub_norm == host_norm:
                     continue
                 for ip in _resolve_ipv4(sub_norm):
-                    if ip not in seen:
-                        seen.add(ip)
-                        out.append(ip)
+                    _add(ip)
+
         return out
 
 
