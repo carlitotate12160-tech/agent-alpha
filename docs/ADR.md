@@ -2537,7 +2537,7 @@ secondary, consistent with Phase 5 gating.
 
 ---
 
-### 12.43 Proof Standard — zero-FP via independent oracle + human-legible artifact — PROPOSED (lock on confirm)
+### 12.43 Proof Standard — zero-FP via independent oracle + human-legible artifact — LOCKED
 
 **Extends** §12.31 (verification tiers) and §12.32 (auth-vs-unauth diff). Does NOT redefine them
 (anti-#6).
@@ -2557,13 +2557,53 @@ session obtains an authenticated-only ground-truth marker the unauthenticated se
 a session/CSRF token bound to the account. Only AFTER that oracle passes is the screenshot taken.
 
 **ProofArtifact tiers (single canonical enum, extends §12.31).**
-- `asserted` (L0) — tool/LLM said so. NOT a finding.
-- `self_verified` (L1) — finder re-checked (same failure mode). Weak; not payable alone.
-- `cross_verified` (L2) — independent oracle confirmed (different failure mode). PAYABLE floor.
+- L0 = `VerificationTier.UNVERIFIED` — tool/LLM said so. NOT a finding. (Human label
+  "asserted"; the CANONICAL value is the §12.31 enum `unverified` — no second string, anti-#6/#7.)
+- L1 = `self_verified` — finder re-checked (same failure mode). Weak; not payable alone.
+- L2 = `cross_verified` — independent oracle confirmed (different failure mode). PAYABLE floor.
 
-Every L2 finding MUST carry `{oracle_evidence (the independent request/response), visual_artifact
-(screenshot), storage_ref}`. Missing OR invalid oracle evidence, visual artifact, or storage_ref →
-downgrade to L1, excluded from KPI (PRD §5 "no silent success").
+L3 (`corroborated`) is DEFINED here as doctrine but NOT a code enum value yet: an L2 finding
+confirmed by ≥2 INDEPENDENT MODALITIES (not 2 runs of the same oracle) — e.g. auth-vs-unauth marker
+diff AND the same credential reused on a second service, or AND an out-of-band artifact. It is the
+"beyond reasonable doubt" bar for flagship findings. Build it ONLY when a finding needs it (no
+half-scaffolding, anti-#2); until then the enum stays 3 values and L3 is a report-level annotation.
+
+**OracleEvidence — what EVERY L2 (cross_verified) edge MUST carry.** Missing OR invalid any field
+below → downgrade to L1, excluded from KPI (PRD §5 "no silent success"):
+- `independent_request`/`independent_response` — a FRESH session on a DIFFERENT client/code path
+  from the finder (different failure mode — §12.31 axiom).
+- `marker: {kind, value_ref}` — an account-specific ground-truth datum (the logged-in user's own
+  account id, an admin-only DOM element, a session/CSRF token bound to the account). MUST be
+  NON-TRIVIAL: a generic "Welcome admin" that ANY input yields is not a marker (anti soft-200).
+- `diff: auth_has_marker == True AND control_unauth_lacks_marker == True` — BIDIRECTIONAL, proven
+  in the SAME oracle pass. A one-directional "auth has X" is insufficient (a cached/soft-200 page
+  can carry X regardless of auth).
+- `verified_at` (UTC) — freshness stamp (reuse ProofArtifact `captured_at`). Proof is perishable:
+  a credential can be rotated before delivery. Omega reports "last confirmed at T".
+- `visual_artifact` `storage_ref` — the EXHIBIT (screenshot), captured AFTER the oracle passes.
+- `deception_risk: none | possible` — flagged `possible` when the marker could be attacker-influenced
+  (a honeypot that grants "access" to everyone). Does not block L2 but is surfaced in the report.
+
+**Chain composition (the payable unit is a CHAIN, not a node).** An access finding is usually a
+chain (origin-bypass → leaked config → reused DB credential → admin). Its tier is computed by
+COMPOSITION over independent per-edge oracles, NEVER by a graph traversal that asserts the path
+exists (that would be #3 at the chain level):
+
+```
+tier(chain) = MIN(tier(edge) for edge in chain)
+payable(chain) IFF every edge is cross_verified by its OWN per-edge OracleEvidence
+# ChainOracle is a COMPOSER over per-edge oracles — it is NOT a method on AttackGraph and it
+# NEVER upgrades a chain because the graph shows the nodes are connected.
+```
+
+**Tier provenance (APT operator lens — why each rule exists, not a task list).**
+- Bidirectional + non-trivial marker + `deception_risk` → **Turla / Equation Group**: validate the
+  environment is REAL before trusting a success signal; assume the target may be deceiving you.
+- `verified_at` + governed re-verify → **Volt Typhoon (long dwell)** + **APT29 (low-and-slow)**:
+  a proof decays; re-confirm without re-spraying (lockout-governed, §12.22 D2).
+- Chain composition → **Lazarus (exploit chaining)**: stitch individually-harmless leaks into total
+  compromise; only per-edge cross_verified oracles back the payable chain.
+- L3 corroborated → **APT41 (intelligence-driven)**: multi-source corroboration for the flagship claim.
 
 **Consequence.** Raises Omega report quality (client sees the dashboard, not a claim) AND enforces
 the zero-FP bar mechanically (unverified never counts toward a KPI). Screenshot capture = Camoufox
@@ -2573,6 +2613,19 @@ the zero-FP bar mechanically (unverified never counts toward a KPI). Screenshot 
 oracle+visual PAIR for ALL L2 (cross_verified) payable findings. The auth-vs-unauth ground-truth
 diff (§12.32 AuthenticatedCrawlMode) is the specific oracle for the ACCESS/login class; other
 finding classes use their class-appropriate independent oracle. No new agent, no new canonical type.
+ChainOracle composes per-edge oracles; it is consumed by `conductor/verification.py::verify_access_nodes`
+(the tier promoter) and Omega (freshness + coverage), and lives beside the oracles — NOT on AttackGraph.
+
+**Implementation order (this ADR is the contract; the code lands after).** (1) GAP-116 auth-crawl
+supplies the account-specific marker for the ACCESS class (marker discovery). (2) GAP-118 implements
+the per-edge OracleEvidence + the bidirectional diff. (3) ChainOracle composes them. Locking §12.43
+now blocks nothing — it sets the contract those slices build to.
+
+**Test contract (what makes this lock "correct").**
+- A chain with one L1 edge → `tier(chain) == self_verified`, NOT payable (proves MIN-composition, not traversal).
+- A "marker" that also appears in the control unauth fetch → oracle REFUTES (bidirectional diff fails).
+- An L2 record missing `verified_at` / `visual_artifact` / `storage_ref` → auto-downgrade to L1.
+- A chain marked cross_verified via graph-walk with no per-edge OracleEvidence → MUST fail the gate.
 
 **Lyndon check.** #3 false success — this IS the fix (screenshot-as-claim would BE #3; the oracle
 gate prevents it). #6 duplication — extends the §12.31 enum, never redefines it.
