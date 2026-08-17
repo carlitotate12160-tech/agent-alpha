@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-17, §12.64 187b + §12.65 GAP-169 fingerprint-first + PR-Agent DeepSeek MERGED)
+# Agent-Alpha — Session Handoff (2026-08-17, §12.43 proof-standard LOCKED + GAP-116-A session-propagation MERGED)
 
-Resume with: "lanjut Agent-Alpha — 187b coverage-honesty + §12.65 GAP-169 fingerprint-first recon + PR-Agent DeepSeek AI reviewer ALL MERGED & SEALED (1982 pass on Oracle ARM64). Four-Operator Lineage doctrine banked. NEXT SLICE: (1) GAP-186 alias-skip (skip well-known spray on identical shared-IP bodies, rides GAP-169 seam); (2) Beta operator-doctrine slices in ORACLE-FIRST order (GAP-118 Zero-FP proof oracle §12.43 → GAP-099 MFA-honest classification). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
+Resume with: "lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-A session-propagation MERGED + 187b coverage-honesty + §12.65 GAP-169 fingerprint-first recon ALL MERGED & SEALED on Oracle ARM64. Four-Operator Lineage doctrine banked. NEXT SLICE: (1) GAP-186 alias-skip (skip well-known spray on identical shared-IP bodies, rides GAP-169 seam); (2) Beta operator-doctrine slices in ORACLE-FIRST order (GAP-118 Zero-FP proof oracle §12.43 → GAP-099 MFA-honest classification). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
 
 ---
 

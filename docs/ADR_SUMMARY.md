@@ -152,11 +152,12 @@ All threshold numbers live in `config/constants.py` (single source of truth, §8
   (§12.24), vuln-classes = gated oracle-verified lanes one at a time (§12.40), business-logic
   DEFERRED to Phase 5/6. Internal/assumed-breach = later SECONDARY profile via pivot. Scope guard
   vs #4/#5.
-- **12.43** Proof standard (extends §12.31/§12.32): payable finding needs BOTH an INDEPENDENT
-  oracle (different failure mode → cross_verified) AND a human-legible ProofArtifact (screenshot +
-  HAR, storage_ref). Raw HAR vault-only; redacted artifact for client reports. Screenshot = EXHIBIT,
-  not oracle (anti-#3). Access/login oracle = auth-vs-unauth ground-truth diff. Missing OR invalid
-  oracle, visual, or storage_ref → downgrade, excluded from KPI.
+- **12.43** Proof standard (LOCKED, extends §12.31/§12.32): payable finding needs BOTH an INDEPENDENT
+  oracle (different failure mode → `cross_verified` L2, canonical enum `unverified`/`self_verified`/`cross_verified`)
+  AND a human-legible ProofArtifact (screenshot + HAR, storage_ref). Screenshot = EXHIBIT, not oracle (anti-#3).
+  Zero-FP gate = `OracleEvidence` with non-trivial account marker + bidirectional diff (`auth_has_marker == True AND control_unauth_lacks_marker == True`).
+  Chain composition: `tier(chain) = MIN(tier(edge))`; payable IFF every edge has its own `cross_verified` oracle (Lazarus doctrine, never graph traversal alone).
+  Missing/invalid fields → auto-downgrade to L1. Operator lineage: Turla (bidirectional diff), Volt Typhoon (freshness/decay), Lazarus (chaining), APT41 (L3 corroboration).
 - **12.44** Evasion technique catalog (extends §12.33/§12.42): ROI ladder — (1) origin-direct = bypass
   the edge, defeats ALL classes, datacenter-viable, highest ROI (invest in origin-discovery breadth);
   (2) fingerprint parity JA4/HTTP2/header-triad (FINGERPRINT, datacenter); (3) rate/behavioral +
