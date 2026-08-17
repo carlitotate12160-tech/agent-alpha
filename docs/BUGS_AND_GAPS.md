@@ -3245,8 +3245,17 @@ Restructure `run_recon()`:
 - Increases finding density per probe (right paths for right stack)
 - Severity: HIGH — this is the single biggest architectural improvement
 
+### Status: RESOLVED (2026-08-17)
+- **ADR**: §12.65 Fingerprint-First Recon Reorder (PR #442, locked spec v2).
+- **PR**: #444 (`026cf675`).
+- **Implementation**:
+  - `PlaybookEngine.match_all(observation)`: multi-label capability extraction without dropping secondary stack matches.
+  - `agent_alpha/recon/fingerprint.py`: `fingerprint_all` + `seed_fingerprint_first` (hoisted root fetch at $t=0$, dead-host fail-safe queue pruning per D-2, primed `_prefetched` cache per D, selective leak path frontier seeding).
+  - `agent_alpha/agents/alpha/scout.py`: wires `seed_fingerprint_first` and consumes `_prefetched` cache in `_step_once` (line limit preserved).
+  - `tests/phase_4/test_fingerprint.py`: 9 unit tests passing on Oracle ARM64.
+
 ### Cross-ref
-§12.47 (new recon capability → ToolRegistry), GAP-088 (version extraction — feeds
+§12.47 (new recon capability → ToolRegistry), §12.65 (ADR spec), GAP-088 (version extraction — feeds
 fingerprint), GAP-087 (backup file patterns — becomes stack-gated).
 
 ---

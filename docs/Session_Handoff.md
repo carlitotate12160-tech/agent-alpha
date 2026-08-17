@@ -18,6 +18,7 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **GAP-169: Fingerprint-First Recon Reorder (§12.65)** | **MERGED #444, Tier-1 Validated** | Root fetch hoisted to $t=0$, stack labels extracted via `fingerprint_all`, frontier seeded with stack-tailored leak paths (eliminates blind spray), `_prefetched` cache primed to prevent double GET, dead-host pruned fail-safe (D-2). 9/9 unit tests + 45/45 wiring gate passed. |
 | **GAP-026: StealthPacer Default ON Across Conductor** | **MERGED #423, Tier-1 Validated** | Pacer default ON across conductor per ADR §12.49 with strict §12.36 consent gate preserved. 100% green CI. |
 | **GAP-062: MX/SPF Origin Candidates & GAP-154 Gate-Fix** | **MERGED #421, Tier-1 Validated** | In-domain MX subdomains + SPF pass-ip4 origin candidates. Unconditional enrichment on total CT failure (DNS/OTX/VT/MX-SPF/Wayback always fire; `PASSIVE_INTEL_GATHERED` always emitted; anti-#3). Fan-out cap (8), `net.version!=4` IPv6 drop (interim per GAP-155). 247+ test assertions PASS. |
 | **GAP-115: Keyless Wayback CDX Historical Recon (Slice 1)** | **MERGED #420, Tier-1 Validated** | Keyless `WaybackClient` queries `web.archive.org/cdx/search/cdx` API (HTTPS) to extract in-domain historical subdomains (for `CompositeOriginDiscovery` origin resolution) + historical URL paths. Additive `enrich_with_wayback` with per-row parsing error resilience. 52/52 PASS, 100% green CI. |
