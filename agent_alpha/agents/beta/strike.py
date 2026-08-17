@@ -31,6 +31,7 @@ from urllib.parse import urlparse
 
 from agent_alpha.a2a import a2a_pb2
 from agent_alpha.agents.base import BoundedAutonomy, run_cognitive_loop
+from agent_alpha.agents.beta.authenticated_crawl import run_authenticated_crawl
 from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.events.event_types import EventType
 from agent_alpha.graph.nodes import (
@@ -571,7 +572,33 @@ class Beta:
             self.event_store, self.graph_store, self._engagement_id, cred_edge, agent="beta"
         )
 
+        # GAP-116-B: post-access authenticated crawl CONSUMES self._won_session_cookies
+        # (116-A carrier is no longer dead state). Extracted to keep run_strike's complexity
+        # bounded (PY-R1000); RECON_ONLY / GET-only inside the module.
+        nodes_added += self._post_access_authenticated_crawl(host, now_utc)
+
         return {"discovered_nodes": nodes_added, "cost_usd": cost_usd}
+
+    def _post_access_authenticated_crawl(self, host: str, now_utc: str) -> int:
+        """Reuse the won session to DETECT auth-only admin surfaces for the fingerprinted stack.
+        Honest no-op without a session. Returns the count of surfaces minted."""
+        # Read the fingerprinted stack from Alpha's data-bearing ASSET node (nodes_by_type skips
+        # dangling edge-created placeholders; get_node would KeyError on those).
+        tech_stack: list[str] = []
+        for asset in self.graph_store.nodes_by_type(NodeType.ASSET):
+            if getattr(asset.properties, "host", None) == host:
+                tech_stack = list(getattr(asset.properties, "tech_stack", []) or [])
+                break
+        root = f"{urlparse(self._entry_point).scheme}://{urlparse(self._entry_point).netloc}"
+        return run_authenticated_crawl(
+            self,
+            engagement_id=self._engagement_id,
+            host=host,
+            root=root,
+            session_cookies=self._won_session_cookies,
+            tech_stack=tech_stack,
+            now_utc=now_utc,
+        )
 
     # ── A2A handoff builder (CLAUDE lane — do not weaken) ───────
 

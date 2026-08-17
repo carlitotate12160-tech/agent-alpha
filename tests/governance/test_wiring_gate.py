@@ -261,3 +261,17 @@ def test_recon_coverage_gate_is_wired_into_outcome_path():
         "COMPLETE outcome branch — else a coverage-incomplete recon falsely reports 'done' (#3)."
     )
 
+
+
+def test_authenticated_crawl_consumes_won_session_in_strike():
+    """GAP-116-B (retires 116-A dead-state): the won session `_won_session_cookies` (added by
+    116-A) has NO consumer until the authenticated crawl reads it. Assert Beta.run_strike CALLS
+    run_authenticated_crawl AND passes the won session — else 116-A is Lyndon #2 (reserved-but-
+    unused state). Dropping the call deletes these tokens → this gate fails."""
+    strike_src = _read("agents/beta/strike.py")
+    assert "run_authenticated_crawl(" in strike_src, (
+        "run_strike must CALL run_authenticated_crawl — else the 116-A won session is dead state (#2)."
+    )
+    assert "session_cookies=self._won_session_cookies" in strike_src, (
+        "the authenticated crawl must be fed self._won_session_cookies — the 116-A carrier's consumer."
+    )
