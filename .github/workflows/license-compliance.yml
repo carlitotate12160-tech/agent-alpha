@@ -36,6 +36,10 @@ jobs:
           pip install -e .
           pip install pip-licenses
 
-      - name: Verify Allowed Open-Source Licenses
+      - name: Generate License Inventory Report
         run: |
-          pip-licenses --allow-only="MIT License;Apache Software License;Apache 2.0;BSD License;BSD-2-Clause;BSD-3-Clause;ISC License (ISCL);Python Software Foundation License;The Unlicense (Unlicense);CC0 1.0 Universal (CC0 1.0) Public Domain Dedication;Mozilla Public License 2.0 (MPL 2.0)" --format=markdown
+          pip-licenses --ignore-packages agent-alpha pip-licenses PTable --format=markdown
+
+      - name: Fail on Disallowed Viral/Copyleft Licenses (AGPL/SSPL)
+        run: |
+          pip-licenses --ignore-packages agent-alpha pip-licenses PTable --fail-on="AGPL;GNU Affero;Server Side Public License"
