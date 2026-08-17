@@ -4039,3 +4039,50 @@ defensive-validation outcome* (GAP-045), not a failure. The honest surface needs
 ### Impact
 - Severity: MEDIUM (external observability). RESOLVED alongside 187a follow-up.
 - Cross-ref: GAP-187/187a (the spine half), GAP-045 (walled = sellable), `run_status.py`.
+
+
+## GAP-187b — Runtime coverage gate: `not_run` honesty + partial-coverage outcome
+
+### Problem Statement
+187a/189 made the ENGAGEMENT status honest (walled/failed vs done). But a recon run could still
+end `COMPLETE` while leaving a *dispatchable recon technique* that never ran — the coverage ledger
+would show `not_run`, yet `/run-status` reported `done`. That is #3 (false-success) one level below
+189: the TASK finished, but the WORK (probe the discovered surface) did not, and nothing said so.
+Built as a slice line on top of §12.64 Step 0 (attempt instrumentation).
+
+### Slices
+- **Step 0 (DONE)** — `RECON_TECHNIQUE_ATTEMPTED{host, technique_id}` emitted by Alpha on dispatch;
+  ledger marks `tested` by IDENTITY (host, id), not shared event type. Fixes the permanent-`not_run`
+  of recon techniques that have no `run_event` (git/js/wp). Single-source `tool→technique` join.
+- **187b-1 (DONE)** — denominator stack-precision. `Technique.applies_to_stack` + `Surface.stacks`,
+  FAIL-CLOSED: a stack-specific technique (e.g. `wp_rest_user_enum` on `[wp]`) is EXCLUDED from a
+  non-WP host's denominator, so the `not_run` gate never bricks a Java/Odoo engagement (§12.62). NB
+  review fix (Sourcery/Qodo): `load_catalog` `_as_tuple_str` hardens scalar/null YAML (`applies_to_stack: wp`
+  → `("wp",)` not `("w","p")`; null → `()`) — a silent char-split would drop a technique to permanent
+  `not_run` (#3).
+- **187b-2 (DONE)** — partial-coverage OUTCOME. Pure `recon_not_run_gaps(report)` = capable+applicable
+  Alpha-owned (`surface != auth_surface`) techniques in `not_run`. Wired into `run_engagement_task`
+  COMPLETE branch → `ENGAGEMENT_RUN_PARTIAL(reason="coverage_incomplete", not_run=[...])`. Chosen
+  scope = surface-ownership (Beta owns `auth_surface`, its `not_run` during recon is by-construction,
+  not a gap → anti-noise), NOT a new `phase:` catalog field (that would scaffold Beta/Gamma rows for
+  unbuilt agents — anti deferred-scaffolding). Does NOT touch `derive_terminal_status` / advance:
+  advance still hands COMPLETE (Beta eligible on the mapped surface); only the external run_status is
+  corrected. Wiring-debt enforced in `test_wiring_gate.py` (project_coverage must run in the outcome
+  path, not just Omega). Verified 137 tests on Python 3.12; SEAL = Oracle ARM64 (pending).
+- **187b-3 (OPEN)** — RE-SEED: act on the honesty. Auto-redispatch `not_run` recon techniques via the
+  EXISTING `_try_harder_recovery` (extend, not a new mechanism). This is a BEHAVIORAL change to the
+  autonomous loop — a separate slice, not a measurement one.
+
+### Honest limitations (not hidden)
+- `recon_not_run_gaps`' surface-ownership net catches `fronted_host` (origin_exposure) the moment such
+  a surface is projected — but `_surfaces()` does not emit `fronted_host` surfaces TODAY, so the live
+  effect now = the §12.64 host set {git, js, wp}. The wider net is a forward-property, correct by
+  principle (zero-drift), not a current catch.
+- `project_coverage` here runs without `excluded_techniques` (RoE) — parity with `reporting.py`. If RoE
+  threading is needed it is a separate slice touching BOTH call sites (anti-#10, do not half-patch).
+
+### Impact
+- Severity: MEDIUM (external observability + coverage honesty, §12.62). 187b-1/2 RESOLVED.
+- Cross-ref: GAP-189 (the walled/failed half), §12.64 (Step 0), §12.62 (coverage doctrine),
+  GAP-169 (fingerprint-first — 187b is the substrate that MEASURES 169's effect).
+
