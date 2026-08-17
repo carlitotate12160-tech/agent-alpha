@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-16, GAP-026, GAP-062, GAP-154, GAP-115 Slice 1 MERGED)
+# Agent-Alpha — Session Handoff (2026-08-17, §12.64 187b + §12.65 GAP-169 fingerprint-first + PR-Agent DeepSeek MERGED)
 
-Resume with: "lanjut Agent-Alpha — GAP-026 StealthPacer default ON (#423) + GAP-062 MX/SPF Origin Candidates & GAP-154 Unconditional Enrichment (#421) + GAP-115 Slice 1 (Wayback CDX Historical Recon, #420) + GAP-051 Slice 1 (Engagement-Level Wall Verdict / #419) + Bug #34/#35 MERGED & PROVEN. NEW deferred GAPs: GAP-155 (ip6 URL bracketing) + GAP-156 (IP-scope pre-binding) + GAP-157/158/159. NEXT SLICE = GAP-115 historical-DNS origin discovery (§12.61 A1 DIRECT A-records) — keyless-first source seam, compose with §12.46 binding, drop ip6; DECISION NEEDED: source/key policy (ViewDNS keyless vs SecurityTrails paid key). Do NOT build Gamma. ALWAYS git pull + re-verify first."
+Resume with: "lanjut Agent-Alpha — 187b coverage-honesty + §12.65 GAP-169 fingerprint-first recon + PR-Agent DeepSeek AI reviewer ALL MERGED & SEALED (1982 pass on Oracle ARM64). Four-Operator Lineage doctrine banked. NEXT SLICE: (1) GAP-186 alias-skip (skip well-known spray on identical shared-IP bodies, rides GAP-169 seam); (2) Beta operator-doctrine slices in ORACLE-FIRST order (GAP-118 Zero-FP proof oracle §12.43 → GAP-099 MFA-honest classification). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
 
 ---
 
