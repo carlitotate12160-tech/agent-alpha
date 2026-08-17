@@ -4027,11 +4027,23 @@ in depth, not a duplicate re-walk).
 
 ### §12.65 Fingerprint-First Recon Reorder (GAP-169)
 
-**Status:** ACCEPTED
-**Phase:** 4 (recon direction) — depends on §12.64 coverage honesty (Step 0 & 187b-1 merged)
-**Verified against:** HEAD `32f0781e` (main).
+**Status:** PROPOSED v2 (lock on confirm) — REVISED after live-seam trace (Decision D corrected, D-2 added)
+**Phase:** 4 (recon direction) — depends on §12.64 coverage honesty (Step 0 + 187b-1/2 done)
+**Verified against:** live `scout.py` seam trace (fetch line 459, seed 253–283, `_pop_unprobed` 445).
+See `GAP-169_code_map.md` for the exists/missing map.
 **Lane / MODEL:** recon control-flow reorder → GPT-5.4 High Thinking (alt: Claude Opus 4.8 Medium).
 Path-selection/fingerprint DATA already exists — this is a wiring/ordering change, not new capability.
+
+**Operator doctrine (why, not decoration):** this reorder is the OBSERVE-before-ACT discipline that
+separates an operator from a scanner — the anti-scanner behavior that IS Agent-Alpha's moat. It
+encodes three real APT recon tradecrafts (Beta's chaining doctrine, §Operator-Lineage, is downstream
+and OUT of this ADR):
+- **APT29 (low-and-slow, anti-detection):** fingerprint first → probe ONLY stack-relevant paths → no
+  404 breadth-anomaly spray that TRIPS the WAF (the exact Bug #26 the current seed comment warns of).
+- **Volt Typhoon (blend-in / living-off-the-land):** requests look like a real browser exploring what
+  actually EXISTS (homepage → real stack paths), not a scanner spraying `/.git` `/.env` at every host.
+- **APT41 (stack-tailored precision):** seed from the ACTUAL fingerprinted stack (WP→wp, Odoo→odoo),
+  multi-stack aware (`fingerprint_all` — WP behind Tomcat). Toolset tailored to the victim, not one-size.
 
 ---
 
@@ -4043,41 +4055,172 @@ is fetched INSIDE the cognitive loop and the fingerprint is **reactive**
 (`_handle_capability_fingerprint`, mid-loop). Stack-specific paths only arrive later via
 `CapabilitySpec.frontier_seeds` once a stack is confirmed.
 
-On a non-WP host (e.g. Odoo on `quantum-laboratories.com`, Java on `demo.testfire.net`, generic SPA),
-Alpha sprays ~20 blind paths (`wp-config.php`, `xmlrpc.php`, `wp-login.php`, `wp-json/wp/v2/users`,
-etc.) at `t=0` because `labels=[]` defaults to the generic+blind pool. **73% of initial HTTP
-dispatches are 404 waste** that leak intent to WAF/SIEM before Alpha knows what it is talking to.
+The machinery to do this right ALREADY exists and is proven:
+- `Planner.select_leak_paths(labels, *, suppress_default)` (`planner.py:103`) — PURE, single-source
+  (anti-#7): UNIVERSAL specs always; stack-specific on label match; `DEFAULT_LEAK_PATHS` only when no
+  stack matched AND not suppressed.
+- `try_harder` (`planner.py:87`) ALREADY calls `select_leak_paths(labels)` with real per-host
+  `tech_stack` labels — **living proof the label path works**; it is only the *recovery* pass today.
+- PlaybookEngine rule tier (`PlaybookRule.matches`) matches **body AND header** indicators
+  (`header_contains`/`header_regex`) — invoked via `_rule_only_decision`.
+- `CAPABILITY_CATALOG` / `capability_for_tool(tool) -> (label, frontier_seeds, follow_up_tools)`
+  (`capability_probe.py`) — PURE DATA (anti-#6/#7).
 
-The fix is NOT a new subsystem. The components all exist:
-  * `tls_impersonate_fetch(root_url)` already exists (`reach_transport.py`);
-  * `infer_capability_from_response(root_resp)` already extracts tech_stack labels at line 0;
-  * `select_leak_paths(labels=...)` ALREADY filters by stack when given labels;
-  * `CapabilitySpec.frontier_seeds` ALREADY maps stack → high-value paths.
-
-They are simply called in the **wrong order** (blind spray → reactive fingerprint, instead of
-proactive fingerprint → targeted spray).
+**Diagnosis:** the fingerprint is REACTIVE, not fingerprint-FIRST. The fix feeds real labels to the
+EXISTING selector at t=0 by hoisting a single initial touch. **`select_leak_paths`, PlaybookEngine,
+CapabilitySpec, `_handle_capability_fingerprint` are NOT modified.**
 
 ---
 
-#### 2. Decision — Fingerprint-First Protocol (Strict t=0 Proactive Root Probe)
+#### 2. Decisions (locked with Natanael)
 
-##### 2.1 Control-Flow Reorder in `run_recon` (before cognitive loop):
-
+##### A — The reorder (keystone)
+Hoist a **single initial touch** into `run_recon`, BEFORE the leak-path seed:
 ```
-t=0: Pre-loop proactive root fetch:
-     resp = tls_impersonate_fetch(target_root)
-     labels = infer_capability_from_response(resp) + passive_intel_labels
-     persist NodeDiscovered(host, labels) + emit CapabilityFingerprinted event
-     ↓
-t=1: Targeted frontier seeding:
-     seeds = select_leak_paths(labels=labels, suppress_default=True)
-     frontier.enqueue_all(seeds)
-     ↓
-t=2: Cognitive loop begins with precision frontier (zero blind spray)
+fetch root ONCE
+observation = {"body": root.text, "headers": dict(root.headers)}
+labels = fingerprint_labels(observation)            # NEW thin fn (Decision C)
+seed = select_leak_paths(labels, suppress_default=suppress_blind or bool(labels))   # UNCHANGED fn
+... historical_paths + SURFACE_DISCOVERY_PATHS unchanged ...
+prime the loop with the already-fetched root (Decision D) → run_cognitive_loop  # UNCHANGED engine
 ```
+Only NEW code: `fingerprint_labels(observation)` and the root-fetch hoist.
 
-##### 2.2 Invariant Rules:
-1. **No blind leak probing before root fingerprint:** `select_leak_paths` must never be called with `labels=[]` when `target_root` is reachable.
-2. **Fail-safe fallback:** If root probe times out or is unreachable, fall back to conservative generic seeds with `labels=['unknown']`.
-3. **Synergy with §12.64 / GAP-187b:** Because `NodeDiscovered` with fingerprinted stack labels is emitted at `t=0`, `CoverageLedger` immediately knows the surface stack and accurately excludes non-applicable techniques (e.g. `wp_rest_user_enum` is excluded on Odoo/Java from `t=0`), preventing spurious `not_run` violations.
+##### C — Multi-label fingerprint (`fingerprint_all`)
+`decide_rule_only` returns ONE tool (top priority); a root can be multi-stack (WP behind Tomcat).
+Add a PURE `fingerprint_all(observation) -> tuple[str, ...]` that runs ALL capability rules over the
+root observation and resolves each matching fingerprint tool to `capability_for_tool(tool).label`.
+Data-driven (walks the same PlaybookEngine rules + CAPABILITY_CATALOG); no new fingerprint engine.
+
+##### B — Keep the DEFAULT baseline after a FAILED fingerprint (priority, not exclusion)
+When `fingerprint_all` yields NO labels (unknown/cold stack), `select_leak_paths([])` still seeds the
+stack-agnostic high-value set (`DEFAULT_LEAK_PATHS`: `.env`/`.git`/backups) — the honest baseline a
+real operator still runs on any misconfigured host. `suppress_default` stays gated by WAF
+(`suppress_blind`) as today. Fingerprint drives PRIORITY + which stack-specific paths, never a hard
+"only stack X" exclusion of the universal high-value probes.
+
+##### D — No double-fetch (CORRECTED after live-seam trace)
+**Seam trace finding (revises v1):** the bare homepage `/` is NOT seeded today — every seed path is
+`/something` (`DEFAULT_LEAK_PATHS`, `SURFACE_DISCOVERY_PATHS`, all universal `PATH_PROBE_CATALOG` specs;
+none is `/`). So the loop never explicitly fetches the homepage; fingerprint is opportunistic on
+whatever probe body returns. Two consequences:
+1. Hoisting a root `/` fetch is a NEW fetch — the loop has no `/` in its queue, so there is no
+   double-fetch *by default*.
+2. The double-fetch risk appears ONLY because Decision D also wants the homepage to feed OODA
+   (handlers / findings / auth-surface on `/`). That means enqueuing `/` → loop pops it → a 2nd GET.
+   **Incidental win:** the homepage is now OODA-processed for the first time (today it is only seen if
+   crawled) — a behavioral delta tests must cover (new findings/auth-surfaces may appear).
+
+**The single-path prime (anti-#6):** the ONLY frontier fetch is `_step_once` line 459
+`resp = self.http_client.get(url)` (`origin_direct_fetch` is a RETRY-when-blocked, not a parallel
+primary). Prime via a per-target `_prefetched: dict[str, Resp]` consulted there:
+```python
+resp = self._prefetched.pop(url, None) or self.http_client.get(url)   # line 459
+```
+Hoist (after auth/scope/reset, before `run_cognitive_loop`):
+```python
+root_url  = f"{root}/"
+root_resp = self.http_client.get(root_url)                 # SAME primitive, ONE fetch (anti-#6)
+labels    = self._fingerprint_labels({"body": root_resp.text, "headers": dict(root_resp.headers)})
+for p in self._planner.select_leak_paths(labels, suppress_default=suppress_blind or bool(labels)):
+    self.enqueue_discovered_url(f"{root}{p}")              # UNCHANGED selector
+self._prefetched[root_url] = root_resp                     # prime
+self.enqueue_discovered_url(root_url)                      # homepage → OODA, no 2nd GET
+```
+`_prefetched` resets in `_reset_target_state` (same lifetime as `_probed`). Do NOT pre-add `root_url`
+to `_probed` — `enqueue_discovered_url` (line 2244) would then refuse it; let the loop `_probed.add`
+it on pop. Only NEW code: `_fingerprint_labels`/`fingerprint_all`, the hoist, and the 1-line prime
+consult. `select_leak_paths`, PlaybookEngine, `_handle_capability_fingerprint` UNTOUCHED (the reactive
+handler stays as the SECONDARY fingerprint for surfaces found deeper in the loop).
+
+##### D-2 — Hoisted-root fetch can FAIL (v1 gap — the edge that would break it)
+`self.http_client.get(root_url)` can itself raise `HttpClientError` (transport/DNS) or return a
+WAF/CF block. v1 did not address this. Contract:
+- **Transport failure:** on `HttpClientError`, mirror the loop's R1 (line 465–476) — mark
+  `_dead_hosts`, emit `HOST_ABANDONED`, `labels=[]`, and DO NOT enqueue/prime `root_url`. Skipping the
+  enqueue is what prevents a DOUBLE-attempt (hoist raises → loop pops → raises again) on a dead host.
+- **WAF/CF block on `/`:** the block response is a valid `Resp` — prime + enqueue it normally; the
+  loop's existing `_attempt_reach` (line 504) handles reach on the primed response. Fingerprint sees a
+  challenge body → `labels=[]` → and `suppress_blind` is already True (protection_detected), so DEFAULT
+  is suppressed (Decision B path). Consistent; no special-casing.
+- The hoist fetch itself does NOT attempt reach (keep 169 minimal) — reach stays the loop's job on the
+  primed response.
+
+##### E — Cookie / favicon fingerprint = SEPARATE slice (OUT of scope)
+`PlaybookRule` matches body+header today, NOT cookie or favicon-hash. The thesis's `session_id`
+cookie / favicon signals are a **match-grammar extension** (170/172/185-family coverage breadth).
+Bundling them here makes 169 touch >2 concerns (anti-#10). 169 ships header+body fingerprint-first;
+cookie/favicon is a follow-up slice.
+
+---
+
+#### 3. Test contract (what must pass for 169 "done")
+
+- **Cardinal (RED before fix):** a Java/Odoo root (Server header, no WP body markers) → seed contains
+  ZERO WordPress leak paths; `select_leak_paths` called with the Odoo/Java labels, not `[]`.
+- **Cold host:** an unknown-stack root (no fingerprint match) → still seeds `DEFAULT_LEAK_PATHS`
+  (Decision B) — the universal baseline is NOT dropped.
+- **Multi-stack (Decision C):** a root matching two capability rules → BOTH labels drive the seed.
+- **No double-fetch (Decision D):** count `http_client.get(root_url)` across the whole `run_recon` on a
+  fake client → EXACTLY once, even though `/` is both fingerprinted AND OODA-processed (primed).
+- **Homepage now OODA-processed (Decision D delta):** a root carrying an auth-surface / finding marker →
+  that surface/finding IS recorded (proves the primed `/` flows through the full cycle, not fingerprint-only).
+- **Hoist transport failure (Decision D-2, RED before fix):** root `/` raises `HttpClientError` → host
+  marked `_dead_hosts`, `HOST_ABANDONED` emitted, `root_url` NOT enqueued (assert loop does NOT attempt a
+  2nd GET on the dead host), seed falls to `labels=[]`.
+- **Hoist WAF block (Decision D-2):** root `/` returns a CF challenge → primed + enqueued; reach attempted
+  by the loop on the primed resp; `labels=[]`, DEFAULT suppressed (protection_detected).
+- **No duplication:** `fingerprint_all` reuses PlaybookEngine rules + CAPABILITY_CATALOG (a governance
+  test that adding a capability is still ONE CapabilitySpec + one YAML rule, zero engine code).
+- **Measurement:** `route_decision_rate{rule_hit|llm_escalate|generic_coerce}` + `not_run` (rides
+  §12.64) — assert generic_coerce / blind-DEFAULT seeds DROP on fingerprinted hosts vs baseline.
+- VERIFY: Oracle ARM64.
+
+---
+
+#### 4. Integration points
+
+- **Caller:** `Alpha.run_recon` (`scout.py:214`) — the reorder lives here (root-fetch hoist + label
+  seed). Watch the **GAP-161 size ratchet (2475)**: if the hoist grows scout, EXTRACT
+  `fingerprint_all` into `recon/` (like §12.64 Step 0's `recon_coverage.py`), do not raise the ceiling.
+- **Reuses:** `_planner.select_leak_paths` (unchanged), `_rule_only_decision` / PlaybookEngine
+  (unchanged), `capability_for_tool` (unchanged), the loop's reach/fetch seam (Decision D).
+- **Downstream unchanged:** `_handle_capability_fingerprint` stays — it becomes the SECONDARY
+  fingerprint for surfaces discovered DEEPER in the loop (not the only one).
+
+---
+
+#### 5. Non-goals (anti-scope-creep)
+- No new path-selection algorithm (reuse `select_leak_paths`).
+- No new fingerprint engine (reuse PlaybookEngine rule tier + CAPABILITY_CATALOG).
+- No cookie/favicon grammar (Decision E — separate slice).
+- Reactive `_handle_capability_fingerprint` is NOT removed.
+- **Lazarus exploit-chaining (Beta) is NOT in this ADR** — see §6; folding it here = anti-#10.
+- Sequencing: 187b (honest `not_run`) landed FIRST (Step 0 + 187b-1/2 done) — the substrate that
+  MEASURES 169's effect; 169 now unblocked.
+
+---
+
+#### 6. Operator-Lineage doctrine (durable — the four APTs Agent-Alpha adopts)
+
+Agent-Alpha is built the way an APT operates; each real-world operator maps to one agent behavior.
+169 delivers the RECON three (Alpha). Lazarus is the STRIKE one (Beta) — named here for lineage,
+**built and tracked separately** (its home is the attack-graph chain + §12.31/§12.43 cross-verify,
+already field-demonstrated).
+
+| Operator | Signature tradecraft | Agent-Alpha adoption | Scope |
+|---|---|---|---|
+| **APT29** (Cozy Bear) | Low-and-slow, minimal footprint, anti-detection | Fingerprint-first → probe only stack-relevant paths → no 404 breadth-anomaly that trips the WAF | **169 (Alpha)** |
+| **Volt Typhoon** | Living-off-the-land, blend with legitimate traffic | Requests mimic a real browser exploring what EXISTS (homepage → real stack paths), not a scanner spray | **169 (Alpha)** |
+| **APT41** | Intelligence-driven, victim-tailored toolset | Seed from the ACTUAL fingerprinted stack, multi-stack aware (`fingerprint_all`) | **169 (Alpha)** |
+| **Lazarus** | **Exploit chaining** — stitch small, individually-harmless leaks into total compromise | **Beta (STRIKE):** the AttackGraph chains a low-value leak → reused credential → deeper access (proven: alpha-ai origin-bypass → `wp-config.php.bak` → DB pass → Odoo XML-RPC → uid=2 admin). Only `cross_verified` per-edge oracle backs a payable chain (§12.31/§12.43 — never graph traversal alone) | **Beta — NOT 169** |
+
+**The lineage link (why they belong together, without folding scope):** 169's recon precision produces
+the CLEAN, high-signal small footholds — the exact "individually-harmless leak" Lazarus/Beta then
+CHAINS. A scanner's blind spray buries those signals in 404 noise; the operator surfaces them precisely
+(169) so the chain oracle (Beta) can compose them into proof. Recon precision IN, provable chain OUT.
+
+**Doctrine home:** this table is durable (belongs in the `agent-alpha` skill / Session_Handoff
+doctrine-banked section), not just this ADR. Bank it there in the same change that lands 169.
+
 
