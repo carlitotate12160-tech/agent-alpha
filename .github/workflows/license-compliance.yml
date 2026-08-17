@@ -1,0 +1,45 @@
+name: License & Dependency Compliance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  license-check:
+    name: License Compliance Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies + pip-licenses
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pip-licenses
+
+      - name: Generate License Inventory Report
+        run: |
+          pip-licenses --ignore-packages agent-alpha pip-licenses PTable --format=markdown
+
+      - name: Fail on Disallowed Viral/Copyleft Licenses (AGPL/SSPL)
+        run: |
+          pip-licenses --ignore-packages agent-alpha pip-licenses PTable --fail-on="AGPL;GNU Affero;Server Side Public License"
