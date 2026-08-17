@@ -22,7 +22,7 @@ jobs:
         env:
           OPENAI_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           OPENAI_BASE_URL: "https://api.deepseek.com"
-          CONFIG.MODEL: "deepseek/deepseek-chat"
+          CONFIG.MODEL: "deepseek/deepseek-reasoner"
           CONFIG.FALLBACK_MODELS: '[]'
           DEEPSEEK.KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
