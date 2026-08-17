@@ -9,6 +9,10 @@
 #   oauth). GAP-074 slice 2b LIVE: an auth_surface technique with a non-empty auth_mechanism is
 #   applicable ONLY on a surface whose fingerprinted mechanism overlaps (mech_* on tech_stack,
 #   reconciled via recon.auth_surface.bare_mechanisms). Mechanism UNKNOWN on a surface => fail-open.
+# applies_to_stack: (187b-1) stack labels this technique is applicable on (e.g. [wp]). FAIL-CLOSED:
+#   a stack-specific technique is EXCLUDED from a surface's denominator unless the host's
+#   fingerprinted tech_stack confirms the stack — so we never report "not tested" for WordPress
+#   user-enum on a Java/Odoo host (§12.62 honesty). Empty/absent = stack-agnostic (any host).
 # run_event: EventType whose payload.host marks this technique as TESTED on a surface.
 # tool:      (§12.64 Step 0) the scout dispatch tool that RUNS this technique. Alpha emits
 #            RECON_TECHNIQUE_ATTEMPTED{host, technique_id} on dispatch; the ledger then marks
@@ -56,6 +60,7 @@ techniques:
     surface: host
     capability_present: true
     tool: wp_rest_users
+    applies_to_stack: [wp]           # 187b-1: WP-only — excluded from the denominator on non-WP hosts
 
   # ── Capability ABSENT (roadmap — honest "we do NOT test this") ─────────────
   - id: http_basic_auth_strike

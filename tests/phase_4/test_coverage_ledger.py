@@ -81,7 +81,23 @@ def test_recon_attempt_does_not_false_mark_sibling() -> None:
     b = _buckets(project_coverage([host, attempt]), "host")
     assert b["git_exposure_leak"] == "tested"
     assert b["js_secret_leak"] == "not_run"
-    assert b["wp_rest_user_enum"] == "not_run"
+    # 187b-1: wp_rest_user_enum is WP-only (applies_to_stack: [wp]) → EXCLUDED on this bare
+    # host, so it is not a sibling here at all (see test_stack_specific_* below).
+    assert "wp_rest_user_enum" not in b
+
+
+def test_stack_specific_technique_excluded_on_non_matching_host() -> None:
+    """187b-1 CARDINAL: a WP-only technique is EXCLUDED from a non-WP host's denominator
+    (not 'not_run'), so §12.64's not_run gate never bricks a Java/Odoo engagement (§12.62
+    honesty). Stack-agnostic techniques (git/js) still apply on any host."""
+    bare = _buckets(project_coverage([_host_ev("java.x")]), "host")
+    assert "wp_rest_user_enum" not in bare  # WP technique excluded on unconfirmed stack
+    assert bare["git_exposure_leak"] == "not_run"  # stack-agnostic → still applies
+    assert bare["js_secret_leak"] == "not_run"
+
+    # A confirmed-WP host (tech_stack includes "wp") → the WP technique is applicable again.
+    wp = _buckets(project_coverage([_node_ev("wp.x", ["wp"])]), "host")
+    assert wp["wp_rest_user_enum"] == "not_run"
 
 
 def test_tool_to_technique_is_catalog_derived() -> None:

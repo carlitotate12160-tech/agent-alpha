@@ -46,6 +46,13 @@ class Technique:
     # technique is TESTED by IDENTITY via a RECON_TECHNIQUE_ATTEMPTED{host, id} event
     # (see project_coverage `attempted`) rather than by a shared run_event.
     tool: str | None = None
+    # §12.64 187b-1: stack-specific applicability. When set, this technique is applicable
+    # ONLY on a surface whose fingerprinted tech_stack includes one of these labels
+    # (FAIL-CLOSED: no confirmed stack → NOT applicable). Empty = stack-agnostic (applies to
+    # any host, e.g. git/js leak). This stops the denominator claiming "we did not test WP
+    # user-enum" on a Java/Odoo host (§12.62 honesty) — and stops 187b's not_run gate from
+    # bricking every non-WP engagement.
+    applies_to_stack: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -55,6 +62,8 @@ class Surface:
     mechanisms: frozenset[str] = frozenset()  # GAP-074 2b: bare auth-mechanism tokens
     #   present on this host (form_post/json_rpc/http_basic/...). Empty = mechanism UNKNOWN.
     #   Only meaningful for auth_surface; gates mechanism-specific techniques (see project_coverage).
+    stacks: frozenset[str] = frozenset()  # §12.64 187b-1: the host's fingerprinted tech_stack
+    #   labels (wp/odoo/tomcat/...). Gates stack-specific techniques (applies_to_stack).
 
 
 @dataclass(frozen=True)
@@ -86,6 +95,7 @@ def load_catalog(path: pathlib.Path | None = None) -> tuple[Technique, ...]:
                 gap_ref=t.get("gap_ref"),
                 auth_mechanism=tuple(t.get("auth_mechanism", ())),
                 tool=t.get("tool"),
+                applies_to_stack=tuple(t.get("applies_to_stack", ())),
             )
         )
     return tuple(out)
@@ -170,11 +180,21 @@ def _surfaces(events: Iterable[Any]) -> list[Surface]:
         stack_by_host.setdefault(host, set()).update(tech_stack)
         if _AUTH_LABELS.intersection(tech_stack):
             auth_hosts.add(host)
-    surfaces = [Surface(h, "host") for h in sorted(hosts)]
+    surfaces = [
+        # 187b-1: attach the host's fingerprinted stacks so stack-specific techniques
+        # (applies_to_stack) are counted applicable ONLY on a confirmed-stack surface.
+        Surface(h, "host", stacks=frozenset(stack_by_host.get(h, set())))
+        for h in sorted(hosts)
+    ]
     surfaces += [
         # GAP-074 2b: attach the host's bare auth-mechanism tokens so mechanism-specific
         # techniques are counted applicable ONLY on a matching surface (precise denominator).
-        Surface(h, "auth_surface", bare_mechanisms(stack_by_host.get(h, set())))
+        Surface(
+            h,
+            "auth_surface",
+            bare_mechanisms(stack_by_host.get(h, set())),
+            stacks=frozenset(stack_by_host.get(h, set())),
+        )
         for h in sorted(auth_hosts)
     ]
     return surfaces
@@ -222,6 +242,13 @@ def project_coverage(
             # UNKNOWN (empty s.mechanisms) → fail-open, technique stays applicable (mirrors 2a).
             if s.mechanisms and t.auth_mechanism and not (set(t.auth_mechanism) & s.mechanisms):
                 continue  # mechanism mismatch → not applicable → excluded from denominator
+            # 187b-1: stack precision (FAIL-CLOSED). A stack-specific technique
+            # (applies_to_stack non-empty) is applicable ONLY on a surface whose fingerprinted
+            # stacks include a match — no "we did not test WP user-enum" on a Java/Odoo host
+            # (§12.62 honesty). Unlike mechanism (fail-open), an unconfirmed stack EXCLUDES the
+            # technique: we do not claim to test WordPress on a host we never identified as WP.
+            if t.applies_to_stack and not (set(t.applies_to_stack) & s.stacks):
+                continue  # stack mismatch → not applicable → excluded from denominator
             cells.append(_classify(s, t, blocked_hosts, ran, attempted, excluded_techniques))
 
     not_assessed = tuple(t.id for t in catalog if not t.capability_present)
