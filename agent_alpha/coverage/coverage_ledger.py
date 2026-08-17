@@ -93,9 +93,26 @@ def load_catalog(path: pathlib.Path | None = None) -> tuple[Technique, ...]:
 def tool_to_technique(catalog: tuple[Technique, ...] | None = None) -> dict[str, str]:
     """§12.64 Step 0: the single-source ``tool -> technique_id`` join, derived from the
     catalog (NOT a second hand-maintained list, anti-#6/#7). Alpha looks up the dispatched
-    tool here to stamp RECON_TECHNIQUE_ATTEMPTED with the coverage technique id."""
+    tool here to stamp RECON_TECHNIQUE_ATTEMPTED with the coverage technique id.
+
+    Raises ``ValueError`` on a duplicate tool (Greptile/Sourcery): the emit stamps exactly
+    ONE technique_id per dispatch, so a tool bound to two techniques would silently collapse
+    (last-wins) and drop the other into permanent ``not_run`` — a false 'not tested' (#3).
+    Fail loud; a genuine N:1 tool must be modelled explicitly, not defaulted into a silent drop.
+    """
     catalog = catalog if catalog is not None else load_catalog()
-    return {t.tool: t.id for t in catalog if t.tool is not None}
+    mapping: dict[str, str] = {}
+    for t in catalog:
+        if t.tool is None:
+            continue
+        if t.tool in mapping:
+            raise ValueError(
+                f"duplicate tool {t.tool!r} maps to both {mapping[t.tool]!r} and {t.id!r} in "
+                "techniques.yaml — one tool stamps one technique_id (§12.64). Give each "
+                "technique a distinct tool, or model the N:1 case explicitly."
+            )
+        mapping[t.tool] = t.id
+    return mapping
 
 
 # Module-level map over the default catalog — the lookup Alpha uses at dispatch time.

@@ -94,6 +94,21 @@ def test_tool_to_technique_is_catalog_derived() -> None:
     assert m["wp_rest_users"] == "wp_rest_user_enum"
 
 
+def test_tool_to_technique_rejects_duplicate_tool() -> None:
+    """§12.64 Step 0 (Greptile/Sourcery): two techniques sharing a tool must fail loud, not
+    collapse to last-wins — a silent collapse drops a technique into permanent not_run."""
+    import pytest
+
+    from agent_alpha.coverage.coverage_ledger import Technique, tool_to_technique
+
+    dup = (
+        Technique(id="a", mitre="T1", surface="host", capability_present=True, tool="shared"),
+        Technique(id="b", mitre="T2", surface="host", capability_present=True, tool="shared"),
+    )
+    with pytest.raises(ValueError, match="duplicate tool"):
+        tool_to_technique(dup)
+
+
 def test_blocked_beats_tested_for_capable() -> None:
     events = [
         _node_ev("hub.x", ["login-form"]),
