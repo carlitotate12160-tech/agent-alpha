@@ -226,3 +226,20 @@ def test_recon_technique_attempt_is_called_at_dispatch():
         "emit_recon_technique_attempt must be imported AND invoked at every dispatch site "
         "(>=2 calls) — a covered technique dispatched without it stays not_run (§12.64 / #2)."
     )
+
+
+def test_recon_coverage_gate_is_wired_into_outcome_path():
+    """187b-2 (RUNNER-SEAL != AUTONOMOUS-WIRED): recon_not_run_gaps + project_coverage must be
+    CALLED in run_engagement_task's outcome path — not merely defined in coverage_ledger and
+    exercised only by Omega reporting. If the gate is present but unwired, a task-COMPLETE run
+    with an unrun recon technique reports 'done' instead of 'partial' — the exact false-success
+    (#3) 187b exists to catch. The behavioural teeth are in tests/phase_0/test_run_engagement_task.py
+    (COMPLETE + host gap → run_status 'partial'); this is the import-free CI tripwire.
+
+    The call must live on the COMPLETE branch: reverting it (dropping recon_not_run_gaps from
+    main.py) deletes this token → this fails."""
+    main_src = _read("conductor/main.py")
+    assert "recon_not_run_gaps(project_coverage(" in main_src, (
+        "run_engagement_task must project coverage and gate on recon_not_run_gaps in the "
+        "COMPLETE outcome branch — else a coverage-incomplete recon falsely reports 'done' (#3)."
+    )

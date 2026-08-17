@@ -279,6 +279,47 @@ def project_coverage(
     return CoverageReport(cells=tuple(cells), not_assessed=not_assessed)
 
 
+# §12.64 187b-2: the STRIKE surface is Beta's remit (auth_surface techniques run via
+# StrikeCandidateAttempted). During a recon run Beta has not run, so every auth_surface
+# technique is `not_run` BY CONSTRUCTION — counting it as a recon coverage gap would mark
+# EVERY engagement 'partial' (noise → the honest signal is ignored → false-done creeps back,
+# #3). The recon coverage gate therefore scopes to Alpha-owned surfaces: everything EXCEPT
+# auth_surface. (Chosen over a new `phase:` catalog field — that would annotate Beta/Gamma
+# rows for agents not yet built = deferred-feature scaffolding, the anti-pattern the standing
+# directive forbids. `surface` already encodes agent ownership per the registry.)
+_STRIKE_SURFACE = "auth_surface"
+
+
+def recon_not_run_gaps(report: CoverageReport) -> tuple[str, ...]:
+    """187b-2: the recon-phase coverage gaps — capable + applicable Alpha-owned techniques
+    that NEVER ran (``bucket == "not_run"``) on a discovered surface. This is the honest
+    'we could have probed this and didn't' set for a recon run.
+
+    Feeds the GAP-189 ``ENGAGEMENT_RUN_PARTIAL`` outcome: a task-COMPLETE, non-walled recon
+    that still left a dispatchable recon technique unrun is honestly ``partial``, NOT ``done``
+    (anti-#3 false-success on the external status surface). It does NOT touch the A2A handoff
+    status / advance spine — ``derive_terminal_status`` still hands COMPLETE forward so Beta
+    stays eligible on the mapped surface (a partial run is not an abandoned one).
+
+    Scope: Alpha-owned surfaces only (``surface_type != auth_surface``); the STRIKE surface is
+    Beta's, so its ``not_run`` during recon is expected, not a gap (see ``_STRIKE_SURFACE``).
+    The denominator is already stack/mechanism-precise (187b-1 / GAP-074 2b), so a cell reaches
+    ``not_run`` only when the technique GENUINELY applied to the surface — this net is wide
+    (catches origin_exposure_bypass, not just the §12.64 tool set) yet not noisy. Returns the
+    sorted distinct technique ids, both as the boolean gate (non-empty ⇒ partial) and as the
+    honest ``not_run`` detail for the partial reason.
+    """
+    return tuple(
+        sorted(
+            {
+                c.technique_id
+                for c in report.cells
+                if c.bucket == "not_run" and c.surface_type != _STRIKE_SURFACE
+            }
+        )
+    )
+
+
 def _classify(
     s: Surface,
     t: Technique,
