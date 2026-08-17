@@ -1,0 +1,41 @@
+name: License & Dependency Compliance
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  license-check:
+    name: License Compliance Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies + pip-licenses
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pip-licenses
+
+      - name: Verify Allowed Open-Source Licenses
+        run: |
+          pip-licenses --allow-only="MIT License;Apache Software License;Apache 2.0;BSD License;BSD-2-Clause;BSD-3-Clause;ISC License (ISCL);Python Software Foundation License;The Unlicense (Unlicense);CC0 1.0 Universal (CC0 1.0) Public Domain Dedication;Mozilla Public License 2.0 (MPL 2.0)" --format=markdown
