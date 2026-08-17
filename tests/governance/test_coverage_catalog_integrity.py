@@ -41,3 +41,23 @@ def test_capability_absent_links_a_gap() -> None:
 def test_technique_ids_unique() -> None:
     ids = [t["id"] for t in _techniques()]
     assert len(ids) == len(set(ids))
+
+
+def test_catalog_tool_is_a_real_recon_tool() -> None:
+    """§12.64 Step 0: every catalog `tool:` must be a sanctioned recon tool (no typo). A
+    phantom tool would silently never emit RECON_TECHNIQUE_ATTEMPTED, pinning its technique
+    to permanent `not_run` — the exact false 'not tested' this instrumentation removes."""
+    from agent_alpha.config import constants
+
+    valid = set(constants.RECON_TOOL_CATALOG)
+    for t in _techniques():
+        tool = t.get("tool")
+        assert tool is None or tool in valid, f"{t['id']}: phantom tool {tool!r}"
+
+
+def test_no_duplicate_catalog_tools() -> None:
+    """§12.64 Step 0 (Greptile/Sourcery): a tool maps to at most ONE technique. A duplicate
+    would silently collapse (last-wins) in tool_to_technique and drop a technique into
+    permanent `not_run`. Caught here in CI before the import-time build would raise."""
+    tools = [t["tool"] for t in _techniques() if t.get("tool")]
+    assert len(tools) == len(set(tools)), f"duplicate tool in techniques.yaml: {sorted(tools)}"

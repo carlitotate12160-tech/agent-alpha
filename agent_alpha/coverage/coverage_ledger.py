@@ -18,6 +18,7 @@ Buckets (applicable cells only; non-applicable technique/surface pairs are exclu
 
 from __future__ import annotations
 
+import functools
 import pathlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -41,6 +42,10 @@ class Technique:
     run_event: str | None = None
     gap_ref: str | None = None
     auth_mechanism: tuple[str, ...] = ()
+    # §12.64 Step 0: the scout dispatch tool that runs this technique. When set, the
+    # technique is TESTED by IDENTITY via a RECON_TECHNIQUE_ATTEMPTED{host, id} event
+    # (see project_coverage `attempted`) rather than by a shared run_event.
+    tool: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,9 +85,45 @@ def load_catalog(path: pathlib.Path | None = None) -> tuple[Technique, ...]:
                 run_event=t.get("run_event"),
                 gap_ref=t.get("gap_ref"),
                 auth_mechanism=tuple(t.get("auth_mechanism", ())),
+                tool=t.get("tool"),
             )
         )
     return tuple(out)
+
+
+def tool_to_technique(catalog: tuple[Technique, ...] | None = None) -> dict[str, str]:
+    """§12.64 Step 0: the single-source ``tool -> technique_id`` join, derived from the
+    catalog (NOT a second hand-maintained list, anti-#6/#7). Alpha looks up the dispatched
+    tool here to stamp RECON_TECHNIQUE_ATTEMPTED with the coverage technique id.
+
+    Raises ``ValueError`` on a duplicate tool (Greptile/Sourcery): the emit stamps exactly
+    ONE technique_id per dispatch, so a tool bound to two techniques would silently collapse
+    (last-wins) and drop the other into permanent ``not_run`` — a false 'not tested' (#3).
+    Fail loud; a genuine N:1 tool must be modelled explicitly, not defaulted into a silent drop.
+    """
+    catalog = catalog if catalog is not None else load_catalog()
+    mapping: dict[str, str] = {}
+    for t in catalog:
+        if t.tool is None:
+            continue
+        if t.tool in mapping:
+            raise ValueError(
+                f"duplicate tool {t.tool!r} maps to both {mapping[t.tool]!r} and {t.id!r} in "
+                "techniques.yaml — one tool stamps one technique_id (§12.64). Give each "
+                "technique a distinct tool, or model the N:1 case explicitly."
+            )
+        mapping[t.tool] = t.id
+    return mapping
+
+
+@functools.lru_cache(maxsize=1)
+def default_tool_to_technique() -> dict[str, str]:
+    """Lazily-built, cached ``tool -> technique_id`` map over the DEFAULT catalog — the
+    lookup Alpha uses at dispatch time. LAZY (not a module-level constant) so importing this
+    module — and, transitively, scout — has NO file I/O side effect; the catalog read happens
+    on first use and is cached, matching ``project_coverage``'s runtime-load discipline (Qodo).
+    Raises on a duplicate tool (see :func:`tool_to_technique`). Treat the result as read-only."""
+    return tool_to_technique()
 
 
 def _event_host(payload: dict[str, Any]) -> str:
@@ -151,6 +192,10 @@ def project_coverage(
 
     blocked_hosts: set[str] = set()
     ran: set[tuple[str, str]] = set()  # (event_type, host)
+    # §12.64 Step 0: technique-IDENTITY attempts, (host, technique_id), from
+    # RECON_TECHNIQUE_ATTEMPTED. Keyed by identity (not shared event type) so an attempt
+    # of one technique never false-marks a sibling technique on the same host.
+    attempted: set[tuple[str, str]] = set()
     for e in events:
         et = getattr(e, "event_type", None)
         p = getattr(e, "payload", None) or {}
@@ -160,6 +205,10 @@ def project_coverage(
             blocked_hosts.add(host)
         if et and host:
             ran.add((str(et), host))
+        if str(et) == "ReconTechniqueAttempted" and host:
+            tech_id = p.get("technique_id")
+            if tech_id:
+                attempted.add((host, str(tech_id)))
 
     cells: list[CoverageCell] = []
     for s in surfaces:
@@ -173,7 +222,7 @@ def project_coverage(
             # UNKNOWN (empty s.mechanisms) → fail-open, technique stays applicable (mirrors 2a).
             if s.mechanisms and t.auth_mechanism and not (set(t.auth_mechanism) & s.mechanisms):
                 continue  # mechanism mismatch → not applicable → excluded from denominator
-            cells.append(_classify(s, t, blocked_hosts, ran, excluded_techniques))
+            cells.append(_classify(s, t, blocked_hosts, ran, attempted, excluded_techniques))
 
     not_assessed = tuple(t.id for t in catalog if not t.capability_present)
     return CoverageReport(cells=tuple(cells), not_assessed=not_assessed)
@@ -184,6 +233,7 @@ def _classify(
     t: Technique,
     blocked_hosts: set[str],
     ran: set[tuple[str, str]],
+    attempted: set[tuple[str, str]],
     excluded: frozenset[str],
 ) -> CoverageCell:
     def cell(bucket: str, detail: str = "") -> CoverageCell:
@@ -196,5 +246,9 @@ def _classify(
     if s.surface_id in blocked_hosts:
         return cell("blocked", "defense stopped the surface (WAF/abandoned)")
     if t.run_event and (t.run_event, s.surface_id) in ran:
+        return cell("tested")
+    # §12.64 Step 0: tested by technique identity — a recon tool with no shared run_event
+    # is marked TESTED iff its OWN technique was dispatched at this surface.
+    if (s.surface_id, t.id) in attempted:
         return cell("tested")
     return cell("not_run", "capable but no run event (wiring/self-audit)")

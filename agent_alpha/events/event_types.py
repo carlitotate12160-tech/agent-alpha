@@ -95,6 +95,13 @@ class EventType(enum.StrEnum):
     # ^ Conductor skipped a ranked candidate that failed the per-host in-scope gate.
     # Carries {entry, host, reason}. The authoritative scope gate stays in Conductor.
 
+    # ── §12.64 Step 0 (recon coverage honesty — attempt instrumentation) ──
+    RECON_TECHNIQUE_ATTEMPTED = "ReconTechniqueAttempted"
+    # ^ Alpha dispatched a recon technique at a responding surface (regardless of finding).
+    # Carries {host, technique_id}. The recon analog of StrikeCandidateAttempted: it marks a
+    # coverage-catalog technique TESTED by IDENTITY (host, technique_id) so `not_run` stops
+    # conflating "not attempted" with "attempted but not instrumented" (§12.64 / GAP-187b).
+
     # ── Phase 2.5 (passive recon — R2 subdomain discovery) ────────
     PASSIVE_DISCOVERY = "PassiveDiscovery"
     # ^ PassiveDiscovery.discover(): one event per passive crt.sh run.

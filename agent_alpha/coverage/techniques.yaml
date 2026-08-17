@@ -10,6 +10,11 @@
 #   applicable ONLY on a surface whose fingerprinted mechanism overlaps (mech_* on tech_stack,
 #   reconciled via recon.auth_surface.bare_mechanisms). Mechanism UNKNOWN on a surface => fail-open.
 # run_event: EventType whose payload.host marks this technique as TESTED on a surface.
+# tool:      (§12.64 Step 0) the scout dispatch tool that RUNS this technique. Alpha emits
+#            RECON_TECHNIQUE_ATTEMPTED{host, technique_id} on dispatch; the ledger then marks
+#            the technique TESTED by IDENTITY (host, id) — NOT by shared event type (which
+#            would false-mark siblings). This is the single-source tool↔technique join; do
+#            not maintain a second map in constants/scout.
 
 techniques:
   # ── Capable today (a tool exists + is wired on the live path) ──────────────
@@ -40,14 +45,17 @@ techniques:
     mitre: T1552.001
     surface: host
     capability_present: true
+    tool: git_exposure_probe        # §12.64 Step 0: dispatch tool → attempt-instrumented
   - id: js_secret_leak
     mitre: T1552.001
     surface: host
     capability_present: true
+    tool: js_secret_probe
   - id: wp_rest_user_enum
     mitre: T1087.001
     surface: host
     capability_present: true
+    tool: wp_rest_users
 
   # ── Capability ABSENT (roadmap — honest "we do NOT test this") ─────────────
   - id: http_basic_auth_strike

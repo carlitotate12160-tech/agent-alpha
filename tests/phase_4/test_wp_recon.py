@@ -111,6 +111,35 @@ def _route_index(route_keys: list[str], namespaces: list[str] | None = None) -> 
     )
 
 
+# ── 0. §12.64 Step 0: attempt instrumentation (wired-proof on a real Alpha) ──────
+
+
+def test_emit_technique_attempt_stamps_recon_technique_attempted() -> None:
+    """§12.64 Step 0 wired-proof: the emit helper appends RECON_TECHNIQUE_ATTEMPTED for a
+    mapped recon tool (host + technique_id by IDENTITY) and no-ops for an unmapped tool.
+    This is the signal that lifts wp_rest_user_enum out of permanent `not_run`."""
+    from agent_alpha.events.event_types import EventType
+    from agent_alpha.recon.recon_coverage import emit_recon_technique_attempt
+
+    alpha, eng = _alpha(FakeHttpClient())
+    emit_recon_technique_attempt(
+        alpha.event_store, eng, "wp_rest_users", "https://wp.lab/wp-json/wp/v2/users"
+    )
+    emit_recon_technique_attempt(alpha.event_store, eng, "generic_http_probe", "https://wp.lab/")
+    # Qodo #4: a mapped tool on a hostless (malformed) URL emits nothing — a coverage
+    # attempt cannot be attributed to a surface without a host.
+    emit_recon_technique_attempt(alpha.event_store, eng, "git_exposure_probe", "not-a-url")
+
+    evs = [
+        e
+        for e in alpha.event_store.get_events(eng)
+        if e.event_type == EventType.RECON_TECHNIQUE_ATTEMPTED
+    ]
+    assert len(evs) == 1
+    assert evs[0].payload["technique_id"] == "wp_rest_user_enum"
+    assert evs[0].payload["host"] == "wp.lab"
+
+
 # ── 1. REST users disclosure (FINDING + USER nodes) ──────────────────────────
 
 
