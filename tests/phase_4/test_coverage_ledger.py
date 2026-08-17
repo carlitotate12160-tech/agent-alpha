@@ -213,3 +213,52 @@ def test_mechanism_unknown_keeps_all_auth_techniques_fail_open() -> None:
     assert "cred_reuse" in b
     assert b["spa_json_login"] == "not_run"  # still applicable (unknown mechanism)
     assert b["sqli_auth_bypass"] == "capability_absent"
+
+
+# ── Sourcery/Qodo: catalog YAML scalar/null hardening (anti-#3 silent drop) ────
+#
+# `applies_to_stack`/`auth_mechanism` are list fields. A null key parses to None
+# (tuple(None) → TypeError) and a bare scalar parses to str (tuple("wp") → ("w","p"),
+# a silent char-split that drops the technique from EVERY denominator — a false
+# 'not tested', Lyndon #3). _as_tuple_str coerces both safely.
+
+
+def test_as_tuple_str_normalizes_scalar_null_and_list() -> None:
+    """Unit: the three YAML authoring shapes all normalize safely — the char-split
+    (`tuple('wp') == ('w','p')`) that silently dropped a stack-specific technique is gone."""
+    from agent_alpha.coverage.coverage_ledger import _as_tuple_str
+
+    assert _as_tuple_str(None) == ()  # `applies_to_stack:` (null) → stack-agnostic, no TypeError
+    assert _as_tuple_str("") == ()
+    assert _as_tuple_str("wp") == ("wp",)  # bare scalar → ONE label, NOT ("w","p")
+    assert _as_tuple_str(["wp", "tomcat"]) == ("wp", "tomcat")
+    assert _as_tuple_str([1, 2]) == ("1", "2")  # non-str list coerced to str tokens
+
+
+def test_catalog_scalar_stack_is_wired_through_load_catalog(tmp_path: Any) -> None:
+    """Integration (real parse path, not presence-only): a scalar `applies_to_stack: wp`
+    in ACTUAL YAML loads as ('wp',) so the WP gate still fires — proving the hardening is
+    wired into load_catalog, not just the helper in isolation."""
+    import pathlib
+
+    from agent_alpha.coverage.coverage_ledger import load_catalog
+
+    yaml_text = (
+        "techniques:\n"
+        "  - id: scalar_stack_probe\n"
+        "    mitre: T9999\n"
+        "    surface: host\n"
+        "    capability_present: true\n"
+        "    applies_to_stack: wp\n"  # bare scalar, NOT [wp]
+        "  - id: null_stack_probe\n"
+        "    mitre: T9998\n"
+        "    surface: host\n"
+        "    capability_present: true\n"
+        "    applies_to_stack:\n"  # null key
+    )
+    p = pathlib.Path(tmp_path) / "scalar_catalog.yaml"
+    p.write_text(yaml_text)
+    cat = {t.id: t for t in load_catalog(p)}
+    assert cat["scalar_stack_probe"].applies_to_stack == ("wp",)  # NOT ("w","p")
+    assert cat["null_stack_probe"].applies_to_stack == ()  # null → stack-agnostic, no crash
+

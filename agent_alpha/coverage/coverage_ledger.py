@@ -81,6 +81,30 @@ class CoverageReport:
     not_assessed: tuple[str, ...]  # engagement-scope capability_absent technique ids
 
 
+def _as_tuple_str(raw: Any) -> tuple[str, ...]:
+    """Normalize a YAML list-or-scalar catalog field to a ``tuple[str, ...]``.
+
+    PyYAML maps two authoring shapes to values that ``tuple(...)`` mishandles, and
+    both corrupt the single-source denominator (§12.64):
+      * an empty/``null`` key (``applies_to_stack:`` with no value) parses to ``None`` —
+        ``tuple(None)`` raises ``TypeError`` (loud, but still a crash on valid-looking YAML);
+      * a bare scalar (``applies_to_stack: wp`` instead of ``[wp]``) parses to ``str`` —
+        ``tuple("wp")`` char-splits to ``("w", "p")``, a label that matches NO stack, so the
+        technique is dropped from EVERY surface's denominator SILENTLY: a false 'not tested'
+        (Lyndon #3). This silent split is the dangerous one, not the crash.
+
+    Coercion (not fail-loud) is deliberate: a scalar ``wp`` is unambiguous intent, so we
+    accept it as ``("wp",)`` — this REMOVES the char-split corruption rather than adding a new
+    silent path. Falsy (None/""/[]/()) → stack-agnostic ``()``, matching the 'absent = any host'
+    contract on both ``applies_to_stack`` and ``auth_mechanism``.
+    """
+    if not raw:
+        return ()
+    if isinstance(raw, str):
+        return (raw,)
+    return tuple(str(x) for x in raw)
+
+
 def load_catalog(path: pathlib.Path | None = None) -> tuple[Technique, ...]:
     data = yaml.safe_load((path or _CATALOG_PATH).read_text())
     out: list[Technique] = []
@@ -93,9 +117,9 @@ def load_catalog(path: pathlib.Path | None = None) -> tuple[Technique, ...]:
                 capability_present=bool(t["capability_present"]),
                 run_event=t.get("run_event"),
                 gap_ref=t.get("gap_ref"),
-                auth_mechanism=tuple(t.get("auth_mechanism", ())),
+                auth_mechanism=_as_tuple_str(t.get("auth_mechanism")),
                 tool=t.get("tool"),
-                applies_to_stack=tuple(t.get("applies_to_stack", ())),
+                applies_to_stack=_as_tuple_str(t.get("applies_to_stack")),
             )
         )
     return tuple(out)
