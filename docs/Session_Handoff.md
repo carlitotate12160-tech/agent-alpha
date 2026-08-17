@@ -87,6 +87,12 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 - **GAP-031: crash FIXED (graceful decline + Omega); residual = CF ceiling, NOT a code slice.**
 - **Code quality target**: military-grade engineering (fail-safe, deterministic, audited, no false-success) that ENCODES APT tradecraft.
 - **Verify-before-ship, every time**: green ≠ proven; always `git pull` before writing a patch; RUNNER-SEAL ≠ AUTONOMOUS-WIRED; Oracle is the seal.
+- **Four-Operator Lineage (durable design lens, banked 2026-08-17 w/ ADR §12.65/GAP-169)** — every agent behavior maps to a real APT tradecraft; the lens is "operator OBSERVES/COMPOSES, scanner sprays". PRINCIPLE table, NOT a task list (tasks live as GAPs — do not duplicate, anti-#7):
+  - **APT29 (Cozy Bear) → low-and-slow, anti-detection.** Recon: fingerprint-first, probe only stack-relevant paths, no 404 breadth-anomaly that trips the WAF (GAP-169). Beta: bounded credential mutation under the lockout governor (never spray) + honest MFA/CAPTCHA classification.
+  - **Volt Typhoon → living-off-the-land, blend with legitimate traffic.** Recon: requests mimic a real browser exploring what EXISTS (GAP-169). Beta: post-access re-recon reuses the won session, read-only, blends as the logged-in user (§12.32).
+  - **APT41 → intelligence-driven, victim-tailored toolset.** Recon: seed from the ACTUAL fingerprinted stack, multi-stack aware (`fingerprint_all`, GAP-169). Beta: polyglot applicators tailored per stack (WP/Odoo/Laravel/Spring…), one stack at a time on real need (§12.47).
+  - **Lazarus → EXPLOIT CHAINING (Beta's signature).** Stitch small, individually-harmless leaks into total compromise; the AttackGraph chains leak → reused credential → deeper access. Only `cross_verified` per-edge oracles back a payable chain (§12.31/§12.43 — never graph traversal alone). Field-proven: alpha-ai origin-bypass → `wp-config.php.bak` → DB pass → Odoo XML-RPC → uid=2 admin.
+  - **The link:** recon precision (169) surfaces the CLEAN small footholds a scanner buries in 404 noise; the chain oracle (Beta) composes them into proof. Recon precision IN → provable chain OUT.
 
 ---
 
