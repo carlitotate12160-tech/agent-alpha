@@ -228,6 +228,23 @@ def test_recon_technique_attempt_is_called_at_dispatch():
     )
 
 
+def test_fingerprint_first_seed_is_wired_into_run_recon():
+    """GAP-169 §12.65 (RUNNER-SEAL != AUTONOMOUS-WIRED): the fingerprint-first seed must be
+    CALLED from Alpha.run_recon — not merely defined in recon/fingerprint. If it is present but
+    unwired, run_recon keeps the blind `select_leak_paths(labels=[])` pre-fetch spray and 169 is
+    an ISLAND (Lyndon #2). Reverting the reorder (dropping the call) deletes this token → fails."""
+    scout_src = _read("agents/alpha/scout.py")
+    assert "seed_fingerprint_first(self" in scout_src, (
+        "run_recon must call seed_fingerprint_first — else the fingerprint-first reorder is "
+        "unwired and the blind pre-fetch DEFAULT spray remains (GAP-169 / #2)."
+    )
+    # The old blind pre-fetch seed must be GONE (its removal is the reorder).
+    assert "select_leak_paths(labels=[]" not in scout_src, (
+        "the blind pre-fetch seed `select_leak_paths(labels=[])` must be replaced by the "
+        "fingerprint-first seed, not left alongside it (double-seed)."
+    )
+
+
 def test_recon_coverage_gate_is_wired_into_outcome_path():
     """187b-2 (RUNNER-SEAL != AUTONOMOUS-WIRED): recon_not_run_gaps + project_coverage must be
     CALLED in run_engagement_task's outcome path — not merely defined in coverage_ledger and
@@ -243,3 +260,4 @@ def test_recon_coverage_gate_is_wired_into_outcome_path():
         "run_engagement_task must project coverage and gate on recon_not_run_gaps in the "
         "COMPLETE outcome branch — else a coverage-incomplete recon falsely reports 'done' (#3)."
     )
+
