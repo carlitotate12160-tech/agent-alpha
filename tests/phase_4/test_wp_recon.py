@@ -126,6 +126,9 @@ def test_emit_technique_attempt_stamps_recon_technique_attempted() -> None:
         alpha.event_store, eng, "wp_rest_users", "https://wp.lab/wp-json/wp/v2/users"
     )
     emit_recon_technique_attempt(alpha.event_store, eng, "generic_http_probe", "https://wp.lab/")
+    # Qodo #4: a mapped tool on a hostless (malformed) URL emits nothing — a coverage
+    # attempt cannot be attributed to a surface without a host.
+    emit_recon_technique_attempt(alpha.event_store, eng, "git_exposure_probe", "not-a-url")
 
     evs = [
         e

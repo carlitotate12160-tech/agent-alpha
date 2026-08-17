@@ -18,6 +18,7 @@ Buckets (applicable cells only; non-applicable technique/surface pairs are exclu
 
 from __future__ import annotations
 
+import functools
 import pathlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -115,8 +116,14 @@ def tool_to_technique(catalog: tuple[Technique, ...] | None = None) -> dict[str,
     return mapping
 
 
-# Module-level map over the default catalog — the lookup Alpha uses at dispatch time.
-TOOL_TO_TECHNIQUE: dict[str, str] = tool_to_technique()
+@functools.lru_cache(maxsize=1)
+def default_tool_to_technique() -> dict[str, str]:
+    """Lazily-built, cached ``tool -> technique_id`` map over the DEFAULT catalog — the
+    lookup Alpha uses at dispatch time. LAZY (not a module-level constant) so importing this
+    module — and, transitively, scout — has NO file I/O side effect; the catalog read happens
+    on first use and is cached, matching ``project_coverage``'s runtime-load discipline (Qodo).
+    Raises on a duplicate tool (see :func:`tool_to_technique`). Treat the result as read-only."""
+    return tool_to_technique()
 
 
 def _event_host(payload: dict[str, Any]) -> str:
