@@ -265,6 +265,8 @@ class DefaultCredsTool:
                 success=True,
                 confidence=result.confidence,
                 findings=(finding,),
+                # GAP-116-A: carry the live session for the crawl OUTSIDE findings.
+                ephemeral_session=result.session_cookies,
             )
 
         # ── No default credential produced a positive auth signal ───
