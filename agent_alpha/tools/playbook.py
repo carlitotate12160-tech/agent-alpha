@@ -183,3 +183,18 @@ class PlaybookEngine:
                     reasoning=rule.rationale,
                 )
         return None
+
+    def match_all(self, observation: dict[str, Any]) -> list[str]:
+        """Every matching rule's tool, in priority order, deduped (top-priority first).
+
+        The multi-match counterpart to :meth:`match` (which returns only the top-1
+        decision). GAP-169 fingerprint-first recon needs EVERY capability a root exposes,
+        not just the highest-priority one — a single root can be multi-stack (WordPress
+        behind Tomcat), and single-match under-seeds the leak-path selection. Reuses the
+        SAME ``rule.matches()`` matcher as ``match`` (single source of truth, anti-#7);
+        the caller resolves which tools are capability fingerprints (recon layer)."""
+        tools: list[str] = []
+        for rule in self._rules:
+            if rule.matches(observation) and rule.tool not in tools:
+                tools.append(rule.tool)
+        return tools
