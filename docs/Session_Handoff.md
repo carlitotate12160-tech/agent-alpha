@@ -6,6 +6,22 @@ Resume with: "lanjut Agent-Alpha — 187b coverage-honesty + §12.65 GAP-169 fin
 
 ---
 
+## ▶ START HERE (new session — do this IN ORDER, do not skip the gate)
+
+1. **`git pull` + confirm HEAD.** Is the 2026-08-17 work (187b Step 0/1/2 + GAP-169 `recon/fingerprint.py`
+   + `PlaybookEngine.match_all`) MERGED to main AND green on Oracle ARM64?
+2. **If NOT merged/Oracle-green → THE SLICE IS: seal it.** Run `make check` on Oracle ARM64, fix any
+   Oracle-only failures, merge. Do NOT start GAP-186 / Beta on unsealed work (Lyndon #9). STOP here until green.
+3. **If merged & Oracle-green → first work slice = GAP-186** (alias-skip): shared-IP hosts serving an
+   identical default page still get the blind well-known spray. It RIDES GAP-169's fingerprint-first seam
+   (root-body-hash + same-IP → skip well-known) — that's why it comes right after 169. Small, opsec-relevant.
+4. **Then pivot to Beta, ORACLE-FIRST:** GAP-118 proof oracle (makes findings payable) → GAP-099 MFA-honest → rest.
+
+*(Product-priority override, Natanael's call only: to chase payable findings sooner, skip GAP-186 and start
+GAP-118 first. Otherwise GAP-186 is the recommended next slice.)* Do NOT build Gamma. Oracle = the seal.
+
+---
+
 ## Phase
 
 Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-gated).
