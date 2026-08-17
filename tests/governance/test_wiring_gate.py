@@ -109,8 +109,8 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
         "conductor/main.py",
     ),  # §12.46 Slice B: real CT/DNS origin discovery injected on the live Conductor path (discover_origin_ips transitively via this)
     "protection_detected": (
-        "agents/alpha/scout.py",
-    ),  # Bug #26 Layer 5: WAF posture suppresses blind path spray in run_recon (consumer wired)
+        "recon/fingerprint.py",
+    ),  # Bug #26 Layer 5: WAF posture suppresses blind path spray in seed_fingerprint_first (GAP-169)
     "historical_paths": (
         "agents/alpha/scout.py",
     ),  # Bug #26 Layer 1: OTX historical paths seeded into the frontier in run_recon (consumer wired)

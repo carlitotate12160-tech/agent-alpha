@@ -46,6 +46,7 @@ from agent_alpha.llm.orchestrator import OrientationError
 from agent_alpha.recon.auth_surface import detect_auth_surface_labels, fingerprint_auth_mechanism
 from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
+from agent_alpha.recon.fingerprint import seed_fingerprint_first
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
 from agent_alpha.recon.origin_binding import resolve_and_bind_origin
 from agent_alpha.recon.passive_intel import passive_intel_signal_for_host
@@ -169,6 +170,7 @@ class Alpha:
         # Per-run state, initialised in run_recon().
         self._engagement_id: str = ""
         self._work_queue: list[str] = []
+        self._prefetched: dict[str, Any] = {}  # GAP-169: root prefetch, consumed by 1st pop
         self._probed: set[str] = set()
         self._findings: int = 0
         self._seo_analyzed_hosts: set[str] = set()
@@ -267,12 +269,9 @@ class Alpha:
         intel_signal = passive_intel_signal_for_host(
             self.event_store, engagement_id, parsed.hostname or parsed.netloc
         )
-        # Layer 5 — WAF/CDN detected (protection_detected) → suppress the blind
-        # DEFAULT_LEAK_PATHS spray on this unfingerprinted host; probe stack-specific
-        # only AFTER a fingerprint, avoiding the 404 breadth-anomaly that trips the WAF.
-        suppress_blind = intel_signal.protection_detected is not None
-        for path in self._planner.select_leak_paths(labels=[], suppress_default=suppress_blind):
-            self.enqueue_discovered_url(f"{root}{path}")
+        # GAP-169 §12.65: fingerprint the root FIRST, then seed leak paths from real labels
+        # (not a blind DEFAULT spray). Primes _prefetched (no double GET). See recon/fingerprint.
+        seed_fingerprint_first(self, target_url, root, intel_signal)
         # Layer 1 — enqueue paths the site historically served (OTX historical_paths):
         # real paths beat blind guesses and generate no 404 noise.
         for path in intel_signal.historical_paths:
@@ -346,6 +345,7 @@ class Alpha:
         those across siblings is a separate efficiency refinement — tracked)."""
         self._engagement_id = engagement_id
         self._work_queue = [target_url]
+        self._prefetched = {}  # GAP-169: cleared per target (content-keyed, unsafe to share)
         self._findings = 0
         self._seo_analyzed_hosts = set()
         self._analyzable_probes = 0
@@ -456,7 +456,7 @@ class Alpha:
         # non-analysable probe — NOT a crash and NOT a finding. The bounded
         # loop continues; run_recon() then reports FAILED (anti-Lyndon #3).
         try:
-            resp = self.http_client.get(url)
+            resp = self._prefetched.pop(url, None) or self.http_client.get(url)
         except HttpClientError:
             host = urlparse(url).hostname or urlparse(url).netloc
             # R1: mark dead ONLY on a root/homepage transport failure. A non-root
