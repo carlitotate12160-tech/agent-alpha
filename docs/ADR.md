@@ -4022,3 +4022,62 @@ unreached" — not "clear."
 `derive_terminal_status`) is retained as a **second, independent** gate whose failure mode
 differs from scout's per-target self-check — catching a bug in the per-target logic (defense
 in depth, not a duplicate re-walk).
+
+---
+
+### §12.65 Fingerprint-First Recon Reorder (GAP-169)
+
+**Status:** ACCEPTED
+**Phase:** 4 (recon direction) — depends on §12.64 coverage honesty (Step 0 & 187b-1 merged)
+**Verified against:** HEAD `32f0781e` (main).
+**Lane / MODEL:** recon control-flow reorder → GPT-5.4 High Thinking (alt: Claude Opus 4.8 Medium).
+Path-selection/fingerprint DATA already exists — this is a wiring/ordering change, not new capability.
+
+---
+
+#### 1. Context — the ordering defect (code-confirmed, NOT a rebuild)
+
+`run_recon` seeds leak paths with **`select_leak_paths(labels=[], suppress_default=suppress_blind)`**
+(`scout.py:274`) because, per its own comment, *"nothing is fingerprinted yet at run start"*: the root
+is fetched INSIDE the cognitive loop and the fingerprint is **reactive**
+(`_handle_capability_fingerprint`, mid-loop). Stack-specific paths only arrive later via
+`CapabilitySpec.frontier_seeds` once a stack is confirmed.
+
+On a non-WP host (e.g. Odoo on `quantum-laboratories.com`, Java on `demo.testfire.net`, generic SPA),
+Alpha sprays ~20 blind paths (`wp-config.php`, `xmlrpc.php`, `wp-login.php`, `wp-json/wp/v2/users`,
+etc.) at `t=0` because `labels=[]` defaults to the generic+blind pool. **73% of initial HTTP
+dispatches are 404 waste** that leak intent to WAF/SIEM before Alpha knows what it is talking to.
+
+The fix is NOT a new subsystem. The components all exist:
+  * `tls_impersonate_fetch(root_url)` already exists (`reach_transport.py`);
+  * `infer_capability_from_response(root_resp)` already extracts tech_stack labels at line 0;
+  * `select_leak_paths(labels=...)` ALREADY filters by stack when given labels;
+  * `CapabilitySpec.frontier_seeds` ALREADY maps stack → high-value paths.
+
+They are simply called in the **wrong order** (blind spray → reactive fingerprint, instead of
+proactive fingerprint → targeted spray).
+
+---
+
+#### 2. Decision — Fingerprint-First Protocol (Strict t=0 Proactive Root Probe)
+
+##### 2.1 Control-Flow Reorder in `run_recon` (before cognitive loop):
+
+```
+t=0: Pre-loop proactive root fetch:
+     resp = tls_impersonate_fetch(target_root)
+     labels = infer_capability_from_response(resp) + passive_intel_labels
+     persist NodeDiscovered(host, labels) + emit CapabilityFingerprinted event
+     ↓
+t=1: Targeted frontier seeding:
+     seeds = select_leak_paths(labels=labels, suppress_default=True)
+     frontier.enqueue_all(seeds)
+     ↓
+t=2: Cognitive loop begins with precision frontier (zero blind spray)
+```
+
+##### 2.2 Invariant Rules:
+1. **No blind leak probing before root fingerprint:** `select_leak_paths` must never be called with `labels=[]` when `target_root` is reachable.
+2. **Fail-safe fallback:** If root probe times out or is unreachable, fall back to conservative generic seeds with `labels=['unknown']`.
+3. **Synergy with §12.64 / GAP-187b:** Because `NodeDiscovered` with fingerprinted stack labels is emitted at `t=0`, `CoverageLedger` immediately knows the surface stack and accurately excludes non-applicable techniques (e.g. `wp_rest_user_enum` is excluded on Odoo/Java from `t=0`), preventing spurious `not_run` violations.
+
