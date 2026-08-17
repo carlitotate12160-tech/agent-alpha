@@ -50,6 +50,13 @@ class AuthResult:
     proof_request: dict[str, Any]
     proof_response: dict[str, Any]
     session_cookie_name: str | None = None
+    # GAP-116-A: live session cookie(s) name->value, for in-memory reuse by the
+    # authenticated crawl (116-B). This is NOT the raw SECRET (the password is still
+    # never carried — the AuthResult invariant holds); it is the session token the
+    # applicator itself already holds (see the confirm-fetch below). ``repr=False``
+    # keeps the value out of logs; it is NEVER persisted (Beta captures it into
+    # runtime state only). None when no cookie session was established.
+    session_cookies: dict[str, str] | None = dataclasses.field(default=None, repr=False)
     error: str = ""
 
 
@@ -188,6 +195,9 @@ class HttpFormApplicator(CredentialApplicator):
                 "confirm_body_excerpt": (confirm_resp.text or "")[:_PROOF_BODY_LIMIT],
             },
             session_cookie_name=session_cookie_name,
+            # GAP-116-A: the same parsed cookie(s) already proven to authenticate the
+            # confirm-fetch above — hand them up (in-memory) for the authenticated crawl.
+            session_cookies=cookies or None,
         )
 
 
@@ -287,6 +297,12 @@ class WpLoginApplicator(CredentialApplicator):
                 "header_names": list(resp.headers.keys()),
             },
             session_cookie_name=session_cookie_name,
+            # GAP-116-A: hand up the logged-in session cookie for the authenticated crawl.
+            # CAVEAT (116-B): WP issues several cookies (wordpress_logged_in_*, _sec_*);
+            # ``headers.get("set-cookie")`` + ``_parse_set_cookie`` capture the FIRST only.
+            # 116-B must verify the reused cookie set actually authenticates /wp-admin/
+            # before trusting the auth-vs-unauth diff (do not assume — GAP-080 residue).
+            session_cookies=_parse_set_cookie(set_cookie) or None,
         )
 
 

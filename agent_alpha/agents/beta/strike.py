@@ -189,6 +189,11 @@ class Beta:
         self._credential_refs: list[str] = []
         self._session_token_refs: list[str] = []
         self._proof_artifacts: list[str] = []
+        # GAP-116-A: live authenticated session (cookie name->value) held IN-MEMORY for
+        # the authenticated crawl (116-B). NEVER persisted / logged — only the session
+        # NAME reaches the event store (see the session_token_ref mint below). Reset per
+        # target so a won session never leaks across sibling targets.
+        self._won_session_cookies: dict[str, str] | None = None
         self._strike_attempted: bool = False
 
     # ── Public entry point ──────────────────────────────────────
@@ -225,6 +230,7 @@ class Beta:
         self._credential_refs = []
         self._session_token_refs = []
         self._proof_artifacts = []
+        self._won_session_cookies = None
         # Reset the one-shot latch too: without this a REUSED Beta silently skips the
         # strike on the 2nd+ target (step() short-circuits on stale True → FAILED that
         # looks like "no access", not "never tried"). Per-run state must reset per run.
@@ -428,6 +434,10 @@ class Beta:
 
         # Update per-run state with minted refs.
         self._access_level = access_level
+        # GAP-116-A: capture the live session for the authenticated crawl (116-B).
+        # In-memory only — NOT appended to any event payload (the session NAME is what
+        # gets persisted, via session_token_ref above). None when the tool set none.
+        self._won_session_cookies = result.ephemeral_session
         if credential_ref:
             self._credential_refs.append(credential_ref)
         elif "credential_node_id" in finding:

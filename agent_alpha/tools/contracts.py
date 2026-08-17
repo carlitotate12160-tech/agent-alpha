@@ -52,6 +52,14 @@ class ToolResult:
     findings: tuple[dict[str, Any], ...] = ()
     proof_artifacts: tuple[str, ...] = ()
     error: str | None = None
+    # GAP-116-A: live authenticated session (cookie name->value) for in-memory reuse
+    # by the authenticated crawl (116-B). EPHEMERAL — deliberately OUTSIDE ``findings``
+    # (the persist/report surface) so no session value ever reaches the event store or
+    # a report. ``repr=False`` keeps the value out of logs/tracebacks. Beta captures it
+    # into per-run state and the existing deep-redact + session-name-only persistence
+    # path is unchanged. None when the winning tool established no HTTP session (e.g.
+    # a DB-tier applicator) — the crawl then simply does not run (honest no-op).
+    ephemeral_session: dict[str, str] | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:

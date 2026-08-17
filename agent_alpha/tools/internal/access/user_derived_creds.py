@@ -230,6 +230,8 @@ class UserDerivedCredsTool:
                         success=True,
                         confidence=result.confidence,
                         findings=(finding,),
+                        # GAP-116-A: carry the live session for the crawl OUTSIDE findings.
+                        ephemeral_session=result.session_cookies,
                     )
             if requests_used >= budget.max_requests:
                 break

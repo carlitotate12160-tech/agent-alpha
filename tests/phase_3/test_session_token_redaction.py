@@ -20,6 +20,7 @@ from agent_alpha.conductor.applicator_factory import BoundApplicator
 from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
+from agent_alpha.tools.contracts import ResourceBudget, ToolResult
 from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
 
 ENTRY = "http://lab-target.invalid/login"
@@ -109,3 +110,90 @@ def test_session_token_value_never_persisted_to_event_store() -> None:
 
     persisted = json.dumps([e.payload for e in beta_events.get_events(eng)], default=str)
     assert SECRET not in persisted, "session token value leaked into the event store (#45)"
+
+
+# ── GAP-116-A: authenticated-session propagation (prerequisite for the 116-B crawl) ──
+# The session VALUE must reach Beta in-memory (so the crawl can reuse it) while the
+# #45 persistence invariant above stays intact. These pin BOTH halves of that contract.
+
+
+def _beta_with_session() -> tuple[Beta, str, InMemoryEventStore]:
+    auth = AuthorizationStateMachine(event_store=InMemoryEventStore())
+    rec = auth.create_engagement(client_id="c", target=HOST)
+    auth.enable_recon(
+        rec.engagement_id, Scope(ip_ranges=["10.0.0.0/30"], domains=[HOST], exclusions=[])
+    )
+    auth.enable_active(rec.engagement_id)
+    beta_events = InMemoryEventStore()
+    http = _Fake()
+    beta = Beta(
+        cred_applicators=[BoundApplicator(HttpFormApplicator(http_client=http), ENTRY)],
+        authorization=auth,
+        graph_store=NetworkXGraphStore(),
+        event_store=beta_events,
+        orchestrator=_StubOrchestrator(),
+        http_client=http,
+    )
+    return beta, rec.engagement_id, beta_events
+
+
+def test_won_session_reaches_beta_in_memory_but_never_persists() -> None:
+    beta, eng, beta_events = _beta_with_session()
+
+    beta.run_strike(eng, ENTRY)
+
+    # Capability: the live session is available in-memory for the 116-B crawl.
+    assert beta._won_session_cookies == {"session": SECRET}, (
+        "116-A: the won session must reach Beta in-memory so the authenticated crawl can reuse it"
+    )
+    # Invariant preserved: holding it in-memory did NOT leak it into the event store.
+    persisted = json.dumps([e.payload for e in beta_events.get_events(eng)], default=str)
+    assert SECRET not in persisted, (
+        "116-A must not regress #45: session value stayed out of storage"
+    )
+
+
+def test_won_session_reinitialised_on_each_run_strike() -> None:
+    beta, eng, _ = _beta_with_session()
+    # Simulate a prior target's live session lingering on the reused Beta instance.
+    beta._won_session_cookies = {"stale": "leftover_from_previous_target"}
+    beta.run_strike(eng, ENTRY)
+    # run_strike's per-run init must drop the stale session before capturing the new one
+    # (no session leaks across sibling targets — the Bug #35 class of state leak).
+    assert beta._won_session_cookies == {"session": SECRET}, (
+        "116-A: run_strike must re-init the won session (no stale session across targets)"
+    )
+
+
+def test_ephemeral_session_excluded_from_repr_and_findings_surface() -> None:
+    r = ToolResult(
+        tool="cred_reuse",
+        success=True,
+        confidence=0.9,
+        findings=({"access_level": "admin", "username": "admin"},),
+        ephemeral_session={"session": SECRET},
+    )
+    assert SECRET not in repr(r), (
+        "116-A: session value must not appear in ToolResult repr (repr=False)"
+    )
+    assert SECRET not in json.dumps(r.findings, default=str), (
+        "116-A: session value must never enter the findings/persist surface"
+    )
+
+
+def test_applicator_hands_up_live_session_cookies() -> None:
+    http = _Fake()
+    res = HttpFormApplicator(http_client=http).apply(
+        username="admin",
+        secret="pw",
+        target=ENTRY,
+        budget=ResourceBudget(max_requests=5, max_seconds=5, max_cost_usd=0.0),
+    )
+    assert res.success
+    assert res.session_cookies == {"session": SECRET}, (
+        "116-A: applicator must return the live session"
+    )
+    assert SECRET not in repr(res), (
+        "116-A: AuthResult repr must not leak the session value (repr=False)"
+    )
+
