@@ -69,6 +69,7 @@ from agent_alpha.config.constants import (
     SOW_MAX_FILE_SIZE_MB,
 )
 from agent_alpha.config.stores import SecretsVaultProvider, StoreProvider, build_event_store
+from agent_alpha.coverage.coverage_ledger import project_coverage, recon_not_run_gaps
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.reachability import unreachable_hosts
 from agent_alpha.events.store import TransientStoreError
@@ -555,6 +556,35 @@ def run_engagement_task(self: Any, engagement_id: str, tenant_id: str | None) ->
                     )
             else:
                 _record_failure("recon_incomplete")
+        else:
+            # 187b-2: recon finished the TASK cleanly (COMPLETE) but may have left a
+            # dispatchable recon technique unrun on a discovered surface (§12.64 not_run).
+            # That is honest 'partial' coverage, not 'done' — anti-#3 on the external status
+            # surface. This layer does NOT touch the handoff/advance status emitted above:
+            # advance already routed COMPLETE (Beta stays eligible on the mapped surface); a
+            # partial-COVERAGE run is not an abandoned one. project_coverage over THIS
+            # engagement's stream is the SAME projection Omega reporting uses — new autonomous
+            # wiring, enforced by tests/governance/test_wiring_gate.py. Fail-open: a coverage
+            # projection error must never crash a task that already completed (audit-honesty
+            # is non-critical, same spirit as the walled append).
+            try:
+                gaps = recon_not_run_gaps(project_coverage(target_store.get_events(engagement_id)))
+                if gaps:
+                    target_store.append(
+                        event_type=EventType.ENGAGEMENT_RUN_PARTIAL,
+                        engagement_id=engagement_id,
+                        agent="CONDUCTOR",
+                        payload={
+                            "reason": "coverage_incomplete",
+                            "not_run": list(gaps),
+                            "tenant_id": tenant_id,
+                        },
+                    )
+            except Exception:  # noqa: BLE001 — coverage audit must not crash the task
+                _log.exception(
+                    "Failed to project recon coverage for %s (partial-gate skipped)",
+                    engagement_id,
+                )
 
         return {"engagement_id": engagement_id, "status": "completed"}
 

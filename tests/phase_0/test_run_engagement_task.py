@@ -196,6 +196,80 @@ def test_task_dead_recon_projects_failed_status(
     assert project_run_status(store.get_events(engagement_id)).status == "failed"
 
 
+def test_task_complete_recon_with_coverage_gap_projects_partial(
+    celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """187b-2: a task-COMPLETE, non-walled recon that discovered a host but left its recon
+    techniques `not_run` (no RECON_TECHNIQUE_ATTEMPTED) surfaces as "partial", not "done"
+    (anti-#3 on the external status). The A2A handoff still carried COMPLETE (advance / Beta
+    eligibility unaffected); this only corrects the run_status surface."""
+    from agent_alpha.conductor import main as conductor_main
+
+    store = conductor_main.event_store
+    engagement_id = _authorized_engagement(store)
+
+    def _recon_discovers_unprobed_host(*a: object, **k: object) -> SimpleNamespace:
+        # A host is mapped, but git/js leak probes were never dispatched → they stay not_run,
+        # so recon_not_run_gaps is non-empty → coverage_incomplete → partial.
+        store.append(
+            EventType.NODE_DISCOVERED,
+            engagement_id,
+            "alpha",
+            {"type": "asset", "properties": {"host": "h.x"}},
+        )
+        return SimpleNamespace(
+            node_count=1,
+            targets_scanned=1,
+            status=a2a_pb2.COMPLETE,
+            wall_verdict=SimpleNamespace(walled=False),
+        )
+
+    monkeypatch.setattr(recon_runner, "run_recon_for_engagement", _recon_discovers_unprobed_host)
+
+    run_engagement_task(engagement_id, "test-tenant")
+
+    assert project_run_status(store.get_events(engagement_id)).status == "partial"
+
+
+def test_task_complete_recon_fully_probed_stays_done(
+    celery_eager_config: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """187b-2 (the other side): a COMPLETE recon that dispatched every applicable recon
+    technique on the host (git/js attempted; wp excluded on a non-WP host by 187b-1) has NO
+    coverage gap → stays "done", never falsely "partial". Guards against an always-partial gate."""
+    from agent_alpha.conductor import main as conductor_main
+
+    store = conductor_main.event_store
+    engagement_id = _authorized_engagement(store)
+
+    def _recon_probes_everything(*a: object, **k: object) -> SimpleNamespace:
+        store.append(
+            EventType.NODE_DISCOVERED,
+            engagement_id,
+            "alpha",
+            {"type": "asset", "properties": {"host": "h.x"}},
+        )
+        for tid in ("git_exposure_leak", "js_secret_leak"):
+            store.append(
+                EventType.RECON_TECHNIQUE_ATTEMPTED,
+                engagement_id,
+                "alpha",
+                {"host": "h.x", "technique_id": tid},
+            )
+        return SimpleNamespace(
+            node_count=1,
+            targets_scanned=1,
+            status=a2a_pb2.COMPLETE,
+            wall_verdict=SimpleNamespace(walled=False),
+        )
+
+    monkeypatch.setattr(recon_runner, "run_recon_for_engagement", _recon_probes_everything)
+
+    run_engagement_task(engagement_id, "test-tenant")
+
+    assert project_run_status(store.get_events(engagement_id)).status == "done"
+
+
 def test_task_refuses_tenant_mismatch(celery_eager_config: None) -> None:
     """Worker enforces tenant ownership: tenant_id mismatch → refusal."""
     # Use the global event_store that the task closes over
@@ -451,8 +525,10 @@ def test_task_fails_closed_without_signed_profile(
     monkeypatch.setattr(
         recon_runner,
         "run_recon_for_engagement",
-        lambda *a, **k: called.append(k)
-        or SimpleNamespace(node_count=1, targets_scanned=1, status=a2a_pb2.COMPLETE),
+        lambda *a, **k: (
+            called.append(k)
+            or SimpleNamespace(node_count=1, targets_scanned=1, status=a2a_pb2.COMPLETE)
+        ),
     )
 
     result = run_engagement_task(engagement_id, "test-tenant")
@@ -491,8 +567,10 @@ def test_task_with_signed_profile_reaches_recon(
     monkeypatch.setattr(
         recon_runner,
         "run_recon_for_engagement",
-        lambda *a, **k: captured.update(k)
-        or SimpleNamespace(node_count=1, targets_scanned=1, status=a2a_pb2.COMPLETE),
+        lambda *a, **k: (
+            captured.update(k)
+            or SimpleNamespace(node_count=1, targets_scanned=1, status=a2a_pb2.COMPLETE)
+        ),
     )
 
     result = run_engagement_task(engagement_id, "test-tenant")

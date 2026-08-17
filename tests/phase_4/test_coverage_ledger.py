@@ -262,3 +262,71 @@ def test_catalog_scalar_stack_is_wired_through_load_catalog(tmp_path: Any) -> No
     assert cat["scalar_stack_probe"].applies_to_stack == ("wp",)  # NOT ("w","p")
     assert cat["null_stack_probe"].applies_to_stack == ()  # null → stack-agnostic, no crash
 
+
+# ── 187b-2: recon coverage gate — recon_not_run_gaps (feeds GAP-189 RUN_PARTIAL) ──
+#
+# A task-COMPLETE recon that left a dispatchable recon technique `not_run` on a discovered
+# surface is honestly 'partial', not 'done' (anti-#3). The gate scopes to Alpha-owned
+# surfaces (surface != auth_surface): auth_surface techniques are Beta's and are `not_run`
+# by construction during recon, so counting them would mark EVERY engagement partial (noise).
+
+
+def test_recon_gap_flags_unrun_host_technique() -> None:
+    """A discovered host with NO recon attempt → the capable host techniques are `not_run`
+    and surface as recon gaps (the honest 'we could have probed and didn't')."""
+    from agent_alpha.coverage.coverage_ledger import recon_not_run_gaps
+
+    gaps = recon_not_run_gaps(project_coverage([_host_ev("h.x")]))
+    assert "git_exposure_leak" in gaps
+    assert "js_secret_leak" in gaps
+
+
+def test_recon_gap_excludes_auth_surface_strike_cardinal() -> None:
+    """CARDINAL (anti-noise): an auth_surface with an unrun STRIKE technique (cred_reuse) is
+    NOT a recon gap — it is Beta's, `not_run` by construction during recon. If this leaks,
+    EVERY recon is falsely 'partial' and the honest signal is drowned (#3 creeps back)."""
+    from agent_alpha.coverage.coverage_ledger import recon_not_run_gaps
+
+    # login-form host → auth_surface projected with cred_reuse/spa_json_login `not_run`.
+    report = project_coverage([_node_ev("hub.x", ["login-form"])])
+    assert _buckets(report, "auth_surface")["cred_reuse"] == "not_run"  # precondition
+    gaps = recon_not_run_gaps(report)
+    assert "cred_reuse" not in gaps  # STRIKE not_run is NOT a recon gap
+    assert "spa_json_login" not in gaps
+
+
+def test_recon_gap_empty_when_all_recon_tested() -> None:
+    """A host whose recon techniques were all dispatched (§12.64 attempts) → no recon gap →
+    the engagement stays 'done', not falsely 'partial'."""
+    from agent_alpha.coverage.coverage_ledger import recon_not_run_gaps
+
+    host = _host_ev("h.x")
+    attempts = [
+        _Ev("ReconTechniqueAttempted", {"host": "h.x", "technique_id": tid})
+        for tid in ("git_exposure_leak", "js_secret_leak")
+    ]
+    gaps = recon_not_run_gaps(project_coverage([host, *attempts]))
+    assert gaps == ()  # every applicable Alpha-owned host technique ran
+
+
+def test_recon_gap_gate_is_surface_ownership_not_tool_enumeration() -> None:
+    """FORWARD-PROPERTY (function contract, not current projection): the gate keys on surface
+    OWNERSHIP (any non-auth_surface not_run), NOT the §12.64 {git,js,wp} tool set. A
+    fronted_host `not_run` (e.g. origin_exposure_bypass) is a gap the moment such a surface is
+    projected — proving D auto-covers it without editing an enumerated list (unlike option A).
+    NB: project_coverage does not emit fronted_host surfaces TODAY (separate slice); this tests
+    recon_not_run_gaps' pure contract over a hand-built report, so the claim is honest."""
+    from agent_alpha.coverage.coverage_ledger import (
+        CoverageCell,
+        CoverageReport,
+        recon_not_run_gaps,
+    )
+
+    report = CoverageReport(
+        cells=(
+            CoverageCell("cf.x", "fronted_host", "origin_exposure_bypass", "not_run"),
+            CoverageCell("hub.x", "auth_surface", "cred_reuse", "not_run"),  # excluded
+        ),
+        not_assessed=(),
+    )
+    assert recon_not_run_gaps(report) == ("origin_exposure_bypass",)
