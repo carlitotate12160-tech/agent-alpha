@@ -215,7 +215,9 @@ def run_odoo_chain_live_fire(
     #    the field-prove reports the tier an autonomous engagement would reach.
     if secrets_manager is None:
         raise ValueError("secrets_manager is required for production verification")
-    verify_access_nodes(graph_store, event_store, rec.engagement_id, secrets_manager=secrets_manager)
+    verify_access_nodes(
+        graph_store, event_store, rec.engagement_id, secrets_manager=secrets_manager
+    )
 
     return OdooChainResult(
         leak_creds_added=creds_added,
