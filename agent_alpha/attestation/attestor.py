@@ -101,6 +101,61 @@ class CredReuseAttestor:
         self._secrets_manager = secrets_manager
         self._engagement_id = engagement_id
 
+    def _vault_resolves(self, cred_node: Any, ref: str) -> bool:
+        """Return True when ``ref`` resolves to non-empty, engagement-owned vaulted
+        material, or when no vault is configured (legacy unit/tests fallback).
+
+        GAP-118: with a vault, a non-resolving / foreign-engagement / empty payload
+        is NOT proven harvested material → False. The secret_ref is NEVER logged
+        (ADR §8l); only the credential node id identifies the affected credential.
+        """
+        if self._secrets_manager is None:
+            return True
+
+        from agent_alpha.security.secrets import DecryptionError, SecretNotFoundError
+
+        try:
+            if self._engagement_id is not None:
+                secret = self._secrets_manager.retrieve_for_engagement(ref, self._engagement_id)
+            else:
+                secret = self._secrets_manager.retrieve(ref)
+        except (SecretNotFoundError, DecryptionError):
+            # Expected downgrade for material that is not truly harvested (e.g. the
+            # alpha-ai bare-UUID false-provenance): DEBUG, not WARNING — it is NOT a
+            # vault outage.
+            logger.debug(
+                "credential %s did not resolve to engagement-owned material — access "
+                "stays INCONCLUSIVE (not proven harvested)",
+                cred_node.id,
+            )
+            return False
+        except Exception:  # noqa: BLE001 — infra outage must not crash the COMPLETE path
+            # A vault OUTAGE (connection/RLS/backend failure) is NOT the same as
+            # "unproven material". Fail CLOSED (False) and log WARNING so it is
+            # distinguishable from the DEBUG downgrade above.
+            logger.warning(
+                "vault resolve failed for credential %s — treating access as "
+                "INCONCLUSIVE (vault outage, not a verdict)",
+                cred_node.id,
+                exc_info=True,
+            )
+            return False
+        return bool(secret)
+
+    def _has_bound_proof(self, node: Any, cred_node: Any, cred_properties: Any) -> bool:
+        """Return True when the access node has a bound authenticated_request proof."""
+        for artifact in node.proof_artifacts:
+            if artifact.type != "authenticated_request":
+                continue
+            # subject_ref must match the enabling credential's identity (id or secret_ref).
+            if artifact.subject_ref in (cred_node.id, cred_properties.secret_ref):
+                if (
+                    artifact.access_level == getattr(node.properties, "level", "")
+                    and artifact.target in node.id
+                ):
+                    return True
+        return False
+
     def verify(self, node: Any, graph: Any) -> Verdict:
         """Independently verify an access node.
 
@@ -136,68 +191,19 @@ class CredReuseAttestor:
         # Credential must have real harvested material. When a vault is available,
         # the secret_ref must RESOLVE to a stored secret; otherwise a bare UUID or
         # other non-vault pointer can falsely cross-verify a non-harvested access.
-        if not isinstance(cred_node.properties, CredentialProperties):
+        cred_properties = cred_node.properties
+        if not isinstance(cred_properties, CredentialProperties):
             return Verdict.INCONCLUSIVE
-        ref = cred_node.properties.secret_ref
+        ref = cred_properties.secret_ref
         if not ref:
             return Verdict.INCONCLUSIVE
-        if self._secrets_manager is not None:
-            from agent_alpha.security.secrets import DecryptionError, SecretNotFoundError
-
-            try:
-                if self._engagement_id is not None:
-                    secret = self._secrets_manager.retrieve_for_engagement(ref, self._engagement_id)
-                else:
-                    secret = self._secrets_manager.retrieve(ref)
-            except (SecretNotFoundError, DecryptionError):
-                # Expected downgrade for material that is not truly harvested (e.g. the
-                # alpha-ai bare-UUID false-provenance): DEBUG, not WARNING — it is NOT a
-                # vault outage. The secret_ref is NEVER logged (CodeQL clear-text rule);
-                # only the credential node id (a project-standard node identifier, not a
-                # secret) gives the auditor a trail for WHY the access stayed INCONCLUSIVE.
-                logger.debug(
-                    "credential %s did not resolve to engagement-owned material — access "
-                    "stays INCONCLUSIVE (not proven harvested)",
-                    cred_node.id,
-                )
-                return Verdict.INCONCLUSIVE
-            except Exception:  # noqa: BLE001 — infra outage must not crash the COMPLETE path
-                # A vault OUTAGE (connection/RLS/backend failure) is NOT the same as
-                # "unproven material". Log it as WARNING (auditable and distinguishable
-                # from the DEBUG downgrade above) and still fail CLOSED to INCONCLUSIVE —
-                # an outage must never falsely promote, nor abort the whole engagement.
-                # The secret_ref is NEVER logged; only the credential node id identifies
-                # the affected credential.
-                logger.warning(
-                    "vault resolve failed for credential %s — treating access as "
-                    "INCONCLUSIVE (vault outage, not a verdict)",
-                    cred_node.id,
-                    exc_info=True,
-                )
-                return Verdict.INCONCLUSIVE
-            if not secret:
-                # An empty vaulted payload is NOT harvested material (Qodo empty-result).
-                return Verdict.INCONCLUSIVE
+        if not self._vault_resolves(cred_node, ref):
+            return Verdict.INCONCLUSIVE
 
         # Access node must have proof artifacts (real auth event, not inferred).
         if not node.proof_artifacts:
             return Verdict.INCONCLUSIVE
-
-        # At least one artifact must be a bound authenticated_request.
-        has_bound_proof = False
-        for a in node.proof_artifacts:
-            if a.type == "authenticated_request":
-                # subject_ref must match the enabling credential's identity (id or secret_ref)
-                if a.subject_ref in (cred_node.id, cred_node.properties.secret_ref):
-                    # access_level and target must match this access node
-                    if (
-                        a.access_level == getattr(node.properties, "level", "")
-                        and a.target in node.id
-                    ):
-                        has_bound_proof = True
-                        break
-
-        if not has_bound_proof:
+        if not self._has_bound_proof(node, cred_node, cred_properties):
             return Verdict.INCONCLUSIVE
 
         # All independent checks pass: confirmed.
