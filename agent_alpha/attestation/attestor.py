@@ -142,19 +142,37 @@ class CredReuseAttestor:
             return False
         return bool(secret)
 
-    def _has_bound_proof(self, node: Any, cred_node: Any, cred_properties: Any) -> bool:
-        """Return True when the access node has a bound authenticated_request proof."""
-        for artifact in node.proof_artifacts:
-            if artifact.type != "authenticated_request":
-                continue
-            # subject_ref must match the enabling credential's identity (id or secret_ref).
-            if artifact.subject_ref in (cred_node.id, cred_properties.secret_ref):
-                if (
-                    artifact.access_level == getattr(node.properties, "level", "")
-                    and artifact.target in node.id
-                ):
-                    return True
-        return False
+    @staticmethod
+    def _find_backing_credential(node: Any, graph: Any) -> Any:
+        """The CREDENTIAL node reaching this access via an incoming ENABLES edge, else None.
+
+        No instance state (static): pure graph traversal. Extracted from ``verify`` to keep
+        its cyclomatic complexity bounded."""
+        from agent_alpha.graph.nodes import NodeType, RelationshipType
+
+        for edge in graph.all_edges():
+            if edge.target_id == node.id and edge.relationship == RelationshipType.ENABLES:
+                source = graph.get_node(edge.source_id)
+                if source and source.type == NodeType.CREDENTIAL:
+                    return source
+        return None
+
+    @staticmethod
+    def _has_bound_auth_proof(node: Any, cred_node: Any) -> bool:
+        """True iff some ``authenticated_request`` artifact is bound to BOTH the enabling
+        credential (``subject_ref`` == cred id or its secret_ref) AND this access node
+        (``access_level`` and ``target`` match). Independent auth signal, not self-report.
+
+        No instance state (static). The four conditions are collapsed into one ``and`` chain."""
+        level = getattr(node.properties, "level", "")
+        subjects = (cred_node.id, cred_node.properties.secret_ref)
+        return any(
+            a.type == "authenticated_request"
+            and a.subject_ref in subjects
+            and a.access_level == level
+            and a.target in node.id
+            for a in node.proof_artifacts
+        )
 
     def verify(self, node: Any, graph: Any) -> Verdict:
         """Independently verify an access node.
@@ -162,48 +180,29 @@ class CredReuseAttestor:
         Checks (all must pass for CONFIRMED):
           1. Node is ACCESS_LEVEL type.
           2. Incoming ENABLES edge from a CREDENTIAL node exists.
-          3. Credential has a secret_ref that resolves in the vault when a vault is available.
-          4. Access node has proof_artifacts containing "authenticated_request".
+          3. Credential's secret_ref resolves to engagement-owned harvested material (Rule 3).
+          4. Access node has an authenticated_request proof bound to this cred + access.
           5. Does NOT rely on node.verified (tool self-report).
         """
-        from agent_alpha.graph.nodes import (
-            CredentialProperties,
-            NodeType,
-            RelationshipType,
-        )
+        from agent_alpha.graph.nodes import CredentialProperties, NodeType
 
         # Gate: only ACCESS_LEVEL nodes are eligible.
         if not hasattr(node, "type") or node.type != NodeType.ACCESS_LEVEL:
             return Verdict.INCONCLUSIVE
 
-        # Find the backing CREDENTIAL via an incoming ENABLES edge.
-        cred_node = None
-        for edge in graph.all_edges():
-            if edge.target_id == node.id and edge.relationship == RelationshipType.ENABLES:
-                source = graph.get_node(edge.source_id)
-                if source and source.type == NodeType.CREDENTIAL:
-                    cred_node = source
-                    break
-
-        if cred_node is None:
+        # Backing CREDENTIAL via an incoming ENABLES edge.
+        cred_node = self._find_backing_credential(node, graph)
+        if cred_node is None or not isinstance(cred_node.properties, CredentialProperties):
             return Verdict.INCONCLUSIVE
 
-        # Credential must have real harvested material. When a vault is available,
-        # the secret_ref must RESOLVE to a stored secret; otherwise a bare UUID or
-        # other non-vault pointer can falsely cross-verify a non-harvested access.
-        cred_properties = cred_node.properties
-        if not isinstance(cred_properties, CredentialProperties):
-            return Verdict.INCONCLUSIVE
-        ref = cred_properties.secret_ref
-        if not ref:
-            return Verdict.INCONCLUSIVE
-        if not self._vault_resolves(cred_node, ref):
+        # Rule 3 (GAP-118): secret_ref must resolve to NON-EMPTY, engagement-owned vaulted
+        # material — not merely be non-empty. A bare-UUID proof pointer (confirmed live on
+        # alpha-ai: cred `wpvuln`) previously passed and cross-verified a NON-harvested access.
+        if not self._resolves_to_harvested_material(cred_node):
             return Verdict.INCONCLUSIVE
 
-        # Access node must have proof artifacts (real auth event, not inferred).
-        if not node.proof_artifacts:
-            return Verdict.INCONCLUSIVE
-        if not self._has_bound_proof(node, cred_node, cred_properties):
+        # Independent auth signal bound to this cred + access (real event, not inferred).
+        if not self._has_bound_auth_proof(node, cred_node):
             return Verdict.INCONCLUSIVE
 
         # All independent checks pass: confirmed.
