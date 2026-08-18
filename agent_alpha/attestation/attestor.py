@@ -90,9 +90,7 @@ class CredReuseAttestor:
       - Inferred access without session/auth proof.
     """
 
-    def __init__(
-        self, secrets_manager: Any = None, engagement_id: str | None = None
-    ) -> None:
+    def __init__(self, secrets_manager: Any = None, engagement_id: str | None = None) -> None:
         """Create an attestor for production or legacy unit tests.
 
         ``secrets_manager`` (optional): when provided, Rule 3 is HARDENED (GAP-118) — a
@@ -140,12 +138,47 @@ class CredReuseAttestor:
         # other non-vault pointer can falsely cross-verify a non-harvested access.
         if not isinstance(cred_node.properties, CredentialProperties):
             return Verdict.INCONCLUSIVE
-        if not cred_node.properties.secret_ref:
+        ref = cred_node.properties.secret_ref
+        if not ref:
             return Verdict.INCONCLUSIVE
         if self._secrets_manager is not None:
+            from agent_alpha.security.secrets import (
+                DecryptionError,
+                SecretNotFoundError,
+                sanitize_for_log,
+            )
+
             try:
-                self._secrets_manager.retrieve(cred_node.properties.secret_ref)
-            except Exception:  # noqa: BLE001 — any vault-miss/decrypt failure = unproven material
+                if self._engagement_id is not None:
+                    secret = self._secrets_manager.retrieve_for_engagement(ref, self._engagement_id)
+                else:
+                    secret = self._secrets_manager.retrieve(ref)
+            except (SecretNotFoundError, DecryptionError):
+                # Expected downgrade for material that is not truly harvested (e.g. the
+                # alpha-ai bare-UUID false-provenance): DEBUG, not WARNING — it is NOT a
+                # vault outage. Logs only the secret_ref (a pointer/id, never the decrypted
+                # value), sanitized against log injection (CWE-117).
+                logger.debug(
+                    "secret_ref %s did not resolve to engagement-owned material — access "
+                    "stays INCONCLUSIVE (not proven harvested)",
+                    sanitize_for_log(str(ref)),
+                )
+                return Verdict.INCONCLUSIVE
+            except Exception:  # noqa: BLE001 — infra outage must not crash the COMPLETE path
+                # A vault OUTAGE (connection/RLS/backend failure) is NOT the same as
+                # "unproven material". Log it as WARNING (auditable and distinguishable
+                # from the DEBUG downgrade above) and still fail CLOSED to INCONCLUSIVE —
+                # an outage must never falsely promote, nor abort the whole engagement.
+                logger.warning(
+                    "vault resolve failed for secret_ref %s on credential %s — treating "
+                    "access as INCONCLUSIVE (vault outage, not a verdict)",
+                    sanitize_for_log(str(ref)),
+                    cred_node.id,
+                    exc_info=True,
+                )
+                return Verdict.INCONCLUSIVE
+            if not secret:
+                # An empty vaulted payload is NOT harvested material (Qodo empty-result).
                 return Verdict.INCONCLUSIVE
 
         # Access node must have proof artifacts (real auth event, not inferred).

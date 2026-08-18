@@ -698,3 +698,31 @@ def test_gap118_no_vault_falls_back_to_nonempty_check() -> None:
     # Legacy callers (no vault) keep the non-empty behaviour — back-compatible.
     store = _store_with_cred_ref("9002bbb3-8a9c-4e2f-a35b-8b47660772ba")
     assert CredReuseAttestor().verify(store.get_node(_ACCESS_ID), store) == Verdict.CONFIRMED
+
+
+def test_gap118_foreign_engagement_ref_is_inconclusive() -> None:
+    """GAP-118 / CodeRabbit: a secret_ref that RESOLVES but belongs to a DIFFERENT
+    engagement must NOT cross-verify (cross-engagement false-provenance)."""
+    from agent_alpha.security.secrets import SecretsManager
+
+    vault = SecretsManager()
+    rec = vault.store("db_pw", "P@ss", "eng-OTHER")  # owned by a foreign engagement
+    store = _store_with_cred_ref(rec.secret_id)
+    attestor = CredReuseAttestor(vault, engagement_id=_ENGAGEMENT_ID)
+    assert attestor.verify(store.get_node(_ACCESS_ID), store) == Verdict.INCONCLUSIVE, (
+        "a secret_ref that resolves to a FOREIGN engagement must NOT cross-verify"
+    )
+
+
+def test_gap118_empty_vaulted_secret_is_inconclusive() -> None:
+    """GAP-118 / Qodo: a vault record that resolves to an EMPTY payload is NOT
+    harvested material and must NOT cross-verify."""
+    from agent_alpha.security.secrets import SecretsManager
+
+    vault = SecretsManager()
+    rec = vault.store("db_pw", "", _ENGAGEMENT_ID)  # empty payload
+    store = _store_with_cred_ref(rec.secret_id)
+    attestor = CredReuseAttestor(vault, engagement_id=_ENGAGEMENT_ID)
+    assert attestor.verify(store.get_node(_ACCESS_ID), store) == Verdict.INCONCLUSIVE, (
+        "an empty vaulted payload must NOT cross-verify"
+    )

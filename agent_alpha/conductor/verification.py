@@ -18,13 +18,16 @@ from agent_alpha.attestation.attestor import CredReuseAttestor, run_verification
 
 
 def verify_access_nodes(
-    graph_store: Any, event_store: Any, engagement_id: str, secrets_manager: Any
+    graph_store: Any, event_store: Any, engagement_id: str, *, secrets_manager: Any
 ) -> None:
     """Run the autonomous attestor roster over the engagement's ACCESS_LEVEL nodes.
 
-    Fail-closed: production callers must always pass the engagement-scoped vault. The legacy
-    non-empty fallback remains only for explicit direct-attestor unit tests; silently defaulting to
-    no vault on the runtime verification seam re-opens the false-provenance bug.
+    ``secrets_manager`` (GAP-118) is KEYWORD-ONLY and REQUIRED — no default. This is the
+    production promotion seam, so it must NOT be able to silently fall back to the legacy
+    non-empty-ref check (Lyndon #3, false success). The attestor's ``=None`` legacy fallback
+    stays for pure-unit callers that construct ``CredReuseAttestor`` directly; this seam does
+    not inherit it. Pass ``None`` explicitly only in a legacy/degraded context — the fail-closed
+    guard below rejects it for the production path.
     """
     if secrets_manager is None:
         raise ValueError("secrets_manager is required for production verification")

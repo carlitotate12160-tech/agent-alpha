@@ -122,6 +122,13 @@ class PostgresSecretsVault:
             conn.commit()
         return record
 
+    def _decrypt(self, ciphertext: bytes, secret_id: str) -> str:
+        try:
+            plaintext = self._fernet.decrypt(ciphertext)
+        except InvalidToken as exc:
+            raise DecryptionError(f"Failed to decrypt secret '{secret_id}'") from exc
+        return plaintext.decode("utf-8")
+
     def retrieve(self, secret_id: str) -> str:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
@@ -133,11 +140,29 @@ class PostgresSecretsVault:
         if row is None:
             raise SecretNotFoundError(f"Secret '{secret_id}' not found")
         ciphertext = bytes(row[0])  # bytea -> memoryview/bytes; normalise
-        try:
-            plaintext = self._fernet.decrypt(ciphertext)
-        except InvalidToken as exc:
-            raise DecryptionError(f"Failed to decrypt secret '{secret_id}'") from exc
-        return plaintext.decode("utf-8")
+        return self._decrypt(ciphertext, secret_id)
+
+    def retrieve_for_engagement(self, secret_id: str, engagement_id: str) -> str:
+        """Resolve a secret AND verify it is owned by the given engagement.
+
+        Raises SecretNotFoundError when the ref does not resolve OR belongs to a
+        different engagement — the GAP-118 cross-engagement false-provenance guard
+        (tenant scoping is additive: RLS already isolates tenants; this isolates
+        engagements within a tenant).
+        """
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                f"SELECT encrypted_value FROM {self._table} "  # nosec B608 — table is a class constant
+                "WHERE tenant_id = %s AND secret_id = %s AND engagement_id = %s",
+                (self._tenant_id, secret_id, engagement_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise SecretNotFoundError(
+                f"Secret '{secret_id}' not found for engagement '{engagement_id}'"
+            )
+        ciphertext = bytes(row[0])  # bytea -> memoryview/bytes; normalise
+        return self._decrypt(ciphertext, secret_id)
 
     def delete(self, secret_id: str) -> bool:
         with self._connect() as conn, conn.cursor() as cur:

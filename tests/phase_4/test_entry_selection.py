@@ -130,7 +130,7 @@ def test_wiring_run_beta_dispatches_selected_host(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(conductor_main.PlaybookEngine, "from_directory", lambda path: object())
     monkeypatch.setattr(conductor_main, "LLMOrchestrator", lambda playbook, provider: object())
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args, **kwargs: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
     # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
     # exercise strike-entry SELECTION, not signature verification — return a dummy verified
@@ -214,7 +214,7 @@ def test_emits_strike_entry_selected_on_autonomous_path() -> None:
     monkeypatch.setattr(conductor_main.PlaybookEngine, "from_directory", lambda path: object())
     monkeypatch.setattr(conductor_main, "LLMOrchestrator", lambda playbook, provider: object())
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args, **kwargs: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
     # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
     # exercise strike-entry SELECTION, not signature verification — return a dummy verified
@@ -292,7 +292,7 @@ def test_event_records_fallback() -> None:
     monkeypatch.setattr(conductor_main.PlaybookEngine, "from_directory", lambda path: object())
     monkeypatch.setattr(conductor_main, "LLMOrchestrator", lambda playbook, provider: object())
     monkeypatch.setattr(conductor_main, "Beta", _FakeBeta)
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args, **kwargs: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
     # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
     # exercise strike-entry SELECTION, not signature verification — return a dummy verified
@@ -336,7 +336,7 @@ def _patch_conductor(
     monkeypatch.setattr(conductor_main.PlaybookEngine, "from_directory", lambda path: object())
     monkeypatch.setattr(conductor_main, "LLMOrchestrator", lambda playbook, provider: object())
     monkeypatch.setattr(conductor_main, "Beta", beta_cls)
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *args, **kwargs: None)
     monkeypatch.setattr(conductor_main, "get_profile_signing_key", lambda: "k" * 64)
     # §12.36: Beta dispatch fail-closes without a verified signed profile. These tests
     # exercise strike-entry SELECTION, not signature verification — return a dummy verified
@@ -570,14 +570,18 @@ def test_all_candidates_fail_returns_failed(monkeypatch: pytest.MonkeyPatch) -> 
     store, _auth, eid = _two_surface_engagement()
     struck: list[str] = []
     verify_calls: list[int] = []
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a: verify_calls.append(1))
+    monkeypatch.setattr(
+        conductor_main, "verify_access_nodes", lambda *a, **kwargs: verify_calls.append(1)
+    )
     _patch_conductor(
         monkeypatch,
         store,
         _status_beta(struck, [a2a_pb2.FAILED, a2a_pb2.FAILED], [a2a_pb2.OMEGA, a2a_pb2.OMEGA]),
     )
     # keep our verify spy (patch_conductor set its own) — reassert last:
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a: verify_calls.append(1))
+    monkeypatch.setattr(
+        conductor_main, "verify_access_nodes", lambda *a, **kwargs: verify_calls.append(1)
+    )
 
     conductor_main.run_agent_task.run(eid, None, a2a_pb2.BETA)
 
@@ -597,7 +601,9 @@ def test_first_fail_second_complete_returns_complete(monkeypatch: pytest.MonkeyP
         store,
         _status_beta(struck, [a2a_pb2.FAILED, a2a_pb2.COMPLETE], [a2a_pb2.OMEGA, a2a_pb2.GAMMA]),
     )
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a: verify_calls.append(1))
+    monkeypatch.setattr(
+        conductor_main, "verify_access_nodes", lambda *a, **kwargs: verify_calls.append(1)
+    )
 
     conductor_main.run_agent_task.run(eid, None, a2a_pb2.BETA)
 
@@ -618,7 +624,7 @@ def test_first_complete_wins_next_recommended(monkeypatch: pytest.MonkeyPatch) -
         store,
         _status_beta(struck, [a2a_pb2.COMPLETE, a2a_pb2.COMPLETE], [a2a_pb2.OMEGA, a2a_pb2.GAMMA]),
     )
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a, **kwargs: None)
 
     conductor_main.run_agent_task.run(eid, None, a2a_pb2.BETA)
 
@@ -684,7 +690,7 @@ def test_lockout_governor_shared_across_candidates(monkeypatch: pytest.MonkeyPat
 
     _patch_conductor(monkeypatch, store, _complete_beta(struck))
     monkeypatch.setattr(conductor_main, "build_applicators_for_engagement", _capture)
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a, **kwargs: None)
 
     conductor_main.run_agent_task.run(eid, None, a2a_pb2.BETA)
 
@@ -705,7 +711,7 @@ def test_all_blocked_returns_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
             struck, [a2a_pb2.BLOCKED, a2a_pb2.BLOCKED], [a2a_pb2.CONDUCTOR, a2a_pb2.CONDUCTOR]
         ),
     )
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a, **kwargs: None)
 
     conductor_main.run_agent_task.run(eid, None, a2a_pb2.BETA)
 
@@ -723,7 +729,7 @@ def test_complete_over_blocked_precedence(monkeypatch: pytest.MonkeyPatch) -> No
             struck, [a2a_pb2.BLOCKED, a2a_pb2.COMPLETE], [a2a_pb2.CONDUCTOR, a2a_pb2.OMEGA]
         ),
     )
-    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a: None)
+    monkeypatch.setattr(conductor_main, "verify_access_nodes", lambda *a, **kwargs: None)
 
     conductor_main.run_agent_task.run(eid, None, a2a_pb2.BETA)
 
