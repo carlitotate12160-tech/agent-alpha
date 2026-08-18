@@ -69,7 +69,7 @@ class CredReuseAttestor:
     Verdict rules (all must pass for CONFIRMED):
       1. Node is ACCESS_LEVEL type.
       2. Incoming ENABLES edge from a CREDENTIAL node exists.
-      3. Credential has a non-empty secret_ref (harvested material).
+      3. Credential has a real secret_ref that resolves in the vault (GAP-118 hardening).
       4. Access node has proof_artifacts containing "authenticated_request".
       5. Does NOT rely on node.verified (tool self-report).
 
@@ -80,7 +80,7 @@ class CredReuseAttestor:
 
     CONFIRMED: access node has proof_artifacts with type "authenticated_request"
                AND is reached via an ENABLES edge from a CREDENTIAL with a real
-               secret_ref (harvested material, not empty).
+               secret_ref (harvested material that resolves in the vault).
     INCONCLUSIVE: access node exists but lacks independent auth proof.
     REFUTED: reserved for Phase-6 live re-auth (not wired here).
 
@@ -90,13 +90,19 @@ class CredReuseAttestor:
       - Inferred access without session/auth proof.
     """
 
+    def __init__(self, secrets_manager: Any = None) -> None:
+        """``secrets_manager`` (optional): when provided, Rule 3 is HARDENED (GAP-118) — a
+        credential's ``secret_ref`` must RESOLVE to real vaulted harvested material, not merely be
+        non-empty. Without it (legacy / unit callers), Rule 3 falls back to the non-empty check."""
+        self._secrets_manager = secrets_manager
+
     def verify(self, node: Any, graph: Any) -> Verdict:
         """Independently verify an access node.
 
         Checks (all must pass for CONFIRMED):
           1. Node is ACCESS_LEVEL type.
           2. Incoming ENABLES edge from a CREDENTIAL node exists.
-          3. Credential has a non-empty secret_ref (harvested material).
+          3. Credential has a secret_ref that resolves in the vault when a vault is available.
           4. Access node has proof_artifacts containing "authenticated_request".
           5. Does NOT rely on node.verified (tool self-report).
         """
@@ -122,11 +128,18 @@ class CredReuseAttestor:
         if cred_node is None:
             return Verdict.INCONCLUSIVE
 
-        # Credential must have real harvested material (non-empty secret_ref).
+        # Credential must have real harvested material. When a vault is available,
+        # the secret_ref must RESOLVE to a stored secret; otherwise a bare UUID or
+        # other non-vault pointer can falsely cross-verify a non-harvested access.
         if not isinstance(cred_node.properties, CredentialProperties):
             return Verdict.INCONCLUSIVE
         if not cred_node.properties.secret_ref:
             return Verdict.INCONCLUSIVE
+        if self._secrets_manager is not None:
+            try:
+                self._secrets_manager.retrieve(cred_node.properties.secret_ref)
+            except Exception:  # noqa: BLE001 — any vault-miss/decrypt failure = unproven material
+                return Verdict.INCONCLUSIVE
 
         # Access node must have proof artifacts (real auth event, not inferred).
         if not node.proof_artifacts:

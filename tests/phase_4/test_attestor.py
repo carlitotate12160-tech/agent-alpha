@@ -623,3 +623,77 @@ def test_legacy_verified_not_cross() -> None:
     node3 = _reconstruct_node(raw3)
     assert node3.verification == VerificationTier.CROSS_VERIFIED
     assert node3.verified is True
+
+
+# ── GAP-118 hardening: secret_ref must RESOLVE in the vault, not merely be non-empty ──
+# Closes the live false-provenance where a bare-UUID proof pointer cross-verified a
+# NON-harvested access. With a vault threaded, a non-resolving ref → INCONCLUSIVE.
+
+
+def _store_with_cred_ref(ref: str) -> NetworkXGraphStore:
+    """The proven-chain fixture with a configurable credential secret_ref."""
+    store = NetworkXGraphStore()
+    _emit_node(
+        store,
+        AttackNode(
+            id=_CRED_ID,
+            type=NodeType.CREDENTIAL,
+            properties=CredentialProperties(
+                username="admin", secret_ref=ref, service="http", access_level="admin"
+            ),
+            confidence=0.85,
+            agent="alpha",
+        ),
+    )
+    _emit_node(
+        store,
+        AttackNode(
+            id=_ACCESS_ID,
+            type=NodeType.ACCESS_LEVEL,
+            properties=AccessLevelProperties(level="admin", user_context="web"),
+            confidence=0.80,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=str(uuid.uuid4()),
+                    type="authenticated_request",
+                    storage_ref="event://proof-abc",
+                    description="Verified admin access via cred reuse",
+                    captured_at="2026-07-22T00:00:00Z",
+                    agent="beta",
+                    subject_ref=_CRED_ID,
+                    target=_HOST,
+                    access_level="admin",
+                ),
+            ],
+        ),
+    )
+    _emit_edge(store, AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"))
+    return store
+
+
+def test_gap118_resolving_secret_ref_confirms_with_vault() -> None:
+    from agent_alpha.security.secrets import SecretsManager
+
+    vault = SecretsManager()
+    rec = vault.store("db_pw", "P@ss", _ENGAGEMENT_ID)
+    store = _store_with_cred_ref(rec.secret_id)
+    assert CredReuseAttestor(vault).verify(store.get_node(_ACCESS_ID), store) == Verdict.CONFIRMED
+
+
+def test_gap118_nonresolving_secret_ref_is_inconclusive_with_vault() -> None:
+    from agent_alpha.security.secrets import SecretsManager
+
+    # The alpha-ai false-provenance: a bare UUID that does NOT resolve in the vault.
+    store = _store_with_cred_ref("9002bbb3-8a9c-4e2f-a35b-8b47660772ba")
+    verdict = CredReuseAttestor(SecretsManager()).verify(store.get_node(_ACCESS_ID), store)
+    assert verdict == Verdict.INCONCLUSIVE, (
+        "a non-resolving secret_ref must NOT cross-verify (GAP-118 false-provenance)"
+    )
+
+
+def test_gap118_no_vault_falls_back_to_nonempty_check() -> None:
+    # Legacy callers (no vault) keep the non-empty behaviour — back-compatible.
+    store = _store_with_cred_ref("9002bbb3-8a9c-4e2f-a35b-8b47660772ba")
+    assert CredReuseAttestor().verify(store.get_node(_ACCESS_ID), store) == Verdict.CONFIRMED

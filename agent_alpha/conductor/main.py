@@ -807,7 +807,12 @@ def run_agent_task(
                         handoff_payload.ParseFromString(handoff_msg.payload)
                         struck += 1
                         if handoff_payload.status == a2a_pb2.COMPLETE:
-                            verify_access_nodes(graph_store, target_store, engagement_id)
+                            verify_access_nodes(
+                                graph_store,
+                                target_store,
+                                engagement_id,
+                                secrets_manager=task_secrets,
+                            )
                             # First COMPLETE (highest-ranked surface) drives the chain.
                             if complete_next is None:
                                 complete_next = handoff_payload.next_recommended
