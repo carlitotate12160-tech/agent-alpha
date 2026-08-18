@@ -142,11 +142,7 @@ class CredReuseAttestor:
         if not ref:
             return Verdict.INCONCLUSIVE
         if self._secrets_manager is not None:
-            from agent_alpha.security.secrets import (
-                DecryptionError,
-                SecretNotFoundError,
-                sanitize_for_log,
-            )
+            from agent_alpha.security.secrets import DecryptionError, SecretNotFoundError
 
             try:
                 if self._engagement_id is not None:
@@ -156,12 +152,13 @@ class CredReuseAttestor:
             except (SecretNotFoundError, DecryptionError):
                 # Expected downgrade for material that is not truly harvested (e.g. the
                 # alpha-ai bare-UUID false-provenance): DEBUG, not WARNING — it is NOT a
-                # vault outage. Logs only the secret_ref (a pointer/id, never the decrypted
-                # value), sanitized against log injection (CWE-117).
+                # vault outage. The secret_ref is NEVER logged (CodeQL clear-text rule);
+                # only the credential node id (a project-standard node identifier, not a
+                # secret) gives the auditor a trail for WHY the access stayed INCONCLUSIVE.
                 logger.debug(
-                    "secret_ref %s did not resolve to engagement-owned material — access "
+                    "credential %s did not resolve to engagement-owned material — access "
                     "stays INCONCLUSIVE (not proven harvested)",
-                    sanitize_for_log(str(ref)),
+                    cred_node.id,
                 )
                 return Verdict.INCONCLUSIVE
             except Exception:  # noqa: BLE001 — infra outage must not crash the COMPLETE path
@@ -169,10 +166,11 @@ class CredReuseAttestor:
                 # "unproven material". Log it as WARNING (auditable and distinguishable
                 # from the DEBUG downgrade above) and still fail CLOSED to INCONCLUSIVE —
                 # an outage must never falsely promote, nor abort the whole engagement.
+                # The secret_ref is NEVER logged; only the credential node id identifies
+                # the affected credential.
                 logger.warning(
-                    "vault resolve failed for secret_ref %s on credential %s — treating "
-                    "access as INCONCLUSIVE (vault outage, not a verdict)",
-                    sanitize_for_log(str(ref)),
+                    "vault resolve failed for credential %s — treating access as "
+                    "INCONCLUSIVE (vault outage, not a verdict)",
                     cred_node.id,
                     exc_info=True,
                 )
