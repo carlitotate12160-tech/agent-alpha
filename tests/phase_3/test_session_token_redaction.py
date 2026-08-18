@@ -213,7 +213,8 @@ def test_full_multicookie_session_jar_propagates_not_just_first_cookie() -> None
             self.cookies = cookies or {}
 
     class _JarHttp:
-        def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _JarResp:
+        @staticmethod
+        def get(url: str, *, headers: Any = None, cookies: Any = None) -> _JarResp:
             # authed (with session) → dashboard + full jar; unauth → login form (password field).
             return (
                 _JarResp("admin dashboard", jar)
@@ -221,8 +222,8 @@ def test_full_multicookie_session_jar_propagates_not_just_first_cookie() -> None
                 else _JarResp('<input type="password"> log in')
             )
 
+        @staticmethod
         def post(
-            self,
             url: str,
             *,
             data: Any = None,

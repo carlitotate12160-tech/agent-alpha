@@ -188,6 +188,8 @@ def _mint_surface(
 def _depth1_admin_links(authed_body: str, root: str, host: str, link_pattern: str) -> list[str]:
     """Extract SAME-HOST links from the authenticated page whose path matches the admin pattern —
     catches custom admin pages absent from the playbook WITHOUT a public-page crawl explosion."""
+    if not link_pattern:
+        return []
     out: list[str] = []
     for href in _HREF_RE.findall(authed_body):
         absolute = urljoin(root + "/", href)
