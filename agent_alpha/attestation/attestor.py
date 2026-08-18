@@ -101,16 +101,20 @@ class CredReuseAttestor:
         self._secrets_manager = secrets_manager
         self._engagement_id = engagement_id
 
-    def _vault_resolves(self, cred_node: Any, ref: str) -> bool:
-        """Return True when ``ref`` resolves to non-empty, engagement-owned vaulted
-        material, or when no vault is configured (legacy unit/tests fallback).
+    def _resolves_to_harvested_material(self, cred_node: Any) -> bool:
+        """Return True when the credential's secret_ref resolves to non-empty,
+        engagement-owned vaulted material, or when no vault is configured (legacy fallback).
 
         GAP-118: with a vault, a non-resolving / foreign-engagement / empty payload
         is NOT proven harvested material → False. The secret_ref is NEVER logged
         (ADR §8l); only the credential node id identifies the affected credential.
         """
+        ref = getattr(cred_node.properties, "secret_ref", None)
+        if not ref:
+            return False  # no ref → not proven harvested material
+
         if self._secrets_manager is None:
-            return True
+            return True  # legacy / unit-test path: ref non-empty is sufficient
 
         from agent_alpha.security.secrets import DecryptionError, SecretNotFoundError
 
