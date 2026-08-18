@@ -90,11 +90,18 @@ class CredReuseAttestor:
       - Inferred access without session/auth proof.
     """
 
-    def __init__(self, secrets_manager: Any = None) -> None:
-        """``secrets_manager`` (optional): when provided, Rule 3 is HARDENED (GAP-118) — a
+    def __init__(
+        self, secrets_manager: Any = None, engagement_id: str | None = None
+    ) -> None:
+        """Create an attestor for production or legacy unit tests.
+
+        ``secrets_manager`` (optional): when provided, Rule 3 is HARDENED (GAP-118) — a
         credential's ``secret_ref`` must RESOLVE to real vaulted harvested material, not merely be
-        non-empty. Without it (legacy / unit callers), Rule 3 falls back to the non-empty check."""
+        non-empty. ``engagement_id`` is optional metadata for production callers that want to keep
+        the attestation context explicit without changing verification semantics.
+        """
         self._secrets_manager = secrets_manager
+        self._engagement_id = engagement_id
 
     def verify(self, node: Any, graph: Any) -> Verdict:
         """Independently verify an access node.

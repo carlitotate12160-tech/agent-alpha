@@ -420,7 +420,15 @@ def run_a1_validation(
     if graph_store is not None and event_store is not None:
         from agent_alpha.attestation.attestor import CredReuseAttestor, run_verification_pass
 
-        run_verification_pass(graph_store, event_store, [CredReuseAttestor()], engagement_id)
+        if secrets_manager is None:
+            raise ValueError("secrets_manager is required for production verification")
+
+        run_verification_pass(
+            graph_store,
+            event_store,
+            [CredReuseAttestor(secrets_manager=secrets_manager, engagement_id=engagement_id)],
+            engagement_id,
+        )
 
     return result
 

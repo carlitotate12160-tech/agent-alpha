@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from agent_alpha.attestation.attestor import (
     Attestor,
@@ -518,6 +518,7 @@ def test_a1_runner_invokes_verification_pass() -> None:
             http_client=_StubHttpClient(),
             graph_store=NetworkXGraphStore(),
             event_store=InMemoryEventStore(),
+            secrets_manager=MagicMock(),
         )
 
         # The verification pass must have been called.
