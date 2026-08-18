@@ -4095,3 +4095,36 @@ Built as a slice line on top of §12.64 Step 0 (attempt instrumentation).
 - Cross-ref: GAP-189 (the walled/failed half), §12.64 (Step 0), §12.62 (coverage doctrine),
   GAP-169 (fingerprint-first — 187b is the substrate that MEASURES 169's effect).
 
+---
+
+## GAP-116-B — Authenticated crawl (post-access re-recon, §12.32)
+- Status: DONE — `agents/beta/authenticated_crawl.py`, consumed by `Beta.run_strike` (wiring-gate enforced). Playbook-driven, stack-gated, GET-only DETECT, auth-vs-unauth diff, depth-1 admin-filtered (refuses state-changing GET links), mints SURFACE as SERVICE node.
+- Cross-ref: GAP-116-A (session carrier), ADR §12.32 (auth crawl), §12.43 (oracle consumes the diff).
+
+## GAP-116-C — WordPress multi-cookie session jar
+- Status: DONE — `HttpResponse.cookies` (full jar from httpx/curl_cffi) + `applicator._session_jar()` hands the COMPLETE session (wordpress_logged_in_* AND wordpress_sec_*) to the crawl. Additive/back-compatible (getattr-guarded; header-parse fallback for response doubles).
+- Cross-ref: GAP-080 (stable session), GAP-116-B (consumer).
+
+## GAP-116-D — Odoo session carrier (OPEN)
+- Priority: MEDIUM — milestone stack (alpha-ai). Odoo login (`/web/session/authenticate` JSON-RPC) issues a single `session_id` cookie; `OdooAccessTool` does NOT yet set `ephemeral_session`. Once wired, the crawl authenticates Odoo. Cheap after GAP-116-C (single-cookie).
+- Constraint: Odoo is a SPA — deep authed enumeration (users/modules) is JSON-RPC POST, a different mechanism than the GET DETECT crawl; the playbook `#action=` fragment routes were removed (fragments never reach the server).
+- Cross-ref: GAP-116-B, GAP-074 (Odoo transport).
+
+## GAP-116-E — SPA Bearer-JWT session carrier (OPEN)
+- Priority: MEDIUM — SPA auth is a Bearer JWT, NOT a cookie; `_won_session_cookies` (cookie dict) cannot model it. Generalize the carrier ONCE to a `SessionCredential {cookies | bearer_token}`; the crawl applies whichever is set (`cookies=` vs `Authorization: Bearer`). Build only when a SPA engagement needs it (anti half-scaffold).
+- Cross-ref: GAP-030 / `spa_login_applicator._extract_jwt` (JWT already extracted), GAP-116-B.
+
+## GAP-116-F — Dedicated AUTH_SURFACE node type (OPEN, LOW)
+- Priority: LOW — auth-only surfaces are currently minted as SERVICE nodes (`service:{host}:authsurface:{surface}`) to avoid polluting the host-ASSET space. A dedicated `NodeType.AUTH_SURFACE` (with path/marker/access-level properties) is the semantically clean model but is a graph-schema slice (property map + projection). Do when the model is next refactored.
+- Cross-ref: GAP-116-B, ADR §12.43 (oracle reads these nodes).
+
+## GAP-104 (design update) — BreachSource seam, tiered free/paid
+- Design: build the breach-credential integration as a provider-agnostic `BreachSource` seam (like the applicator seam, anti-#6), NOT a Dehashed-specific client:
+  - `signals_for(domain, in_scope_emails)` → breach PRESENCE / password-weakness SIGNAL (enrichment).
+  - `creds_for(domain, in_scope_emails)` → plaintext credentials (paid backends only).
+  - FREE tier (ship first): `HibpPwnedPasswordsSource` (k-anonymity — weakness/enrichment, `creds_for=[]`); `H8mailSource` free-tier (email→breach presence; RESTRICT to legal backends, NOT local combolist).
+  - PAID tier (optional, None=off, OTX/VT key pattern): `DehashedSource` | `StealerLogSource` (Hudson Rock / SpyCloud / Flare — fresher infostealer logs, higher yield).
+- Coverage-honesty (§12.45, LOCKED via §12.43 lens): a negative from SIGNAL-only free sources carries a methodology caveat ("public breach signals only; plaintext-credential sources out of scope") — NEVER "no creds found → target safe".
+- Constraint (§12.54): query only in-scope-domain emails, no mass scraping; using found creds is SOW-gated. Do NOT build own darkweb-collection infrastructure (different product, legal exposure — the moat is COMPOSITION: breach-cred → validated → chained → payable proof, not owning the data pipeline).
+- Cross-ref: §12.54 (Dehashed/HIBP OSINT — ACCEPTED), §12.45 (credential-result semantics), GAP-054/GAP-090 (in-scope email harvest — prerequisite).
+

@@ -34,6 +34,17 @@ from agent_alpha.tools.internal.access.default_creds import (
 _PROOF_BODY_LIMIT = 500
 
 
+def _session_jar(resp: Any) -> dict[str, str] | None:
+    """GAP-116-C: hand the 116-B crawl the COMPLETE won session. Prefer the transport's full
+    cookie jar (``HttpResponse.cookies`` — every Set-Cookie, so WordPress's multi-cookie
+    ``wordpress_logged_in_*`` + ``wordpress_sec_*`` session is intact); fall back to parsing the
+    single Set-Cookie header for response doubles that predate the jar (back-compatible)."""
+    jar = getattr(resp, "cookies", None)
+    if jar:
+        return dict(jar)
+    return _parse_set_cookie(resp.headers.get("set-cookie", "")) or None
+
+
 @dataclasses.dataclass(frozen=True)
 class AuthResult:
     """Outcome of applying one credential against one service.
@@ -195,9 +206,8 @@ class HttpFormApplicator(CredentialApplicator):
                 "confirm_body_excerpt": (confirm_resp.text or "")[:_PROOF_BODY_LIMIT],
             },
             session_cookie_name=session_cookie_name,
-            # GAP-116-A: the same parsed cookie(s) already proven to authenticate the
-            # confirm-fetch above — hand them up (in-memory) for the authenticated crawl.
-            session_cookies=cookies or None,
+            # GAP-116-A/C: hand up the FULL won session (jar) for the authenticated crawl.
+            session_cookies=_session_jar(auth_resp),
         )
 
 
@@ -297,12 +307,9 @@ class WpLoginApplicator(CredentialApplicator):
                 "header_names": list(resp.headers.keys()),
             },
             session_cookie_name=session_cookie_name,
-            # GAP-116-A: hand up the logged-in session cookie for the authenticated crawl.
-            # CAVEAT (116-B): WP issues several cookies (wordpress_logged_in_*, _sec_*);
-            # ``headers.get("set-cookie")`` + ``_parse_set_cookie`` capture the FIRST only.
-            # 116-B must verify the reused cookie set actually authenticates /wp-admin/
-            # before trusting the auth-vs-unauth diff (do not assume — GAP-080 residue).
-            session_cookies=_parse_set_cookie(set_cookie) or None,
+            # GAP-116-C RESOLVED: hand up the FULL WP session jar (wordpress_logged_in_* AND
+            # wordpress_sec_*) via HttpResponse.cookies — no longer just the first Set-Cookie.
+            session_cookies=_session_jar(resp),
         )
 
 

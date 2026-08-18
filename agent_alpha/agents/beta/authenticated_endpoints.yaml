@@ -1,0 +1,67 @@
+# authenticated_endpoints.yaml — GAP-116-B post-access crawl playbook (DATA, not logic).
+#
+# APT41 victim-tailored: after Beta wins a session, an operator goes STRAIGHT to the
+# high-value admin endpoints for the DETECTED stack (Turla/Lazarus hit /wp-admin/users.php
+# directly — they do NOT run a blind public-page spider). This file is stack-gated DATA:
+# entries fire ONLY when Alpha's fingerprint (ASSET.tech_stack) matches the stack key, never
+# a fixed pipeline regardless of target (anti-Lyndon #11).
+#
+# BOUNDARY (RECON_ONLY — DETECT, never ACT): every endpoint is fetched GET-only to prove the
+# SURFACE is reachable with the won session. A "rce_surface"/"export"/"db_manager" entry means
+# "the account can REACH this capability" — a discovery finding. Actually TRIGGERING it (writing
+# a file via theme-editor, running an export) is EXPLOITATION = Gamma (OFFENSIVE_APPROVED), NOT
+# this module.
+#
+# `marker` = an auth-only ground-truth token expected in the authenticated response and ABSENT
+# unauthenticated (the §12.32 auth-vs-unauth diff). It feeds the §12.43 oracle (GAP-118) — this
+# module only DISCOVERS the surface + records the diff; it does not promote to cross_verified.
+#
+# NOTE (carrier dependency, GAP-116 follow-ups): the session for WordPress needs the multi-cookie
+# jar carrier, Odoo needs its session-carrier wired, SPA needs a Bearer-token carrier. Until those
+# land, only the single-cookie form-login path authenticates; these entries are valid endpoint
+# intelligence regardless and activate per stack as each carrier slice ships.
+
+# Stack keys MUST equal the canonical ASSET.tech_stack label Alpha emits (exact match, not
+# substring): WordPress = constants.STACK_WP == "wp" (NOT "wordpress"); Odoo = "odoo". `aliases`
+# lists any other label the same stack surfaces under.
+wp:
+  aliases: ["wordpress"]
+  admin_link_pattern: "/wp-admin/"
+  endpoints:
+    - path: "/wp-admin/"
+      surface: "wp_admin_dashboard"
+      marker: "dashboard"
+    - path: "/wp-admin/users.php"
+      surface: "wp_user_admin"
+      marker: "users.php"
+    - path: "/wp-admin/plugins.php"
+      surface: "wp_plugin_admin"
+      marker: "plugins"
+    - path: "/wp-admin/options-general.php"
+      surface: "wp_site_config"
+      marker: "options-general"
+    - path: "/wp-admin/theme-editor.php"
+      surface: "wp_theme_editor_rce_surface"
+      marker: "theme-editor"
+
+odoo:
+  admin_link_pattern: "/web/"
+  # NOTE: `#action=...` fragment routes were REMOVED — a URL fragment is client-side only and is
+  # never sent to the server, so GET `/web#action=X` just fetches `/web`. Odoo is a SPA: deeper
+  # authed enumeration (users, modules) is behind JSON-RPC POST (`/web/dataset/call_kw`), a
+  # different mechanism than this GET-only DETECT crawl — deferred to the Odoo carrier (GAP-116-D),
+  # where the markers below are field-validated against a live Odoo.
+  endpoints:
+    - path: "/web/database/manager"
+      surface: "odoo_db_manager"
+      marker: "database"
+
+laravel:
+  admin_link_pattern: "/admin"
+  endpoints:
+    - path: "/telescope"
+      surface: "laravel_telescope_debug"
+      marker: "telescope"
+    - path: "/horizon"
+      surface: "laravel_horizon_queue"
+      marker: "horizon"

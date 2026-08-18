@@ -93,6 +93,18 @@ class EventType(enum.StrEnum):
     # audit line proving the dispatch loop iterated (answers "agent repeats 2x").
     STRIKE_CANDIDATE_SKIPPED = "StrikeCandidateSkipped"
     # ^ Conductor skipped a ranked candidate that failed the per-host in-scope gate.
+
+    # ── Phase 4 (GAP-116-B post-access authenticated crawl — §12.32) ──
+    AUTHENTICATED_SURFACE_DISCOVERED = "AuthenticatedSurfaceDiscovered"
+    # ^ The won session revealed an auth-only surface an unauthenticated request did NOT
+    # (the §12.32 auth-vs-unauth diff). Carries {host, stack, surface, path, depth1,
+    # auth_vs_unauth} — the SURFACE, never page content (no PII). Feeds the §12.43 oracle.
+    AUTHENTICATED_CRAWL_COMPLETE = "AuthenticatedCrawlComplete"
+    # ^ Coverage-honest terminator: emitted after the crawl even when 0 surfaces found
+    # (anti-#3 — absence is recorded, not silent). Carries {host, surfaces_discovered}.
+    AUTHENTICATED_CRAWL_SKIPPED = "AuthenticatedCrawlSkipped"
+    # ^ Honest no-op: no won session (carrier absent) or no playbook for the detected
+    # stack. Carries {host, reason, tech_stack?}.
     # Carries {entry, host, reason}. The authoritative scope gate stays in Conductor.
 
     # ── §12.64 Step 0 (recon coverage honesty — attempt instrumentation) ──
