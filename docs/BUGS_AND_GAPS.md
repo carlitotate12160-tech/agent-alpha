@@ -40,6 +40,7 @@
 | 38 | Host-keyed caches reset per target, not engagement-scoped | OPEN | Med | CW | Med | soft-404 / reach / origin-binding re-computed for every sibling target sharing a host → redundant HTTP + LLM (efficiency follow-up to #34) |
 | 39 | `backup_file_probe` selected for `?SA` query param | OPEN | Med | RG | Low | False tool selection for sort params |
 | 40 | Challenge mitigation consumes probe budget | OPEN | Low | CW | Low | Wasteful 3-probe budget usage |
+| 41 | Runner spy wrapper signature mismatch (`events` kwarg) | OPEN | High | DC | Low | Conductor runner scripts crash before Beta runs |
 
 ## Summary Table — Gaps
 
@@ -228,6 +229,11 @@
 | 186 | Identical-body hosts still get full 11-path well-known probe | OPEN | Med | CW | Low | Shared-IP probe duplication |
 | 187 | Coverage Ledger is NOT a runtime wiring gate (Lyndon #2 at Phase 2) | OPEN | P0 | FS | Med | False assurance |
 | 188 | Alpha Handoff Asymmetry (Architectural Debt D3 blocker) | OPEN | P0 | RG | High | Broken autonomous chain |
+| 190 | Wayback CDX content-page junk crawl filter missing | OPEN | P1 | CW | Low | 200+ wasted probes per WooCommerce/eCommerce target |
+| 191 | HTTP 52x Cloudflare error responses treated as analyzable | OPEN | P2 | CW | Low | 12+ wasted LLM calls on dead CF backends |
+| 192 | Server dashboard & infrastructure docs crawled as security surfaces | OPEN | P3 | CW | Low | 15+ wasted LLM calls on XAMPP/dashboard docs |
+| 193 | Origin-direct retry for WAF-blocked apex fingerprinting | OPEN | P2 | RM | Med | WP/WC missed behind WAF when origin IP is known |
+| 194 | Cross-host identical-vhost fingerprint & probe consolidation | OPEN | P3 | CW | Low | Redundant 11-path well-known probes on duplicate vhosts |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
@@ -4127,4 +4133,92 @@ Built as a slice line on top of §12.64 Step 0 (attempt instrumentation).
 - Coverage-honesty (§12.45, LOCKED via §12.43 lens): a negative from SIGNAL-only free sources carries a methodology caveat ("public breach signals only; plaintext-credential sources out of scope") — NEVER "no creds found → target safe".
 - Constraint (§12.54): query only in-scope-domain emails, no mass scraping; using found creds is SOW-gated. Do NOT build own darkweb-collection infrastructure (different product, legal exposure — the moat is COMPOSITION: breach-cred → validated → chained → payable proof, not owning the data pipeline).
 - Cross-ref: §12.54 (Dehashed/HIBP OSINT — ACCEPTED), §12.45 (credential-result semantics), GAP-054/GAP-090 (in-scope email harvest — prerequisite).
+
+---
+
+## Bug #41 — Conductor runner spy wrapper signature mismatch with `beta_web_applicators()`
+
+### Problem Statement
+In `run_bernofarm_conductor.py` and `run_niagamas_conductor.py`, the test-harness spy `_spy_beta_web_applicators` defined a signature `(http_client: object)`. However, `agent_alpha/conductor/main.py::run_beta` calls `beta_web_applicators(http_client, events=events)` (added during GAP-116-A/B/C session propagation refactor). When Alpha completes recon and hands off to Beta, `run_beta` invokes the monkeypatched spy with `events=...`, throwing `TypeError: _spy_beta_web_applicators() got an unexpected keyword argument 'events'`. As a result, Beta crashes immediately and never runs any credential testing or exploitation against discovered auth surfaces.
+
+### Fix
+Update `_spy_beta_web_applicators` in all conductor runners to accept `*args, **kwargs` or explicitly `(http_client: object, events: Any = None, **kwargs)`.
+
+### Impact
+- Severity: CRITICAL / P0 (dead code / strike blocked).
+- Category: `DEAD_CODE` / `ROUTING_GAP`.
+
+---
+
+## GAP-190 — Wayback CDX Historical Content-Page Junk Crawl Filter Missing
+
+### Problem Statement
+`agent_alpha/recon/osint_sources.py::parse_wayback_cdx()` extracts all historical URLs from the Wayback Machine CDX API without path-level security relevance filtering. For e-commerce and CMS targets (such as WooCommerce, WordPress, Shopify), hundreds of product pages (`/product/*`, `/product-category/*`, `/shop/*`, `/cart/*`, `/checkout/*`), blog articles, and corporate pages are placed into the `_work_queue` / frontier. `scout.py::_should_enqueue()` filters Apache autoindex sort queries (`?C=N;O=D`) but lacks a path-exclusion list for known generic content pages. On targets behind Cloudflare WAF, each of these URLs triggers a 403 probe, wasting hundreds of requests, rate limits, memory, and hours of execution time.
+
+### Fix
+Implement a universal `CONTENT_PATH_EXCLUDE` list in `scout.py::_should_enqueue()` and `osint_sources.py::parse_wayback_cdx()`. Exclude patterns:
+- `/product/`, `/product-category/`, `/shop/`, `/cart/`, `/checkout/`, `/store/`
+- `/blog/`, `/category/`, `/tag/`, `/author/`, `/feed/`, `/page/`
+- `/about/`, `/about-us/`, `/contact/`, `/privacy-policy/`, `/terms-of-service/`
+- Static asset paths: `/wp-content/uploads/`, `/static/`, `/assets/`, `/media/`
+
+### Impact
+- Severity: HIGH / P1.
+- Category: `CYCLING_WASTE`. Eliminates 200+ wasted HTTP probes and hours of runtime on e-commerce/CMS targets.
+
+---
+
+## GAP-191 — Cloudflare HTTP 52x Edge Error Response Treated as Analyzable Content
+
+### Problem Statement
+When a backend server is unreachable or has SSL configuration issues (e.g. `erp.bernofarm.com` returning HTTP 525 SSL Handshake Failed), Cloudflare returns an HTML error template (~7KB). In `scout.py`, the OBSERVE loop treats HTTP 5xx responses with non-empty bodies as valid web application responses and dispatches `generic_http_probe` via the single-LLM tier for every probed path (`/`, `.git/config`, `.env`, `wp-config.php`, APIs). This causes 12+ wasted LLM inferences and mints empty/useless nodes for dead or broken origin backends.
+
+### Fix
+In `scout.py` (and response classifier), detect Cloudflare 52x status codes (520, 521, 522, 523, 524, 525, 526) containing Cloudflare error markers in the body. Mark the response as `non-analyzable` (skip LLM tier) and trip a per-host circuit breaker so subsequent well-known paths on that dead host are suppressed.
+
+### Impact
+- Severity: MEDIUM / P2.
+- Category: `CYCLING_WASTE`. Eliminates ~12 wasted LLM calls per dead/misconfigured CF backend.
+
+---
+
+## GAP-192 — Server Dashboard & Infrastructure Documentation Crawled as Security Surfaces
+
+### Problem Statement
+When default server management dashboards (such as XAMPP on `relay.bernofarm.com/dashboard/`) are discovered, Alpha follows links into documentation and tutorial pages (`/dashboard/docs/install-wordpress.html`, `/dashboard/docs/backup-restore-mysql.html`, `/dashboard/faq.html`). Alpha then submits each doc page to `generic_http_probe` or `wp_version` via LLM. Documentation HTML contains keyword triggers (e.g. "WordPress", "MySQL", "PHP") causing false tool selection and wasted LLM calls.
+
+### Fix
+Add known server dashboard documentation paths (`/dashboard/docs/*`, `/dashboard/faq*`, `/dashboard/howto*`) to the crawl exclusion filter while retaining high-value diagnostic endpoints (e.g., `/dashboard/phpinfo.php`, `/server-status`, `/phpmyadmin/`).
+
+### Impact
+- Severity: LOW-MED / P3.
+- Category: `CYCLING_WASTE`. Eliminates ~15 wasted LLM calls per exposed server dashboard.
+
+---
+
+## GAP-193 — Origin-Direct Fallback for WAF-Blocked Apex Target Fingerprinting
+
+### Problem Statement
+When origin IP discovery succeeds (e.g., `49.50.8.32` proven for `bernofarm.com`), all initial fingerprinting probes to the root domain (`https://bernofarm.com/`) continue to go through the Cloudflare edge where WAF returns 403 for all sensitive paths. As a result, the primary WordPress/WooCommerce tech stack was never detected on the apex host.
+
+### Fix
+When an origin IP is bound and authorized, Alpha's probing pipeline should automatically re-attempt WAF-blocked fingerprinting probes (`wp-json/`, `wp-login.php`, `system_status`) directly against the origin IP using `Host: <target>` header injection.
+
+### Impact
+- Severity: MEDIUM / P2.
+- Category: `RECON_MISS` / `ROUTING_GAP`. Enables tech stack detection for WAF-cloaked apex sites.
+
+---
+
+## GAP-194 — Cross-Host Identical-VHost Fingerprint & Probe Consolidation
+
+### Problem Statement
+Targets often deploy identical placeholder or shared portal templates across multiple regional subdomains (e.g., `portal.`, `portalaaa.`, `portaldist.`, `portalgsi.`, `portalsmk.bernofarm.com` all returning identical 11KB portal bodies). Alpha currently runs the full 11-path well-known probe suite (`.git`, `.env`, `wp-config`, `openapi.json`, `graphql`, etc.) independently against every single subdomain, duplicating 40+ identical 404/403 requests across identical vhosts.
+
+### Fix
+Track initial root response body hashes per origin IP. If a newly discovered subdomain returns a body hash identical to an already probed vhost on the same origin IP, suppress the redundant full well-known path probe suite.
+
+### Impact
+- Severity: LOW-MED / P3.
+- Category: `CYCLING_WASTE`. Reduces recon request volume by 50-75% on multi-subdomain architectures.
 
