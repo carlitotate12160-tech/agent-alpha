@@ -197,3 +197,48 @@ def test_applicator_hands_up_live_session_cookies() -> None:
         "116-A: AuthResult repr must not leak the session value (repr=False)"
     )
 
+
+def test_full_multicookie_session_jar_propagates_not_just_first_cookie() -> None:
+    # GAP-116-C: WordPress issues wordpress_logged_in_* AND wordpress_sec_*; the 116-B crawl needs
+    # the WHOLE jar. HttpResponse.cookies carries every Set-Cookie; the applicator must hand up all
+    # of them, not just the first parsed header cookie.
+    jar = {"wordpress_logged_in_x": "AAA", "wordpress_sec_x": "BBB"}
+
+    class _JarResp:
+        def __init__(self, text: str, cookies: dict[str, str] | None = None) -> None:
+            self.status_code = 200
+            self.text = text
+            self.url = ENTRY
+            self.headers = {"content-type": "text/html"}
+            self.cookies = cookies or {}
+
+    class _JarHttp:
+        def get(self, url: str, *, headers: Any = None, cookies: Any = None) -> _JarResp:
+            # authed (with session) → dashboard + full jar; unauth → login form (password field).
+            return (
+                _JarResp("admin dashboard", jar)
+                if cookies
+                else _JarResp('<input type="password"> log in')
+            )
+
+        def post(
+            self,
+            url: str,
+            *,
+            data: Any = None,
+            json_body: Any = None,
+            headers: Any = None,
+            cookies: Any = None,
+            allow_redirects: bool = True,
+        ) -> _JarResp:
+            return _JarResp("admin dashboard", jar)  # no password field → positive auth signal
+
+    res = HttpFormApplicator(http_client=_JarHttp()).apply(
+        username="a",
+        secret="p",
+        target=ENTRY,
+        budget=ResourceBudget(max_requests=5, max_seconds=5, max_cost_usd=0.0),
+    )
+    assert res.success
+    assert res.session_cookies == jar, "GAP-116-C: the FULL multi-cookie jar must propagate"
+

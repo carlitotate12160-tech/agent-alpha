@@ -92,6 +92,13 @@ class HttpResponse:
     text: str
     headers: dict[str, str]
     url: str
+    # GAP-116-C: the FULL response cookie jar (name->value). ``headers`` collapses multiple
+    # Set-Cookie headers into one string, so a multi-cookie session (WordPress issues
+    # wordpress_logged_in_* AND wordpress_sec_*) is unrecoverable from ``headers`` alone. This
+    # is populated from the transport's cookie jar (httpx/curl_cffi both parse every Set-Cookie),
+    # so an applicator can hand the COMPLETE won session to the 116-B authenticated crawl.
+    # Defaults to {} so existing constructions/fakes are unaffected (additive, back-compatible).
+    cookies: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
 class HttpClientError(Exception):
@@ -307,6 +314,8 @@ class HttpClient:
                 text=response.text,
                 headers={k.lower(): v for k, v in response.headers.items()},
                 url=str(response.url),
+                # GAP-116-C: full multi-cookie jar (getattr-guarded for transport test doubles).
+                cookies=dict(getattr(response, "cookies", {}) or {}),
             )
 
         return fetch
@@ -345,6 +354,10 @@ class HttpClient:
             text=response.text,
             headers={str(k).lower(): str(v) for k, v in response.headers.items()},
             url=str(response.url),
+            # GAP-116-C: full multi-cookie jar (getattr-guarded for transport test doubles).
+            cookies={
+                str(k): str(v) for k, v in dict(getattr(response, "cookies", {}) or {}).items()
+            },
         )
 
     # ── internal ────────────────────────────────────────────────
