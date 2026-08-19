@@ -266,7 +266,7 @@ def _mint_credentials(
     for hit in hits:
         record = secrets_manager.store(
             label=f"{hit.service}:{hit.kind}",
-            value=hit._raw_value,
+            value=getattr(hit, "_raw_value", ""),  # noqa: W0212 — no public accessor on hit
             engagement_id=engagement_id,
         )
         secret_id = record.secret_id
@@ -322,6 +322,53 @@ def _run_attestor_pass(
         event_store,
         [CredReuseAttestor(secrets_manager, engagement_id)],
         engagement_id,
+    )
+
+
+def _score_and_build_result(
+    *,
+    nuclei_jsonl_path: str | None,
+    cred_minted: bool,
+    access_level: str,
+    edge_from_harvested_cred: bool,
+    challenge_encountered: bool,
+    challenge_solved: bool,
+    use_origin_direct: bool,
+    technique_used: str,
+    origin_authorized: bool,
+) -> A1Result:
+    """Score vs Nuclei jsonl (C6) + build the A1Result. Extracted to keep
+    run_a1_validation complexity bounded."""
+    nuclei_findings: list[NucleiFinding] = []
+    if nuclei_jsonl_path is not None:
+        nuclei_findings = parse_nuclei_jsonl(nuclei_jsonl_path)
+
+    chain_proven = cred_minted and access_level in ("user", "admin") and edge_from_harvested_cred
+
+    from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
+
+    chain_result = OdooChainResult(
+        leak_creds_added=1 if cred_minted else 0,
+        web_access_level=access_level,
+        edge_from_harvested_cred=edge_from_harvested_cred,
+        db_enumerated=True,
+        leak_suspected=False,
+        cross_verified=False,
+    )
+    verdict = compare(chain_result, nuclei_findings)
+
+    valid_run = challenge_encountered and (chain_proven if use_origin_direct else True)
+
+    return A1Result(
+        valid_run=valid_run,
+        challenge_encountered=challenge_encountered,
+        challenge_solved=challenge_solved,
+        chain_proven=chain_proven,
+        edge_from_harvested_cred=edge_from_harvested_cred,
+        nuclei_findings=len(nuclei_findings),
+        scanner_missed_exploitability=verdict.scanner_missed_exploitability,
+        technique_used=technique_used,
+        origin_authorized=origin_authorized,
     )
 
 
@@ -453,42 +500,15 @@ def run_a1_validation(
             origin_ip_used=origin_ip_used,
         )
 
-    # ── 7. Score vs Nuclei jsonl (C6) ─────────────────────────────────────
-    nuclei_findings: list[NucleiFinding] = []
-    if nuclei_jsonl_path is not None:
-        nuclei_findings = parse_nuclei_jsonl(nuclei_jsonl_path)
-
-    chain_proven = cred_minted and access_level in ("user", "admin") and edge_from_harvested_cred
-
-    # Reuse the existing comparison logic for scanner_missed_exploitability.
-    from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
-
-    chain_result = OdooChainResult(
-        leak_creds_added=1 if cred_minted else 0,
-        web_access_level=access_level,
+    # ── 7+8. Score vs Nuclei + build result (C6) ──────────────────────────
+    result = _score_and_build_result(
+        nuclei_jsonl_path=nuclei_jsonl_path,
+        cred_minted=cred_minted,
+        access_level=access_level,
         edge_from_harvested_cred=edge_from_harvested_cred,
-        db_enumerated=True,
-        leak_suspected=False,
-        cross_verified=False,
-    )
-    verdict = compare(chain_result, nuclei_findings)
-
-    scanner_missed = verdict.scanner_missed_exploitability
-
-    # ── 8. Build result ───────────────────────────────────────────────────
-    if use_origin_direct:
-        valid_run = challenge_encountered and chain_proven
-    else:
-        valid_run = challenge_encountered
-
-    result = A1Result(
-        valid_run=valid_run,
         challenge_encountered=challenge_encountered,
         challenge_solved=challenge_solved,
-        chain_proven=chain_proven,
-        edge_from_harvested_cred=edge_from_harvested_cred,
-        nuclei_findings=len(nuclei_findings),
-        scanner_missed_exploitability=scanner_missed,
+        use_origin_direct=use_origin_direct,
         technique_used=technique_used,
         origin_authorized=origin_authorized,
     )
