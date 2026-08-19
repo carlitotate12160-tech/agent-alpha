@@ -213,7 +213,11 @@ def run_odoo_chain_live_fire(
     #    Conductor path runs (conductor/main.py run_beta on COMPLETE). This is the
     #    canonical verify_access_nodes (single promotion source), NOT a duplicate:
     #    the field-prove reports the tier an autonomous engagement would reach.
-    verify_access_nodes(graph_store, event_store, rec.engagement_id)
+    if secrets_manager is None:
+        raise ValueError("secrets_manager is required for production verification")
+    verify_access_nodes(
+        graph_store, event_store, rec.engagement_id, secrets_manager=secrets_manager
+    )
 
     return OdooChainResult(
         leak_creds_added=creds_added,

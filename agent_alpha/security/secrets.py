@@ -41,6 +41,7 @@ class SecretsVault(Protocol):
 
     def store(self, label: str, value: str, engagement_id: str) -> "SecretRecord": ...
     def retrieve(self, secret_id: str) -> str: ...
+    def retrieve_for_engagement(self, secret_id: str, engagement_id: str) -> str: ...
     def delete(self, secret_id: str) -> bool: ...
     def delete_engagement(self, engagement_id: str) -> int: ...
     def list_labels(self, engagement_id: str) -> list[str]: ...
@@ -90,15 +91,31 @@ class SecretsManager:
         self._secrets[record.secret_id] = record
         return record
 
-    def retrieve(self, secret_id: str) -> str:
-        record = self._secrets.get(secret_id)
-        if record is None:
-            raise SecretNotFoundError(f"Secret '{secret_id}' not found")
+    def _decrypt(self, record: SecretRecord, secret_id: str) -> str:
         try:
             plaintext = self._fernet.decrypt(record.encrypted_value)
         except InvalidToken as exc:
             raise DecryptionError(f"Failed to decrypt secret '{secret_id}'") from exc
         return plaintext.decode("utf-8")
+
+    def retrieve(self, secret_id: str) -> str:
+        record = self._secrets.get(secret_id)
+        if record is None:
+            raise SecretNotFoundError(f"Secret '{secret_id}' not found")
+        return self._decrypt(record, secret_id)
+
+    def retrieve_for_engagement(self, secret_id: str, engagement_id: str) -> str:
+        """Resolve a secret AND verify it is owned by the given engagement.
+
+        Raises SecretNotFoundError when the ref does not resolve OR belongs to a
+        different engagement — the GAP-118 cross-engagement false-provenance guard.
+        """
+        record = self._secrets.get(secret_id)
+        if record is None or record.engagement_id != engagement_id:
+            raise SecretNotFoundError(
+                f"Secret '{secret_id}' not found for engagement '{engagement_id}'"
+            )
+        return self._decrypt(record, secret_id)
 
     def delete(self, secret_id: str) -> bool:
         if secret_id in self._secrets:

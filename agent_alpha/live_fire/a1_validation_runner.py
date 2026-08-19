@@ -184,6 +184,194 @@ def assert_valid_or_raise(r: A1Result) -> None:
 # ── Runner ────────────────────────────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class _ReachOutcome:
+    """Result of the C8/C9 reach decision. ``bundle_result`` is set ONLY when the
+    origin-direct path fetched the bundle; otherwise the caller fetches via browser_solve."""
+
+    bundle_result: Any | None
+    technique_used: str
+    origin_authorized: bool
+    use_origin_direct: bool
+    origin_ip_used: str | None
+
+
+def _resolve_origin_direct_reach(
+    *,
+    target: str,
+    engagement_id: str,
+    mitigation_class: MitigationClass | None,
+    browser_solve_viable: bool,
+    origin_discovery: OriginDiscovery | None,
+    engagement_profile: EngagementProfile | None,
+    event_store: Any | None,
+) -> _ReachOutcome:
+    """C8/C9 reach decision, extracted to keep ``run_a1_validation`` complexity bounded.
+
+    Default = browser_solve. Only a SIGNED, authorized origin (candidate ∈ authorized_origins,
+    §12-C9) with a chosen ORIGIN_DIRECT strategy bypasses the challenge via origin-direct fetch.
+    ANTI-#3: challenge_solved stays False — reached ≠ solved; the honest story ("challenge NOT
+    solved; bypassed via exposed origin") IS the payable finding.
+    """
+    default = _ReachOutcome(None, "browser_solve", False, False, None)
+    if origin_discovery is None or engagement_profile is None:
+        return default
+
+    origin_ip = next(
+        (
+            ip
+            for ip in origin_discovery.candidates(target)
+            if ip in engagement_profile.authorized_origins
+        ),
+        None,
+    )
+    strategy = choose_reach(
+        mitigation_class,
+        browser_solve_viable=browser_solve_viable,
+        authorized_origin=origin_ip,
+    )
+    if strategy is not ReachStrategy.ORIGIN_DIRECT or origin_ip is None:
+        return default
+
+    # C8: fail-closed — raises OriginNotAuthorizedError if origin is not signed-authorized.
+    assert_origin_authorized(origin_ip, target, engagement_profile)
+    bundle_result = origin_direct_fetch(target, origin_ip, A1_BUNDLE_PATH)
+
+    # Typed event (audit-sensitive: hitting client origin bypasses WAF).
+    if event_store is not None:
+        from agent_alpha.events.event_types import EventType
+
+        event_store.append(
+            EventType.ORIGIN_DIRECT_ATTEMPT,
+            engagement_id,
+            "alpha",
+            {
+                "host": target,
+                "origin_ip": origin_ip,
+                "authorized": True,
+                "discovered_via": "origin_discovery",
+            },
+        )
+    return _ReachOutcome(bundle_result, "origin_direct", True, True, origin_ip)
+
+
+def _mint_credentials(
+    *, hits: list[Any], secrets_manager: Any | None, graph_store: Any | None, engagement_id: str
+) -> tuple[bool, str | None]:
+    """Vault each harvested secret (no raw secret in events, anti-#3). Returns
+    (cred_minted, last_secret_id) — the secret_ref is all that reaches the graph."""
+    if not (hits and secrets_manager is not None and graph_store is not None):
+        return False, None
+    secret_id: str | None = None
+    for hit in hits:
+        record = secrets_manager.store(
+            label=f"{hit.service}:{hit.kind}",
+            value=getattr(hit, "_raw_value", ""),  # noqa: W0212 — no public accessor on hit
+            engagement_id=engagement_id,
+        )
+        secret_id = record.secret_id
+    return True, secret_id
+
+
+def _beta_login_with_reused_cred(
+    *,
+    http_client: Any,
+    secrets_manager: Any,
+    secret_id: str,
+    target: str,
+    use_origin_direct: bool,
+    origin_ip_used: str | None,
+) -> tuple[str, bool]:
+    """Reuse the vaulted harvested secret for a real login (origin-direct via Host header,
+    or front-door). Returns (access_level, edge_from_harvested_cred)."""
+    from agent_alpha.tools.contracts import ResourceBudget
+    from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
+
+    if use_origin_direct and origin_ip_used is not None:
+        login_url = f"https://{origin_ip_used}{A1_LOGIN_PATH}"
+        login_client: Any = _OriginDirectHttpClientWrapper(http_client, target)
+    else:
+        login_url = f"https://{target}{A1_LOGIN_PATH}"
+        login_client = http_client
+
+    secret = secrets_manager.retrieve(secret_id)
+    applicator = HttpFormApplicator(http_client=login_client)
+    budget = ResourceBudget(max_requests=5, max_seconds=30, max_cost_usd=0.0)
+    auth_result = applicator.apply(
+        username="admin",
+        secret=secret,
+        target=login_url,
+        budget=budget,
+    )
+    if auth_result.success:
+        return auth_result.access_level, True
+    return "", False
+
+
+def _run_attestor_pass(
+    *, graph_store: Any | None, event_store: Any | None, secrets_manager: Any, engagement_id: str
+) -> None:
+    """Promote SELF_VERIFIED → CROSS_VERIFIED via the SAME run_verification_pass the autonomous
+    Conductor path uses (one impl). No-op if the graph/event stores are absent."""
+    if graph_store is None or event_store is None:
+        return
+    from agent_alpha.attestation.attestor import CredReuseAttestor, run_verification_pass
+
+    run_verification_pass(
+        graph_store,
+        event_store,
+        [CredReuseAttestor(secrets_manager, engagement_id)],
+        engagement_id,
+    )
+
+
+def _score_and_build_result(
+    *,
+    nuclei_jsonl_path: str | None,
+    cred_minted: bool,
+    access_level: str,
+    edge_from_harvested_cred: bool,
+    challenge_encountered: bool,
+    challenge_solved: bool,
+    use_origin_direct: bool,
+    technique_used: str,
+    origin_authorized: bool,
+) -> A1Result:
+    """Score vs Nuclei jsonl (C6) + build the A1Result. Extracted to keep
+    run_a1_validation complexity bounded."""
+    nuclei_findings: list[NucleiFinding] = []
+    if nuclei_jsonl_path is not None:
+        nuclei_findings = parse_nuclei_jsonl(nuclei_jsonl_path)
+
+    chain_proven = cred_minted and access_level in ("user", "admin") and edge_from_harvested_cred
+
+    from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
+
+    chain_result = OdooChainResult(
+        leak_creds_added=1 if cred_minted else 0,
+        web_access_level=access_level,
+        edge_from_harvested_cred=edge_from_harvested_cred,
+        db_enumerated=True,
+        leak_suspected=False,
+        cross_verified=False,
+    )
+    verdict = compare(chain_result, nuclei_findings)
+
+    valid_run = challenge_encountered and (chain_proven if use_origin_direct else True)
+
+    return A1Result(
+        valid_run=valid_run,
+        challenge_encountered=challenge_encountered,
+        challenge_solved=challenge_solved,
+        chain_proven=chain_proven,
+        edge_from_harvested_cred=edge_from_harvested_cred,
+        nuclei_findings=len(nuclei_findings),
+        scanner_missed_exploitability=verdict.scanner_missed_exploitability,
+        technique_used=technique_used,
+        origin_authorized=origin_authorized,
+    )
+
+
 def run_a1_validation(
     *,
     engagement_id: str,
@@ -255,61 +443,29 @@ def run_a1_validation(
 
     challenge_encountered = mitigation_class == MitigationClass.CHALLENGE
 
-    # ── 2b. Origin-direct reach strategy (optional) ───────────────────────
-    technique_used = "browser_solve"
-    origin_authorized = False
-    use_origin_direct = False
-    origin_ip_used: str | None = None
-    bundle_result: ChallengeSolveResult | OriginDirectResult
-
-    if origin_discovery is not None and engagement_profile is not None:
-        # C9: candidate ≠ authorization — filter against signed authorized_origins.
-        origin_ip = next(
-            (
-                ip
-                for ip in origin_discovery.candidates(target)
-                if ip in engagement_profile.authorized_origins
-            ),
-            None,
-        )
-        strategy = choose_reach(
-            mitigation_class,
-            browser_solve_viable=browser_solve_viable,
-            authorized_origin=origin_ip,
-        )
-        if strategy is ReachStrategy.ORIGIN_DIRECT and origin_ip is not None:
-            # C8: fail-closed — raises OriginNotAuthorizedError if origin
-            # is not in signed authorized_origins.
-            assert_origin_authorized(origin_ip, target, engagement_profile)
-            bundle_result = origin_direct_fetch(target, origin_ip, A1_BUNDLE_PATH)
-            technique_used = "origin_direct"
-            origin_authorized = True
-            use_origin_direct = True
-            origin_ip_used = origin_ip
-            # ANTI-#3: challenge_solved stays False. Origin-direct BYPASSES
-            # the challenge — it does NOT solve it. "Reached" ≠ "solved".
-            # The honest story: "CF challenge NOT solved; bypassed via
-            # exposed origin" — that IS the payable finding.
-
-            # Typed event (audit-sensitive: hitting client origin bypasses WAF).
-            if event_store is not None:
-                from agent_alpha.events.event_types import EventType
-
-                event_store.append(
-                    EventType.ORIGIN_DIRECT_ATTEMPT,
-                    engagement_id,
-                    "alpha",
-                    {
-                        "host": target,
-                        "origin_ip": origin_ip,
-                        "authorized": True,
-                        "discovered_via": "origin_discovery",
-                    },
-                )
+    # ── 2b. Origin-direct reach strategy (optional, C8/C9) ────────────────
+    reach = _resolve_origin_direct_reach(
+        target=target,
+        engagement_id=engagement_id,
+        mitigation_class=mitigation_class,
+        browser_solve_viable=browser_solve_viable,
+        origin_discovery=origin_discovery,
+        engagement_profile=engagement_profile,
+        event_store=event_store,
+    )
+    technique_used = reach.technique_used
+    origin_authorized = reach.origin_authorized
+    use_origin_direct = reach.use_origin_direct
+    origin_ip_used = reach.origin_ip_used
 
     # ── 3. Fetch bundle (browser_solve path, only if NOT origin-direct) ───
     bundle_url = f"https://{target}{A1_BUNDLE_PATH}"
-    if not use_origin_direct:
+    bundle_result: ChallengeSolveResult | OriginDirectResult
+    if use_origin_direct:
+        # Invariant: the origin-direct outcome always carries the fetched bundle.
+        assert reach.bundle_result is not None
+        bundle_result = reach.bundle_result
+    else:
         bundle_result = solver.solve_and_fetch(bundle_url, engagement_id=engagement_id)
 
     challenge_solved = bundle_result.challenge_solved
@@ -324,86 +480,35 @@ def run_a1_validation(
     )
 
     # ── 5. Mint vaulted credential (no raw secret in events) ─────────────
-    cred_minted = False
-    edge_from_harvested_cred = False
-    access_level = ""
-
-    if hits and secrets_manager is not None and graph_store is not None:
-        for hit in hits:
-            record = secrets_manager.store(
-                label=f"{hit.service}:{hit.kind}",
-                value=hit._raw_value,
-                engagement_id=engagement_id,
-            )
-            cred_minted = True
-            # The raw secret is vaulted — only the secret_ref is in the graph.
-            # Anti-#3: no raw secret in events.
+    cred_minted, minted_secret_id = _mint_credentials(
+        hits=hits,
+        secrets_manager=secrets_manager,
+        graph_store=graph_store,
+        engagement_id=engagement_id,
+    )
 
     # ── 6. Beta login /web/login with reused cred → verified admin ────────
-    if cred_minted and http_client is not None:
-        from agent_alpha.tools.contracts import ResourceBudget
-        from agent_alpha.tools.internal.access.applicator import HttpFormApplicator
+    access_level = ""
+    edge_from_harvested_cred = False
+    if cred_minted and http_client is not None and minted_secret_id is not None:
+        access_level, edge_from_harvested_cred = _beta_login_with_reused_cred(
+            http_client=http_client,
+            secrets_manager=secrets_manager,
+            secret_id=minted_secret_id,
+            target=target,
+            use_origin_direct=use_origin_direct,
+            origin_ip_used=origin_ip_used,
+        )
 
-        # Origin-direct: login via origin IP with Host header (same as bundle fetch).
-        # Front-door: login via target domain directly.
-        if use_origin_direct and origin_ip_used is not None:
-            login_url = f"https://{origin_ip_used}{A1_LOGIN_PATH}"
-            login_client = _OriginDirectHttpClientWrapper(http_client, target)
-        else:
-            login_url = f"https://{target}{A1_LOGIN_PATH}"
-            login_client = http_client
-
-        # Resolve the vaulted secret for the login attempt.
-        if secrets_manager is not None and hits:
-            secret = secrets_manager.retrieve(record.secret_id)
-            applicator = HttpFormApplicator(http_client=login_client)
-            budget = ResourceBudget(max_requests=5, max_seconds=30, max_cost_usd=0.0)
-            auth_result = applicator.apply(
-                username="admin",
-                secret=secret,
-                target=login_url,
-                budget=budget,
-            )
-            if auth_result.success:
-                access_level = auth_result.access_level
-                edge_from_harvested_cred = True
-
-    # ── 7. Score vs Nuclei jsonl (C6) ─────────────────────────────────────
-    nuclei_findings: list[NucleiFinding] = []
-    if nuclei_jsonl_path is not None:
-        nuclei_findings = parse_nuclei_jsonl(nuclei_jsonl_path)
-
-    chain_proven = cred_minted and access_level in ("user", "admin") and edge_from_harvested_cred
-
-    # Reuse the existing comparison logic for scanner_missed_exploitability.
-    from agent_alpha.live_fire.odoo_chain_runner import OdooChainResult
-
-    chain_result = OdooChainResult(
-        leak_creds_added=1 if cred_minted else 0,
-        web_access_level=access_level,
+    # ── 7+8. Score vs Nuclei + build result (C6) ──────────────────────────
+    result = _score_and_build_result(
+        nuclei_jsonl_path=nuclei_jsonl_path,
+        cred_minted=cred_minted,
+        access_level=access_level,
         edge_from_harvested_cred=edge_from_harvested_cred,
-        db_enumerated=True,
-        leak_suspected=False,
-        cross_verified=False,
-    )
-    verdict = compare(chain_result, nuclei_findings)
-
-    scanner_missed = verdict.scanner_missed_exploitability
-
-    # ── 8. Build result ───────────────────────────────────────────────────
-    if use_origin_direct:
-        valid_run = challenge_encountered and chain_proven
-    else:
-        valid_run = challenge_encountered
-
-    result = A1Result(
-        valid_run=valid_run,
         challenge_encountered=challenge_encountered,
         challenge_solved=challenge_solved,
-        chain_proven=chain_proven,
-        edge_from_harvested_cred=edge_from_harvested_cred,
-        nuclei_findings=len(nuclei_findings),
-        scanner_missed_exploitability=scanner_missed,
+        use_origin_direct=use_origin_direct,
         technique_used=technique_used,
         origin_authorized=origin_authorized,
     )
@@ -412,15 +517,14 @@ def run_a1_validation(
     assert_valid_or_raise(result)
 
     # ── 6b. Attestor verification pass — promote SELF_VERIFIED → CROSS_VERIFIED ──
-    # This is the live-path consumer that makes CROSS_VERIFIED reachable.
-    # The attestor independently confirms access claims backed by real auth events;
-    # promotion happens via event-sourced NodeVerified (not direct node mutation).
-    # NOTE (follow-up): production conductor/execute_agent chain must call the
-    # SAME run_verification_pass at chain completion — same function, one impl.
-    if graph_store is not None and event_store is not None:
-        from agent_alpha.attestation.attestor import CredReuseAttestor, run_verification_pass
-
-        run_verification_pass(graph_store, event_store, [CredReuseAttestor()], engagement_id)
+    # Live-path consumer that makes CROSS_VERIFIED reachable via the SAME
+    # run_verification_pass the autonomous Conductor path uses (one impl).
+    _run_attestor_pass(
+        graph_store=graph_store,
+        event_store=event_store,
+        secrets_manager=secrets_manager,
+        engagement_id=engagement_id,
+    )
 
     return result
 

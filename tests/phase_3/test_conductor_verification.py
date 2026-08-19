@@ -20,6 +20,7 @@ from agent_alpha.graph.nodes import (
     VerificationTier,
     node_to_dict,
 )
+from agent_alpha.security.secrets import SecretsManager
 
 _HOST = "shop.example.com"
 _CRED_ID = f"cred:{_HOST}:admin"
@@ -44,7 +45,7 @@ def _emit_edge(store: NetworkXGraphStore, edge: AttackEdge) -> None:
     )
 
 
-def _credential(store: NetworkXGraphStore) -> None:
+def _credential(store: NetworkXGraphStore, secret_ref: str) -> None:
     _emit_node(
         store,
         AttackNode(
@@ -52,7 +53,7 @@ def _credential(store: NetworkXGraphStore) -> None:
             type=NodeType.CREDENTIAL,
             properties=CredentialProperties(
                 username="admin",
-                secret_ref="vault://eng/secret-1",
+                secret_ref=secret_ref,
                 service="http",
                 access_level="admin",
             ),
@@ -101,12 +102,14 @@ def _access(store: NetworkXGraphStore, *, with_proof: bool) -> None:
 def test_verify_access_promotes_bound_access_to_cross_verified() -> None:
     store = NetworkXGraphStore()
     events = InMemoryEventStore()
-    _credential(store)
+    vault = SecretsManager()
+    rec = vault.store("db_pw", "P@ss", _ENG)  # real harvested material — resolves for _ENG
+    _credential(store, rec.secret_id)
     _access(store, with_proof=True)
 
     assert store.get_node(_ACCESS_ID).verification == VerificationTier.SELF_VERIFIED
 
-    verify_access_nodes(store, events, _ENG)
+    verify_access_nodes(store, events, _ENG, secrets_manager=vault)
 
     assert store.get_node(_ACCESS_ID).verification == VerificationTier.CROSS_VERIFIED
     kinds = [getattr(e, "event_type", None) for e in events.get_events(_ENG)]
@@ -114,13 +117,16 @@ def test_verify_access_promotes_bound_access_to_cross_verified() -> None:
 
 
 def test_verify_access_leaves_inferred_access_unverified() -> None:
-    """DIFFERENTIAL — must be able to FAIL. No bound proof → stays SELF_VERIFIED, no event."""
+    """DIFFERENTIAL — must be able to FAIL. Harvested material resolves, so this fails
+    SPECIFICALLY on the missing bound proof (not on Rule 3) → stays SELF_VERIFIED, no event."""
     store = NetworkXGraphStore()
     events = InMemoryEventStore()
-    _credential(store)
+    vault = SecretsManager()
+    rec = vault.store("db_pw", "P@ss", _ENG)  # resolves — isolates the no-proof cause
+    _credential(store, rec.secret_id)
     _access(store, with_proof=False)
 
-    verify_access_nodes(store, events, _ENG)
+    verify_access_nodes(store, events, _ENG, secrets_manager=vault)
 
     assert store.get_node(_ACCESS_ID).verification == VerificationTier.SELF_VERIFIED
     assert events.count(_ENG) == 0
