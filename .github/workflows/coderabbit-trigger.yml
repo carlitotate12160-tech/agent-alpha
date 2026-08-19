@@ -1,0 +1,43 @@
+# Auto-trigger CodeRabbit review on every push to a PR.
+# Context: repo has <10 GitHub stars, so CodeRabbit's auto-review is skipped
+# ("manual review required for this OSS repository"). This workflow automates
+# the manual trigger by commenting `@coderabbitai review` on the PR as the
+# token owner (not github-actions[bot]) — CodeRabbit ignores bot comments.
+name: CodeRabbit auto-trigger
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+
+concurrency:
+  group: coderabbit-trigger-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  trigger:
+    # Skip draft PRs (matches .coderabbit.yaml `drafts: false`)
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify PAT secret is set
+        env:
+          CR_PAT: ${{ secrets.AGENT_ALPHA }}
+        if: ${{ env.CR_PAT == '' }}
+        run: |
+          echo "::error::Secret AGENT_ALPHA (PAT) is not set. Add it in repo settings → secrets → actions."
+          exit 1
+
+      - name: Trigger CodeRabbit review as token owner
+        env:
+          GH_TOKEN: ${{ secrets.AGENT_ALPHA }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Triggering CodeRabbit review on PR #$PR_NUMBER ($REPO) as token owner"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "@coderabbitai review"
+          echo "Comment posted as authenticated user. CodeRabbit should pick it up within ~1-2 min."
