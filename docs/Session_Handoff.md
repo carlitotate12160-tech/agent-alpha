@@ -1,24 +1,28 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-17, §12.43 proof-standard LOCKED + GAP-116-A session-propagation MERGED)
+# Agent-Alpha — Session Handoff (2026-08-19, GAP-118 attestor-resolve SEALED on PR #454 + STEP-2 field-confirmed wpvuln INCONCLUSIVE)
 
-Resume with: "lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-A session-propagation MERGED + 187b coverage-honesty + §12.65 GAP-169 fingerprint-first recon ALL MERGED & SEALED on Oracle ARM64. Four-Operator Lineage doctrine banked. NEXT SLICE: (1) GAP-186 alias-skip (skip well-known spray on identical shared-IP bodies, rides GAP-169 seam); (2) Beta operator-doctrine slices in ORACLE-FIRST order (GAP-118 Zero-FP proof oracle §12.43 → GAP-099 MFA-honest classification). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
+Resume with: "lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-B/C authenticated-crawl + WP multi-cookie session jar MERGED (commit 4150814) + GAP-118 attestor Rule 3 hardening SEALED (PR #454 merged as 6fe008d2, Oracle ARM64 green, 606/606 tests). STEP-2 field-prove CONFIRMED: alpha-ai `wpvuln` access now INCONCLUSIVE (F=False) — its bare-UUID secret_ref does NOT resolve in the vault, exactly the false-provenance GAP-118 closes. NEXT IN ORDER: (1) P1 = the FULL §12.43 independent oracle (auth-vs-unauth diff composing the 116-B crawl) — GAP-118 made provenance HONEST, NOT the oracle; (2) Temuan 2 = Odoo cross-service reuse incomplete (E=False, db_enumerated=False) — diagnose with a log, do NOT guess. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
 
 ---
 
 ## ▶ START HERE (new session — do this IN ORDER, do not skip the gate)
 
-1. **`git pull` + confirm HEAD.** Is the 2026-08-17 work (187b Step 0/1/2 + GAP-169 `recon/fingerprint.py`
-   + `PlaybookEngine.match_all`) MERGED to main AND green on Oracle ARM64?
-2. **If NOT merged/Oracle-green → THE SLICE IS: seal it.** Run `make check` on Oracle ARM64, fix any
-   Oracle-only failures, merge. Do NOT start GAP-186 / Beta on unsealed work (Lyndon #9). STOP here until green.
-3. **If merged & Oracle-green → first work slice = GAP-186** (alias-skip): shared-IP hosts serving an
-   identical default page still get the blind well-known spray. It RIDES GAP-169's fingerprint-first seam
-   (root-body-hash + same-IP → skip well-known) — that's why it comes right after 169. Small, opsec-relevant.
-4. **Then pivot to Beta, ORACLE-FIRST:** GAP-118 proof oracle (makes findings payable) → GAP-099 MFA-honest → rest.
+1. **`git pull` + confirm HEAD.** Is GAP-118 (PR #454, merged as `6fe008d2`) on main AND green on
+   Oracle ARM64? It is — sealed 2026-08-19. STEP-2 field-prove already re-run: `wpvuln` = INCONCLUSIVE
+   (F=False), the false-provenance is closed. Do NOT re-run STEP-2 unless something regressed.
+2. **If sealed & Oracle-green → THE SLICE IS: P1 (§12.43 independent oracle).** GAP-118 only made
+   provenance HONEST (secret_ref must resolve to engagement-owned vaulted material). It did NOT add
+   the independent auth-vs-unauth diff oracle §12.43 mandates. P1 composes the 116-B authenticated
+   crawl (already merged) into an auth-vs-unauth marker diff — that is the payable floor. This is the
+   highest-value item: makes a chain claim *defensible* (an independent signal), not just provenance-checked.
+3. **Temuan 2 (separate, diagnose-first):** Odoo cross-service reuse still incomplete — STEP-2 shows
+   E=False (ENABLES edge does not source from the vaulted cred) and db_enumerated=False. Diagnose with
+   a log, do NOT guess (anti-mis-fix). The `wpvuln` cred's secret_ref is a bare UUID that does NOT
+   resolve — that is correct post-GAP-118 behavior, but it means the harvested cred is not being vaulted
+   with a `secret_` ref on this path. Inspect the harvest→vault→reuse wiring.
 
-*(Product-priority override, Natanael's call only: to chase payable findings sooner, skip GAP-186 and start
-GAP-118 first. Otherwise GAP-186 is the recommended next slice.)* Do NOT build Gamma. Oracle = the seal.
+*(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
 
 ---
 
@@ -30,15 +34,50 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 ---
 
+## ✅ SEALED — GAP-118 attestor-resolve (PR #454, merged 2026-08-19 as `6fe008d2`)
+
+**GAP-118 — CredReuseAttestor Rule 3 hardening.** Fixes a field-confirmed FALSE-PROVENANCE: on alpha-ai the
+access reached via cred `wpvuln` cross-verified even though `wpvuln.secret_ref` was a bare UUID that does NOT
+resolve in the vault (NOT harvested material). Rule 3 now requires `secret_ref` to RESOLVE to **non-empty,
+engagement-owned** vaulted material — provenance ≠ oracle, but at least provenance is now HONEST.
+
+**Commits (all on main via squash merge `6fe008d2`):**
+
+| Commit | What |
+|--------|------|
+| `8b184d0` | Rule 3 resolve via `retrieve_for_engagement`; threaded through `verify_access_nodes` + odoo/a1 runners; 6 GAP-118 tests; infra errors propagate (not swallowed). |
+| `c422271` | `verify_access_nodes(*, secrets_manager)` now KEYWORD-ONLY REQUIRED (production can't silently fall back to legacy non-empty check — Lyndon #3); DEBUG audit log on non-resolving ref (sanitized, CWE-117). |
+| `f0bb236` | Decompose `verify()` — extract `_find_backing_credential` + `_has_bound_auth_proof` as `@staticmethod`, collapse nested ifs. **CC 23 → 7 (radon).** |
+| `5d0bd57` | Decompose `run_a1_validation` (a1_validation_runner.py) — extract `_resolve_origin_direct_reach`/`_mint_credentials`/`_beta_login_with_reused_cred`/`_run_attestor_pass`. **CC 34 → 17 (radon).** Fixes DeepSource PY-R1000. |
+| `1e83914` | Extract `_score_and_build_result` + fix PYL-W0212 (`_raw_value` via getattr). **CC 17 → 11 (radon).** Clears DeepSource re-check. |
+
+**Oracle ARM64 seal:** `make check` clean (ruff + mypy, 148 files); `make all` 606 passed / 1 skipped / 0 fail
+(2 live DeepSeek tests deselected — 401, unrelated). `test_a1_validation` 19/19, `test_attestor + test_wiring_gate` 67/67.
+DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch deleted.
+
+**STEP-2 field-prove (2026-08-19, post-merge):** `run_alphaai_chain_step2.py` on Oracle, target
+`https://odoo.alpha-ai.web.id/` (domain `alpha-ai.web.id`), NO credential injection. Result:
+- A. Odoo fingerprinted: **True** | B. Cred HARVESTED+VAULTED: **True** | C. Beta selected/executed: **True/True**
+- D. Access WON: **True** | E. ENABLES edge FROM harvested cred: **False** | F. CROSS_VERIFIED: **False** | G. db_enumerated: **False**
+- `wpvuln` cred: `secret_ref='a784c712-5fe9-4153-99ec-41fde54e0d83'` (bare UUID, NOT `secret_`-prefixed, does NOT resolve in vault).
+- **F=False where it was wrongly F=True before GAP-118 — the false-provenance is closed.** This is the field-confirmation.
+
+**Still open after seal:** P1 §12.43 independent oracle (auth-vs-unauth diff composing 116-B crawl) → Temuan 2 (Odoo cross-service reuse E=False, db_enumerated=False, diagnose with a log not a guess).
+
+---
+
 ## SEALED / PROVEN (recent merged arcs)
 
 | Work | Seal level | Evidence |
 |------|-----------|----------|
+| **GAP-118: CredReuseAttestor Rule 3 hardening (attestor-resolve)** | **MERGED #454 → 6fe008d2, Tier-1 + Tier-3 PROVEN** | `secret_ref` must RESOLVE to non-empty engagement-owned vaulted material via `retrieve_for_engagement`. `verify_access_nodes(*, secrets_manager)` keyword-only required (Lyndon #3). verify() CC 23→7, run_a1_validation CC 34→11. STEP-2 field-prove: `wpvuln` now INCONCLUSIVE (F=False) — false-provenance closed. 606/606 Oracle, DeepSource + quality-gate PASS. |
+| **§12.43 Proof Standard (LOCKED doctrine)** | **BANKED 2026-08-18** | Payable floor = independent oracle (auth-vs-unauth diff §12.32) + human-legible artifact. ChainOracle = min over per-edge oracles. Provenance ≠ oracle. GAP-118 hardens provenance; the oracle itself is P1 (unbuilt). |
+| **GAP-116-B/C: Beta authenticated crawl + WP multi-cookie session jar (§12.32)** | **MERGED (commit 4150814)** | Playbook-driven GET-only DETECT, stack-gated exact-match (STACK_WP="wp"), auth-vs-unauth marker diff, depth-1 admin-filtered (refuses `?action=`/admin-ajax/destructive tokens), mints SERVICE node `service:{host}:authsurface:{surface}`. Full WP cookie jar (`HttpResponse.cookies` + `applicator._session_jar`); session cookie VALUES never persisted (names only, repr=False, deep-redact). |
 | **GAP-169: Fingerprint-First Recon Reorder (§12.65)** | **MERGED #444, Tier-1 Validated** | Root fetch hoisted to $t=0$, stack labels extracted via `fingerprint_all`, frontier seeded with stack-tailored leak paths (eliminates blind spray), `_prefetched` cache primed to prevent double GET, dead-host pruned fail-safe (D-2). 9/9 unit tests + 45/45 wiring gate passed. |
 | **GAP-026: StealthPacer Default ON Across Conductor** | **MERGED #423, Tier-1 Validated** | Pacer default ON across conductor per ADR §12.49 with strict §12.36 consent gate preserved. 100% green CI. |
 | **GAP-062: MX/SPF Origin Candidates & GAP-154 Gate-Fix** | **MERGED #421, Tier-1 Validated** | In-domain MX subdomains + SPF pass-ip4 origin candidates. Unconditional enrichment on total CT failure (DNS/OTX/VT/MX-SPF/Wayback always fire; `PASSIVE_INTEL_GATHERED` always emitted; anti-#3). Fan-out cap (8), `net.version!=4` IPv6 drop (interim per GAP-155). 247+ test assertions PASS. |
 | **GAP-115: Keyless Wayback CDX Historical Recon (Slice 1)** | **MERGED #420, Tier-1 Validated** | Keyless `WaybackClient` queries `web.archive.org/cdx/search/cdx` API (HTTPS) to extract in-domain historical subdomains (for `CompositeOriginDiscovery` origin resolution) + historical URL paths. Additive `enrich_with_wayback` with per-row parsing error resilience. 52/52 PASS, 100% green CI. |
-| **GAP-051: Engagement-Level Wall Verdict (Slice 1)** | **MERGED #419, Tier-1 Validated** | Conductor sweep records `WallVerdict` with `reason: Literal["waf_walled", "clear", "dead"]` scoped to stream head (`run_start_seq`) after target sweep. Emits `ENGAGEMENT_WALLED` audit event when all targets encounter WAF blocks. 10/10 PASS, 100% green CI across all checks. |
+| **GAP-051: Engagement-Level Wall Verdict (Slice 1)** | **MERGED #419, Tier-1 Validated** | Conductor sweep records `WallVerdict` with `reason: Literal["waf_walled", "clear", "dead"]` scoped to stream head (`run_start_seq`) after target sweep. Emits `ENGAGEMENT_WALLED` audit event when all targets encounter WAF blocks. 10/10 PASS, 100% green CI. |
 | **Bug #34: Engagement-Scoped State Reset** | **MERGED #418, Tier-1 Validated** | Fixed deduplication and health state (probed URLs, dead/reachable hosts) to persist across sibling targets within the same engagement while keeping content-keyed and egress state target-scoped. State resets on a new engagement ID. 7/7 PASS. |
 | **Bug #35: LLM Orientation Budget & Retry Resilience** | **MERGED #417, Tier-1 Validated** | Right-sized orientation token budget (2048 primary, 4096 retry) for reasoning models (DeepSeek-v4-pro). Added one-shot retry resilience on `CompletionTruncatedError` (including non-empty truncated text) with accurate cost aggregation (`prior_cost`) and double-truncation fallback. 6/6 PASS, 100% green CI. |
 | **GAP-074 Odoo JSON-RPC Fallback (Slice 2c)** | **MERGED #416, Tier-1 PROVEN** | OdooAccessTool now implements transport fallback (GAP-067). WAF/CDN blocked XML-RPC endpoints automatically fall back to web JSON-RPC login. Resolves CI, SAST (Aikido/GitGuardian), and formatting issues. 29/29 PASS. |
@@ -72,7 +111,19 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 
 ## OPEN / NOT DONE (registered, prioritised)
 
-**High-leverage growth (next real slice — GAP-115, agreed 2026-08-15; ONE at a time):**
+**Highest-value next slice — P1: §12.43 independent oracle:**
+- **P1 §12.43 independent auth-vs-unauth oracle** ★ — composes the 116-B authenticated crawl (already merged,
+  commit 4150814) into an auth-vs-unauth marker diff. GAP-118 made provenance HONEST (secret must resolve);
+  it did NOT add the independent oracle. P1 is what makes a chain claim *defensible* (an independent
+  auth-vs-unauth signal), not just provenance-checked. This is the payable floor per §12.43.
+
+**Temuan 2 (separate, diagnose-first — do NOT guess):**
+- **Odoo cross-service reuse incomplete** — STEP-2 (2026-08-19) shows E=False (ENABLES edge does not source
+  from the vaulted cred) and db_enumerated=False. The `wpvuln` cred's secret_ref is a bare UUID
+  (`a784c712-...`) that does NOT resolve — correct post-GAP-118, but it means the harvested cred is not
+  being vaulted with a `secret_` ref on this path. Inspect the harvest→vault→reuse wiring with a log.
+
+**High-leverage growth (next real slice after P1 — ONE at a time):**
 - **GAP-115 historical-DNS origin discovery** ★ (§12.61 A1 DIRECT) — DIRECT pre-CF A-records (the origin IP a domain pointed to BEFORE going behind CF, often still live/unprotected). This is the ADR's "biggest missing signal": 4 field targets (niagamas/bernofarm/ibudanbalita/busonlineticket) are full-CF where crt.sh/VT/OTX ALL failed. GAP-154 now lets this enrichment run even when crt.sh is down (the exact field case). DESIGN GATE (locked, build in a NEW session): keyless-FIRST source seam (ViewDNS/DNSHistory keyless; SecurityTrails key-gated OPTIONAL like OTX/VT, None=off, keyless-safe) → `enrich_with_historical_dns(intel, source)` additive → emits ip4 `origin_ip_candidates` (DROP ip6 per GAP-155) → composes with §12.46 two-proof binding (historical IP = CANDIDATE, stale IP fails binding = fail-closed, the niagamas lesson). Moat = the COMPOSITION (historical A → proven pre-CF origin), NOT the commodity lookup. **DECISION NEEDED FROM NATANAEL:** source/key policy — keyless-only (ViewDNS, rate-limited, autonomous) vs +SecurityTrails paid key (his to provide for Tier-2 field-prove). Then cert/favicon pivot (GAP-093/086), then axis-B. MENU — one slice.
 - **GAP-045 CF-ceiling honest-outcome report** — (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable integrated with CoverageLedger).
 
@@ -102,6 +153,7 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 - **GAP-034: read-model over events, not node-schema mutation** (event-sourced; AttackGraph = projection).
 - **GAP-026: stealth is consent-gated (§12.36 enforced)** — TEMPO is operator baseline but stays consent-gated. StealthPacer default ON per ADR §12.49.
 - **GAP-031: crash FIXED (graceful decline + Omega); residual = CF ceiling, NOT a code slice.**
+- **GAP-118: provenance ≠ oracle** — Rule 3 (secret_ref must RESOLVE to engagement-owned vaulted material) makes provenance HONEST, but the §12.43 payable floor still needs the independent auth-vs-unauth oracle (P1, unbuilt). Field-confirmed 2026-08-19: `wpvuln` bare-UUID ref correctly fails cross-verification.
 - **Code quality target**: military-grade engineering (fail-safe, deterministic, audited, no false-success) that ENCODES APT tradecraft.
 - **Verify-before-ship, every time**: green ≠ proven; always `git pull` before writing a patch; RUNNER-SEAL ≠ AUTONOMOUS-WIRED; Oracle is the seal.
 - **Four-Operator Lineage (durable design lens, banked 2026-08-17 w/ ADR §12.65/GAP-169)** — every agent behavior maps to a real APT tradecraft; the lens is "operator OBSERVES/COMPOSES, scanner sprays". PRINCIPLE table, NOT a task list (tasks live as GAPs — do not duplicate, anti-#7):
@@ -114,4 +166,4 @@ Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-g
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — GAP-026 StealthPacer default ON (#423) + GAP-062 MX/SPF (PR #421) + GAP-154 total-CT-failure gate-fix (#421) + GAP-115 Wayback CDX (#420) + GAP-051 Wall Verdict (#419) + Bug #34/#35 MERGED & PROVEN. NEW deferred GAPs: GAP-155 (ip6 URL bracketing) + GAP-156 (IP-scope pre-binding) + GAP-157/158/159. NEXT SLICE (agreed) = GAP-115 historical-DNS origin discovery (§12.61 A1 DIRECT A-records) — keyless-first source seam, compose with §12.46 binding, drop ip6; DECISION NEEDED: source/key policy (ViewDNS keyless vs SecurityTrails paid key). Do NOT build Gamma. Do NOT fold GAP-155/156 into recon slices. ALWAYS git pull + re-verify on Oracle first; RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-B/C authenticated-crawl & WP multi-cookie session jar MERGED (commit 4150814) + GAP-118 attestor Rule 3 hardening SEALED (PR #454 → 6fe008d2, Oracle ARM64 green, 606/606 tests, DeepSource + quality-gate PASS). STEP-2 field-prove CONFIRMED: alpha-ai `wpvuln` access now INCONCLUSIVE (F=False) — bare-UUID secret_ref does NOT resolve in vault, false-provenance closed. NEXT IN ORDER: (1) P1 = FULL §12.43 independent oracle (auth-vs-unauth diff composing 116-B crawl) — GAP-118 is provenance-resolve only, NOT the oracle; (2) Temuan 2 = Odoo cross-service reuse incomplete (E=False, db_enumerated=False), diagnose with a log not a guess. Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
