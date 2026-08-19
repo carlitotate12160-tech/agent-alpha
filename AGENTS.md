@@ -121,16 +121,18 @@ actually edited.
 
 ## Git Branch Policy
 
-**ALWAYS create a new branch + PR for code changes.** Never push directly to `main`.
+**ALWAYS create a new branch + PR for ALL changes.** Never push directly to `main`.
 
-- **Code changes** (`.py`, `.ts`, `.go`, config files, Makefile, CI workflows):
-  branch → commit → push → PR → wait CI + CodeRabbit → merge.
-- **Docs only** (`*.md` files in `docs/`, `AGENTS.md`, `ADR*.md`):
-  may push directly to `main` (no PR needed — docs only, no code risk).
+- **All changes** (code AND docs): branch → commit → push → PR → wait CI → merge.
+- GitHub repository rule violations **block direct pushes to `main`** — even
+  docs-only pushes are rejected by the branch protection rule (verified
+  2026-08-19: docs push to main declined with "push declined due to repository
+  rule violations"). Docs PRs still go through CI but typically pass fast.
 
-Why: pushing code directly to `main` skips CodeRabbit review and CI verification
-on a PR. CodeRabbit only reviews PRs, not direct pushes. Direct pushes also
-break the audit trail (no PR link in commit history).
+Why: pushing directly to `main` skips CodeRabbit review and CI verification.
+CodeRabbit only reviews PRs, not direct pushes. Direct pushes also break the
+audit trail (no PR link in commit history). The branch protection rule enforces
+this at the GitHub layer — there is no "docs-only exception" anymore.
 
 ## Test Commands (Oracle ARM64 — authoritative)
 
@@ -589,17 +591,26 @@ with one of these categories:
 - **After P2/P3 slices:** Tier 2 sufficient (lab-sealed, field-prove batched)
 - **Before phase seal:** ALL slices must be Tier-3 sealed for 2+ stacks
 
-### Current phase status (2026-08-12)
+### Current phase status (2026-08-19)
+
+> Authoritative status lives in `docs/Session_Handoff.md`. This table is a quick
+> pointer — keep in sync with the handoff after each slice seal.
 
 | Phase | Status | Sealed? | Blocker |
 |-------|--------|---------|---------|
 | Phase 0 (Foundation) | ✅ Done | Sealed | — |
 | Phase 1 (Memory + Graph) | ✅ Done | Sealed | — |
-| Phase 2 (Alpha + Omega) | ❌ REOPENED | Unsealed | ALPHA-2,3,4,5,6,7,8 not met |
-| Phase 2.5 (Reach) | ⚠️ Partial | Unsealed | Autonomous path wiring gaps |
-| Phase 3 (Beta) | ❌ REOPENED | Unsealed | BETA-2,3,6,7 not met |
-| Phase 4 (Gamma) | ❌ Not started | STOP-gated | Phase 2+3 must seal first |
+| Phase 2 (Alpha + Omega) | ⚠️ Partial | Unsealed | ALPHA-2,3,4,5,6,7,8 — Bug #37 (junk crawl) still OPEN, GAP-053/054/055/056/058/059/060/061/063/064/065/066 still OPEN |
+| Phase 2.5 (Reach) | ✅ Mostly sealed | Tier-1 + Tier-3 proven | origin-direct bypass proven on alpha-ai (self-owned full-CF) |
+| Phase 3 (Beta) | ⚠️ Partial | Unsealed | BETA-2,3,6,7 — GAP-118 sealed (provenance honest) but P1 §12.43 independent oracle still unbuilt; Temuan 2 (Odoo cross-service reuse E=False) open |
+| Phase 4 (Gamma) | ❌ Not started | STOP-gated | Phase 2+3 must seal first; do NOT build Gamma |
 
-**Phase 2 and 3 are REOPENED** because exit criteria were too weak. The gaps
-discovered (GAP-052-068, Bug #34, #37) are Phase 2/3 gaps that were missed
-during initial "sealing." They must be closed before Phase 4 starts.
+**Recent sealed arcs (2026-08-19):** GAP-118 (attestor Rule 3 hardening, PR #454
+→ 6fe008d2), GAP-116-B/C (authenticated crawl + WP cookie jar, 4150814), GAP-169
+(fingerprint-first recon), GAP-115 (Wayback CDX), GAP-062 (MX/SPF origin), Bug
+#34 (state reset), Bug #35 (LLM budget), GAP-074 slices (mechanism fingerprint
++ selection + JSON-RPC fallback), §12.43 proof standard LOCKED.
+
+**NEXT slice:** P1 = §12.43 independent auth-vs-unauth oracle (composes 116-B
+crawl). Then Temuan 2 (Odoo cross-service reuse, diagnose-first). Do NOT build
+Gamma.
