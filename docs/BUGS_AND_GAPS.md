@@ -674,6 +674,12 @@ Per ADR §12.61 recommended order: "(1) Historical DNS → (2) cert/favicon pivo
 - GAP-012 — Adaptive Evasion — Moved to ADR §12.33 (LOCKED in ADR §12.33 (2026-07-15))
 - GAP-013 — Credential Pattern Mutation Within Engagement — Moved to ADR §12.34 (LOCKED in ADR §12.34 (2026-07-15))
 
+### Stealth & WAF Evasion (NEW — 2026-08-20)
+
+- GAP-196 — StealthPacer (Gaussian jitter) has zero effect vs WAF (3 experiments, delta=0) (OPEN.)
+- GAP-197 — browser_solve not wired in autonomous path (4 gaps: runner/env/service/cookie) (OPEN.)
+- GAP-198 — cf_clearance cookie not reused after browser_solve (session waste + detection risk) (OPEN.)
+
 ### Memory & Intelligence (wiring)
 
 - GAP-002 — Scratchpad/SessionStore — CLOSED (CLOSED — Wired in PR #192 (2026-07-18))
@@ -4244,3 +4250,141 @@ During the live-fire run on `bernofarm.com`, all relative links on `apifingeris.
 - Severity: HIGH — Drops all relative links inside non-root web applications.
 - Field Evidence: Discovered live on `bernofarm.com` (`apifingeris.bernofarm.com/recruitment/logins` was 200 but probed as 404).
 
+---
+
+## GAP-196 — StealthPacer (Gaussian jitter) has zero effect vs WAF (3 experiments, delta=0)
+
+### Problem Statement
+StealthPacer (§12.50) was built on the assumption that "human-like timing = stealth." This
+assumption was NEVER validated before the component was built. Three controlled experiments
+(2026-08-20) prove the assumption is false for all WAF types tested:
+
+1. **ModSecurity + OWASP CRS (PL1 and PL2):** 22 scanner paths, stealth OFF vs ON.
+   Result: 13 blocked both, delta=0. WAF blocks by path signature, not timing.
+2. **Niagamas nginx WAF:** 20 WP scanner paths, stealth OFF vs ON.
+   Result: 11 vs 10 blocked, delta=-1 (not significant — confounded by test order, 1 path
+   changed from 403 to 200 due to server-side state, not jitter).
+3. **Cloudflare challenge (alpha-ai.web.id, residential IP):** 20 paths, stealth OFF vs ON.
+   Result: 20/20 CF challenge both, delta=0. CF challenge requires JS execution, not timing.
+
+Jitter IS firing (verified: 43s vs 2.5s for 6 requests), but firing ≠ effective. The timing
+delay is real; the WAF impact is zero.
+
+### Root Cause
+StealthPacer targets the wrong WAF layer. WAFs block by:
+- Signature-based (ModSecurity, nginx): path pattern matching → timing irrelevant
+- Cloudflare challenge: JS execution requirement → timing irrelevant
+- Cloudflare bot score (not tested): may consider timing, but primarily uses JA3/JA4 TLS
+  fingerprint + IP reputation + JS execution. Timing is a minor factor at best.
+
+### Fix
+1. **Reposition StealthPacer** — rename or re-document as "rate limiter with human-like
+   pattern," NOT "WAF evader." The name "Stealth" is misleading.
+2. **Do NOT build S-1 (OPSEC budget) on top of jitter** — if jitter has zero WAF effect,
+   a budget that counts "noise cost per request" based on timing is also ineffective.
+   Budget must count PATH risk, not TIMING risk.
+3. **Prioritize content-shaping (S-2 asset-only) and origin-direct** — both proven effective.
+4. **Optional: test vs Cloudflare bot score (low security level)** — the one scenario where
+   timing MIGHT matter. But this is marginal and should not block P1.
+
+### Evidence
+- ModSecurity lab: `infra/waf_lab_docker.yml` (owasp/modsecurity-crs:nginx-alpine)
+- Test scripts: `test_waf_stealth.py`, `test_waf_stealth_niagamas.py`,
+  `test_waf_stealth_alphaai.py`, `test_jitter_timing.py`
+- All run from Oracle ARM64 (ModSecurity) and WSL residential IP (niagamas, alpha-ai)
+
+### Impact
+- Severity: MED / P2.
+- Category: `FALSE_ASSUMPTION` / `LYNDON_3_ADJACENT` (presence of jitter code treated as
+  stealth effectiveness without measurement — exactly the "angka inventaris yang menyamar
+  sebagai riset" anti-pattern from peer review).
+- This gap invalidates the "stealth" claim in StealthPacer's docstring and ADR §12.50.
+
+### Cross-ref
+ADR §12.50 (StealthPacer doctrine), GAP-163 (Referer header), GAP-164 (cookie jar),
+GAP-165 (UA rotation), S-5 (adversarial validation — this IS S-5, just done ad-hoc).
+
+---
+
+## GAP-197 — browser_solve not wired in autonomous path (4 gaps in sequence)
+
+### Problem Statement
+Agent-Alpha has a complete browser_solve implementation (Phase 9c) for solving Cloudflare
+challenges via Camoufox/Firefox. The code exists in:
+- `agent_alpha/live_fire/browser_solve.py` (DeepSeekBrowserSolve adapter)
+- `agent_alpha/agents/alpha/scout.py:849` (solve_and_fetch call)
+- `agent_alpha/conductor/main.py:464` (wire browser_solve when allow_evasion=True)
+
+But browser_solve is NEVER activated in practice due to 4 sequential gaps:
+
+1. **Runner gap:** `run_bernofarm_conductor.py` does not set `allow_evasion=True`.
+   `consent_items=frozenset({"origin_direct", "active_approved"})` — missing `"evasion"`.
+   Result: `allow_evasion` defaults to False → Conductor skips browser_solve wiring.
+
+2. **Env var gap:** `BROWSER_SOLVE_ENDPOINT` is not set in Oracle `.env` or `.env.runtime`.
+   `DeepSeekBrowserSolve.from_env()` returns None even if allow_evasion=True.
+
+3. **Service gap:** Camoufox/Firefox browser_solve service is not running on Oracle.
+   `curl http://127.0.0.1:9225/health` = NOT_RUNNING. No Docker container for browser_solve.
+
+4. **Cookie reuse gap:** `BrowserSolveResponse.cleared_cookies` (contains cf_clearance after
+   successful solve) is NOT wired back to HttpClient for subsequent requests. After browser_solve
+   solves the challenge, the cf_clearance cookie is discarded — agent must re-solve for every
+   request, which is both slow and increases detection risk.
+
+### Fix (4 slices, sequential)
+1. **Slice-1 (runner):** Add `allow_evasion=True` + `"evasion"` to consent_items in runner
+   scripts for CF-protected targets.
+2. **Slice-2 (env):** Set `BROWSER_SOLVE_ENDPOINT=http://127.0.0.1:9225/solve` in Oracle env.
+3. **Slice-3 (service):** Deploy Camoufox/Firefox browser_solve service on Oracle (port 9225).
+   This is the DeepSeek lane (9c) — external service that accepts JSON and returns solved
+   response with cf_clearance cookie.
+4. **Slice-4 (cookie reuse):** After browser_solve returns `cleared_cookies`, inject cookies
+   into HttpClient for all subsequent requests to the same host. This is the APT pattern:
+   solve challenge once, reuse cf_clearance for the session.
+
+### Impact
+- Severity: HIGH / P1-adjacent.
+- Category: `WIRING_GAP` / `LYNDON_2` (code exists but never fires in autonomous path —
+  exactly "dead code treated as done").
+- Without this, agent CANNOT solve CF challenge on apex targets. Origin-direct works for
+  subdomains (bypass CF), but apex targets behind CF challenge mode are unreachable.
+
+### Cross-ref
+GAP-196 (jitter ineffective — browser_solve is the actual solution), §12.33 (browser_solve
+doctrine), §12.36 (consent gate for evasion), Phase 9c (Camoufox service).
+
+---
+
+## GAP-198 — cf_clearance cookie not reused after browser_solve (session waste + detection risk)
+
+### Problem Statement
+This is GAP-197 slice-4, separated because it has a different root cause and can be fixed
+independently. Even after browser_solve successfully solves a CF challenge and returns
+`cleared_cookies` (including `cf_clearance`), the HttpClient does not persist or reuse this
+cookie for subsequent requests to the same host.
+
+APT methodology: solve challenge ONCE → get cf_clearance → reuse for entire session.
+Agent-Alpha current: solve challenge → get cf_clearance → DISCARD → must re-solve every request.
+
+This is both:
+- **Inefficient:** each request triggers a new browser_solve call (120s timeout each)
+- **Detection-increasing:** repeated browser_solve calls from the same IP create a pattern
+  (multiple JS challenge solves in rapid succession = bot signal)
+
+### Fix
+1. After `browser_solve.solve_and_fetch()` returns, extract `cleared_cookies` from
+   `BrowserSolveResponse`.
+2. Store cookies in a per-host cookie jar (GAP-164 is the persistent cookie jar — this is
+   a specific use case of it).
+3. Inject stored cookies into HttpClient headers for all subsequent requests to the same host.
+4. If a subsequent request returns 403 challenge again, re-solve and refresh cookies.
+
+### Impact
+- Severity: MED / P2.
+- Category: `WIRING_GAP` / `EFFICIENCY`.
+- Depends on: GAP-197 (browser_solve must be wired first), GAP-164 (persistent cookie jar).
+
+### Cross-ref
+GAP-197 (browser_solve wiring — parent gap), GAP-164 (persistent cookie jar — infrastructure),
+GAP-196 (jitter ineffective — cf_clearance reuse is the actual stealth mechanism).

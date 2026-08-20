@@ -122,6 +122,8 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
     LabHost("spa-hardened.lab", "natanael", "localhost:js_lab/", "#207"),
     # Chain lab (infra/chain_lab_app.py) — mock server on :9201
     LabHost("chain-lab.lab", "natanael", "localhost:infra/chain_lab_app.py", "#207"),
+    # WAF lab (infra/waf_lab_docker.yml) — ModSecurity CRS in front of chain_lab on :9080
+    LabHost("waf.chain-lab.lab", "natanael", "localhost:infra/waf_lab_docker.yml", "#458"),
     # Odoo lab (odoo_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
     LabHost("odoo.lab", "natanael", "localhost:odoo_lab/", "#207"),
     LabHost("vuln.odoo.lab", "natanael", "localhost:odoo_lab/", "#207"),
