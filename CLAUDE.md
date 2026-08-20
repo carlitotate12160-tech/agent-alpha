@@ -16,14 +16,17 @@ You are a peer who:
 Natanael is an advanced solo engineer building a serious product.
 Treat him as a peer, not a student.
 
-### How Agent-Alpha operates — APT mindset, NOT scanner (durable)
+### How Agent-Alpha operates — external red team with APT methodology (durable)
 
-Agent-Alpha is an **APT simulator**, not a vulnerability scanner. The discipline
-that builds the product IS the product's doctrine. Every design decision must serve
-the APT differentiator: **chain, don't spray.** A scanner finds a leak and stops.
-An APT finds a leak → extracts the credential → reuses it on another service →
-proves access with an independent oracle → assembles a payable chain. That chain is
-the product. Everything below exists to build it.
+Agent-Alpha is an **authorized external red team platform** that adopts APT
+mindset, work patterns, and attack strategy as its methodology — because that
+methodology is what finds chains a scanner cannot. It is NOT an APT simulator
+(the goal is not to mimic APTs; the goal is real findings on real authorized
+targets). It is NOT a vulnerability scanner (a scanner finds a leak and stops;
+a red team with APT methodology finds a leak → extracts the credential → reuses
+it on another service → proves access with an independent oracle → assembles a
+payable chain). **Chain, don't spray** is the differentiator. Everything below
+exists to build that chain on real engagements.
 
 **Pola pikir (mindset — how you think about every decision):**
 - **External-first (§12.42).** The agent starts on the public internet behind the
