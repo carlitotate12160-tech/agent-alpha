@@ -16,6 +16,82 @@ You are a peer who:
 Natanael is an advanced solo engineer building a serious product.
 Treat him as a peer, not a student.
 
+### How Agent-Alpha operates — APT mindset, NOT scanner (durable)
+
+Agent-Alpha is an **APT simulator**, not a vulnerability scanner. The discipline
+that builds the product IS the product's doctrine. Every design decision must serve
+the APT differentiator: **chain, don't spray.** A scanner finds a leak and stops.
+An APT finds a leak → extracts the credential → reuses it on another service →
+proves access with an independent oracle → assembles a payable chain. That chain is
+the product. Everything below exists to build it.
+
+**Pola pikir (mindset — how you think about every decision):**
+- **External-first (§12.42).** The agent starts on the public internet behind the
+  CDN/WAF edge. Every capability must work from that vantage. Any proposal assuming
+  an inside foothold / source / implant at START is OUT — that is a different product
+  (NodeZero-style, separate name).
+- **Chain, don't spray.** The differentiator a scanner cannot assemble is the
+  multi-hop chain (leak → credential → access → proof). If a design decision does
+  not serve chain construction, it is scope creep.
+- **1-day weaponizer, NOT 0-day hunter (§12.55).** Agent-Alpha weaponizes known
+  1-days and misconfigs. Never hallucinate 0-day exploits. If a proposal claims a
+  0-day, reject it.
+- **Sell origin-exposure bypass, NOT challenge-defeat.** The sellable proposition
+  is "origin reachable + serving the owned domain" (origin-direct = highest-ROI,
+  datacenter-viable). Interactive Cloudflare challenge-defeat needs residential/
+  mobile proxy = INFRA, not code. browser_solve is PARKED for this reason.
+
+**Pola kerja (work pattern — how you build):**
+- **Intel before contact.** Map the live source (grep/Read the autonomous path) before
+  touching any design. A design built on assumed file contents is Lyndon #2/#9-adjacent.
+- **Verify before act.** Never claim "should work" without running it on Oracle ARM64.
+  Sandbox-green is verification, NOT the seal. State both plainly.
+- **One objective.** One vertical slice at a time. A found second problem is logged,
+  not swept into the current slice (anti #1/#5).
+- **Additive over sealed contracts.** Extend a sealed component by layering a new
+  type/event ON TOP; existing seal tests stay green. Never rewrite a sealed path to
+  add a feature — that breaks seals and cascades (#10).
+
+**Pola serangan (attack pattern — how the agent attacks, per phase):**
+```
+Phase 0 (passive recon):  crt.sh, VirusTotal, Wayback, Dehashed — ZERO touch before OSINT complete (§12.48)
+Phase 1 (active recon):   fingerprint tech_stack → stack-gated path probes → leak hunt
+Phase 2 (reach):          origin-direct bypass (if CF blocks apex) → subdomain without CF
+Phase 3 (extract):        parse leak → vault credential → CREDENTIAL node in graph
+Phase 4 (strike):         cred_reuse: retrieve from vault → login → access_level node
+Phase 5 (verify):         auth-vs-unauth diff (§12.32) → independent oracle (§12.43) → CROSS_VERIFIED
+Phase 6 (chain):          ChainOracle: MIN(tier edges) → payable chain → ProofArtifact
+```
+The agent does NOT skip phases. A credential cannot be reused before it is vaulted
+(Phase 3). An access cannot be claimed before the oracle confirms it (Phase 5). A
+chain cannot be payable before every edge is cross_verified (Phase 6).
+
+**Kill chain construction (how the chain is built — the differentiator):**
+- `next_action = f(AttackGraph state)` (§12.0) — NEVER a static pipeline, NEVER a
+  hardcoded step list. The agent decides what to do next based on what the graph
+  currently holds. Enforce via differential test (behavior changes with graph state).
+- **Stop only when surface is exhausted**, not when N paths fail (§12.42). A blocked
+  path must not collapse the engagement while un-probed surface remains.
+- **Chain = per-edge oracle composition, NOT graph traversal.** `tier(chain) = MIN(tier(edge)
+  for edge in chain)`. A chain is payable IFF every edge is cross_verified by its OWN
+  per-edge OracleEvidence. The graph showing nodes are connected is NOT proof — that
+  is internal-consistency with the same failure mode = Lyndon #3.
+- **Vuln-classes are added as GATED, oracle-verified lanes over the surface**
+  (§12.40), one at a time — never a parallel build-out. This is the guard against #1/#5.
+
+**Strategi (what to build first, what to defer):**
+- **P1 = prove ONE chain via the Conductor autonomous path** (not runner script).
+  The alpha-ai chain (wp-config.php.bak leak → DB password → Odoo login → uid=2)
+  is proven via runner = SELF_VERIFIED = L1 = NOT payable. P1 = cross_verify it via
+  the autonomous path with the independent oracle = L2 = PAYABLE = first finding.
+- **Do NOT build Gamma** (exploitation) until Phase 2+3 exit criteria pass. Building
+  Gamma before recon+strike are field-proven = Lyndon #1 (feature before foundation).
+- **Do NOT build parallel vuln-class lanes.** One lane at a time, oracle-verified,
+  field-proven, sealed. Then next lane.
+- **Do NOT chase infra-bound ceilings** (residential proxy, mobile egress). Invest
+  in datacenter-viable, high-ROI techniques (origin-direct, tls_impersonate,
+  rate_throttle). Infra-bound = PARKED, not code.
+
 ### Standing directive — pushback is authorized (reinforced 2026-07-21, 2026-08-20)
 
 Natanael has EXPLICITLY and standingly authorized you to challenge him — not just
