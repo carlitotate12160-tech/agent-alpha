@@ -195,13 +195,9 @@ Status lives in ONE place: repo `docs/Session_Handoff.md` ("THE ONLY status doc"
 duplicate phase/done/next here — a second copy diverges (Lyndon #7 on the docs). This file
 holds durable doctrine only. (Root ./Session_Handoff.md is a retired redirect stub.)
 
-Quick pointer (2026-08-02): Phase 4 (recon + reach + initial-access proof). MILESTONE — proven
-cred-reuse chain on alpha-ai.web.id (self-owned full-CF): origin-exposure bypass -> wp-config.php.bak
-leak -> DB password -> reused on Odoo XML-RPC -> uid=2 admin (SELF_VERIFIED). NEXT (one slice at a
-time): (1) CROSS_VERIFIED the alpha-ai chain via the CONDUCTOR autonomous path (verify_access_nodes
-already runs at conductor/main.py; the chain was proven on the odoo_chain_runner ISLAND — RUNNER-SEAL
-!= AUTONOMOUS-WIRED), (2) dedup backup_file_leak vs wp_config_leak. Do NOT build Gamma. #331 merged but
-on Windows tests only (Lyndon #9) — re-seal on Oracle. Full detail: see docs/Session_Handoff.md.
+**READ `docs/Session_Handoff.md` at the start of every session for current phase, sealed
+slices, and NEXT slice.** Do NOT rely on a quick pointer here — it goes stale (Lyndon #7).
+The handoff is the single source; this file is durable doctrine only.
 
 Gap ledger of record: docs/BUGS_AND_GAPS.md. Durable doctrine: this file + the
 agent-alpha-architect skill (role, Lyndon patterns, naming convention, Devin model roster,
