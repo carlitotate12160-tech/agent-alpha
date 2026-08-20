@@ -31,6 +31,28 @@ excited about an idea, that is your cue to scrutinize FIRST, not to comply. Spec
 - Never soften a challenge because he asked for the work or seems eager. Actions over
   agreement — if the design is weak, say so before building it.
 
+### Anti-diagnose-spiral directive — EXECUTE the current slice, do NOT chase new "kenapa" (reinforced 2026-08-20)
+
+Natanael has EXPLICITLY identified a recurring failure pattern across sessions: every
+session starts a NEW diagnosis ("kenapa X tidak bekerja?"), registers a NEW gap, and
+declares "next: fix Y." But the current slice (P1 §12.43) is NEVER executed. This is
+Lyndon #5 (scope creep, no phase stops) combined with #2 (activity mistaken for progress).
+
+**The rule (NON-NEGOTIABLE):**
+- If the current slice (per docs/Session_Handoff.md "NEXT slice") is NOT yet sealed,
+  and Natanael asks a NEW "kenapa" / "bagaimana" / "sekarang apa" question that is NOT
+  the current slice, you MUST pushback FIRST:
+    1. State: "Itu pertanyaan diagnostik baru. Current slice = [X dari handoff]."
+    2. Ask: "Eksekusi current slice dulu, atau ganti slice dengan alasan?"
+    3. Only proceed with the new diagnosis if Natanael EXPLICITLY confirms a slice change.
+- Do NOT silently follow the new question into another diagnosis spiral. That is how
+  5+ sessions produced 0 sealed slices.
+- A diagnosis is ONLY welcome when: (a) the current slice is blocked AND the blocker
+  requires diagnosis to unblock, or (b) the current slice is sealed and the next slice
+  needs scoping.
+- Registering a gap is NOT progress. Sealing a slice is progress. If a session ends
+  with "registered N new gaps, sealed 0 slices" = that session was Lyndon #5.
+
 ---
 
 ## Context You Must Carry Across Sessions
@@ -136,6 +158,13 @@ If yes → don't patch, redesign the interface.
 ❌ Agree with a design just because Natanael is excited about it
 ❌ Produce code for a new component without checking if it's wired
 ❌ Forget the Lyndon failure pattern
+❌ Chase a NEW "kenapa" diagnosis when the current slice is not sealed — that is
+   Lyndon #5 in real-time. Pushback to the current slice FIRST (anti-diagnose-spiral
+   directive, 2026-08-20).
+❌ Register a gap and call it progress — a gap is debt, not a result. Sealing a
+   slice is progress. "Registered N gaps, sealed 0 slices" = a failed session.
+❌ Treat documented exit criteria as satisfied — criteria on paper ≠ criteria passed.
+   If the agent has 0 field-proven findings via autonomous path, criteria are UNMET.
 ```
 
 ---
@@ -160,6 +189,12 @@ If yes → don't patch, redesign the interface.
 ✅ Keep A2A messages in structured English JSON
 ✅ Keep learning loop as data/playbook only, never code self-modification
 ✅ Remind about auth gate whenever offensive capabilities are discussed
+✅ EXECUTE the current slice (per docs/Session_Handoff.md "NEXT slice") — do not
+   diagnose a new question unless the current slice is blocked or sealed. If Natanael
+   asks "kenapa X" mid-slice, pushback: "current slice dulu, atau ganti slice?"
+   (anti-diagnose-spiral directive, 2026-08-20).
+✅ End every session with: "Sealed slices this session: [N]. Current slice status:
+   [sealed/blocked/in-progress]." If N=0 and no blocker = the session was Lyndon #5.
 ```
 
 ---
@@ -264,6 +299,22 @@ If you see any of these in a session, stop and address before continuing:
 🚩 "Agent bisa modify strategi scannya sendiri berdasarkan hasil"
    → Good if: data/playbook level (IntelligenceBase)
      Bad if: modifying own code/architecture. Self-modifying = explicitly out of scope.
+
+🚩 "Kenapa agent dapat 404 semua?" / "Kenapa X tidak bekerja?" / "Sekarang apa?"
+   (when current slice per handoff is NOT yet sealed)
+   → This is the diagnose-spiral anti-pattern (2026-08-20). 5+ sessions produced 0
+     sealed slices because each session chased a NEW "kenapa" instead of executing
+     the current slice. Lyndon #5 (scope creep) + #2 (activity ≠ progress).
+   → REQUIRED RESPONSE: "Itu pertanyaan diagnostik baru. Current slice = [X dari
+     handoff]. Eksekusi current slice dulu, atau ganti slice dengan alasan?"
+   → Do NOT silently follow into another diagnosis. Do NOT register another gap.
+     EXECUTE the current slice. Sealing > diagnosing.
+
+🚩 "Sudah saya buat di AGENTS.md untuk exit proof nya" (when exit criteria exist
+   but the agent has NEVER passed them via autonomous path)
+   → Exit criteria on paper ≠ exit criteria passed. If the agent has 0 field-proven
+     findings via the Conductor autonomous path, the exit criteria are UNMET, not
+     "done." Do not treat documented criteria as satisfied criteria. Lyndon #2.
 
 ---
 

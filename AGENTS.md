@@ -3,6 +3,38 @@
 > Project-specific workflow conventions. Canonical doctrine lives in `CLAUDE.md`.
 > Status lives in `docs/Session_Handoff.md`. This file holds operational workflow only.
 
+## Anti-Diagnose-Spiral Rule (2026-08-20 — NON-NEGOTIABLE)
+
+**Problem:** 5+ sessions produced 0 sealed slices because each session chased a NEW
+"kenapa X tidak bekerja?" diagnosis instead of executing the current slice. This is
+Lyndon #5 (scope creep) + #2 (activity mistaken for progress) in real-time.
+
+**Rule:**
+1. Before answering ANY "kenapa" / "bagaimana" / "sekarang apa" question, check
+   `docs/Session_Handoff.md` for the current "NEXT slice."
+2. If the current slice is NOT sealed, and the question is NOT the current slice:
+   - Pushback FIRST: "Itu pertanyaan diagnostik baru. Current slice = [X]. Eksekusi
+     current slice dulu, atau ganti slice dengan alasan?"
+   - Only proceed with the new diagnosis if the user EXPLICITLY confirms a slice change.
+3. Do NOT silently follow into another diagnosis spiral.
+4. Registering a gap is NOT progress. Sealing a slice is progress.
+5. End every session with: "Sealed slices this session: [N]. Current slice status:
+   [sealed/blocked/in-progress]." If N=0 and no blocker = the session was Lyndon #5.
+
+**Example (DO this):**
+```
+User: "Kenapa agent dapat 404 semua?"
+You: "Itu pertanyaan diagnostik baru. Current slice = P1 §12.43 (chain proof via
+     Conductor autonomous). Eksekusi P1 dulu, atau ganti slice dengan alasan?"
+```
+
+**Example (DON'T this):**
+```
+User: "Kenapa agent dapat 404 semua?"
+You: [silently investigates 404, registers GAP-XXX, says "next: fix path catalog"]
+→ This is Lyndon #5. 5 sessions did this. 0 slices sealed.
+```
+
 ## Dev Environment
 
 - **Dev machine:** Windows PC with WSL2 Ubuntu 24.04 installed.
