@@ -440,7 +440,12 @@ GIT_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
 # Spring Boot Actuator env-disclosure endpoints (read-only info disclosure -> RECON).
 ACTUATOR_PATHS: tuple[str, ...] = ("/actuator/env", "/env")
 
-WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, *BACKUP_FILE_PATHS, *ACTUATOR_PATHS)
+WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (
+    *GIT_LEAK_PATHS,
+    *BACKUP_FILE_PATHS,
+    *ACTUATOR_PATHS,
+    *CI_CONFIG_PATHS,
+)
 
 # CDN-infrastructure path prefixes to exclude from frontier crawl (loop prevention).
 # Cloudflare and other CDNs inject /cdn-cgi/* paths that link to each other indefinitely,
