@@ -4423,3 +4423,104 @@ CHAINS. A scanner's blind spray buries those signals in 404 noise; the operator 
 §12.65 but do not reproduce the table; `docs/Session_Handoff.md` carries status only.
 
 
+
+### 12.66 Precondition/Effect Model: realizing §12.29 D2-c as goal-backward SCORING (doc-only, Slice-0)
+
+> Status: PROPOSED (doc-only, zero code). Assign the final §-number to avoid collision.
+> Realizes the PENDING piece of an ACCEPTED ADR — this is additive, NOT a rebuild.
+
+#### Context
+
+The OODA goal-backward backbone (OBSERVE → MODEL → HYPOTHESIZE-backward → DERIVE → ACT → VERIFY →
+COMPOSE → re-OBSERVE) is already doctrine and ~80% built as substrate:
+
+- OBSERVE / DERIVE(recon): `scout.run_recon` + `fingerprint_all` (§12.65) + passive intel (§12.48).
+- MODEL: `WorldModel` read-model over the AttackGraph projection (§12.29 D3).
+- HYPOTHESIZE: `Planner.score(url, world_model, objective)` — deterministic, objective-aware but
+  FORWARD (§12.29 D2-a). **D2-c (HTN lookahead) is PENDING**; the `objective` arg is already reserved
+  in the planner for exactly this.
+- ACT: agents + `CredentialLockoutGovernor` + bounded loop.
+- VERIFY: `attestor` + `run_verification_pass` + §12.43 independent oracle (P1, sealed).
+- COMPOSE: AttackGraph edges + §12.63 typed composition; the doctrine exists, but the agent does not
+  yet actively SEEK the next edge toward the objective.
+
+**The one missing spine** is a formal precondition/effect model per technique. Grep confirms
+`requires`/`produces` are absent from `coverage/techniques.yaml` and the planner. Without it the agent
+cannot reason "I have X (graph), I need Y (objective), technique T produces Y and requires Z" — which
+both goal-backward HYPOTHESIZE and COMPOSE depend on. This ADR specifies that spine.
+
+#### Decision
+
+1. **D2-c is realized as goal-backward SCORING, NOT a stored HTN plan.**
+   The planner stays a reactive per-OODA-cycle scorer `f(graph, objective)` (§12.29 D2). It does NOT
+   emit a multi-step plan that is then executed. Rationale: a stored plan over an event-sourced graph
+   that mutates between planning and execution is stale by construction and needs an invalidation
+   mechanism — a smell that the abstraction is wrong. Reactive scoring is replan-native: recomputed
+   every cycle, it cannot go stale. (Supersedes the "HTN plan + replan" reading of D2-c.)
+
+2. **Precondition/effect predicates live in `coverage/techniques.yaml`** (§12.62 single source; extends
+   it, no second catalog — anti-#7). Each technique gains:
+   - `requires: [Predicate]` — graph-state conditions that must hold before the technique can fire.
+   - `produces: [Predicate]` — graph node/edge conditions the technique yields on success.
+
+3. **A Predicate is a TYPED reference from a CLOSED vocabulary that resolves to a real graph-predicate
+   function** — never free-form text. Initial vocabulary (extend by ADR, not ad hoc):
+   ```
+   asset.tech_stack.contains(<label>)         # e.g. codeigniter, wp, laravel
+   exists.node(CREDENTIAL)                     # a harvested credential node exists
+   exists.node(ACCESS_LEVEL, level>=<lvl>)     # access at/above a level
+   exists.edge(ENABLES, CREDENTIAL->ACCESS_LEVEL)
+   node.verification(ACCESS_LEVEL) == cross_verified   # §12.43 tier
+   exists.node(SERVICE, mech=<mech>)           # an auth surface of a given mechanism
+   ```
+   Each predicate name maps to one graph-predicate function `f(graph_state) -> bool`. The vocabulary is
+   registered in one module; `techniques.yaml` references names only.
+
+4. **Goal-backward scoring fills the reserved `objective` arg** in `Planner.score`. A candidate action
+   scores higher when its `produces` satisfies an UNMET `requires` on the backward chain from
+   `objective.target_access_levels` (§12.29 D1 `EngagementObjective`). The score is explainable — it
+   names WHICH requirement on the path to the objective it advances. Deterministic, no LLM (§12.57/59:
+   LLM in ORIENT, DECIDE deterministic).
+
+5. **Chain-seeking composes with the §12.58 cred-reuse instinct.** After an edge reaches
+   `cross_verified` (§12.43), the next-action selection prefers actions whose `requires` the new edge
+   just satisfied AND whose `produces` advance the objective — i.e. COMPOSE toward the goal, not collect
+   isolated footholds. `WorldModel.is_objective_met` short-circuits the loop (§12.29 D4, verified-gated,
+   never self-reported — anti-#3). `router.py` remains the auth/blast validator (routing proposes,
+   gates dispose — §12.63).
+
+#### Test / integrity contract (for the code slices that follow)
+
+- **Integrity (Slice-1, extends `test_coverage_catalog_integrity` / OMEGA-GOV):** every `requires`/
+  `produces` predicate name in `techniques.yaml` MUST resolve to a registered graph-predicate function,
+  else CI fails. This pins `techniques.yaml` to `graph/nodes.py` and prevents drift (anti-#7).
+- **Cardinal RED (Slice-2 scoring):** GIVEN a graph with a harvested CREDENTIAL and an objective of
+  admin ACCESS_LEVEL, `score` ranks the technique whose `produces` = `exists.edge(ENABLES,
+  CREDENTIAL->ACCESS_LEVEL)` ABOVE an unrelated recon action; AND a technique whose `requires` are unmet
+  scores below one whose `requires` are met. Deterministic, seeded-replay identical.
+- **Cardinal RED (Slice-3 chain-seeking):** GIVEN a freshly `cross_verified` CREDENTIAL edge, the next
+  selected action is the one whose newly-satisfied `requires` advances the objective (compose), not a
+  fresh unrelated foothold; and when `is_objective_met`, the loop stops (GOAL_COMPLETED, verified).
+
+#### Build order (additive, one slice at a time — NOT a rewrite)
+
+- **Slice-0 (this ADR):** schema + predicate vocabulary + contracts + integrity-test spec. Zero code.
+- **Slice-1 (data + gate):** annotate EXISTING techniques in `techniques.yaml` with `requires`/
+  `produces`; register the predicate vocabulary; extend the integrity test.
+- **Slice-2 (code):** fill `Planner.score` reserved `objective` → goal-backward scoring.
+- **Slice-3 (code):** chain-seeking after `cross_verified`; objective-met short-circuit.
+
+#### Non-goals (this ADR)
+
+- No code (doc-only). No stored HTN plan / no separate planner object (scoring only — §12.29 D2).
+- No LLM in DECIDE (§12.57/§12.59 reaffirmed). No new agent. No rebuild — additive over sealed
+  OBSERVE/ACT/VERIFY/loop.
+- OPSEC-noise-budget (ACT) and evidence-derived path derivation (DERIVE rung-3) are SEPARATE later ADRs.
+
+#### Consequences
+
+Fills the reserved §12.29 D2-c seam with a concrete, deterministic, replan-native mechanism; makes
+goal-backward HYPOTHESIZE and COMPOSE buildable on the autonomous path (the moat = composing judgment).
+`techniques.yaml` becomes the single source for both coverage (§12.62) AND cognition preconditions,
+guarded against drift by the integrity test. Risk: the predicate vocabulary must stay resolvable — the
+integrity test is the guard; adding a predicate is an explicit ADR step, never ad hoc.
