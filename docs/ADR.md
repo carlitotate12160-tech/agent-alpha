@@ -695,6 +695,8 @@ Date: 2026-06-16. Source: anti-Lyndon brainstorm + NodeZero (HVT) analysis. Stat
 
 ### 12.0 Layered architecture principle (anti-Lyndon)
 
+**Status**: LOCKED
+
 Agent-Alpha = **2-layer hybrid**, mirroring NodeZero (deterministic orchestration + LLM judgment over a living attack graph):
 
 - **Deterministic layer** (tools, exploit, parser, ToolComposer) — must be reliable & reproducible.
@@ -703,6 +705,8 @@ Agent-Alpha = **2-layer hybrid**, mirroring NodeZero (deterministic orchestratio
 **HARD PROHIBITION (Lyndon root cause):** no static/linear step list in agent code. Action order & selection MUST emerge from `plan()` over graph state + playbook. Violating this = repeating the "tool runner" failure.
 
 ### 12.1 Two-phase LLM gate (A2) — `decide_tier(situation)`
+
+**Status**: LOCKED
 
 3-tier router for cost + reproducibility (NodeZero "pattern match before LLM"):
 
@@ -716,6 +720,8 @@ Tier-up trigger = f(rule confidence, action criticality, novelty/playbook-miss).
 
 ### 12.2 Adaptivity validation (A1) — Differential Test (Phase 2 exit criteria)
 
+**Status**: LOCKED
+
 Automatic proof the agent reads context, not a straight line:
 
 - **Required (L1):** the FIRST tool/technique chosen differs when the fingerprint differs.
@@ -724,6 +730,8 @@ Automatic proof the agent reads context, not a straight line:
 - 2 targets with different fingerprints producing an identical path → **TEST FAIL.**
 
 ### 12.3 Legacy real-target gate (A3) — SUPERSEDED by §12.60 and the Canonical Authority Contract
+
+**Status**: LOCKED
 
 - **Infra:** targets on **GCP free tier** (e2-micro, x86 — solves the ARM64 constraint), **separate** from the agent (isolation §8l). Agent + test runner stay on Oracle ARM64 (Rule 10).
 - **Firewall (MANDATORY):** targets accept traffic only from the Oracle agent IP (`<oracle-arm-host>`, IP in secrets vault, not in docs). Vulnerable labs must never be publicly exposed.
@@ -739,11 +747,15 @@ Automatic proof the agent reads context, not a straight line:
 
 ### 12.4 RAG timing (A4)
 
+**Status**: LOCKED
+
 - **Phase 2:** NO full RAG. PLAN uses graph facts + **static YAML playbook** (deterministic) as strategy prior. Sufficient for adaptivity (`next = f(graph + playbook)`).
 - **Phase 6:** enable full RAG — internal (IntelligenceBase pgvector, after data exists) + external (knowledge ingestion §8o-3: CVE/exploit-db/ATT&CK).
 - Rationale: internal RAG needs engagement data first; building earlier = "feature before foundation" (Lyndon #1).
 
 ### 12.5 Learning storage format (L1) — Hybrid event-sourced
+
+**Status**: LOCKED
 
 - **Source of truth:** event stream (§8o-1).
 - **Tool reliability metrics** → projection to **DB table** (fast queries).
@@ -753,12 +765,16 @@ Automatic proof the agent reads context, not a straight line:
 
 ### 12.6 Playbook vetting (L2) — Hybrid by risk
 
+**Status**: LOCKED
+
 - Status: `candidate` → `trusted`.
 - **Low-risk** (recon/scan order, Alpha tools): **auto-promote** if criteria met (§12.9).
 - **Risky offensive** (Gamma+ exploit-chain, post-exploit): **mandatory manual operator review** before `trusted` (real blast radius, §1/§8).
 - Operator can always manually vet/edit (= event).
 
 ### 12.7 "Similar target" fingerprint (L3) — Weighted composite
+
+**Status**: LOCKED
 
 `what_worked_for_similar_targets()` uses weighted similarity (not exact-match):
 
@@ -769,12 +785,16 @@ Automatic proof the agent reads context, not a straight line:
 
 ### 12.8 Tool reliability threshold (L4) — Data-driven score, config threshold
 
+**Status**: LOCKED
+
 - **Score** (`success_rate`, `fp_rate`, `avg_timeout` per tool×target_type) = computed from event-stream data (adaptive).
 - **Decision threshold** (e.g., `FP_SKIP_THRESHOLD`, `MIN_SAMPLES_BEFORE_SKIP`) = hardcoded in `config/constants.py`, version-pinned (§8o-4).
 - **Agent MUST NOT change thresholds itself** (prevents unauditable drift, §8o-6).
 - Phase 2–5: hardcoded defaults. Phase 6: scores filled with real data + circuit-breaker (§8c).
 
 ### 12.9 Playbook promotion to 'trusted' (L5) — Diversity + lower-bound
+
+**Status**: LOCKED
 
 - **≥N successes across ≥M DIFFERENT targets/engagements** (not the same target repeated).
 - **Minimum success rate** when applied.
@@ -783,6 +803,8 @@ Automatic proof the agent reads context, not a straight line:
 
 ### 12.10 Dev workflow — Claude (architect) vs DeepSeek (payload)
 
+**Status**: LOCKED
+
 Applies §8k to the build process, not just runtime:
 
 - **Platform code (~95%)** — Conductor, auth, event store, memory, AttackGraph, gRPC, Celery, cognitive loop, ToolComposer ENGINE, report gen: ordinary engineering, NOT offensive → Claude/Sonnet writes specs, IDE implements, zero refusal risk.
@@ -790,6 +812,8 @@ Applies §8k to the build process, not just runtime:
 - **Routing rule:** payload body in `templates/{bypass,cms,cloud,regional}` → any model (TEMPORARY testing phase), NEVER Claude. Claude/Sonnet/Opus only: architecture, interface, template scaffold, safety gate, test contract, narrative, review.
 
 ### 12.11 Durability & Resume (anti-Lyndon) — LOCKED
+
+**Status**: LOCKED
 
 Direct answer to the Lyndon failure (restart → lose state → start over). State is
 never stored only in volatile memory.
@@ -815,6 +839,8 @@ never stored only in volatile memory.
 
 ### 12.12 GraphStore abstraction — LOCKED
 
+**Status**: LOCKED
+
 - Define a `GraphStore` interface (read-model) so the graph engine can be swapped
   without touching the Cognitive Loop. The graph is always a projection of the event
   log (§8o-1), so swapping engines is safe.
@@ -823,6 +849,8 @@ never stored only in volatile memory.
   — still rebuilt from events, never the source of truth.
 
 ### 12.13 Agent scaling model — Hybrid orchestrated fan-out — LOCKED
+
+**Status**: LOCKED
 
 **Decision.** The six Greek agents (Alpha…Omega) are **ROLES / capabilities, not
 singleton instances**. Within a phase, work is executed by N stateless **workers**
@@ -889,6 +917,8 @@ rate-limit/quota item.
 
 ### 12.14 Front-door 2a — Authenticated Tenant Binding — LOCKED
 
+**Status**: LOCKED
+
 **Resolves** the authentication gap in P2: the Conductor API had no authentication
 and `tenant_id` came from a process env var, disconnected from the (unauthenticated)
 `client_id` body field. The RLS backstop (§12.13, P2) had no front door.
@@ -933,6 +963,8 @@ per-tenant store routing.
 (auth gate), §12.13 (P2 RLS), and the open tenant-isolation item.
 
 ### 12.15 LLM role→provider routing — roles canonical, providers configurable — LOCKED
+
+**Status**: LOCKED
 
 **Resolves** the OPEN DECISION in `PHASE_2_IMPLEMENTATION_ORDER.md` (constants vs
 ADR role split) and unblocks P3 (orchestrator routing).
@@ -1003,11 +1035,15 @@ if desired.]
 
 ### 12.16 Tool Layer: capabilities-vs-roles, contracts, composition discipline — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-06-22, co-authored Opus + Natanael). Amends §12.4.
 **Relates to:** §12.13 (scaling/roles), §12.8/K19 (IntelligenceBase reliability), §12.1
 (tier ladder), §12.4 (RAG timing). Companion: `docs/TOOL_LAYER.md` (the contract scaffold).
 
 #### 12.16.1 — Agents are kill-chain ROLES; payload/proxy/browser are CAPABILITIES, not agents
+
+**Status**: LOCKED
 
 **Decision.** The agent taxonomy stays the six kill-chain roles (Alpha…Omega) under §12.13.
 "PayloadGenerator", "Proxy Tester", and "Browser" are **capabilities/tools**, NOT new agent
@@ -1032,6 +1068,8 @@ architecture: mixing capability with role) and pollutes the clean role taxonomy.
   check** (alive, not burned) that MUST run before any spray. Named as a tool, gated like one.
 
 #### 12.16.2 — Tool layer contracts + composition discipline
+
+**Status**: LOCKED
 
 **Decision.** All tools plug into one foundation (see `docs/TOOL_LAYER.md` §2): canonical
 `Tool` + `Template` protocols, `ToolRegistry`, `ToolComposer`. Non-negotiable invariants:
@@ -1058,6 +1096,8 @@ ToolComposer=Phase 4, Post/Lateral=Phase 5. Offensive bodies land per-phase, nev
 
 #### 12.16.3 — Amends §12.4: RAG external-vs-internal split
 
+**Status**: LOCKED
+
 **Decision.** Split the single "RAG = Phase 6" into two tracks:
 - **Internal RAG** (pgvector over cross-engagement data) — stays **Phase 6**. Hard cold-start:
   embeddings over an empty corpus retrieve nothing; needs accumulated real engagement data.
@@ -1080,6 +1120,8 @@ stale CVE DB = false confidence, worse than none).
 - A clear DeepSeek/Claude contract boundary for every future tool.
 
 ### 12.17 Secrets Vault — Postgres backend + lazy per-tenant provider — LOCKED
+
+**Status**: LOCKED
 
 **Status:** LOCKED (2026-06-28). **Relates to:** §8l (platform security), §12.14
 (tenant binding), §12.13 (RLS isolation), §1 (auth gate).
@@ -1109,6 +1151,8 @@ tests (skip if no DSN): cross-instance retrieval, encryption at rest, tenant
 isolation, engagement-based purge. 9 unit tests for the Protocol + manager.
 
 ### 12.18 Scope.db_endpoints + Applicator Factory — Gate-enforced DB access — LOCKED
+
+**Status**: LOCKED
 
 **Status:** LOCKED (2026-06-29). **Relates to:** §1 (auth gate), §12.14 (tenant
 binding), §12.16 (tool layer), §8l (platform security).
@@ -1156,6 +1200,8 @@ all three flaws + cred_reuse blindness guard. `tests/phase_0/test_db_endpoint_sc
 — gate-level scope validation tests.
 
 ### 12.20 Conductor Handoff-Consumer — Autonomous spine on Celery path — LOCKED
+
+**Status**: LOCKED
 
 **Status:** LOCKED (implemented + merged as PR #69 on Oracle #61, 2026-06-29). This is the
 written ADR body for the decision that shipped. **Relates to:** §12.13 (agent scaling,
@@ -1245,6 +1291,8 @@ production orchestrator (#6).
 - `CHAIN_COMPLETE` idempotency on the OMEGA terminal (advance re-emits on re-run; minor).
 
 ### 12.21 External Benchmark Gate — Proof of value-add before GA — PROPOSED
+
+**Status**: LOCKED
 
 **Status:** PROPOSED → LOCK on merge. Adds a NEW exit gate; does not change any existing
 phase. **Relates to:** §12.2 (differential test), §12.3 (real-target gate), §8m
@@ -1339,6 +1387,8 @@ forcing function: the gate is unrunnable until the autonomy wiring (§autonomy-a
 time, not trusted from this doc.
 
 ### 12.22 Tool strategy: wrap commodity, build the moat, gate the dangerous — PROPOSED
+
+**Status**: LOCKED
 
 **Status:** PROPOSED → LOCK on merge. Extends §12.16 (tool layer) and the §5–§7 differentiators.
 
@@ -1445,6 +1495,8 @@ TransportResilience capability plugs into the HttpClient — confirm on #61 befo
 
 ### 12.23 Consensus-LLM tier — deferral from Phase 3 to Phase 4 (Gamma) — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-07-02). Appended after §12.22. Supersedes the "multi-LLM
 consensus" item in the canonical **Phase 3 exit criteria** and aligns the ADR with
 `docs/PHASE_3_TEST_CONTRACT.md`. The doc-integrity sweep this decision requires
@@ -1549,6 +1601,8 @@ The deferral is doc-only; the residual is the sweep landing on every checklist (
 
 ### 12.25 Well-known-path recon baseline — LOCKED
 
+**Status**: LOCKED
+
 `run_recon` seeds a fixed, target-INDEPENDENT set of sensitive paths
 (`constants.WELL_KNOWN_LEAK_PATHS` — `/.git/config`, later `/.env` + backup files)
 into the frontier for every in-scope host — the seed of the path_probe catalog.
@@ -1567,6 +1621,8 @@ raises, that is a fixture issue, not an invariant.
 ---
 
 ### 12.26 Recon vector strategy: rubric, class taxonomy, and the recon/Gamma boundary — LOCKED
+
+**Status**: LOCKED
 
 **Status:** LOCKED (2026-07-12). **Relates to:** §12.22 (wrap/build/gate), §12.25
 (well-known-path baseline), §1 (auth gate), Lyndon #4 (generic-scanner).
@@ -1618,6 +1674,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 ### 12.27 REACH R3 exit-gate hardening: body/header-aware obstacle classification — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-07-14). **Relates to:** §12.22 (TransportResilience WAF/CF discriminator), §12.2/§12.3 (differential + real-target FP<20% gate), §12 REACH amendment R3 (obstacle-aware re-plan), Lyndon #3 (false success) / #5 (scope creep).
 
 **Problem.** Phase-4 breadth was treated as "progress" on lab-green alone, but real targets expose the gap. bernofarm.com served a Cloudflare JS challenge (HTTP 200, ~11.8KB "One moment, please") on 55+ URLs — all classified OK → 55 LLM calls, 0 findings (Bug #18). `classify_response()` is status-only (Bug #19): it cannot see a 200-status challenge/interstitial body. dnr.id exploded into 64 mod_autoindex sort-variant URLs of identical content (Bug #17/#20). Greedy page-wide rules select `default_creds`/`odoo` on nav-bar "Login" and even on 404 pages (Bug #2/#14). Each is a distinct false-success / token-burn vector a clean lab never reproduces.
@@ -1636,6 +1694,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 ### 12.28 Record/replay condition harness: real conditions as regression fixtures — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-07-14). **Relates to:** §12.27 (exit-gate proof source), §12.3 (real-target gate), §8l (data redaction), `live_fire/lab_guard` (self-owned allowlist).
 
 **Problem.** The lab does not represent the real internet (no CF challenge, 415, mod_autoindex, interstitials). Real-engagement logs (`*_output.txt`) are summarized ALPHA lines — some UTF-16 with null bytes — NOT raw bodies/headers, so they cannot be replayed. Heuristics for "what is not target content / when to skip the LLM" lived in human memory, not code.
@@ -1651,6 +1711,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 ---
 
 ### 12.29 Goal-directed cognition: Objective + Planner/World-Model + goal-completion — LOCKED
+
+**Status**: LOCKED
 
 **Status:** LOCKED (2026-07-15). **Relates to:** §8o-2 (Planner/Executor + World Model + Simulation), §8j (cognitive loop), §7 ("Try Harder"), §12.0 (no hardcoded sequence), §12.24 (stall semantics), §12.27 (clean-graph prereq). **Absorbs GAP-004 + GAP-010.**
 
@@ -1672,6 +1734,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 ### 12.30 Bounded curiosity-driven exploration — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-07-15). **Relates to:** §8j (OBSERVE/ORIENT), §8j-2 (promotion rule), §8l (untrusted data/prompt-injection), §12.26 (engine-capability > new vector), §12.27 (clean-graph prereq), §12.29 (planner upgrade path).
 
 **Problem.** The loop is reactive-tool-ranked: ORIENT only selects from `RECON_TOOL_CATALOG` and the frontier only absorbs hrefs (`scout.py:296-313`). The agent cannot pursue anomalies like a human red-teamer would ("this header is odd / endpoint `/api/v2/internal` is interesting — dig in").
@@ -1690,6 +1754,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 ### 12.31 Cross-tool verification tiers — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-07-15). **Relates to:** §8j (VERIFY), §8j-2 (promotion rule), GAP-003 (IntelligenceBase FP rate), Bug #2/#14 (greedy false-positive).
 
 **Problem.** VERIFY exists but is **per-tool self-verification**: `strike.py:335-337` verifies from the same tool; `scout.py:330-331` template self-verify; `AttackNode.verified=True` is set by the discovering tool. `ToolResult.__post_init__` (`contracts.py:56-65`) is only a structural check. As a result, a single tool's false positive enters the graph as verified (Bug #2).
@@ -1706,6 +1772,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 
 ### 12.32 Post-access authenticated re-recon — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-07-15). **Relates to:** §8f (pivot-chain = post-exploit lateral, BUKAN auth re-recon), §8j, §12.26 (DETECT=recon, ACT=Gamma boundary), §12.29 (post-access sub-objective).
 
 **Problem.** After Beta obtains `valid_credentials` there is no active-session re-discovery (`strike.py:335-337`); `http_client` has a `cookies` kwarg but no authenticated-crawl mode (grep 0 results). The most valuable vulnerabilities (OWASP A01: IDOR/Broken-Access-Control/priv-esc) are not covered.
@@ -1721,6 +1789,8 @@ market segment appears (e.g. API-heavy fintech), the rubric — not preference �
 ---
 
 ### 12.33 Adaptive evasion — LOCKED
+
+**Status**: LOCKED
 
 **Status:** LOCKED (2026-07-15). **Relates to:** R3 (obstacle-aware = pivot host, BUKAN adapt evasion), §12.22 Decision 2 (TransportResilience discriminator + lockout governor), §8n (OPSEC statis), GAP-005 (dynamic OPSEC), §12.29 (re-plan).
 
@@ -1819,6 +1889,8 @@ validation runner (`a1_validation_runner.py`). Invariants:
 
 ### 12.34 Within-engagement credential mutation — LOCKED
 
+**Status**: LOCKED
+
 **Status:** LOCKED (2026-07-15). **Relates to:** §8c (`credential_patterns(industry)` = cross-engagement/Phase 6, BUKAN within-engagement), §12.22 Decision 2 (credential-spray lockout governor), GAP-002 (pattern tracking), GAP-003 (cross-engagement feed).
 
 **Problem.** `cred_reuse.py` only does literal reuse; `default_creds.py` uses a static list; there is no mutation (grep 0 results). If `Company2025!` works on service A but B uses `Company2026!`, the agent will not find it — a human would automatically try pattern variants.
@@ -1834,6 +1906,8 @@ validation runner (`a1_validation_runner.py`). Invariants:
 ---
 
 ### 12.35 pgvector image digest pinning — CVE-2025-68121 + Go stdlib CVEs
+
+**Status**: LOCKED
 
 **Status:** ACCEPTED (2026-07-18). **Relates to:** infra/docker-compose.yml, .github/workflows/ci.yml, .github/workflows/security-audit.yml.
 
@@ -1868,6 +1942,8 @@ make check  # verify test suite still green against pinned image
 ---
 
 ### 12.36 Front-loaded signed EngagementProfile — ACCEPTED
+
+**Status**: LOCKED
 
 **Decision status:** ACCEPTED. **Implementation evidence:** HMAC-signed profile loading and fail-closed Conductor gates are live; current seal status belongs in `docs/Session_Handoff.md`.
 **Relates to:** §12.20–22 (Policy-as-Code / PolicyEnforcer), auth state machine
@@ -1957,6 +2033,8 @@ autonomy" UX (product decision).
 ---
 
 ### 12.38 Origin-Scope by Ownership — ACCEPTED
+
+**Status**: LOCKED
 
 **Decision status:** ACCEPTED. §12.46 is the as-built runtime-binding amendment; static signed origins remain an optional cooperative shortcut, never a mandatory client input.
 **Lane:** Security-critical auth → Claude Opus (per model-routing table).
@@ -2105,6 +2183,8 @@ def assert_origin_authorized(origin_ip, fronted_host, profile, binder):
 
 ### 12.39 Alpha → Gamma (skip Beta): when direct exploitation routing is valid — ACCEPTED design-intent
 
+**Status**: LOCKED
+
 **Status:** ACCEPTED as design-intent (Natanael + architect, 2026-07-25). NOT implemented
 in slice-1a. The ALPHA→GAMMA routing branch is built WITH Gamma (roadmap #8) AND its
 verifying oracle (roadmap #5), never before.
@@ -2195,6 +2275,8 @@ memory; the code carries only what is wired today.
 ---
 
 ### 12.40 Content-Analysis Lane — oracle-gated LLM hypothesis over already-fetched bodies — PROPOSED (lock on confirm)
+
+**Status**: LOCKED
 
 **Status:** PROPOSED. Phase 4 (recon recall). One vertical slice follows immediately (plugin→CVE).
 
@@ -2353,6 +2435,8 @@ autonomous `run_recon` path invokes it (RUNNER-SEAL ≠ WIRED).
 ---
 
 ### 12.41 Reach-class per host — entry-point differential + tiered transport — PROPOSED (lock on confirm)
+
+**Status**: LOCKED
 
 **Status:** PROPOSED. Phase 4 (reach). Supersedes the fragile body-shape classifier heuristic in
 PR #278. One build slice follows immediately (classifier demotion + host reach-class memo).
@@ -2520,6 +2604,8 @@ added where it already holds both bodies. Register the host-reach path as wiring
 
 ### 12.42 Attacker Vantage + Footprint + Doctrine — EXTERNAL, agentless, exhaustive-surface — PROPOSED (lock on confirm)
 
+**Status**: LOCKED
+
 **Context / gap.** Agent-Alpha's vantage was never a first-class ADR item. Implied by the reach
 arc, origin discovery (§12.38), adaptive evasion (§12.33), Epsilon "pivot to internal network",
 PRD internet→crown-jewel — never stated. The design references occupy DIFFERENT vantages;
@@ -2577,6 +2663,8 @@ secondary, consistent with Phase 5 gating.
 ---
 
 ### 12.43 Proof Standard — zero-FP via independent oracle + human-legible artifact — LOCKED
+
+**Status**: LOCKED
 
 **Extends** §12.31 (verification tiers) and §12.32 (auth-vs-unauth diff). Does NOT redefine them
 (anti-#6).
@@ -2668,6 +2756,8 @@ gate prevents it). #6 duplication — extends the §12.31 enum, never redefines 
 ---
 
 ### 12.44 Evasion technique catalog — datacenter-viable vs infra-bound — PROPOSED (lock on confirm)
+
+**Status**: LOCKED
 
 **Extends** §12.33 (adaptive evasion, class-scoped) and §12.42 (external vantage). Does NOT
 re-decide §12.33's class→technique mapping; it widens the technique space and classifies each by
@@ -2766,6 +2856,8 @@ infra-bound technique as code-solvable (false capability). #7: technique→class
 
 ### 12.45 Credential-result semantics + password recall ladder — PROPOSED (lock on confirm)
 
+**Status**: LOCKED
+
 **Extends** §12.43 (proof standard) and the cred_finding_catalog (§3a). Governs what a credential
 RESULT means in a report — especially a NEGATIVE one.
 
@@ -2818,6 +2910,8 @@ chain (Gamma-adjacent) lands.
 ---
 
 ### 12.46 Origin-binding runtime authorization — external-vantage origin-direct — ACCEPTED
+
+**Status**: LOCKED
 
 **Decision status:** ACCEPTED. **Implementation evidence:** cooperative signed-origin and runtime proven-binding paths are both live; seal status remains in `docs/Session_Handoff.md`. **Extends** §12.36 (signed EngagementProfile), §12.38
 (two-proof origin ownership), §12.42 (external vantage), §12.44 (evasion catalog — origin-direct =
@@ -2965,6 +3059,8 @@ they don't slow it.
 
 ### 12.47 Recon-phase tool unification — Tool/ToolRegistry as the SINGLE home for stack-specific capability — PROPOSED (lock on confirm)
 
+**Status**: LOCKED
+
 **Extends** §12.16 (Template/Tool contracts), §12.22 (tool strategy: wrap commodity, build the moat,
 gate the dangerous), §12.26 (DETECT=recon / ACT=Gamma). Does NOT re-decide the `Tool`/`Template`
 shapes themselves (§12.16 locked those); it decides WHERE new stack-specific recon capability is
@@ -3033,6 +3129,8 @@ does not fork a second relevance-scoring scheme alongside `capability_probe.py`'
 does not get undone in one shot.
 
 ### 12.48 Passive-First Recon Doctrine — OSINT-before-touch as mandatory Phase 0 — ACCEPTED (2026-08-04)
+
+**Status**: LOCKED
 
 **Extends** §12.25 (well-known paths), §12.26 (recon vector strategy), §12.42 (vantage = external),
 §12.44 (evasion technique catalog), §12.46 (origin-binding). **Supersedes** the implicit
@@ -3145,6 +3243,8 @@ Phase 1 target selection — not a static/linear step list (§12.0 compliance).
 
 ### 12.49 Proactive Evasion Posture — evasion-by-default, not evasion-after-block — ACCEPTED (2026-08-04)
 
+**Status**: LOCKED
+
 **Extends** §12.33 (adaptive evasion), §12.44 (evasion technique catalog), §12.48 (passive-first).
 **Supersedes** the reactive evasion trigger in `transport_resilience.py`'s `EvasionPlanner` which
 only proposes evasion AFTER N consecutive BLOCKED verdicts.
@@ -3245,6 +3345,8 @@ is driven by passive intel (§12.48 protection_detected), not a static flag.
 
 ### 12.50 Human-Like Behavioral Fingerprint — pacing, jitter, burst patterns — ACCEPTED (2026-08-04)
 
+**Status**: LOCKED
+
 **Extends** §12.49 (proactive evasion), §12.33 (adaptive evasion). Refines the existing
 `rate_limiter.py` which enforces a fixed `1/rps` interval.
 
@@ -3329,6 +3431,8 @@ time-of-day awareness. Anti-Lyndon #7: single source — the profile is defined 
 
 ### 12.51 Gamma Exploit Generation — 3-Layer Hybrid Dual-Engine (PROPOSED)
 
+**Status**: LOCKED
+
 **Date:** 2026-08-04
 **Context:** Agent-Alpha's current architecture (Alpha/Beta) operates at the web-layer with known paths and deterministic responses. Phase Gamma (ANCHOR - Exploitation) introduces significant risk: hallucinated payloads, EDR/AV triggers, and production collateral damage. We need a safe, reliable way to synthesize novel exploits that cannot be predefined in a static playbook.
 
@@ -3345,6 +3449,8 @@ time-of-day awareness. Anti-Lyndon #7: single source — the profile is defined 
 **Anti-Lyndon:** #3 (false success): The 3-layer synthesis ensures that an exploit is structural and safe before transmission; a failure in outcome is a failed run, never a hallucinated "success". #1 (no speculative build): Gamma remains STOP-gated behind ToolComposer and blast-radius gates; this doctrine locks the design, not the code.
 
 ### 12.52 Governance Simplification & Friction Reduction (ACCEPTED)
+
+**Status**: LOCKED
 
 **Date:** 2026-08-04
 **Context:** Agent-Alpha's governance architecture (Celery queues, LLM Consensus, Reactive Evasion) was designed with an "enterprise scale" mindset. However, for a targeted red team agent, these layers introduce severe latency, token cost overhead, and operational friction. A nimble APT operator executes basic recon and initial access instantly, without bureaucratic "committee" decisions or excessive queue overhead.
@@ -3366,6 +3472,8 @@ time-of-day awareness. Anti-Lyndon #7: single source — the profile is defined 
 
 ### 12.53 Deep Evasion Stack (Layer 2 Evasion) — SUPERSEDED
 
+**Status**: LOCKED
+
 **Decision status:** SUPERSEDED by §12.44 and §12.61. Datacenter-viable session/header work remains eligible by demonstrated need; residential/mobile egress is infrastructure-deferred, not a code slice.
 **Date:** 2026-08-04
 **Context:** While §12.49 (Proactive Evasion via `curl_cffi`) defeats basic commercial WAFs, advanced NG-WAFs and SOC analysts inspect traffic deeper: header ordering, session continuity, and IP reputation (datacenter vs residential). To mimic a legitimate user journey, the agent requires a "Deep Evasion" layer.
@@ -3377,6 +3485,8 @@ time-of-day awareness. Anti-Lyndon #7: single source — the profile is defined 
 
 ### 12.54 Deep Recon Quick Wins (Phase 0 Expansion) (ACCEPTED)
 
+**Status**: LOCKED
+
 **Date:** 2026-08-04
 **Context:** Standard OSINT (crt.sh, VirusTotal) maps the perimeter, but leaves high-ROI ("cheat code") vectors untouched. APT operators prioritize asymmetric intelligence gathering before touching the target.
 **Decisions:**
@@ -3387,6 +3497,8 @@ Extend Phase 0 (Passive Recon) with two high-value, low-noise OSINT sources:
 
 ### 12.55 Doctrine of Realistic Exploitation (The 1-Day Standard) (ACCEPTED)
 
+**Status**: LOCKED
+
 **Date:** 2026-08-04
 **Context:** Can the agent find 0-days? Autonomous 0-day hunting in a blackbox web environment is an over-engineered hallucination trap. LLMs struggle to find novel 0-days without whitebox access (source code/fuzzer logs) and burn massive token budgets.
 **Decisions:**
@@ -3396,6 +3508,8 @@ Extend Phase 0 (Passive Recon) with two high-value, low-noise OSINT sources:
 4. **ToolComposer Constraint:** The ExploitSynthesizer (Gamma) does not invent exploits from scratch. It takes a known CVE PoC or template and *adapts* it to the target's specific context (adjusting payload encoding, evading WAF signatures).
 
 ### 12.56 Passive Supply Chain Recon & Assume Breach (ACCEPTED)
+
+**Status**: LOCKED
 
 **Date:** 2026-08-05
 **Context:** APTs like Cozy Bear frequently use supply chain attacks (compromising 3rd-party vendors) rather than attacking hardened targets directly.
@@ -3408,6 +3522,8 @@ Agent-Alpha is strictly forbidden from actively hacking 3rd-party vendors, as th
 
 
 ### 12.57 Alpha as a Gate-Respecting Operator — Closed Feedback Loop (ACCEPTED)
+
+**Status**: LOCKED
 
 **Date:** 2026-08-08
 **Context:** Field-prove on alpha-ai (T4 MOAT PASS) + an APT-operator behaviour audit
@@ -3459,6 +3575,8 @@ phase + auth model — zero new offensive capability, zero gate change, zero new
 (they reduce waste, they do not add breadth). Concrete slices: GAP-020 → GAP-021 → GAP-022.
 
 ### 12.58 Strategic Situation Reasoning ("operator instinct") (PROPOSED / SEED)
+
+**Status**: LOCKED
 
 > Status: **PROPOSED — seed for a dedicated session.** Number §12.58 provisional
 > (confirm next-free on commit). Do NOT implement until this ADR is ACCEPTED and a
@@ -3552,6 +3670,8 @@ deterministic rules, NOT reasoning that requires an LLM.
 
 ### 12.59 Hybrid Cognition Roadmap — deterministic-first, LLM-in-DECIDE as Phase-6 OPEN (ACCEPTED, Phase-6 OPEN)
 
+**Status**: LOCKED
+
 **Date:** 2026-08-09
 **Supersedes/extends:** operationalises §12.58 (operator instinct) into a phased build
 order; re-affirms §12.57 (LLM stays in ORIENT, never DECIDE) for Phases 4–5.
@@ -3639,6 +3759,8 @@ in the field before the next; container by promotion, not up-front; the auth gat
 
 ### 12.60 Capability Promotion + Field-Feedback Ratchet — lab-green is not field-ready (ACCEPTED)
 
+**Status**: LOCKED
+
 **Date:** 2026-08-09
 **Extends:** the Independent Verification Axiom + Lyndon #9 (wrong test environment) to their
 deeper reading: **lab vs field**, not merely Windows vs Oracle.
@@ -3706,6 +3828,8 @@ permanent guard.
 
 
 ### 12.61 Flank-when-CF-hard — origin-discovery breadth (ACCEPTED, menu)
+
+**Status**: LOCKED
 
 **Date:** 2026-08-09
 **Extends:** §12.58 (operator instinct: "front hard → flank") + §12.60 (capability promotion) +
@@ -3833,6 +3957,8 @@ patterns defined in one module, not scattered).
 
 ### 12.62 Coverage-Honesty Doctrine — engagement-scope generalization of §12.45 (ACCEPTED)
 
+**Status**: LOCKED
+
 **Decision status:** ACCEPTED. Coverage catalog, projection, Omega consumption, and runtime attempt instrumentation are implemented; current evidence belongs in `docs/Session_Handoff.md`. This generalizes §12.45 (per-credential) to the engagement scope.
 
 **Context.** A red-team SaaS report that says "no findings" on surfaces the agent never
@@ -3905,6 +4031,8 @@ to this engagement-scope doctrine).
 
 
 ### 12.63 Strategic pivot architecture — closed capability boundary × open plan composition (GAP-051)
+
+**Status**: LOCKED
 
 **Context.** When Alpha hits a dead-end (WAF-walled, or recon-exhausted with no findings), it
 should not surrender — it should PIVOT strategy (WAF → hunt the origin; clean-but-empty →
@@ -3987,6 +4115,8 @@ slice-2 input). §12.62 (coverage-honesty — the walled verdict is an honest co
 §12.23 (closed-vs-open discipline echoes the consensus-tier deferral: capability added
 deliberately, not by runtime escalation). §12.0 (next_action = f(state), never a fixed pipeline).
 ### 12.64 Recon Coverage Honesty: Step 0 (attempt instrumentation) + 187b (runtime coverage gate)
+
+**Status**: LOCKED
 
 **Decision status:** ACCEPTED. **Build scope:** recon coverage honesty; implementation and current evidence live in `docs/Session_Handoff.md`.
 **Depends on:** honest Alpha handoff status plus §12.62 coverage projection.
@@ -4096,6 +4226,8 @@ in depth, not a duplicate re-walk).
 ---
 
 ### 12.65 Fingerprint-First Recon Reorder (GAP-169) — ACCEPTED
+
+**Status**: LOCKED
 
 **Decision status:** ACCEPTED. **Implementation:** AS-BUILT in `recon/fingerprint.py` and the Alpha autonomous path; current verification evidence lives in `docs/Session_Handoff.md`.
 **Build scope:** active-recon ordering after passive `ENGAGEMENT_STAGE E0`; depends on §12.64 coverage honesty.
