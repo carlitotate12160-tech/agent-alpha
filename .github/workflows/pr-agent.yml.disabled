@@ -1,3 +1,8 @@
+# DISABLED (2026-08-21): PR Agent AI Reviewer turned off to stop consuming
+# DeepSeek API credits on every PR. The live DeepSeek test in
+# tests/phase_2/test_deepseek_provider.py is the remaining DeepSeek consumer.
+# To re-enable, rename this file back to pr-agent.yml.
+#
 name: PR Agent AI Reviewer (DeepSeek)
 
 on:
