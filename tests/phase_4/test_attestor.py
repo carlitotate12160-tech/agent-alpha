@@ -22,6 +22,11 @@ Tests verify:
 
   LEGACY:
   T16: Legacy verified=True reconstructs to SELF_VERIFIED, never CROSS_VERIFIED.
+
+  P1 (§12.43 independent oracle):
+  T-P1a: CONFIRMED with independent auth_vs_unauth_diff bound to cred+access.
+  T-P1b: INCONCLUSIVE with only circular authenticated_request (no diff) — regression guard.
+  T-P1b2: INCONCLUSIVE with diff bound to WRONG cred / WRONG access_level — binding guard.
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ from agent_alpha.graph.nodes import (
     NodeType,
     ProofArtifact,
     RelationshipType,
+    ServiceProperties,
     VerificationTier,
     _reconstruct_node,
     node_to_dict,
@@ -55,6 +61,7 @@ from agent_alpha.graph.nodes import (
 _HOST = "oracle.lab.internal"
 _CRED_ID = f"cred:{_HOST}:admin"
 _ACCESS_ID = f"access:{_HOST}"
+_SVC_ID = f"service:{_HOST}:authsurface:wp_admin_dashboard"
 _ENGAGEMENT_ID = "eng-attestor-test"
 
 
@@ -77,8 +84,9 @@ def _emit_edge(store: NetworkXGraphStore, edge: AttackEdge) -> None:
 
 def _proven_store() -> NetworkXGraphStore:
     """Graph with a proven cred-reuse chain: CREDENTIAL --ENABLES--> ACCESS_LEVEL
-    where ACCESS_LEVEL has proof_artifacts (authenticated_request) and CREDENTIAL
-    has a real secret_ref."""
+    --LEADS_TO--> SERVICE :authsurface: where the SERVICE carries an
+    auth_vs_unauth_diff proof bound to the credential. CREDENTIAL has a real
+    secret_ref. This is the §12.43 independent oracle topology."""
     store = NetworkXGraphStore()
     _emit_node(
         store,
@@ -119,9 +127,39 @@ def _proven_store() -> NetworkXGraphStore:
             ],
         ),
     )
+    # SERVICE :authsurface: node with the §12.43 independent auth_vs_unauth_diff proof.
+    _emit_node(
+        store,
+        AttackNode(
+            id=_SVC_ID,
+            type=NodeType.SERVICE,
+            properties=ServiceProperties(name="wp_admin_dashboard", protocol="http", banner="/wp-admin/"),
+            confidence=0.7,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=str(uuid.uuid4()),
+                    type="auth_vs_unauth_diff",
+                    storage_ref="",
+                    description="auth-only marker present w/ session, absent w/o — wp_admin_dashboard",
+                    captured_at="2026-07-22T00:00:00Z",
+                    agent="beta",
+                    subject_ref=_CRED_ID,
+                    target=_HOST,
+                    access_level="admin",
+                ),
+            ],
+        ),
+    )
     _emit_edge(
         store,
         AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"),
+    )
+    # ACCESS --LEADS_TO--> SERVICE :authsurface: (same edge authenticated_crawl mints).
+    _emit_edge(
+        store,
+        AttackEdge(_ACCESS_ID, _SVC_ID, RelationshipType.LEADS_TO, 0.70),
     )
     return store
 
@@ -168,8 +206,9 @@ def _inferred_store() -> NetworkXGraphStore:
 
 def test_attestor_confirms_only_bound_proof() -> None:
     """Attestor returns CONFIRMED when access node is backed by a real
-    authenticated_request proof + harvested credential with secret_ref,
-    and the proof is properly bound to the credential and target."""
+    auth_vs_unauth_diff proof on a reachable :authsurface: SERVICE + harvested
+    credential with secret_ref, and the proof is properly bound to the credential
+    and target."""
     store = _proven_store()
     attestor = CredReuseAttestor()
     node = store.get_node(_ACCESS_ID)
@@ -177,6 +216,220 @@ def test_attestor_confirms_only_bound_proof() -> None:
 
     verdict = attestor.verify(node, store)
     assert verdict == Verdict.CONFIRMED
+
+
+# ── T-P1a: CONFIRMED with independent auth_vs_unauth_diff ───────────────────
+
+
+def test_p1_confirmed_with_independent_auth_diff() -> None:
+    """T-P1a (positive): cred resolves + access + auth_vs_unauth_diff bound to
+    cred+access → verify() == CONFIRMED. Uses the _proven_store topology which
+    has the full §12.43 chain."""
+    store = _proven_store()
+    attestor = CredReuseAttestor()
+    node = store.get_node(_ACCESS_ID)
+    assert node is not None
+    assert attestor.verify(node, store) == Verdict.CONFIRMED
+
+
+# ── T-P1b: CIRCULAR authenticated_request alone is INCONCLUSIVE ─────────────
+
+
+def test_p1_circular_authenticated_request_alone_is_inconclusive() -> None:
+    """T-P1b (DIFFERENTIAL negative / regression guard for the circular flaw):
+    access + cred resolves + login tool wrote authenticated_request BUT no
+    auth_vs_unauth_diff → verify() == INCONCLUSIVE.
+
+    This is the EXACT topology that PREVIOUSLY false-confirmed: the login tool's
+    own proof was accepted as independent. With P1 this must be INCONCLUSIVE."""
+    store = NetworkXGraphStore()
+    _emit_node(
+        store,
+        AttackNode(
+            id=_CRED_ID,
+            type=NodeType.CREDENTIAL,
+            properties=CredentialProperties(
+                username="admin",
+                secret_ref="vault://eng/secret-circular",
+                service="http",
+                access_level="admin",
+            ),
+            confidence=0.85,
+            agent="alpha",
+        ),
+    )
+    # Access node has the login tool's authenticated_request BUT no authsurface
+    # SERVICE node → no auth_vs_unauth_diff → INCONCLUSIVE.
+    _emit_node(
+        store,
+        AttackNode(
+            id=_ACCESS_ID,
+            type=NodeType.ACCESS_LEVEL,
+            properties=AccessLevelProperties(level="admin", user_context="web"),
+            confidence=0.80,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=str(uuid.uuid4()),
+                    type="authenticated_request",
+                    storage_ref="event://proof-circular",
+                    description="Verified admin access via cred reuse",
+                    captured_at="2026-07-22T00:00:00Z",
+                    agent="beta",
+                    subject_ref=_CRED_ID,
+                    target=_HOST,
+                    access_level="admin",
+                ),
+            ],
+        ),
+    )
+    _emit_edge(
+        store,
+        AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"),
+    )
+
+    attestor = CredReuseAttestor()
+    node = store.get_node(_ACCESS_ID)
+    assert node is not None
+    assert attestor.verify(node, store) == Verdict.INCONCLUSIVE, (
+        "authenticated_request (login tool self-report) alone must NOT confirm — "
+        "this is the circular flaw P1 closes"
+    )
+
+
+# ── T-P1b2: diff bound to WRONG cred / WRONG access_level is INCONCLUSIVE ───
+
+
+def test_p1_auth_diff_bound_to_wrong_cred_is_inconclusive() -> None:
+    """T-P1b2 (BINDING guard): auth_vs_unauth_diff present but subject_ref is a
+    DIFFERENT cred id → INCONCLUSIVE. Also tests wrong access_level. Proves the
+    binding actually binds (no cross-access false-positive)."""
+    # Case 1: diff bound to a DIFFERENT credential.
+    store = NetworkXGraphStore()
+    _emit_node(
+        store,
+        AttackNode(
+            id=_CRED_ID,
+            type=NodeType.CREDENTIAL,
+            properties=CredentialProperties(
+                username="admin",
+                secret_ref="vault://eng/secret-binding",
+                service="http",
+                access_level="admin",
+            ),
+            confidence=0.85,
+            agent="alpha",
+        ),
+    )
+    _emit_node(
+        store,
+        AttackNode(
+            id=_ACCESS_ID,
+            type=NodeType.ACCESS_LEVEL,
+            properties=AccessLevelProperties(level="admin", user_context="web"),
+            confidence=0.80,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+        ),
+    )
+    # SERVICE :authsurface: with diff bound to WRONG cred.
+    wrong_svc_id = f"service:{_HOST}:authsurface:wp_users"
+    _emit_node(
+        store,
+        AttackNode(
+            id=wrong_svc_id,
+            type=NodeType.SERVICE,
+            properties=ServiceProperties(name="wp_users", protocol="http", banner="/wp-admin/users.php"),
+            confidence=0.7,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=str(uuid.uuid4()),
+                    type="auth_vs_unauth_diff",
+                    storage_ref="",
+                    description="auth-only marker",
+                    captured_at="2026-07-22T00:00:00Z",
+                    agent="beta",
+                    subject_ref="cred:OTHER_HOST:other_user",  # WRONG cred
+                    target=_HOST,
+                    access_level="admin",
+                ),
+            ],
+        ),
+    )
+    _emit_edge(store, AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"))
+    _emit_edge(store, AttackEdge(_ACCESS_ID, wrong_svc_id, RelationshipType.LEADS_TO, 0.70))
+
+    attestor = CredReuseAttestor()
+    node = store.get_node(_ACCESS_ID)
+    assert node is not None
+    assert attestor.verify(node, store) == Verdict.INCONCLUSIVE, (
+        "diff bound to a DIFFERENT credential must NOT confirm (binding guard)"
+    )
+
+    # Case 2: diff bound to the RIGHT cred but WRONG access_level.
+    store2 = NetworkXGraphStore()
+    _emit_node(
+        store2,
+        AttackNode(
+            id=_CRED_ID,
+            type=NodeType.CREDENTIAL,
+            properties=CredentialProperties(
+                username="admin",
+                secret_ref="vault://eng/secret-binding2",
+                service="http",
+                access_level="admin",
+            ),
+            confidence=0.85,
+            agent="alpha",
+        ),
+    )
+    _emit_node(
+        store2,
+        AttackNode(
+            id=_ACCESS_ID,
+            type=NodeType.ACCESS_LEVEL,
+            properties=AccessLevelProperties(level="admin", user_context="web"),
+            confidence=0.80,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+        ),
+    )
+    wrong_level_svc = f"service:{_HOST}:authsurface:wp_dash"
+    _emit_node(
+        store2,
+        AttackNode(
+            id=wrong_level_svc,
+            type=NodeType.SERVICE,
+            properties=ServiceProperties(name="wp_dash", protocol="http", banner="/wp-admin/"),
+            confidence=0.7,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=str(uuid.uuid4()),
+                    type="auth_vs_unauth_diff",
+                    storage_ref="",
+                    description="auth-only marker",
+                    captured_at="2026-07-22T00:00:00Z",
+                    agent="beta",
+                    subject_ref=_CRED_ID,  # RIGHT cred
+                    target=_HOST,
+                    access_level="user",  # WRONG level (access is admin, diff says user)
+                ),
+            ],
+        ),
+    )
+    _emit_edge(store2, AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"))
+    _emit_edge(store2, AttackEdge(_ACCESS_ID, wrong_level_svc, RelationshipType.LEADS_TO, 0.70))
+
+    node2 = store2.get_node(_ACCESS_ID)
+    assert node2 is not None
+    assert CredReuseAttestor().verify(node2, store2) == Verdict.INCONCLUSIVE, (
+        "diff with wrong access_level must NOT confirm (level binding guard)"
+    )
 
 
 def test_oracle_rejects_unbound_proof() -> None:
@@ -632,7 +885,8 @@ def test_legacy_verified_not_cross() -> None:
 
 
 def _store_with_cred_ref(ref: str) -> NetworkXGraphStore:
-    """The proven-chain fixture with a configurable credential secret_ref."""
+    """The proven-chain fixture with a configurable credential secret_ref.
+    Includes the §12.43 authsurface SERVICE node + auth_vs_unauth_diff proof."""
     store = NetworkXGraphStore()
     _emit_node(
         store,
@@ -670,7 +924,33 @@ def _store_with_cred_ref(ref: str) -> NetworkXGraphStore:
             ],
         ),
     )
+    # SERVICE :authsurface: node with the §12.43 independent auth_vs_unauth_diff proof.
+    _emit_node(
+        store,
+        AttackNode(
+            id=_SVC_ID,
+            type=NodeType.SERVICE,
+            properties=ServiceProperties(name="wp_admin_dashboard", protocol="http", banner="/wp-admin/"),
+            confidence=0.7,
+            agent="beta",
+            verification=VerificationTier.SELF_VERIFIED,
+            proof_artifacts=[
+                ProofArtifact(
+                    artifact_id=str(uuid.uuid4()),
+                    type="auth_vs_unauth_diff",
+                    storage_ref="",
+                    description="auth-only marker present w/ session, absent w/o — wp_admin_dashboard",
+                    captured_at="2026-07-22T00:00:00Z",
+                    agent="beta",
+                    subject_ref=_CRED_ID,
+                    target=_HOST,
+                    access_level="admin",
+                ),
+            ],
+        ),
+    )
     _emit_edge(store, AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"))
+    _emit_edge(store, AttackEdge(_ACCESS_ID, _SVC_ID, RelationshipType.LEADS_TO, 0.70))
     return store
 
 

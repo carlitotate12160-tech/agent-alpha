@@ -24,7 +24,12 @@ from agent_alpha.config.constants import STACK_WP
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import AccessLevelProperties, AttackNode, NodeType, VerificationTier
+from agent_alpha.graph.nodes import (
+    AccessLevelProperties,
+    AttackNode,
+    NodeType,
+    VerificationTier,
+)
 from agent_alpha.graph.persist import persist_node
 
 HOST = "wp.lab.invalid"
@@ -109,6 +114,8 @@ def _crawl(beta: Any, **over: Any) -> int:
         session_cookies={"wordpress_logged_in_x": "v"},
         tech_stack=[STACK_WP],
         now_utc=NOW,
+        enabling_cred_id="cred:test:admin",
+        access_level="admin",
         playbook=PLAYBOOK,
     )
     kw.update(over)
@@ -221,3 +228,35 @@ def test_shipped_playbook_parses_and_is_stack_gated() -> None:
     # Only the DETECTED stack fires — anti-Lyndon #11 (no blind pipeline); real "wp" label matches.
     assert [name for name, _ in _stack_entries(pb, [STACK_WP])] == ["wp"]
     assert [name for name, _ in _stack_entries(pb, ["odoo"])] == ["odoo"]
+
+
+# ── T-P1c-emit: _mint_surface emits auth_vs_unauth_diff proof ────────────────
+
+
+def test_mint_surface_emits_auth_vs_unauth_diff_proof() -> None:
+    """T-P1c-emit: run _crawl() with enabling_cred_id + access_level; assert the
+    minted SERVICE nodes carry a proof_artifacts entry with type=="auth_vs_unauth_diff"
+    and the correct subject_ref and access_level."""
+    beta, _, graph, _ = _beta()
+    cred_id = "cred:wp.lab.invalid:wpadmin"
+    minted = _crawl(beta, enabling_cred_id=cred_id, access_level="admin")
+    assert minted >= 2  # at least dashboard + users
+
+    svc_nodes = graph.nodes_by_type(NodeType.SERVICE)
+    auth_diff_found = False
+    for svc in svc_nodes:
+        if ":authsurface:" not in svc.id:
+            continue
+        for art in svc.proof_artifacts:
+            if art.type == "auth_vs_unauth_diff":
+                assert art.subject_ref == cred_id, (
+                    f"subject_ref should be the enabling cred, got {art.subject_ref}"
+                )
+                assert art.access_level == "admin", (
+                    f"access_level should be 'admin', got {art.access_level}"
+                )
+                assert art.storage_ref == "", "storage_ref must be empty (no PII)"
+                auth_diff_found = True
+    assert auth_diff_found, (
+        "no auth_vs_unauth_diff proof artifact found on any :authsurface: SERVICE node"
+    )

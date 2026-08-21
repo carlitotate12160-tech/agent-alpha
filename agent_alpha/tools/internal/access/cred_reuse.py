@@ -41,11 +41,14 @@ cred→access ENABLES edge is built from credential_node_id, completing the chai
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from agent_alpha.graph.nodes import NodeType
 from agent_alpha.security.secrets import SecretNotFoundError
 from agent_alpha.tools.contracts import ResourceBudget, TargetContext, ToolResult
+
+_log = logging.getLogger("agent_alpha.cred_reuse")
 
 
 class CredReuseTool:
@@ -147,6 +150,16 @@ class CredReuseTool:
                     budget=budget,
                 )
                 requests_used += 3  # baseline + auth + confirm (upper bound)
+
+                # Archival trace: distinguishes "unreachable mysql" vs "not routed"
+                # in field logs without re-running with a debugger attached.
+                _log.info(
+                    "apply called: applicator=%s service=%s target=%s result=%s",
+                    type(bound.applicator).__name__,
+                    credential_service,
+                    bound.target,
+                    result.success,
+                )
 
                 if result.success:
                     break
