@@ -41,6 +41,28 @@ def test_fingerprint_all_odoo_body() -> None:
     assert fingerprint_all(_obs(body="odoo.define('x')"), _engine()) == ("odoo",)
 
 
+def test_fingerprint_all_codeigniter_cookie() -> None:
+    """A CI session cookie (Set-Cookie: ci_session=...) → ('codeigniter',)."""
+    assert fingerprint_all(
+        _obs(body="<html>plain</html>", headers={"Set-Cookie": "ci_session=abc123; path=/"}),
+        _engine(),
+    ) == (constants.STACK_CI,)
+
+
+def test_plain_php_without_ci_marker_is_not_codeigniter() -> None:
+    """A generic PHP host WITHOUT a CI marker must NOT be labeled codeigniter
+    (anti over-detect, #3). Apache/PHP Server header + plain PHP body → no CI
+    cookie, no csrf_test_name, no ci_csrf_token → 'codeigniter' NOT in labels."""
+    labels = fingerprint_all(
+        _obs(
+            body="<html><body><?php echo 'hello'; ?></body></html>",
+            headers={"Server": "Apache/2.4.6 (CentOS) PHP/7.1.33"},
+        ),
+        _engine(),
+    )
+    assert "codeigniter" not in labels
+
+
 def test_fingerprint_all_multistack_wp_behind_tomcat() -> None:
     """Decision C CARDINAL: a root that matches TWO capability rules (WP body + Tomcat Server
     header) yields BOTH labels — a single top-1 match would under-seed the multi-stack host."""
