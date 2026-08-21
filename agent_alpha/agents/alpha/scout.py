@@ -142,7 +142,7 @@ class Alpha:
         self._engagement_profile = engagement_profile
         self._browser_solve_viable = browser_solve_viable
 
-        # Dispatch registry: generic entries derive from catalogs, special last wins.
+        # Dispatch: generic derives from catalogs; special merges last and wins.
         from agent_alpha.recon.capability_probe import CAPABILITY_CATALOG
         from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
 
@@ -2310,7 +2310,7 @@ class Alpha:
             if getattr(probe, "status_code", 0) != 200:
                 return
             samples.append(self._soft404_tokens(probe_url, getattr(probe, "text", "") or ""))
-        t1, t2 = samples
+        t1, t2 = samples[0], samples[1]  # loop guarantees exactly 2 (early-return on failure)
         if len(t1) != len(t2):
             return
         volatile = frozenset(i for i, (a, b) in enumerate(zip(t1, t2, strict=False)) if a != b)

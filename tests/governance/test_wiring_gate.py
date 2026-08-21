@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import pathlib
+from typing import Any
 
 import pytest
 
@@ -320,7 +321,8 @@ def _alpha_with_stub() -> Any:
     class _StubProvider:
         model = "stub"
 
-        def complete(self, *a: object, **k: object) -> object:
+        @staticmethod
+        def complete(*a: object, **k: object) -> object:
             return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "stub"})()
 
     _playbook_dir = pathlib.Path("agent_alpha/tools/playbooks")
@@ -333,7 +335,8 @@ def _alpha_with_stub() -> Any:
     )
 
     class _FakeHttp:
-        def get(self, url: str) -> object:
+        @staticmethod
+        def get(url: str) -> object:
             return type("R", (), {"status_code": 404, "text": "", "headers": {}})()
 
     return Alpha(
@@ -369,9 +372,9 @@ def test_every_catalog_tool_is_dispatchable() -> None:
 
 def test_dispatch_map_unchanged_by_catalog_derivation() -> None:
     """CARDINAL: generic catalog derivation must not alter the 20 original
-    tool→handler-name routing. The 5 collision tools (in BOTH CAPABILITY_CATALOG
-    and _special) MUST resolve to their SPECIAL handler, not the generic
-    _handle_capability_fingerprint."""
+    tool→handler-name routing. New catalog tools are allowed to auto-appear.
+    The 5 collision tools (in BOTH CAPABILITY_CATALOG and _special) MUST resolve
+    to their SPECIAL handler, not the generic _handle_capability_fingerprint."""
     from agent_alpha.recon.capability_probe import CAPABILITY_CATALOG
     from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
 
@@ -404,10 +407,18 @@ def test_dispatch_map_unchanged_by_catalog_derivation() -> None:
     alpha = _alpha_with_stub()
     actual = {tool: h.__name__ for tool, h in alpha._dispatch_registry.items()}
 
-    assert actual == expected, (
-        f"Dispatch map changed after catalog derivation.\n"
-        f"Expected {len(expected)} entries, got {len(actual)}.\n"
-        f"Diff: {set(expected.items()) ^ set(actual.items())}"
+    # CARDINAL: every entry in the 20-entry baseline must keep its expected
+    # handler. We do NOT require actual == expected because new catalog tools
+    # auto-wire into the dispatch without needing this snapshot updated; that
+    # coverage is enforced by test_every_catalog_tool_is_dispatchable.
+    wrong: list[str] = []
+    for tool, expected_handler in expected.items():
+        if actual.get(tool) != expected_handler:
+            wrong.append(
+                f"{tool}: expected {expected_handler}, got {actual.get(tool)!r}"
+            )
+    assert not wrong, (
+        "Dispatch map regression for 20 baseline tools:\n" + "\n".join(wrong)
     )
 
     # Collision guards: these tools are in CAPABILITY_CATALOG but have special
@@ -425,4 +436,23 @@ def test_dispatch_map_unchanged_by_catalog_derivation() -> None:
             f"Collision tool '{tool}' resolved to {actual_handler} (generic) "
             f"instead of {expected_handler} (special)."
         )
+
+
+def test_no_collision_between_capability_and_path_catalogs() -> None:
+    """A tool name must not appear in both CAPABILITY_CATALOG and PATH_PROBE_CATALOG.
+
+    If it did, the `_generic` merge in scout.py would silently overwrite the
+    capability handler with the path-probe handler (or vice versa), producing
+    a misrouted dispatch entry.
+    """
+    from agent_alpha.recon.capability_probe import CAPABILITY_CATALOG
+    from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
+
+    cap_tools = {spec.tool for spec in CAPABILITY_CATALOG}
+    path_tools = {spec.tool for spec in PATH_PROBE_CATALOG}
+    dupes = cap_tools & path_tools
+    assert not dupes, (
+        f"Tool(s) appear in both CAPABILITY_CATALOG and PATH_PROBE_CATALOG: {dupes}. "
+        "This would cause silent dispatch overwrite in Alpha._dispatch_registry."
+    )
 
