@@ -24,7 +24,12 @@ from agent_alpha.config.constants import STACK_WP
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import AccessLevelProperties, AttackNode, NodeType, ProofArtifact, VerificationTier
+from agent_alpha.graph.nodes import (
+    AccessLevelProperties,
+    AttackNode,
+    NodeType,
+    VerificationTier,
+)
 from agent_alpha.graph.persist import persist_node
 
 HOST = "wp.lab.invalid"
