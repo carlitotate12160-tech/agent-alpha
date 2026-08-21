@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 
 def _merge_in(target: dict[str, str], source: dict[str, str]) -> None:
@@ -63,6 +64,47 @@ def _is_masked(value: str) -> bool:
     return not v or set(v) == {"*"}
 
 
+def _extract_from_codeigniter_database(body: str) -> dict[str, str]:
+    """Parse a CodeIgniter ``application/config/database.php`` body.
+
+    CI 3 uses ``$db['default']['username'] = '...'`` array syntax.  We flatten
+    the first ``$db['default']`` array and map ``username -> DB_USER`` and
+    ``password -> DB_PASSWORD``.  Masked/empty values are dropped (anti-#3).
+    """
+    result: dict[str, str] = {}
+
+    # 1) Extract the $db['default'] = array(...) block, including nested arrays.
+    match = re.search(
+        r"\$db\s*\[\s*['\"]default['\"]\s*\]\s*=\s*array\s*\((.*?)\);",
+        body,
+        re.DOTALL | re.IGNORECASE,
+    )
+    if not match:
+        return result
+
+    block = match.group(1)
+    # 2) Key => value pairs inside the array: 'username' => 'ci_user',
+    for m in re.finditer(
+        r"['\"](?P<key>\w+)['\"]\s*=>\s*['\"](?P<value>[^'\"]*)['\"]",
+        block,
+        re.IGNORECASE,
+    ):
+        key = m.group("key").lower()
+        value = m.group("value").strip()
+        if not value or _is_masked(value):
+            continue
+        if key == "username":
+            result["DB_USER"] = value
+        elif key == "password":
+            result["DB_PASSWORD"] = value
+        elif key == "database":
+            result["DB_NAME"] = value
+        elif key == "hostname":
+            result["DB_HOST"] = value
+
+    return result
+
+
 def _extract_from_actuator_env(body: str) -> dict[str, str]:
     """Parse a Spring Boot ``/actuator/env`` JSON body into canonical DB_* keys.
 
@@ -119,6 +161,8 @@ def extract_secrets(recovered: dict[str, str]) -> dict[str, str]:
             _merge_in(leaked, _extract_from_env_file(content))
         elif "wp-config" in lower_path:
             _merge_in(leaked, parse_wp_config(content))
+        elif "codeigniter" in lower_path or "/application/config/database" in lower_path:
+            _merge_in(leaked, _extract_from_codeigniter_database(content))
         elif "actuator" in lower_path or lower_path.endswith("/env"):
             _merge_in(leaked, _extract_from_actuator_env(content))
 
@@ -150,6 +194,7 @@ LEAK_VULN_CVSS: dict[str, float] = {
     "git_exposure": 7.5,
     "backup_file_leak": 7.5,
     "actuator_exposure": 7.5,
+    "ci_config_leak": 7.5,
 }
 
 # Conservative floor for a recovered-secret leak whose class is not individually

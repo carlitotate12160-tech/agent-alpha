@@ -1,0 +1,21 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# Fires when Alpha fetches a CodeIgniter application/config/database.php source
+# file. The CI array syntax ($db['default']['username'] = '...') is a unique
+# signature. On a hit the PlaybookEngine returns action verbatim ->
+# Alpha._handle_path_probe -> process_path_hit (codeigniter_config_probe) which
+# extracts DB_USER / DB_PASSWORD.
+#
+# Indicators are DISJOINT from backup_file (.env / database.yml assignments),
+# git_exposure (.git/config), and wp_config (define('DB_...')). CI uses
+# $db['default'] = array(...), not those shapes.
+name: codeigniter_config_leak
+version: 1
+phase: recon
+match:
+  any_indicator:
+    - body_regex: "\\$db\\s*\\[\\s*['\"]default['\"]\\s*\\]\\s*=\\s*array\\s*\\("
+action:
+  tool: codeigniter_config_probe
+  tier: rule
+  technique_id: "T1552.001"   # MITRE ATT&CK: Unsecured Credentials — Credentials In Files
+  rationale: "CodeIgniter database.php source exposed; extract DB credentials from the PHP array."
