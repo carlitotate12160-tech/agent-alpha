@@ -1,4 +1,4 @@
-# ADR §12.35 — WIRING GATE. A component is NOT "done" until it is wired into the
+# ADR-GOV-001 — WIRING GATE. A component is NOT "done" until it is wired into the
 # live production path (anti-Lyndon #2: dead code treated as done). This is the
 # machine-enforced half of §12.35; the other half (a "wired-proof" W-test that
 # exercises the component through run_recon / the Conductor, not just a unit) is a
@@ -154,7 +154,7 @@ WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
 @pytest.mark.parametrize("symbol,targets", list(WIRED_REQUIRED.items()))
 def test_required_component_stays_wired(symbol: str, targets: tuple[str, ...]) -> None:
     assert symbol in _read(*targets), (
-        f"WIRING GATE (ADR §12.35): '{symbol}' must be referenced in a production "
+        f"WIRING GATE (ADR-GOV-001): '{symbol}' must be referenced in a production "
         f"wiring target {targets}; it regressed to dead code (anti-Lyndon #2)."
     )
 
@@ -165,7 +165,7 @@ def test_wiring_debt_is_tracked_until_resolved(
 ) -> None:
     targets, ref = spec
     assert symbol not in _read(*targets), (
-        f"WIRING GATE (ADR §12.35): '{symbol}' is now wired into {targets} ({ref}). "
+        f"WIRING GATE (ADR-GOV-001): '{symbol}' is now wired into {targets} ({ref}). "
         f"Move it from WIRING_DEBT to WIRED_REQUIRED so the gate protects it from "
         f"regressing back to dead code."
     )
