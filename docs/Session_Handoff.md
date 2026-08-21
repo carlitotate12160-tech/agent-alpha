@@ -1,26 +1,16 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-19, GAP-118 attestor-resolve SEALED on PR #454 + STEP-2 field-confirmed wpvuln INCONCLUSIVE)
+# Agent-Alpha — Session Handoff (2026-08-21, P1 §12.43 independent oracle + CI observe→derive SEALED)
 
-Resume with: "lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-B/C authenticated-crawl + WP multi-cookie session jar MERGED (commit 4150814) + GAP-118 attestor Rule 3 hardening SEALED (PR #454 merged as 6fe008d2, Oracle ARM64 green, 606/606 tests). STEP-2 field-prove CONFIRMED: alpha-ai `wpvuln` access now INCONCLUSIVE (F=False) — its bare-UUID secret_ref does NOT resolve in the vault, exactly the false-provenance GAP-118 closes. NEXT IN ORDER: (1) P1 = the FULL §12.43 independent oracle (auth-vs-unauth diff composing the 116-B crawl) — GAP-118 made provenance HONEST, NOT the oracle; (2) Temuan 2 = Odoo cross-service reuse incomplete (E=False, db_enumerated=False) — diagnose with a log, do NOT guess. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
+Resume with: "lanjut Agent-Alpha — §12.43 independent oracle (#465) + dispatch-derivation refactor (#467) + CodeIgniter observe→derive (#466/#469) SEALED. STEP-2 field-prove: alpha-ai `wpvuln` = INCONCLUSIVE (F=False), GAP-158 cross-service reuse = TRUE-NEGATIVE on this target, PARKED. NEXT SLICE: Slice A — generalize observe→derive to a FRAMEWORK LADDER (Laravel/.env, Django/settings.py, Rails/database.yml, ASP.NET/web.config), one framework per slice, rule-tier first, NO client/target hardcoding. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
 
 ---
 
 ## ▶ START HERE (new session — do this IN ORDER, do not skip the gate)
 
-1. **`git pull` + confirm HEAD.** Is GAP-118 (PR #454, merged as `6fe008d2`) on main AND green on
-   Oracle ARM64? It is — sealed 2026-08-19. STEP-2 field-prove already re-run: `wpvuln` = INCONCLUSIVE
-   (F=False), the false-provenance is closed. Do NOT re-run STEP-2 unless something regressed.
-2. **If sealed & Oracle-green → THE SLICE IS: P1 (§12.43 independent oracle).** GAP-118 only made
-   provenance HONEST (secret_ref must resolve to engagement-owned vaulted material). It did NOT add
-   the independent auth-vs-unauth diff oracle §12.43 mandates. P1 composes the 116-B authenticated
-   crawl (already merged) into an auth-vs-unauth marker diff — that is the payable floor. This is the
-   highest-value item: makes a chain claim *defensible* (an independent signal), not just provenance-checked.
-3. **Temuan 2 (separate, diagnose-first):** Odoo cross-service reuse still incomplete — STEP-2 shows
-   E=False (ENABLES edge does not source from the vaulted cred) and db_enumerated=False. Diagnose with
-   a log, do NOT guess (anti-mis-fix). The `wpvuln` cred's secret_ref is a bare UUID that does NOT
-   resolve — that is correct post-GAP-118 behavior, but it means the harvested cred is not being vaulted
-   with a `secret_` ref on this path. Inspect the harvest→vault→reuse wiring.
+1. **`git pull` + confirm HEAD.** P1 §12.43 (#465), dispatch-derivation (#467), and CodeIgniter observe→derive (#466/#469) are MERGED and Oracle-green. Do NOT re-prove sealed slices unless something regressed.
+2. **If sealed & Oracle-green → THE SLICE IS: Slice A (framework ladder observe→derive).** Generalize the proven CI pattern to other chain-relevant frameworks: Laravel `.env`, Django `settings.py`, Rails `database.yml`, ASP.NET `web.config`. ONE framework per slice. Rule tier only (playbook + capability + path, DATA, marker-based, zero host hardcoding). The goal is observe(framework) → derive(config path) → extract(credential) on the live autonomous path for all clients, not one target.
+3. **Temuan 2 / GAP-158 (separate, parked):** cross-service cred reuse is a TRUE-NEGATIVE on alpha-ai (Odoo hardened: db.list off, admin password ≠ DB password, no `wpadmin` user). Mechanism exists in `OdooAccessTool._assemble_candidates`; park until a target with a real harvested-cred-reuse chain is available for field-prove.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
 
@@ -31,6 +21,38 @@ Resume with: "lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-B/C
 Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-gated).
 
 **Success bar — MET on self-owned real-world target; autonomous path now exercises binding for real:** find something a scanner missed + prove exploitable + payable report. alpha-ai.web.id (full-CF, self-owned): origin-exposure bypass → proven cred-reuse to Odoo admin (uid=2). This is the moat (prove, not just detect) — what Nuclei/Strix cannot assemble.
+
+---
+
+## ✅ SEALED (2026-08-21 session)
+
+- **P1 §12.43 independent oracle (#465)** — auth-vs-unauth diff wired into `CredReuseAttestor`; circular
+  `authenticated_request` self-report removed from `CONFIRMED`. Oracle-green.
+- **Dispatch-derivation refactor (#467)** — `Alpha._dispatch_registry` derived from `CAPABILITY_CATALOG` +
+  `PATH_PROBE_CATALOG`; `wiring-gate test_every_catalog_tool_is_dispatchable` makes half-wiring un-mergeable;
+  god-object growth-vector closed (new capability = 0 `scout.py` lines). `scout.py` ratchet 2475→2473.
+- **Slice-1 CI observe→derive (#466) + e2e (#469)** — CodeIgniter fingerprint → CI config path derivation;
+  `test_w_run_recon_reaches_codeigniter_config` proves the loop fires on the LIVE path (autonomous-wired, not island).
+
+---
+
+## DIAGNOSED / PARKED
+
+- **GAP-158 cross-service reuse** — TRUE-NEGATIVE on `alpha-ai` (Odoo hardened: `db.list` off, admin password
+  ≠ DB password, no `wpadmin` user). Mechanism EXISTS in `OdooAccessTool._assemble_candidates`; no reuse chain
+  on this target. Park until a target with a real harvested-cred-reuse chain exists to field-prove.
+
+---
+
+## NEXT — Slice A: generalize observe→derive to a FRAMEWORK LADDER (all clients, not one target)
+
+- **Rung 1 (rule):** add prevalent frameworks via the proven CI pattern (playbook+capability+path, DATA,
+  marker-based, ZERO host hardcoding). Chain-relevant first (config carries creds): Laravel/.env,
+  Django/settings.py, Rails/database.yml, ASP.NET/web.config. **ONE framework per slice.**
+- **Rung 2 (Slice-2, registered):** LLM classifier for ambiguous-but-known stacks → typed bucket → same map.
+- **Rung 3 (Slice-3, registered):** evidence-derived paths from app output (JS/form/error/redirect),
+  bounded probe-budget — the only stack-AGNOSTIC rung; true "all clients".
+- **Rule-alone is NOT "all clients"** — only the full ladder is. Do NOT hardcode any client/target name anywhere.
 
 ---
 
@@ -111,19 +133,18 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 
 ## OPEN / NOT DONE (registered, prioritised)
 
-**Highest-value next slice — P1: §12.43 independent oracle:**
-- **P1 §12.43 independent auth-vs-unauth oracle** ★ — composes the 116-B authenticated crawl (already merged,
-  commit 4150814) into an auth-vs-unauth marker diff. GAP-118 made provenance HONEST (secret must resolve);
-  it did NOT add the independent oracle. P1 is what makes a chain claim *defensible* (an independent
-  auth-vs-unauth signal), not just provenance-checked. This is the payable floor per §12.43.
+**Highest-value next slice — Slice A: framework ladder observe→derive:**
+- Generalize the proven CodeIgniter observe→derive pattern to Laravel `.env`, Django `settings.py`, Rails
+  `database.yml`, ASP.NET `web.config`. Rule-tier first (playbook + capability + path, DATA, marker-based,
+  zero host hardcoding). ONE framework per slice. Goal: `observe(framework) → derive(config path) →
+  extract(credential)` on the live autonomous path for all clients, not one target.
 
-**Temuan 2 (separate, diagnose-first — do NOT guess):**
-- **Odoo cross-service reuse incomplete** — STEP-2 (2026-08-19) shows E=False (ENABLES edge does not source
-  from the vaulted cred) and db_enumerated=False. The `wpvuln` cred's secret_ref is a bare UUID
-  (`a784c712-...`) that does NOT resolve — correct post-GAP-118, but it means the harvested cred is not
-  being vaulted with a `secret_` ref on this path. Inspect the harvest→vault→reuse wiring with a log.
+**Temuan 2 / GAP-158 (separate, parked — do NOT guess):**
+- **Cross-service cred reuse** — TRUE-NEGATIVE on `alpha-ai` (Odoo hardened: `db.list` off, admin password
+  ≠ DB password, no `wpadmin` user). Mechanism exists in `OdooAccessTool._assemble_candidates`; park until
+  a target with a real harvested-cred-reuse chain is available for field-prove.
 
-**High-leverage growth (next real slice after P1 — ONE at a time):**
+**High-leverage growth (next real slice after Slice A — ONE at a time):**
 - **GAP-115 historical-DNS origin discovery** ★ (§12.61 A1 DIRECT) — DIRECT pre-CF A-records (the origin IP a domain pointed to BEFORE going behind CF, often still live/unprotected). This is the ADR's "biggest missing signal": 4 field targets (niagamas/bernofarm/ibudanbalita/busonlineticket) are full-CF where crt.sh/VT/OTX ALL failed. GAP-154 now lets this enrichment run even when crt.sh is down (the exact field case). DESIGN GATE (locked, build in a NEW session): keyless-FIRST source seam (ViewDNS/DNSHistory keyless; SecurityTrails key-gated OPTIONAL like OTX/VT, None=off, keyless-safe) → `enrich_with_historical_dns(intel, source)` additive → emits ip4 `origin_ip_candidates` (DROP ip6 per GAP-155) → composes with §12.46 two-proof binding (historical IP = CANDIDATE, stale IP fails binding = fail-closed, the niagamas lesson). Moat = the COMPOSITION (historical A → proven pre-CF origin), NOT the commodity lookup. **DECISION NEEDED FROM NATANAEL:** source/key policy — keyless-only (ViewDNS, rate-limited, autonomous) vs +SecurityTrails paid key (his to provide for Tier-2 field-prove). Then cert/favicon pivot (GAP-093/086), then axis-B. MENU — one slice.
 - **GAP-045 CF-ceiling honest-outcome report** — (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable integrated with CoverageLedger).
 
