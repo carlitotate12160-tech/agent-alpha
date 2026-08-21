@@ -1,0 +1,24 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# Coarse CodeIgniter fingerprint: detects a CI surface from the session cookie
+# or CSRF field markers and labels the asset. CI-specific markers — NOT a loose
+# "php" or "session" that would fire on unrelated PHP stacks (anti-#3 over-probe).
+name: codeigniter_fingerprint
+version: 1
+phase: recon
+# Any one indicator is sufficient (logical OR). CodeIgniter-specific markers:
+#   ci_session    — CI's default session cookie name (Set-Cookie header)
+#   csrf_test_name — CI's default CSRF token field name (form body)
+#   ci_csrf_token  — CI's alternative CSRF token name (form body)
+priority: 60
+match:
+  any_indicator:
+    - header_regex:
+        name: Set-Cookie
+        value: '(^|;\s*)ci_session='   # cookie-name start + '=', bukan substring
+    - body_contains: "csrf_test_name"
+    - body_contains: "ci_csrf_token"
+action:
+  tool: codeigniter_fingerprint
+  tier: rule
+  technique_id: "T1595.002"   # MITRE ATT&CK: Active Scanning — Software
+  rationale: "CodeIgniter surface detected via session cookie or CSRF marker; label asset for CI config path derivation."

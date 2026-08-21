@@ -336,6 +336,31 @@ WP_CONFIG_BACKUP_PATHS: tuple[str, ...] = (
     "/wp-config.txt",
 )
 
+# ── CodeIgniter Credential Keys (SSOT — mirrors WP pattern for CI) ──────
+# Canonical CodeIgniter tech_stack label (anti-#7).
+STACK_CI: str = "codeigniter"
+
+# CodeIgniter's application/config/database.php uses PHP array syntax
+# ($db['default']['username'] = '...'), not define() constants. Key names
+# mirror the normalized output keys (DB_USER, DB_PASSWORD) so the same
+# credential assembly pipeline works when a CI extractor is added.
+CI_CREDENTIAL_LOGIN_PAIRS: dict[str, tuple[str, str]] = {
+    "database": ("DB_USER", "DB_PASSWORD"),
+}
+CI_CREDENTIAL_USERNAME_KEYS: frozenset[str] = frozenset({"DB_USER"})
+CI_CREDENTIAL_SECRET_KEYS: frozenset[str] = frozenset({"DB_PASSWORD"})
+CI_CREDENTIAL_SERVICE_MAP: dict[str, str] = {"DB_": "database"}
+
+# CodeIgniter config file paths (passive GET, RECON_ONLY). CI's application/
+# directory structure is convention-based — these are the standard locations
+# for database.php and config.php backups that may leak credentials.
+CI_CONFIG_PATHS: tuple[str, ...] = (
+    "/application/config/database.php",
+    "/application/config/database.php.bak",
+    "/application/config/config.php.bak",
+    "/application/config/database.php~",
+)
+
 # WordPress REST route surface (SSOT). The /wp-json/ index is DETECT-only
 # (persisted as an AssetProperties.rest_routes inventory, never a finding). Only
 # routes present in this allowlist are ESCALATED (enqueued) for a follow-up probe
@@ -415,7 +440,12 @@ GIT_LEAK_PATHS: tuple[str, ...] = ("/.git/config",)
 # Spring Boot Actuator env-disclosure endpoints (read-only info disclosure -> RECON).
 ACTUATOR_PATHS: tuple[str, ...] = ("/actuator/env", "/env")
 
-WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (*GIT_LEAK_PATHS, *BACKUP_FILE_PATHS, *ACTUATOR_PATHS)
+WELL_KNOWN_LEAK_PATHS: tuple[str, ...] = (
+    *GIT_LEAK_PATHS,
+    *BACKUP_FILE_PATHS,
+    *ACTUATOR_PATHS,
+    *CI_CONFIG_PATHS,
+)
 
 # CDN-infrastructure path prefixes to exclude from frontier crawl (loop prevention).
 # Cloudflare and other CDNs inject /cdn-cgi/* paths that link to each other indefinitely,

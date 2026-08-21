@@ -122,6 +122,20 @@ PATH_PROBE_CATALOG: tuple[PathProbeSpec, ...] = (
         leak_source="actuator",
         applies_to_stacks=frozenset({"spring", "tomcat", "java"}),
     ),
+    PathProbeSpec(
+        name="codeigniter_config",
+        tool="codeigniter_config_probe",
+        paths=constants.CI_CONFIG_PATHS,
+        recover=RecoverStrategy.DIRECT,
+        vuln_suffix="ci_config_leak",
+        tech_stack=(constants.STACK_CI,),
+        leak_source="codeigniter_config",
+        applies_to_stacks=frozenset({constants.STACK_CI}),
+        login_pairs=constants.CI_CREDENTIAL_LOGIN_PAIRS,
+        username_keys=constants.CI_CREDENTIAL_USERNAME_KEYS,
+        secret_keys=constants.CI_CREDENTIAL_SECRET_KEYS,
+        service_map=constants.CI_CREDENTIAL_SERVICE_MAP,
+    ),
 )
 
 _CATALOG_BY_TOOL: dict[str, PathProbeSpec] = {spec.tool: spec for spec in PATH_PROBE_CATALOG}

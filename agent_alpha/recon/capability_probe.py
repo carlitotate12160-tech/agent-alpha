@@ -73,6 +73,15 @@ CAPABILITY_CATALOG: tuple[CapabilitySpec, ...] = (
         label="odoo",
         frontier_seeds=("/web/database/manager",),
     ),
+    # CodeIgniter fingerprint: detects a CI surface via session cookie or CSRF
+    # markers and labels the asset. CI config paths (application/config/database.php)
+    # are seeded via PATH_PROBE_CATALOG's codeigniter_config spec (applies_to_stacks
+    # gate), NOT here — frontier_seeds stay empty to mirror the actuator pattern
+    # (path selection is the Planner's job, not the capability fingerprint's).
+    CapabilitySpec(
+        tool="codeigniter_fingerprint",
+        label=constants.STACK_CI,
+    ),
     # WordPress fingerprint: detects a WP surface and seeds /wp-json/ +
     # /readme.html so the full WP battery (wp_rest_routes, wp_rest_users,
     # woocommerce, wp_version) fires through the autonomous recon path.
