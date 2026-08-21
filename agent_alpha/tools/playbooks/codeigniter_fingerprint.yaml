@@ -14,7 +14,7 @@ match:
   any_indicator:
     - header_regex:
         name: Set-Cookie
-        value: 'ci_session'
+        value: '(^|;\s*)ci_session='   # cookie-name start + '=', bukan substring
     - body_contains: "csrf_test_name"
     - body_contains: "ci_csrf_token"
 action:

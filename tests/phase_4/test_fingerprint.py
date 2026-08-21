@@ -63,6 +63,27 @@ def test_plain_php_without_ci_marker_is_not_codeigniter() -> None:
     assert "codeigniter" not in labels
 
 
+def test_fingerprint_all_codeigniter_csrf_markers() -> None:
+    """Both body markers (csrf_test_name, ci_csrf_token) yield STACK_CI
+    without needing the ci_session cookie — covers all evidence paths."""
+    for marker in ("csrf_test_name", "ci_csrf_token"):
+        assert fingerprint_all(
+            _obs(body=f'<input name="{marker}">'),
+            _engine(),
+        ) == (constants.STACK_CI,)
+
+
+def test_fingerprint_all_ci_session_substring_is_not_a_false_positive() -> None:
+    """Anti-#3: a cookie whose name merely CONTAINS 'ci_session' (e.g.
+    my_ci_session_helper) must NOT be labeled CI — the anchored regex
+    (^|;\\s*)ci_session= requires ci_session= at cookie-name start."""
+    labels = fingerprint_all(
+        _obs(headers={"Set-Cookie": "my_ci_session_helper=x"}),
+        _engine(),
+    )
+    assert constants.STACK_CI not in labels
+
+
 def test_fingerprint_all_multistack_wp_behind_tomcat() -> None:
     """Decision C CARDINAL: a root that matches TWO capability rules (WP body + Tomcat Server
     header) yields BOTH labels — a single top-1 match would under-seed the multi-stack host."""
