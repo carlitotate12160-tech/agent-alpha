@@ -49,6 +49,28 @@ change.
 **DO:** revert unauthorized file changes immediately when caught.
 **DON'T:** accommodate a ratchet/gate failure caused by an unauthorized file change.
 
+## Precondition-Decoupling Protocol (2026-08-21 — NON-NEGOTIABLE)
+
+**Problem:** A slice hits a FOUNDATIONAL blocker (god-object ceiling, missing spine, required refactor)
+and the agent either (a) papers over it by tangling unrelated work into the slice, or (b) accommodates a
+failing gate by raising a ratchet ceiling, golfing unrelated code, or reverting necessary wiring. Both
+compromise the governance that is supposed to protect the architecture.
+
+**Rule:**
+1. When the current slice is blocked by a FOUNDATIONAL issue, **STOP**. Do not tangle the fix into the
+   current slice and do not accommodate it (never raise a ratchet ceiling, golf unrelated code, or revert
+   NECESSARY wiring just to satisfy a gate).
+2. **Decouple the precondition as its OWN slice.** Define its authorized file list, scope, tests, and
+   Oracle-exit criteria.
+3. **Seal the precondition slice first** (Oracle-green, field/lab-proven if needed).
+4. **THEN resume the original slice on top** of the now-merged, sealed precondition.
+
+A precondition surfacing is the governance working, not an error to paper over. Decoupling keeps the
+original slice honest, keeps the god object from growing, and keeps ratchet/wiring gates meaningful.
+
+**DO:** pause the original slice, open a new precondition slice, seal it, then resume.
+**DON'T:** fold foundational work into an unrelated slice or game a gate to keep going.
+
 ## Dev Environment
 
 - **Dev machine:** Windows PC with WSL2 Ubuntu 24.04 installed.
