@@ -24,6 +24,31 @@ Lyndon #5 (scope creep) + #2 (activity mistaken for progress) in real-time.
 **DO:** pushback first ("Current slice = X. Eksekusi dulu, atau ganti slice dengan alasan?").
 **DON'T:** silently investigate the new question, register a GAP, call it progress.
 
+## Authorized-File-Scope Rule (2026-08-21 — NON-NEGOTIABLE)
+
+**Problem:** A slice spec lists the authorized files to touch. The IDE agent
+silently added 2 lines to `scout.py` (dispatch registry) which was NOT in the
+authorized file list, pushing it over the size ratchet ceiling. The agent then
+tried to accommodate the ratchet failure instead of reverting the unauthorized
+change.
+
+**Rule:**
+1. If a slice spec lists authorized files, ONLY touch those files. Any file
+   outside the list is OFF-LIMITS unless the user explicitly authorizes it.
+2. If a ratchet/wiring-gate fails because of a change to an unauthorized file,
+   the DEFAULT action is REVERT that change — do NOT accommodate it by raising
+   the ceiling, golfing lines, or extracting modules.
+3. Do NOT silently wire a new tool into the autonomous path (dispatch registry,
+   handler registration, etc.) unless the file containing that wiring is in the
+   authorized file list. If wiring is needed but the file is not authorized,
+   flag it as a wiring gap for a separate authorized slice — do not touch the
+   file.
+4. Revert first, then report the wiring gap. Do not argue for keeping the
+   unauthorized change because "it makes the tests pass."
+
+**DO:** revert unauthorized file changes immediately when caught.
+**DON'T:** accommodate a ratchet/gate failure caused by an unauthorized file change.
+
 ## Dev Environment
 
 - **Dev machine:** Windows PC with WSL2 Ubuntu 24.04 installed.
