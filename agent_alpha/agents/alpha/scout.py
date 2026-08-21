@@ -142,30 +142,29 @@ class Alpha:
         self._engagement_profile = engagement_profile
         self._browser_solve_viable = browser_solve_viable
 
-        # Dispatch registry: tool_name -> handler(resp, decision, url) -> int.
-        # Canonical dispatch (anti-Lyndon #8: no growing if-chain).
-        self._dispatch_registry: dict[str, Any] = {
+        # Dispatch: generic derives from catalogs; special merges last and wins.
+        from agent_alpha.recon.capability_probe import CAPABILITY_CATALOG
+        from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
+
+        _generic = {
+            **{spec.tool: self._handle_capability_fingerprint for spec in CAPABILITY_CATALOG},
+            **{spec.tool: self._handle_path_probe for spec in PATH_PROBE_CATALOG},
+        }
+        _special = {
             "laravel_debug_probe": self._handle_laravel_debug,
             "wp_config_probe": self._handle_wp_config_probe,
             "js_secret_probe": self._handle_js_secret_probe,
             "odoo_dbmanager_probe": self._handle_odoo_dbmanager,
-            "git_exposure_probe": self._handle_path_probe,
-            "backup_file_probe": self._handle_path_probe,
-            "actuator_probe": self._handle_path_probe,
-            "tomcat_fingerprint": self._handle_capability_fingerprint,
-            "http_basic_auth_fingerprint": self._handle_capability_fingerprint,
             "auth_surface_probe": self._handle_auth_surface,
-            "s3_bucket_fingerprint": self._handle_capability_fingerprint,
             "surface_discovery_probe": self._handle_surface_discovery,
-            "graphql_fingerprint": self._handle_capability_fingerprint,
             "odoo_fingerprint": self._handle_odoo_fingerprint,
-            "wp_fingerprint": self._handle_capability_fingerprint,
             "wp_rest_routes": self._handle_wp_rest_routes,
             "wp_rest_users": self._handle_wp_rest_users,
             "woocommerce": self._handle_woocommerce,
             "wp_version": self._handle_wp_version,
             "wp_plugins": self._handle_wp_plugins,
         }
+        self._dispatch_registry: dict[str, Any] = {**_generic, **_special}
 
         # Per-run state, initialised in run_recon().
         self._engagement_id: str = ""
@@ -2311,7 +2310,7 @@ class Alpha:
             if getattr(probe, "status_code", 0) != 200:
                 return
             samples.append(self._soft404_tokens(probe_url, getattr(probe, "text", "") or ""))
-        t1, t2 = samples
+        t1, t2 = samples[0], samples[1]  # loop guarantees exactly 2 (early-return on failure)
         if len(t1) != len(t2):
             return
         volatile = frozenset(i for i, (a, b) in enumerate(zip(t1, t2, strict=False)) if a != b)

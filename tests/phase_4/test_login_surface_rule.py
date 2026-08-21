@@ -68,13 +68,16 @@ def test_forget_password_email_only_does_not_match_login_rule() -> None:
 
 
 def test_auth_surface_probe_registered_in_scout() -> None:
-    """The rule's tool must be a real dispatch target (else DECIDE routes nowhere)."""
-    import re
+    """The rule's tool must be a real dispatch target (else DECIDE routes nowhere).
 
-    src = pathlib.Path("agent_alpha/agents/alpha/scout.py").read_text()
-    block = src.split("self._dispatch_registry", 1)[1].split("}", 1)[0]
-    keys = set(re.findall(r'"([a-z_]+)":', block))
-    assert "auth_surface_probe" in keys
+    Reuses the wiring-gate factory so the test survives refactors of how the
+    dispatch registry is constructed (e.g. catalog derivation with nested
+    _generic/_special dicts).
+    """
+    from tests.governance.test_wiring_gate import _alpha_with_stub
+
+    alpha = _alpha_with_stub()
+    assert "auth_surface_probe" in alpha._dispatch_registry
 
 
 # ── CodeRabbit PR#395: single-quoted attributes must also match (quote-agnostic) ─
