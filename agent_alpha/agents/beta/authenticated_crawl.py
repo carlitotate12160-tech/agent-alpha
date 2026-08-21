@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import uuid
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
@@ -161,7 +162,7 @@ def _mint_surface(
         confidence=0.6 if depth1 else 0.7,
         proof_artifacts=[
             ProofArtifact(
-                artifact_id=str(__import__("uuid").uuid4()),
+                artifact_id=str(uuid.uuid4()),
                 type="auth_vs_unauth_diff",
                 storage_ref="",
                 description=f"auth-only marker present w/ session, absent w/o — {surface}",
