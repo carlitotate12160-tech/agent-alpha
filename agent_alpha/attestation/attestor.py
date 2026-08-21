@@ -54,8 +54,9 @@ class CredReuseAttestor:
     Lyndon check: this attestor exists because a tool's self-report ("I got admin")
     is NOT proof. The tool and the verifier MUST differ in failure mode — a bug in
     the exploit tool should not also fool the verifier. CredReuseAttestor checks for
-    an independent auth signal (proof_artifacts of type "authenticated_request")
-    that the finder tool did NOT produce as part of its own self-report.
+    an independent auth signal — the 116-B auth-vs-unauth DIFFERENTIAL — computed by
+    a DIFFERENT code path (``authenticated_crawl._auth_only_diff``) from the login
+    tool that self-reported access.
 
     Tier schema:
       - UNVERIFIED: node discovered, no tool has claimed success.
@@ -70,7 +71,8 @@ class CredReuseAttestor:
       1. Node is ACCESS_LEVEL type.
       2. Incoming ENABLES edge from a CREDENTIAL node exists.
       3. Credential has a real secret_ref that resolves in the vault (GAP-118 hardening).
-      4. Access node has proof_artifacts containing "authenticated_request".
+      4. A reachable SERVICE :authsurface: node (via LEADS_TO) carries an
+         ``auth_vs_unauth_diff`` proof bound to this credential AND access level.
       5. Does NOT rely on node.verified (tool self-report).
 
     Integration: CredReuseAttestor is consumed by run_verification_pass(), which
@@ -78,7 +80,8 @@ class CredReuseAttestor:
     with attestor provenance on CONFIRMED. The graph store promotes nodes to
     CROSS_VERIFIED only when the event carries provenance.
 
-    CONFIRMED: access node has proof_artifacts with type "authenticated_request"
+    CONFIRMED: a reachable SERVICE :authsurface: node carries an
+               ``auth_vs_unauth_diff`` proof bound to the enabling credential
                AND is reached via an ENABLES edge from a CREDENTIAL with a real
                secret_ref (harvested material that resolves in the vault).
     INCONCLUSIVE: access node exists but lacks independent auth proof.
@@ -87,6 +90,8 @@ class CredReuseAttestor:
     Does NOT confirm from:
       - Graph consistency or reachability alone.
       - Tool self-report (node.verified / node.verification).
+      - The login tool's own ``authenticated_request`` proof (circular — same
+        failure mode as the finder).
       - Inferred access without session/auth proof.
     """
 
@@ -162,21 +167,34 @@ class CredReuseAttestor:
         return None
 
     @staticmethod
-    def _has_bound_auth_proof(node: Any, cred_node: Any) -> bool:
-        """True iff some ``authenticated_request`` artifact is bound to BOTH the enabling
-        credential (``subject_ref`` == cred id or its secret_ref) AND this access node
-        (``access_level`` and ``target`` match). Independent auth signal, not self-report.
+    def _has_independent_auth_diff(node: Any, cred_node: Any, graph: Any) -> bool:
+        """True iff an authsurface SERVICE node reachable via LEADS_TO from this access node
+        carries an ``auth_vs_unauth_diff`` proof BOUND to the enabling credential AND this
+        access level. §12.43 independent oracle: the auth-vs-unauth differential is computed by
+        ``authenticated_crawl._auth_only_diff`` — a DIFFERENT code path from the login tool that
+        self-reported access — so a bug in the login tool does not also fool this check.
 
-        No instance state (static). The four conditions are collapsed into one ``and`` chain."""
+        No instance state (static): pure graph traversal + artifact inspection. An empty
+        ``subject_ref`` NEVER binds (guards against an unwired/optional enabling_cred_id)."""
+        from agent_alpha.graph.nodes import RelationshipType
+
+        subjects = (cred_node.id, getattr(cred_node.properties, "secret_ref", ""))
         level = getattr(node.properties, "level", "")
-        subjects = (cred_node.id, cred_node.properties.secret_ref)
-        return any(
-            a.type == "authenticated_request"
-            and a.subject_ref in subjects
-            and a.access_level == level
-            and a.target in node.id
-            for a in node.proof_artifacts
-        )
+        for edge in graph.all_edges():
+            if edge.source_id != node.id or edge.relationship != RelationshipType.LEADS_TO:
+                continue
+            svc = graph.get_node(edge.target_id)
+            if svc is None or ":authsurface:" not in svc.id:
+                continue
+            for art in getattr(svc, "proof_artifacts", ()):
+                if (
+                    art.type == "auth_vs_unauth_diff"
+                    and art.subject_ref  # empty never binds
+                    and art.subject_ref in subjects
+                    and art.access_level == level
+                ):
+                    return True
+        return False
 
     def verify(self, node: Any, graph: Any) -> Verdict:
         """Independently verify an access node.
@@ -185,7 +203,8 @@ class CredReuseAttestor:
           1. Node is ACCESS_LEVEL type.
           2. Incoming ENABLES edge from a CREDENTIAL node exists.
           3. Credential's secret_ref resolves to engagement-owned harvested material (Rule 3).
-          4. Access node has an authenticated_request proof bound to this cred + access.
+          4. A reachable SERVICE :authsurface: node carries an ``auth_vs_unauth_diff``
+             proof bound to this cred + access (§12.43 independent oracle).
           5. Does NOT rely on node.verified (tool self-report).
         """
         from agent_alpha.graph.nodes import CredentialProperties, NodeType
@@ -205,8 +224,9 @@ class CredReuseAttestor:
         if not self._resolves_to_harvested_material(cred_node):
             return Verdict.INCONCLUSIVE
 
-        # Independent auth signal bound to this cred + access (real event, not inferred).
-        if not self._has_bound_auth_proof(node, cred_node):
+        # Independent auth signal: §12.43 auth-vs-unauth DIFFERENTIAL (116-B), NOT the login
+        # tool's own authenticated_request self-report (circular). Passes `graph` (traverses edges).
+        if not self._has_independent_auth_diff(node, cred_node, graph):
             return Verdict.INCONCLUSIVE
 
         # All independent checks pass: confirmed.

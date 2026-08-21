@@ -575,13 +575,20 @@ class Beta:
         # GAP-116-B: post-access authenticated crawl CONSUMES self._won_session_cookies
         # (116-A carrier is no longer dead state). Extracted to keep run_strike's complexity
         # bounded (PY-R1000); RECON_ONLY / GET-only inside the module.
-        nodes_added += self._post_access_authenticated_crawl(host, now_utc)
+        nodes_added += self._post_access_authenticated_crawl(host, now_utc, cred_node_id)
 
         return {"discovered_nodes": nodes_added, "cost_usd": cost_usd}
 
-    def _post_access_authenticated_crawl(self, host: str, now_utc: str) -> int:
+    def _post_access_authenticated_crawl(
+        self, host: str, now_utc: str, enabling_cred_id: str
+    ) -> int:
         """Reuse the won session to DETECT auth-only admin surfaces for the fingerprinted stack.
-        Honest no-op without a session. Returns the count of surfaces minted."""
+        Honest no-op without a session. Returns the count of surfaces minted.
+
+        ``enabling_cred_id`` and ``self._access_level`` are threaded into
+        ``run_authenticated_crawl`` so the minted SERVICE nodes carry an
+        ``auth_vs_unauth_diff`` proof bound to the credential that enabled
+        this session — the §12.43 independent oracle signal."""
         # Read the fingerprinted stack from Alpha's data-bearing ASSET node (nodes_by_type skips
         # dangling edge-created placeholders; get_node would KeyError on those).
         tech_stack: list[str] = []
@@ -598,6 +605,8 @@ class Beta:
             session_cookies=self._won_session_cookies,
             tech_stack=tech_stack,
             now_utc=now_utc,
+            enabling_cred_id=enabling_cred_id,
+            access_level=self._access_level,
         )
 
     # ── A2A handoff builder (CLAUDE lane — do not weaken) ───────

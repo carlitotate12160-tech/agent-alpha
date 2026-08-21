@@ -37,6 +37,7 @@ from agent_alpha.graph.nodes import (
     AttackEdge,
     AttackNode,
     NodeType,
+    ProofArtifact,
     RelationshipType,
     ServiceProperties,
     VerificationTier,
@@ -135,11 +136,17 @@ def _mint_surface(
     surface: str,
     path: str,
     now_utc: str,
+    enabling_cred_id: str,
+    access_level: str,
     depth1: bool = False,
 ) -> None:
     """Mint an AUTH-ONLY endpoint surface as a SERVICE node (SELF_VERIFIED — Beta's own crawl; the
     §12.43 oracle upgrades to cross_verified) + a leads_to edge from the access node. Persists the
     SURFACE only, never the page content (no PII).
+
+    The ``auth_vs_unauth_diff`` proof artifact is the §12.43 independent oracle signal: computed by
+    ``_auth_only_diff`` (a DIFFERENT code path from the login tool), it binds the enabling
+    credential (``subject_ref``) and access level so the attestor can cross-verify independently.
 
     SERVICE (not ASSET): an auth-only endpoint is an endpoint/surface, NOT a host root. Minting it
     as ASSET would pollute ``nodes_by_type(ASSET)`` — which callers (``_project_target_context``,
@@ -152,6 +159,19 @@ def _mint_surface(
         type=NodeType.SERVICE,
         properties=ServiceProperties(name=surface, protocol="http", banner=path),
         confidence=0.6 if depth1 else 0.7,
+        proof_artifacts=[
+            ProofArtifact(
+                artifact_id=str(__import__("uuid").uuid4()),
+                type="auth_vs_unauth_diff",
+                storage_ref="",
+                description=f"auth-only marker present w/ session, absent w/o — {surface}",
+                captured_at=now_utc,
+                agent="beta",
+                subject_ref=enabling_cred_id,
+                target=host,
+                access_level=access_level,
+            ),
+        ],
         agent="beta",
         timestamp_utc=now_utc,
         verification=VerificationTier.SELF_VERIFIED,
@@ -213,10 +233,16 @@ def run_authenticated_crawl(
     session_cookies: dict[str, str] | None,
     tech_stack: list[str],
     now_utc: str,
+    enabling_cred_id: str,
+    access_level: str,
     playbook: dict[str, Any] | None = None,
 ) -> int:
     """Post-access authenticated crawl. Returns the count of auth-only surface nodes minted.
-    ``engagement_id`` is passed explicitly (no reach into Beta's protected state — PYL-W0212).
+
+    ``engagement_id``, ``enabling_cred_id``, and ``access_level`` are passed explicitly (no
+    reach into Beta's protected state — PYL-W0212). ``enabling_cred_id`` and ``access_level``
+    are REQUIRED (keyword-only, no default) — a missing cred must fail loudly, not silently
+    skip the diff (anti-Lyndon #3, mirrors GAP-118 c422271's keyword-only-required contract).
 
     Honest no-ops (emit AUTHENTICATED_CRAWL_SKIPPED, anti-#3 coverage-honesty):
       * no won session (single-cookie carrier not present for this stack) → skip;
@@ -266,6 +292,8 @@ def run_authenticated_crawl(
                 surface=str(ep["surface"]),
                 path=path,
                 now_utc=now_utc,
+                enabling_cred_id=enabling_cred_id,
+                access_level=access_level,
             )
             minted += 1
             # depth-1 admin-filtered extension (bounded) — custom admin pages off the playbook.
@@ -286,6 +314,8 @@ def run_authenticated_crawl(
                     surface=f"custom_admin:{urlparse(link).path}",
                     path=urlparse(link).path,
                     now_utc=now_utc,
+                    enabling_cred_id=enabling_cred_id,
+                    access_level=access_level,
                     depth1=True,
                 )
                 minted += 1

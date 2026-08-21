@@ -275,3 +275,29 @@ def test_authenticated_crawl_consumes_won_session_in_strike():
     assert "session_cookies=self._won_session_cookies" in strike_src, (
         "the authenticated crawl must be fed self._won_session_cookies — the 116-A carrier's consumer."
     )
+
+
+def test_p1_strike_threads_cred_and_attestor_reads_authsurface():
+    """T-P1c-wiring (§12.43 independent oracle wiring gate): assert the P1 chain is connected:
+    1. strike.py threads enabling_cred_id into run_authenticated_crawl.
+    2. authenticated_crawl.py emits "auth_vs_unauth_diff" proof on SERVICE nodes.
+    3. attestor.py reads ":authsurface:" SERVICE nodes for the independent oracle.
+    Dropping any of these tokens breaks the chain → this gate fails."""
+    strike_src = _read("agents/beta/strike.py")
+    assert "enabling_cred_id=" in strike_src, (
+        "strike.py must thread enabling_cred_id into run_authenticated_crawl — "
+        "else the crawl cannot bind the diff to the enabling credential (P1 broken)."
+    )
+
+    crawl_src = _read("agents/beta/authenticated_crawl.py")
+    assert '"auth_vs_unauth_diff"' in crawl_src, (
+        "authenticated_crawl.py must emit an auth_vs_unauth_diff proof artifact — "
+        "else the §12.43 independent oracle signal is never produced (P1 broken)."
+    )
+
+    attestor_src = _read("attestation/attestor.py")
+    assert '":authsurface:"' in attestor_src, (
+        "attestor.py must check :authsurface: SERVICE nodes for the independent diff — "
+        "else the oracle reads nothing and CONFIRMED is unreachable (P1 broken)."
+    )
+
