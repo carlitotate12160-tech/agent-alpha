@@ -375,7 +375,7 @@ If you see any of these in a session, stop and address before continuing:
    → Do NOT silently follow into another diagnosis. Do NOT register another gap.
      EXECUTE the current slice. Sealing > diagnosing.
 
-🚩 "Sudah saya buat di AGENTS.md untuk exit proof nya" (when exit criteria exist
+🚩 "Sudah saya buat di AGENTS.md / TESTING_METHODOLOGY.md untuk exit proof nya" (when exit criteria exist
    but the agent has NEVER passed them via autonomous path)
    → Exit criteria on paper ≠ exit criteria passed. If the agent has 0 field-proven
      findings via the Conductor autonomous path, the exit criteria are UNMET, not
