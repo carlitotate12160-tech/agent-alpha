@@ -228,3 +228,31 @@ def test_run_recon_initial_seed_count_bounded() -> None:
         f"WELL_KNOWN_LEAK_PATHS would have sent {len(constants.WELL_KNOWN_LEAK_PATHS)}. "
         f"calls={http.get_calls}"
     )
+
+
+def test_ci_host_derives_ci_config_not_wp() -> None:
+    """A 'codeigniter'-labeled host's selected paths include
+    /application/config/database.php AND contain NO /wp-config.php* variant.
+
+    Proves the observe→framework→derive seam: CI fingerprint → CI label →
+    CI-specific paths (not WP paths). The Planner's select_leak_paths is the
+    derivation point — it checks PATH_PROBE_CATALOG.applies_to_stacks against
+    the host's labels. A CI label matches the codeigniter_config spec but NOT
+    the backup_file spec (which gates on {laravel, wp, php, web}), and
+    DEFAULT_LEAK_PATHS is suppressed when a stack-specific spec matched.
+    """
+    from agent_alpha.agents.planner import Planner
+
+    paths = Planner().select_leak_paths([constants.STACK_CI])
+
+    # CI config path IS derived
+    assert "/application/config/database.php" in paths, (
+        f"CI host should derive /application/config/database.php, got: {paths}"
+    )
+    # NO WP-specific path is derived
+    wp_paths = [p for p in paths if "wp-config" in p]
+    assert not wp_paths, (
+        f"CI host received WP-specific paths: {wp_paths} — "
+        "backup_file spec should not match 'codeigniter' label, "
+        "and DEFAULT_LEAK_PATHS should be suppressed when a stack-specific spec matched"
+    )
