@@ -4,7 +4,45 @@
 
 Architecture blueprint for Agent-Alpha: autonomous red-team platform Level 1-6 (SCOUT→STRIKE→ANCHOR→HUNTER→SCOUT-HUNTER→ROASTER) with non-bypassable authorization gate, multi-agent orchestration, and memory that makes it smarter across engagements.
 
-**Status:** Architecture-only. This document establishes design decisions + phased roadmap. Implementation details per module are drafted after this design is approved.
+**Status:** Canonical architecture record. Only decisions marked `ACCEPTED` govern production; `PROPOSED` entries are non-authoritative design candidates. Current implementation status lives only in `docs/Session_Handoff.md` and must be verified against the live autonomous path.
+
+## Canonical Authority Contract
+
+This file contains legacy roadmap material plus architecture decisions. Resolve authority in this order:
+
+1. Non-negotiable safety doctrine.
+2. The latest `ACCEPTED` decision that explicitly supersedes or amends an earlier decision.
+3. Earlier `ACCEPTED` decisions not superseded.
+4. `PROPOSED` decisions are informative only and MUST NOT be treated as production behavior.
+5. Live code never silently overrides an accepted ADR: ADR × code × test/evidence divergence is a contract defect that must be reported.
+
+Decision status vocabulary is exactly `PROPOSED | ACCEPTED | SUPERSEDED | REJECTED`. `MERGED`, `SEALED`, and `FIELD_PROVEN` describe implementation/evidence, not architecture-decision status.
+
+**Namespaces — never use bare “Phase N” in a new decision:**
+- `BUILD_STAGE B0–B7`: product-delivery roadmap (§9).
+- `ENGAGEMENT_STAGE E0–E6`: passive → active recon → reach → extract → strike → verify → chain.
+- `AUTH_TIER`: `RECON_ONLY | ACTIVE_APPROVED | OFFENSIVE_APPROVED`.
+- `PROMOTION_GATE`: `UNIT_VERIFIED | AUTONOMOUS_LAB_VERIFIED | REPRESENTATIVE_FIELD_VERIFIED | PRODUCTION_AUTHORIZED`.
+- Finding truth remains the separate canonical enum `unverified | self_verified | cross_verified`.
+
+**Canonical state:** the durable append-only event stream is system truth. AttackGraph is the canonical reasoning read-model for a specific event-stream head; Redis/session state and other projections are disposable.
+
+**ADR vs GAP:** ADRs own cross-cutting contracts, interfaces, authority boundaries, and orchestration policy. GAPs own concrete missing or broken implementations. A repeated symptom does not create another GAP: trace the earliest failed contract, attach evidence to its existing owner, and open a new GAP only for a distinct reproducible implementation defect.
+
+**Canonical domain authority matrix:**
+
+| Domain | Canonical authority |
+|---|---|
+| system_state | Canonical Authority Contract + §12.11 |
+| authorization | §12.36 + §12.46 |
+| autonomy_and_decide | §12.0 + §12.57 + §12.63 |
+| tool_contracts | §12.16 + §12.22 + §12.47 |
+| finding_and_chain_proof | §12.31 + §12.43 |
+| coverage_honesty | §12.62 + §12.64 |
+| passive_and_active_recon_order | §12.48 + §12.65 |
+| reach_and_evasion | §12.33 + §12.44 + §12.49 + §12.61 |
+| capability_promotion | §12.60 + ADR-GOV-001 |
+| operator_design_lens | §12.65 |
 
 ## 0. Design Principles (First Principles)
 
@@ -13,9 +51,9 @@ Architecture blueprint for Agent-Alpha: autonomous red-team platform Level 1-6 (
 - **Handoff is a data contract, not a side-effect.** Each agent only accepts defined input structures and produces defined outputs — no agent directly reads/writes another agent's state.
 - **Autonomous after authorization.** Authorization is checked once in Conductor when engagement is created; after that, agents run without interrupt until hard-limit is violated.
 - **Proof over claims.** Every finding must be accompanied by proof-of-exploitation (aligned with NodeZero principle: "prove exploitability", not just "vulnerability exists").
-- **Reasoning over durable state, not hidden state.** Each agent reasons over AttackGraph as single source of truth — not hidden internal state. This is what makes results reproducible & auditable (core principle of agentic systems).
+- **Reasoning over explicit state, not hidden state.** Each agent reasons over the AttackGraph projection for the current event-stream head — never hidden internal state. This makes decisions reproducible and auditable without promoting a projection into system truth.
 - **Bounded autonomy.** Autonomy is always bounded by measurable guardrails (iterations, time, cost, scope). Agent never "loops forever".
-- **Event-sourced truth.** System state (graph, audit, metrics) is a projection of a single append-only event stream — not mutable state written directly. This guarantees deterministic replay & reproducibility.
+- **Event-sourced truth.** The append-only event stream is canonical system state; graph, audit, metrics, and session views are projections, never mutable competing truths. This guarantees deterministic replay & reproducibility.
 - **Learn, don't self-rewrite.** Agent improves strategy/judgment via memory + reflection (stored as human-readable & auditable data/playbook), not by modifying its own source code/architecture. Self-modifying code is explicitly out of scope.
 - **Safety layer untouched by agent.** Authorization, kill switch, audit, and policy enforcement can never be changed by the agent (immutable core).
 
@@ -685,7 +723,7 @@ Automatic proof the agent reads context, not a straight line:
 - **Negative control:** identical target (same input) → SAME/consistent path (seed & temperature recorded §8o-4).
 - 2 targets with different fingerprints producing an identical path → **TEST FAIL.**
 
-### 12.3 Real-target gate (A3) — Phase 2 exit criteria
+### 12.3 Legacy real-target gate (A3) — SUPERSEDED by §12.60 and the Canonical Authority Contract
 
 - **Infra:** targets on **GCP free tier** (e2-micro, x86 — solves the ARM64 constraint), **separate** from the agent (isolation §8l). Agent + test runner stay on Oracle ARM64 (Rule 10).
 - **Firewall (MANDATORY):** targets accept traffic only from the Oracle agent IP (`<oracle-arm-host>`, IP in secrets vault, not in docs). Vulnerable labs must never be publicly exposed.
@@ -1829,9 +1867,9 @@ make check  # verify test suite still green against pinned image
 
 ---
 
-### 12.36 Front-loaded signed EngagementProfile — PROPOSED (lock on confirm)
+### 12.36 Front-loaded signed EngagementProfile — ACCEPTED
 
-**Status:** PROPOSED (2026-07-18). Renumber if §12.36 is taken.
+**Decision status:** ACCEPTED. **Implementation evidence:** HMAC-signed profile loading and fail-closed Conductor gates are live; current seal status belongs in `docs/Session_Handoff.md`.
 **Relates to:** §12.20–22 (Policy-as-Code / PolicyEnforcer), auth state machine
 (CREATED→RECON_ONLY→ACTIVE_APPROVED→OFFENSIVE_APPROVED), §1 (blast-radius gate),
 GAP-005 (PolicyEnforcer production wiring), Lyndon #4 (security-first) / #6 (one canonical type)
@@ -1862,11 +1900,12 @@ autonomously inside the signed envelope with ZERO further human gates, except th
 (Decision 4). "Non-bypassable auth gate" means the agent cannot act OUTSIDE the envelope — it does
 NOT mean repeated human clicks. This REDUCES gates; it does not add them.
 
-**Decision 3 — signature = tamper-evident, event-sourced, immutable.** Confirm produces
-`sha256(canonical_profile_json)` + principal/client identity + UTC timestamp, appended to the event
-store (append-only audit = existing non-negotiable). The signed profile is IMMUTABLE post-sign; any
-change is a NEW signed version + a NEW event that SUPERSEDES (never an in-place edit). A mutable DB
-boolean is NOT acceptable consent. This is the "strong digital-sign proof".
+**Decision 3 — signature = keyed, tamper-evident, event-sourced, immutable.** Confirm produces
+`HMAC-SHA-256(server_held_key, canonical_profile_json)` plus principal/client identity and UTC
+timestamp, appended to the event store. Unkeyed `sha256(canonical_profile_json)` is explicitly
+rejected: it detects accidental mutation but does not authenticate consent. The signed profile is
+IMMUTABLE post-sign; any change is a NEW signed version + a NEW event that SUPERSEDES (never an
+in-place edit). A mutable DB boolean is NOT acceptable consent.
 
 **Decision 4 — the ONLY runtime human pause: blast-radius > signed threshold.**
 - Severity scale (grounded, `graph.narrative`): `low | medium | high | critical`, driven by reaching
@@ -1910,16 +1949,16 @@ autonomy" UX (product decision).
 
 **Slice order (implementation):**
 - 2a: EngagementProfile schema (selections over policy.yaml vocab) + capture at create_engagement +
-  sha256+identity+timestamp signature event (immutable) — the signed-consent FOUNDATION.
+  keyed HMAC-SHA-256+identity+timestamp signature event (immutable) — the signed-consent FOUNDATION.
 - 2b: resolve OPSEC from the signed profile → HttpClient(opsec=) on the production recon path.
 - 2c: resolve technique opt-ins + per-tool scope (defense-in-depth) from the profile.
 - Blast threshold already wired (slice-1); 2a only makes it a PROFILE FIELD (default high preserved).
 
 ---
 
-### 12.38 Origin-Scope by Ownership — PROPOSED
+### 12.38 Origin-Scope by Ownership — ACCEPTED
 
-**Status:** PROPOSED (Natanael greenlit the model 2026-07-25).
+**Decision status:** ACCEPTED. §12.46 is the as-built runtime-binding amendment; static signed origins remain an optional cooperative shortcut, never a mandatory client input.
 **Lane:** Security-critical auth → Claude Opus (per model-routing table).
 **Lyndon check:** touches `engagement_profile` + `domain_verification` + `authorization`
 + `agents/alpha/scout` (reach) + `recon/origin_discovery` = **>2 files → interface
@@ -2019,11 +2058,11 @@ def assert_origin_authorized(origin_ip, fronted_host, profile, binder):
 ```
 
 ##### Schema change
-- `EngagementProfile.authorized_origins` (hand-fed signed IP set) → **removed as client
-  input.** Per-IP authorization is a RUNTIME decision (signed capability × live binding),
-  not a signed static list. The signed profile authorizes the *capability* (`allow_evasion`
-  + consent) and the *owned domains* (`scope_targets` + ownership token); the specific IP
-  is bound at run time.
+- `EngagementProfile.authorized_origins` is **removed as a mandatory client input**, not removed
+  from the canonical type. It remains an optional cooperative shortcut when the client explicitly
+  supplies an origin in the signed SOW/profile. Autonomous discovery uses the stricter runtime path:
+  signed capability × owned domain × live origin-binding evidence. A discovered candidate alone is
+  never authorization.
 - `ownership_tokens: Mapping[str,str]` (domain → server-minted token) added, embedded in
   the signed canonical JSON (mutation invalidates HMAC).
 
@@ -2596,14 +2635,10 @@ payable(chain) IFF every edge is cross_verified by its OWN per-edge OracleEviden
 # NEVER upgrades a chain because the graph shows the nodes are connected.
 ```
 
-**Tier provenance (APT operator lens — why each rule exists, not a task list).**
-- Bidirectional + non-trivial marker + `deception_risk` → **Turla / Equation Group**: validate the
-  environment is REAL before trusting a success signal; assume the target may be deceiving you.
-- `verified_at` + governed re-verify → **Volt Typhoon (long dwell)** + **APT29 (low-and-slow)**:
-  a proof decays; re-confirm without re-spraying (lockout-governed, §12.22 D2).
-- Chain composition → **Lazarus (exploit chaining)**: stitch individually-harmless leaks into total
-  compromise; only per-edge cross_verified oracles back the payable chain.
-- L3 corroborated → **APT41 (intelligence-driven)**: multi-source corroboration for the flagship claim.
+**Operator-design lens.** The canonical operator-lineage mapping lives in §12.65. This proof
+contract adopts only its durable principles: distrust a single signal, re-confirm decaying evidence
+without spraying, and compose exploit chains from independently verified edges. Operator names are
+context for design review, never a second proof taxonomy or a campaign-emulation task list.
 
 **Consequence.** Raises Omega report quality (client sees the dashboard, not a claim) AND enforces
 the zero-FP bar mechanically (unverified never counts toward a KPI). Screenshot capture = Camoufox
@@ -2782,9 +2817,9 @@ chain (Gamma-adjacent) lands.
 
 ---
 
-### 12.46 Origin-binding runtime authorization — external-vantage origin-direct without pre-signed IPs — PROPOSED (lock on confirm)
+### 12.46 Origin-binding runtime authorization — external-vantage origin-direct — ACCEPTED
 
-**Status:** PROPOSED → LOCK on confirm. **Extends** §12.36 (signed EngagementProfile), §12.38
+**Decision status:** ACCEPTED. **Implementation evidence:** cooperative signed-origin and runtime proven-binding paths are both live; seal status remains in `docs/Session_Handoff.md`. **Extends** §12.36 (signed EngagementProfile), §12.38
 (two-proof origin ownership), §12.42 (external vantage), §12.44 (evasion catalog — origin-direct =
 highest-ROI, the sellable proposition). Does NOT re-decide the auth gate; it adds a SECOND, runtime
 authorization path that is strictly proof-gated.
@@ -3068,10 +3103,10 @@ first. Agent Alpha currently behaves like a vulnerability scanner, not an intell
    ```
 
 5. **API key management (hybrid model).**
-   API keys stored in `.env` (system-level, same pattern as existing secrets).
-   Per-engagement toggle in `EngagementProfile` (§12.36) determines which sources are
-   ENABLED for a given engagement (default: all available sources ON). Keys = infrastructure,
-   config = per-engagement. New `.env` entries: `VIRUSTOTAL_API_KEY`, `HACKERTARGET_API_KEY`.
+   Production API keys resolve through the canonical secrets provider/vault; plaintext `.env` is
+   permitted only as a local/Oracle bootstrap source and is never durable authority. Per-engagement
+   toggles in `EngagementProfile` (§12.36) determine which sources are enabled. Keys are
+   infrastructure secrets; source enablement is signed engagement configuration.
 
 6. **Existing §12.25 (well-known paths) amendment.**
    `WELL_KNOWN_LEAK_PATHS` seeding is now GATED by Phase 0 output. When passive intel provides
@@ -3190,33 +3225,14 @@ with evasion. This is fundamentally broken for datacenter deployment because:
    | `stealth` | Browser rotation | curl_cffi | Human-like (§12.50) | Default, red team |
    | `announced` | `Agent-Alpha/{ver}` | httpx | Rate-limited | Compliance scan, client request |
 
-**Clarification (2026-08-05): "stealth" default sits INSIDE the existing front-loaded consent
-envelope (§12.36). "default" ≠ "authorized".** The existing `policy.yaml` defines an
-`announced`/`blend` authorization pair where `blend` has `evasion: true` and
-`resolve_opsec_profile()` (`conductor/policy.py:109`) already fail-closes to `announced` when
-`evasion_authorized=False`. The `"stealth"` profile MUST follow the same gate — it is NOT a
-third ungated path. Two options:
-
-- **(a) Map `stealth` == `blend` semantics (PREFERRED).** `"stealth"` is the renamed/evolved
-  `"blend"` profile. `policy.yaml` entry for `stealth` carries `evasion: true`. The existing
-  `resolve_opsec_profile(requested, evasion_authorized=)` gate applies unchanged: `stealth`
-  without `evasion_authorized=True` (i.e., `allow_evasion=False` or `opsec_stealth=False` in the
-  signed EngagementProfile) → fail-closed to `announced`. The `opsec_stealth` consent flag in
-  `EngagementProfile` (already wired in `authorization.py:562-573` with `ConsentRequiredError`)
-  is the signed capability that authorizes the `stealth` profile. `test_opsec_profile.py` /
-  `test_policy_yaml.py` expectations MUST assert: default `stealth` + no consent → `announced`
-  (fail-closed), never silent authorization.
-
-- **(b) Rename if semantics differ.** If `"stealth"` is intentionally different from `"blend"`
-  (e.g., stealth = curl_cffi transport only without UA spoofing, blend = full UA+header
-  spoofing), then `"stealth"` MUST be renamed to avoid conflating with the existing
-  `announced`/`blend` authorization pair. A profile name that implies evasion-like behavior but
-  bypasses the `evasion_authorized` gate is a silent authorization path = anti-Lyndon #3.
-
-**The invariant:** `DEFAULT_OPSEC_PROFILE = "stealth"` means stealth is the *requested* profile,
-not the *authorized* one. Without signed consent (`opsec_stealth=True` or `allow_evasion=True`
-in the EngagementProfile), `resolve_opsec_profile` must fall back to `announced`. The agent never
-silently operates in stealth mode without front-loaded consent.
+**As-built clarification (supersedes the earlier `stealth == blend` proposal).** Browser-parity
+transport and headers are the non-evasive production baseline currently named `stealth`
+(`policy.yaml: evasion=false`). The `blend` profile is the consent-gated evasion profile
+(`evasion=true`). An unauthorized `blend` request falls back to the browser-parity baseline, while
+`announced` remains the explicitly identifying profile. Future naming SHOULD replace the ambiguous
+`stealth` label with `browser_like_baseline`; until that isolated rename lands, policy semantics and
+tests—not the label—are authoritative. No profile with `evasion=true` may run without signed
+`allow_evasion`/consent.
 
 **Event-sourced**: `EVASION_POSTURE_SELECTED` event at engagement start, recording which transport
 mode, UA, and OPSEC profile are active — audit trail for "how did the agent present itself."
@@ -3297,10 +3313,11 @@ single-source in `constants.py`. #11: pacing is not a static pattern — burst s
 navigation context (new host vs same-host follow-up).
 
 **Amendment (2026-08-10): Target-aware pacing profile.** `StealthPacer` accepts an optional
-`business_hours_profile` derived from the engagement target's timezone and industry. Recon
-traffic blends with target peak hours (more bursts during active period, longer pauses
-outside). Credential stuffing shifts to off-hours (SOC understaffed, alert fatigue peak).
-NOT hardcoded 09:00–17:00 — the profile is target-industry-aware:
+`business_hours_profile` derived from the signed engagement window, target timezone, and industry.
+All activity remains inside the client-approved window and deconfliction plan. Timing MUST NOT be
+selected to exploit reduced defender staffing or alert fatigue. The profile may model normal traffic
+shape inside the authorized window; it is not an authorization source. It is not hardcoded
+09:00–17:00 — the profile is target-industry-aware:
 - E-commerce: weekend-active, extended evening hours
 - Government/corporate: weekday 09–17, sleep weekend
 - 24/7 services (hosting, fintech): always-active, blend with baseline
@@ -3347,15 +3364,16 @@ time-of-day awareness. Anti-Lyndon #7: single source — the profile is defined 
 
 **Anti-Lyndon:** #8 (Complexity for complexity's sake): Removing Celery overhead for simple HTTP requests and dropping LLM consensus for read-only actions makes the agent dramatically faster, cheaper, and closer to actual red team tradecraft.
 
-### 12.53 Deep Evasion Stack (Layer 2 Evasion) (ACCEPTED)
+### 12.53 Deep Evasion Stack (Layer 2 Evasion) — SUPERSEDED
 
+**Decision status:** SUPERSEDED by §12.44 and §12.61. Datacenter-viable session/header work remains eligible by demonstrated need; residential/mobile egress is infrastructure-deferred, not a code slice.
 **Date:** 2026-08-04
 **Context:** While §12.49 (Proactive Evasion via `curl_cffi`) defeats basic commercial WAFs, advanced NG-WAFs and SOC analysts inspect traffic deeper: header ordering, session continuity, and IP reputation (datacenter vs residential). To mimic a legitimate user journey, the agent requires a "Deep Evasion" layer.
 
 **Decisions:**
 1. **Session Persistence (Stateful Agent):** The agent must maintain state (`http.cookiejar`, CSRF tokens) throughout a session. Humans do not drop cookies between requests; the agent must mirror this to avoid stateless bot detection.
 2. **Strict Header Ordering & HTTP/2 ALPN:** HTTP headers must be sorted in the exact sequence expected by the specific browser claimed in the `BROWSER_UA_POOL` (e.g., Firefox and Chrome have different `Accept-Language` / `Accept-Encoding` orders). 
-3. **Residential Proxy Hook:** The network layer must support routing configurations to exit through residential proxy pools or clean exit nodes, mitigating the inherent IP reputation penalty of attacking from Oracle/AWS datacenter IPs.
+3. **Residential/mobile egress:** PARKED as infrastructure. Do not build a proxy code track under this ADR; a future procurement/integration decision requires its own authorization, confidentiality, and vendor-risk review.
 
 ### 12.54 Deep Recon Quick Wins (Phase 0 Expansion) (ACCEPTED)
 
@@ -3385,8 +3403,8 @@ Extend Phase 0 (Passive Recon) with two high-value, low-noise OSINT sources:
 Agent-Alpha is strictly forbidden from actively hacking 3rd-party vendors, as this is illegal and outside commercial SOWs. However, Agent-Alpha MUST simulate supply chain threats ethically through three approved vectors (to be built in future Phase 0 slices):
 1. **Passive Dependency & Asset Hijacking:** Detect client negligence in managing vendor assets. This includes *Subdomain Takeovers* (e.g., forgotten Zendesk CNAMEs) and *Poisoned CDNs* (detecting HTML/JS loading deprecated/compromised 3rd-party scripts like `polyfill.io`).
 2. **Dependency OSINT (Software Composition Analysis):** Parse exposed `package.json`, `pom.xml`, or HTTP headers to identify vulnerable 3rd-party libraries (e.g., outdated jQuery or Log4j) without touching the vendor's servers.
-3. **Assume Breach Mode (Future Phase):** For internal or authorized scenarios, Agent-Alpha will support starting from an artificially compromised state (low-level credentials) to simulate a vendor breach and attempt lateral movement/privilege escalation.
-**Constraint:** These vectors are officially part of the Phase 0 (Recon) and Epsilon (Lateral) doctrines, but their code implementation is queued *after* the core foundation (Slices 1-6) is complete.
+3. **Assume-breach-at-start:** REJECTED for Agent-Alpha. Starting with artificial internal access is a different product/vantage. Agent-Alpha may enter internal movement only after an externally proven foothold in the same authorized engagement.
+**Constraint:** Passive supply-chain observations remain external `ENGAGEMENT_STAGE E0` work. Post-pivot lateral behavior requires the normal `OFFENSIVE_APPROVED` gate; no internal-start profile is queued in this product.
 
 
 ### 12.57 Alpha as a Gate-Respecting Operator — Closed Feedback Loop (ACCEPTED)
@@ -3619,7 +3637,7 @@ hypothesis, not in gate execution.
 in the field before the next; container by promotion, not up-front; the auth gate
 (§12.57 non-negotiable) is never softened by any cognition layer.
 
-### 12.60 Two-Tier Proof + Field-Feedback Ratchet — lab-green is not field-ready (ACCEPTED)
+### 12.60 Capability Promotion + Field-Feedback Ratchet — lab-green is not field-ready (ACCEPTED)
 
 **Date:** 2026-08-09
 **Extends:** the Independent Verification Axiom + Lyndon #9 (wrong test environment) to their
@@ -3638,42 +3656,43 @@ the mechanism behind Natanael's frustration #5 (endless bug-fixing, no milestone
 keeps surfacing the next omission forever, because nothing turns a field failure into a
 permanent guard.
 
-**Decision — proof is two-tier, and every field failure ratchets into the lab.**
+**Decision — promotion gates are named, not numbered, and every field failure ratchets into the lab.**
 
-1. **Tier-1 (lab-seal) = reproducibility. NECESSARY, NOT SUFFICIENT.** Deterministic,
-   seeded-replay, Oracle ARM64. NEW RULE: a capability's Tier-1 fixture MUST include the
-   adversarial shapes the field has already shown for that capability class — not only the
-   happy path. (Login detection → fixture carries Vue-bound + basic-auth + static together.)
-   Tier-1 alone may NOT back a "done"/"field-ready" claim.
+1. **`UNIT_VERIFIED` = deterministic correctness.** Focused unit/contract tests pass on Oracle
+   ARM64. Necessary, never sufficient for an autonomous or field claim.
 
-2. **Tier-2 (field-prove) = THE BAR.** A capability is "field-proven + payable" only after it
-   runs on a real / self-owned hostile target. Self-owned full-CF (alpha-ai) for capabilities
-   needing full attack; real clients for recon/auth-gated. Registered per-capability.
-   Self-owned lab targets (wp_lab, alpha-ai) are Tier-1.5 — closer than a unit fixture, still
-   not the uncontrolled field.
+2. **`AUTONOMOUS_LAB_VERIFIED` = reproducible live-path behavior.** The full Conductor path runs
+   against a controlled self-owned target with seeded replay and field-shaped adversarial fixtures.
+   `wp_lab`, chain-lab, and purpose-built alpha-ai scenarios belong here. This gate proves wiring and
+   reproducibility, not uncontrolled-field generality.
 
-3. **Field-Feedback Ratchet (the enforced mechanism).** Every field failure is captured as a
-   PERMANENT synthetic adversarial fixture in Tier-1 — promotion-on-repeat at the TEST layer.
-   ingco dead-subdomain topology, niagamas dead-apex, pos Vue-login, hub basic-auth-only,
-   bernofarm full-CF → each becomes a named fixture. Enforced like the wiring-gate: a
-   `tests/governance/test_field_regression.py` (or per-phase field-fixture corpus) so a fixed
+3. **`REPRESENTATIVE_FIELD_VERIFIED` = THE capability bar.** The capability produces its expected
+   observable on a real authorized target whose behavior was not constructed to match the
+   capability. Client systems are deliverable environments, never an immature QA sandbox; field
+   evidence must follow signed scope/RoE and the capability must already be autonomous-lab verified.
+
+4. **Field-Feedback Ratchet (the enforced mechanism).** Every field failure is captured as a
+   PERMANENT synthetic adversarial fixture at the `AUTONOMOUS_LAB_VERIFIED` layer —
+   promotion-on-repeat at the TEST layer. Each recorded field topology becomes a named fixture.
+   Enforced like the wiring-gate via `tests/governance/test_field_regression.py` so a fixed
    field bug can NEVER silently regress AND the lab corpus grows toward field realism. Over
-   time, Tier-1 green starts to MEAN field-ready — because the lab now contains the field's
-   nastiness. Milestone = "survives the hostile corpus", not "unit tests pass".
+   time, autonomous-lab green starts to MEAN field-ready — because the lab now contains the
+   field's nastiness. Milestone = "survives the hostile corpus", not "unit tests pass".
 
 **Consequences.**
 
-- "Sealed" now has a tier: `lab-sealed` < `field-proven`. Session_Handoff and the ledger state
-  which tier a capability is at (mirrors verified tri-state unverified<self_verified<cross_verified).
-- Every NEW slice this session forward carries BOTH: a Tier-1 fixture that includes the field
-  shape that motivated it, AND a Tier-2 field-prove note (which target, expected observable).
+- Capability promotion is named: `UNIT_VERIFIED` < `AUTONOMOUS_LAB_VERIFIED` <
+  `REPRESENTATIVE_FIELD_VERIFIED`. It is independent from finding truth
+  (`unverified < self_verified < cross_verified`).
+- Every new slice carries a unit contract, an autonomous live-path contract with the motivating
+  field shape, and—when it claims field readiness—a representative authorized-field observable.
 - The field-regression corpus is the anti-#5 milestone: it only grows, never silently shrinks.
 
 **Rejected / guarded.**
 
 - **Lab-green = done** — rejected (the failure this ADR names).
-- **Skip Tier-1, only field-test** — rejected (field runs are not seeded-replay reproducible;
-  Oracle determinism still required; a field win with no fixture regresses next refactor).
+- **Skip unit/autonomous-lab proof and debug in the field** — rejected. Field runs are not
+  seeded-replay reproducible; a field win with no fixture regresses on the next refactor.
 - **A giant field-simulation framework up-front** — rejected (#1/#4). The corpus grows ONE
   fixture per real field failure (promotion-on-repeat), never speculatively.
 
@@ -3681,7 +3700,7 @@ permanent guard.
 
 1. Fixture fidelity: how much of a hostile field topology (CF challenge, LiteSpeed 403,
    reflected soft-404) can be synthesised deterministically vs needs a live target?
-2. Tier-2 cadence for real clients under the auth gate (recon-only vs authorized attack).
+2. `REPRESENTATIVE_FIELD_VERIFIED` cadence for real clients under the auth gate (recon-only vs authorized attack).
 3. Where the field-regression corpus lives (one governance file vs per-phase) and its ratchet
    test shape.
 
@@ -3689,7 +3708,7 @@ permanent guard.
 ### 12.61 Flank-when-CF-hard — origin-discovery breadth (ACCEPTED, menu)
 
 **Date:** 2026-08-09
-**Extends:** §12.58 (operator instinct: "front hard → flank") + §12.60 (two-tier proof) +
+**Extends:** §12.58 (operator instinct: "front hard → flank") + §12.60 (capability promotion) +
 the banked doctrine "stop beating full-CF apex from datacenter IP; the moat = origin-exposure
 bypass; bernofarm success = find a REACHABLE non-CF surface."
 
@@ -3733,8 +3752,9 @@ territory** ("front CF-hard → flank"), built as a MENU under §12.58/§12.59 d
 3. **Auth model unchanged (non-negotiable).** A discovered origin still requires the two proofs
    (domain-ownership + origin-binding). Credential-stuffing requires an in-scope login + the
    existing lockout-governor + consent. No gate softened.
-4. **§12.60 two-tier.** Each technique carries a field-shaped Tier-1 fixture + a Tier-2 field-prove
-   (re-run niagamas/bernofarm) — a technique is "done" only when it opens a real target, not a lab.
+4. **§12.60 named promotion gates.** Each technique carries unit + autonomous-lab evidence; a
+   field-ready claim additionally requires a representative authorized-field observable. Target
+   names and current evidence belong in `docs/Session_Handoff.md`, not this durable decision.
 
 **Product framing (SEA market).** For a full-CF target with NO exposed origin, the honest outcome
 is NOT "failure" — it is a **defensive-validation deliverable**: "your edge/WAF held N techniques
@@ -3756,11 +3776,12 @@ reprioritization (a fronted-apex host with a discovered origin should re-enter t
 **Cardinal (first slice — historical DNS).** GIVEN a full-CF apex whose crt.sh yields nothing but
 whose historical A-record points at a still-live origin IP, WHEN origin discovery runs, THEN the
 historical IP is surfaced as a candidate and (two-proof-bound) becomes strike-reachable — proven on
-a real full-CF target (Tier-2), not a lab.
+a real full-CF target (`REPRESENTATIVE_FIELD_VERIFIED`), not a lab.
 
 
-### 12.62 Human Interaction Simulation for browser_solve path (PROPOSED — DEFERRED)
+### Deferred Design D-01 — Human Interaction Simulation for browser_solve — SUPERSEDED
 
+**Decision status:** SUPERSEDED by the infra-bound ceiling in §12.44/§12.61; retained as historical context only, not an active build authority.
 **Date:** 2026-08-10
 **Extends:** §12.49 (proactive evasion), §12.53 (deep evasion stack).
 **Related:** GAP-049 (header contradiction fix — PR #396).
@@ -3810,10 +3831,9 @@ creep — not built until promotion gate triggers). #7 (single source — intera
 patterns defined in one module, not scattered).
 
 
-### 12.62 Coverage-Honesty Doctrine — engagement-scope generalization of §12.45 (PROPOSED)
+### 12.62 Coverage-Honesty Doctrine — engagement-scope generalization of §12.45 (ACCEPTED)
 
-**Status:** PROPOSED. Supersedes nothing; generalizes §12.45 (per-credential) to the
-engagement scope.
+**Decision status:** ACCEPTED. Coverage catalog, projection, Omega consumption, and runtime attempt instrumentation are implemented; current evidence belongs in `docs/Session_Handoff.md`. This generalizes §12.45 (per-credential) to the engagement scope.
 
 **Context.** A red-team SaaS report that says "no findings" on surfaces the agent never
 tested is the single fastest way to destroy client trust (client breached via SQLi we
@@ -3864,16 +3884,13 @@ classes belong in `techniques.yaml`/gaps (they surface in the client's `not_asse
 Orchestration wisdom (prioritizer, belief graph, temporal intel) is NOT a technique class
 → ADR, never a gap.
 
-**Implementation prerequisites (before this ADR can be LOCKED).**
-- `agent_alpha/coverage/techniques.yaml` — concrete schema with technique_id, class, name,
-  playbook_ref, capability_present, gap_ref, verification_tier. Minimum 5 entries as
-  proof-of-concept.
-- `agent_alpha/coverage/projector.py` — pure read-model over the event stream ×
-  techniques.yaml. Called by Omega at report generation (not real-time).
-- GAP reclassification audit: which GAPs are technique classes (belong in
-  techniques.yaml) vs orchestration wisdom (belong in ADR, never a gap). One-time audit.
-- CI guard: `len(techniques where capability_present=false)` must not INCREASE without
-  ADR justification (enforces governing metric).
+**Implementation enforcement.**
+- `agent_alpha/coverage/techniques.yaml` is the canonical technique denominator.
+- `agent_alpha/coverage/coverage_ledger.py` is the pure event-stream projection consumed by Omega.
+- Governance tests validate catalog integrity and autonomous wiring.
+- GAP classification remains strict: technique implementation defects belong in the ledger;
+  orchestration wisdom belongs in ADR authority, never a duplicate GAP.
+- Increasing `capability_present=false` requires an accepted architecture justification.
 
 **Anti-Lyndon.** #1/#5 (rejected explicitly in §6 — build queue, not breadth-sprint).
 #7 (single source — techniques.yaml is the ONE taxonomy). #2 (techniques.yaml is not
@@ -3882,7 +3899,7 @@ dead scaffold — Omega consumes it at report generation; CI guard enforces shri
 
 **Cross-ref.** §12.45 (per-credential semantics — this ADR generalizes it to engagement
 scope). §12.43 (proof standard — payability stays binary, coverage does not soften it).
-§12.60 (two-tier proof — coverage report is Tier-1 transparency, not Tier-2 proof).
+§12.60 (capability promotion — coverage transparency is not representative field proof).
 GAP-119 (credential-result semantics — per-credential implementation of §12.45, complement
 to this engagement-scope doctrine).
 
@@ -3894,9 +3911,11 @@ should not surrender — it should PIVOT strategy (WAF → hunt the origin; clea
 identity/data OSINT). The open question raised in design: can the agent "think like a human"
 and generate strategies C/D/E dynamically, rather than switch over a fixed A/B state machine?
 
-**Decision.** The dichotomy "static A/B state machine vs open-ended human-like strategy" is
-FALSE. Agent strategy is **a closed typed set of strategy CLASSES (the auth/blast boundary) ×
-open LLM composition of typed primitives WITHIN an authorized class**. Concretely:
+**Decision.** The dichotomy "static A/B state machine vs unconstrained human-like strategy" is
+FALSE. For current build stages, agent strategy is **a closed typed set of strategy CLASSES (the
+auth/blast boundary) × deterministic graph-driven composition of typed primitives WITHIN an
+authorized class**. LLMs may propose hypotheses in ORIENT; they do not select live targets/actions
+in DECIDE. Any Phase-6 LLM advisor remains a separate open question under §12.59.
 
 1. **Closed capability boundary.** The set of `StrategyClass` members (RECON_SURFACE,
    ORIGIN_HUNT, IDENTITY_OSINT, CRED_STUFFING, …) is a CLOSED, typed set. Each class carries
@@ -3906,11 +3925,11 @@ open LLM composition of typed primitives WITHIN an authorized class**. Concretel
    strategy at runtime has uncontrolled blast radius and cannot be sold. A human pentester is
    bounded by a signed SOW; the agent mirroring that is correct, not lesser.
 
-2. **Open plan composition.** "C/D/E" — human-like novelty — lives ONLY in the PLAN layer:
-   `next = f(AttackGraph state)`, an LLM (Claude lane) composing the next primitive or a NEW
-   chain of primitives from the tool catalog, bounded by the currently authorized class(es).
-   Novelty is in the composition/order/path, NOT in self-authored capability. This is exactly
-   what a human pentester does — recombine known primitives in target-driven order.
+2. **Graph-driven plan composition.** `next = f(AttackGraph state, objective, authorized catalog)`.
+   DECIDE deterministically selects and orders typed primitives inside the authorized class. LLM
+   output may enrich ORIENT with a hypothesis, but cannot become a target/action merely because it
+   is legal. Novelty is bounded hypothesis formation plus evidence-driven recomposition—not
+   self-authored capability or unreviewed LLM steering.
 
 3. **Self-modifying code = out of scope** (reaffirms the Learning=data/playbook-only
    non-negotiable). Open-endedness is at the PLAN layer, never the capability layer: the agent
@@ -3954,8 +3973,8 @@ open LLM composition of typed primitives WITHIN an authorized class**. Concretel
 **Consequence.** New pivots are added as vetted `StrategyClass` members with their own gate +
 tests, never as runtime inventions. The gap ledger tracks each as a slice (GAP-051 slice-1 done
 / slice-2 open). The closed-boundary/open-composition split is the general rule for every future
-"can the agent be smarter?" request: enrich the graph + open the PLAN layer inside authorized
-bounds — do not open the auth boundary.
+"can the agent be smarter?" request: enrich observations, hypotheses, graph state, and the typed
+catalog; keep DECIDE deterministic and never open the auth boundary.
 
 **Anti-Lyndon.** #11 (pivot = f(state), not a fixed ladder). #1/#5 (one slice; detection before
 action). #2 (slice-1 event is consumed, not dead scaffold; slice-2 stays OUT until built, not
@@ -3964,15 +3983,13 @@ outcome, never a silent FAILED/clean).
 
 **Cross-ref.** GAP-051 (the gap this decision concretizes). §12.36 (signed consent gates for
 evasion/origin-discovery). §12.46 (two-proof origin binding). §12.61 (Wayback origin source —
-slice-2 input). §12.62 (coverage-honesty — the walled verdict is a Tier-1 honest outcome).
+slice-2 input). §12.62 (coverage-honesty — the walled verdict is an honest coverage outcome).
 §12.23 (closed-vs-open discipline echoes the consensus-tier deferral: capability added
 deliberately, not by runtime escalation). §12.0 (next_action = f(state), never a fixed pipeline).
 ### 12.64 Recon Coverage Honesty: Step 0 (attempt instrumentation) + 187b (runtime coverage gate)
 
-**Status:** PROPOSED / LOCKED
-**Phase:** 2 (cognitive-loop honesty) — regression surfaced on the Phase-4 autonomous path
-**Depends on:** 187a (honest Alpha handoff status — MERGED-pending)
-**Lane / MODEL:** Security-critical events + ledger logic → Claude Opus 4.8 Medium (alt: GPT-5.4 High Thinking)
+**Decision status:** ACCEPTED. **Build scope:** recon coverage honesty; implementation and current evidence live in `docs/Session_Handoff.md`.
+**Depends on:** honest Alpha handoff status plus §12.62 coverage projection.
 
 #### 1. Context — why this ADR exists
 
@@ -4063,12 +4080,12 @@ frontier entry** (bounded by `max_iterations` / `time_budget` / `cost_budget` /
 `no_progress` — NO new outer loop, anti-#8/#11). Because Step 0 makes `not_run` shrinking,
 this terminates: each re-seeded technique is attempted (→ `tested`) or blocked (→ `blocked`).
 
-**3.2 Boundary (fail-closed, A-shaped — terminal only):** if a stop condition bites with
-genuine `not_run` remaining, recon is **incomplete** → the engagement-terminal status is NOT
-COMPLETE. Encoded as FAILED (route_next → OMEGA, honest partial), never COMPLETE. The chain
-does **not** advance offensively onto unproven ground. Reason recorded honestly
-(`coverage_incomplete`, `not_run` count) so Omega reports "recon incomplete, N techniques
-unreached" — not "clear."
+**3.2 Boundary (honest external status, no false-clear):** if a stop condition leaves genuine
+`not_run`, the engagement records `ENGAGEMENT_RUN_PARTIAL(reason=coverage_incomplete)` and Omega
+reports the unreached techniques—never "clear" or "safe." This coverage verdict does not rewrite a
+successful per-agent A2A handoff or automatically suppress Beta on already mapped, authorized
+surfaces; Beta eligibility remains governed by its own prerequisites and `AUTH_TIER`. Coverage
+partial means assessment incomplete, not target abandoned and not permission to overclaim.
 
 **3.3 Engagement-level gate as independent verifier (Axiom):** the engagement-scope
 `project_coverage` check at the recon-completion boundary (`recon_runner` /
@@ -4078,14 +4095,11 @@ in depth, not a duplicate re-walk).
 
 ---
 
-### §12.65 Fingerprint-First Recon Reorder (GAP-169)
+### 12.65 Fingerprint-First Recon Reorder (GAP-169) — ACCEPTED
 
-**Status:** PROPOSED v2 (lock on confirm) — REVISED after live-seam trace (Decision D corrected, D-2 added)
-**Phase:** 4 (recon direction) — depends on §12.64 coverage honesty (Step 0 + 187b-1/2 done)
-**Verified against:** live `scout.py` seam trace (fetch line 459, seed 253–283, `_pop_unprobed` 445).
-See `GAP-169_code_map.md` for the exists/missing map.
-**Lane / MODEL:** recon control-flow reorder → GPT-5.4 High Thinking (alt: Claude Opus 4.8 Medium).
-Path-selection/fingerprint DATA already exists — this is a wiring/ordering change, not new capability.
+**Decision status:** ACCEPTED. **Implementation:** AS-BUILT in `recon/fingerprint.py` and the Alpha autonomous path; current verification evidence lives in `docs/Session_Handoff.md`.
+**Build scope:** active-recon ordering after passive `ENGAGEMENT_STAGE E0`; depends on §12.64 coverage honesty.
+Path-selection/fingerprint data already existed — this is a wiring/ordering decision, not a new capability.
 
 **Operator doctrine (why, not decoration):** this reorder is the OBSERVE-before-ACT discipline that
 separates an operator from a scanner — the anti-scanner behavior that IS Agent-Alpha's moat. It
@@ -4273,7 +4287,7 @@ the CLEAN, high-signal small footholds — the exact "individually-harmless leak
 CHAINS. A scanner's blind spray buries those signals in 404 noise; the operator surfaces them precisely
 (169) so the chain oracle (Beta) can compose them into proof. Recon precision IN, provable chain OUT.
 
-**Doctrine home:** this table is durable (belongs in the `agent-alpha` skill / Session_Handoff
-doctrine-banked section), not just this ADR. Bank it there in the same change that lands 169.
+**Doctrine home:** this table is canonical here. `CLAUDE.md` and the architect skill reference
+§12.65 but do not reproduce the table; `docs/Session_Handoff.md` carries status only.
 
 

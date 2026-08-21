@@ -1,6 +1,6 @@
-# ADR §12.35 — Wiring Gate + Three-Gate Promotion (MUST COMPLY)
+# ADR-GOV-001 — Autonomous Wiring and Capability Promotion
 
-**Status:** LOCKED (2026-07-13). Append-only. If conflict → `ADR.md` wins.
+**Decision status:** ACCEPTED. The Canonical Authority Contract in `ADR.md` governs terminology and precedence; current implementation evidence lives in `docs/Session_Handoff.md`.
 **Origin:** Audit found `SessionStore`, `PolicyEnforcer`, `IntelligenceBase`,
 and graph analytics fully implemented + unit-green but **never wired into the
 production path** (dead code, Lyndon #2). Separately: lab-green results did not
@@ -33,23 +33,24 @@ exercised through the **real production path** (`Alpha.run_recon` or the Conduct
 `advance`/`execute_agent` path), not an isolated unit — the non-island pattern
 (anti-Lyndon #2). No component passes review on unit tests alone.
 
-## Rule 3 — Three-Gate Promotion (hard stops, non-skippable)
+## Rule 3 — Named Promotion Gates (hard stops, non-skippable)
 
-| Gate | Name | Requirement |
-|------|------|-------------|
-| 1 | **LAB-GREEN** | unit + Rule-2 wired-proof + `make check` on Oracle ARM64 (§9). |
-| 2 | **FIELD-PROVEN** | live-fire on a **self-owned** lab (`lab_guard`), with real-world response conditions replayed from §12.28 record/replay cassettes. |
-| 3 | **PRODUCTION-AUTHORIZED** | a real engagement — **only** with signed SOW + written scope + RoE + **all safety gates ACTIVE** (PolicyEnforcer + blast-radius wired, GAP-005/006). This is a client **deliverable**, never a QA run. |
+| Gate | Requirement |
+|------|-------------|
+| **UNIT_VERIFIED** | focused unit/contract tests + `make check` on Oracle ARM64. |
+| **AUTONOMOUS_LAB_VERIFIED** | Rule-2 wired proof through the full Conductor path on a controlled self-owned target, including §12.28 field-shaped replay fixtures. |
+| **REPRESENTATIVE_FIELD_VERIFIED** | expected observable on a real authorized target not constructed to match the capability; never used to debug immature code. |
+| **PRODUCTION_AUTHORIZED** | signed SOW + written scope + RoE + all safety gates active. This is an authorization posture for client delivery, not a finding-confidence tier. |
 
 **Non-negotiables of Rule 3:**
 - "Client doesn't mind" is **not** authorization. Authorization = SOW + written
   scope + RoE (§0, §1). No exceptions.
 - A client's live systems are **never** a testing ground for immature capability.
   You do not debug the tool on real targets.
-- Gate 3 is **impossible to reach while GAP-005/006 are un-wired** — the safety
-  layer must be live before any real engagement. The governance closes the
-  "lab-green → test on client" shortcut by construction.
+- `PRODUCTION_AUTHORIZED` is **impossible while required safety enforcement is unwired** — the
+  safety layer must be live before any real engagement. Governance closes the
+  "unit-green → debug on client" shortcut by construction.
 
-**Lab-vs-real divergence is fixed at Gate 2, not Gate 3:** reproduce real-world
-conditions (CF challenge, 415, identical-body CDN, etc.) via §12.28 cassettes in
-CI — bring the real world into the lab, never take the immature tool to the client.
+**Field shapes enter at `AUTONOMOUS_LAB_VERIFIED`:** reproduce real-world conditions (CF
+challenge, 415, identical-body CDN, etc.) via §12.28 cassettes. Only after that gate may an
+authorized field engagement establish `REPRESENTATIVE_FIELD_VERIFIED` evidence.
