@@ -212,7 +212,7 @@ python -m pytest tests/phase_2/ -v -m "not live"
 ### Make targets reference
 
 See `Makefile` for the canonical target list (`make all`, `make check`, `make
-quality`, `make test-phaseN`, etc.). The commands above show the common ones.
+quality`, `make test-phaseN`, etc.).
 
 ### Notes
 

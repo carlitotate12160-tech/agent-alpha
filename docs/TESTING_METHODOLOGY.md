@@ -20,7 +20,7 @@
 
 ### Testing pyramid (3 tiers — every gap fix must pass ALL 3 before sealed)
 
-```
+```text
 Tier 1 — UNIT (lab, deterministic, fast)
   ↓ pass
 Tier 2 — INTEGRATION (lab, live-fire, end-to-end)
@@ -32,6 +32,9 @@ SEALED — gap is closed, move to next slice
 
 **No gap is "closed" until Tier 3 passes.** Tier 1 + Tier 2 = "lab-sealed" (not
 field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.60).
+For P2/P3 slices, "lab-sealed" is an acceptable intermediate state — see
+[Field-prove cadence](#field-prove-cadence) below — but the gap is not "closed"
+until Tier 3 field-prove completes.
 
 #### Tier 1 — Unit test (lab, deterministic)
 
@@ -39,7 +42,7 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
   correctly? Does the handler mint the right node? Does the filter reject
   correctly?
 - **Where:** `tests/` directory on Oracle ARM64.
-- **How:** `python -m pytest tests/phase_X/test_<component>.py -v`
+- **How:** `python -m pytest tests/phase_X/test_<component>.py -v` (pseudocode — replace `phase_X`/`<component>` with the real path, e.g. `tests/phase_2/test_wp_version.py`)
 - **Speed:** Seconds. No HTTP, no LLM, no real target.
 - **Pass criteria:** All assertions pass. No false positives (empty input →
   0 nodes). No false negatives (known input → expected node).
@@ -70,7 +73,8 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
   the lab host. Runner scripts are ISLAND tests (Lyndon #2) — they don't
   prove the autonomous path works.
   ```bash
-  # Example: run Alpha against vuln.wp.lab
+  # Pseudocode example: run Alpha against vuln.wp.lab.
+  # Replace `PATH=...` with the full PATH export and `...` with real flags.
   wsl -e bash -lic "ssh oracle-alpha 'export PATH=...; cd ~/Agent-Alpha && \
     source .venv312/bin/activate && set -a; source .env; set +a; \
     python run_engagement_task.py --target https://vuln.wp.lab/ ...'"
@@ -112,7 +116,12 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
 | `ingco.co.id` | CodeIgniter + PHP 7.4 + Hostinger | dns-txt client-approved | CodeIgniter gaps |
 | `wp.alpha-ai.web.id` | WP (self-owned) | dns-txt lab-proof | WP cred-reuse chain |
 | `alpha-ai.web.id` | Odoo (self-owned) | dns-txt lab-proof | Odoo cred-reuse chain |
-| `spectranet.com.ng` | WP + Apache (Nigeria ISP) | dns-txt client-approved (pending live verification) | WP gaps (Africa variant) |
+
+##### T3-real pending (NOT yet executable — do not use for T3 until verified)
+
+| Target | Stack | Auth | Use for |
+|--------|-------|------|---------|
+| `spectranet.com.ng` | WP + Apache (Nigeria ISP) | dns-txt client-approved (pending live verification) | WP gaps (Africa variant) — excluded from T3 until live verification completes |
 
 ##### T3-lite (real internet, no WAF/CF) — for new-stack playbook testing
 
@@ -133,8 +142,12 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
 | `vercel-lab.alpha-ai.web.id` | Vercel edge (static) | dns-txt lab-proof | GAP-018/038/042 multi-IP origin discovery |
 
 - **How:**
-  - **T3-real:** run the Conductor runner script (e.g. `run_solusibersama_conductor.py`,
-    `run_quantum_conductor.py`) on Oracle ARM64.
+  - **T3-real:** run the **Conductor autonomous path** on Oracle ARM64. Named
+    runner scripts (e.g. `run_solusibersama_conductor.py`,
+    `run_quantum_conductor.py`) are acceptable ONLY when verified to invoke the
+    autonomous path — a wrapper that bypasses the Conductor is an island test
+    (Lyndon #2), not a field-prove. Distinguish wrapper/island tests from
+    autonomous-path proof.
   - **T3-lite/T3-origin:** run targeted handler probes against the public or
     multi-IP target to validate the specific GAP fix. These are NOT full
     Conductor runs and do NOT prove WAF/CF evasion.
@@ -172,7 +185,7 @@ field-proven). Tier 3 = "field-proven" (the only bar that counts, per ADR §12.6
 
 A phase is "sealed" only when ALL pass on Oracle ARM64, for 2+ stacks:
 
-```
+```text
 [ ] ALPHA-1: Alpha detects tech_stack for each target stack
     - WP target → tech_stack includes "wp"
     - Odoo target → tech_stack includes "odoo"
@@ -221,7 +234,7 @@ A phase is "sealed" only when ALL pass on Oracle ARM64, for 2+ stacks:
 
 #### Phase 3 (Beta/STRIKE) — exit criteria
 
-```
+```text
 [ ] BETA-1: Beta succeeds on WP target with leaked creds
     - cred_reuse chain: leak → DB password → wp-login → admin
     Test: Tier 2 (chain-lab) + Tier 3 (alpha-ai.web.id)
@@ -255,7 +268,7 @@ A phase is "sealed" only when ALL pass on Oracle ARM64, for 2+ stacks:
 
 #### Phase 4 (Gamma/ANCHOR) — exit criteria (NOT STARTED)
 
-```
+```text
 [ ] GAMMA-1: ToolComposer + blast-radius gate complete
 [ ] GAMMA-2: Gamma skeleton — first exploitation primitive
 [ ] GAMMA-3: DeepSeek generate→verify→refine payload loop
@@ -269,7 +282,7 @@ A phase is "sealed" only when ALL pass on Oracle ARM64, for 2+ stacks:
 > completeness gates do NOT cover it — this section closes that meta-gap
 > (ADR §12.62 Coverage-Honesty Doctrine).
 
-```
+```text
 [ ] OMEGA-1: report emits a Coverage & Methodology section — tested / not_run /
     blocked / capability_absent + engagement not_assessed list.        (GAP-153)
     Test: Tier 1 (test_omega_coverage) + Tier 2 (report on a lab run)
@@ -336,7 +349,7 @@ with one of these categories:
 
 ### Slice workflow (how to execute one gap fix end-to-end)
 
-```
+```text
 1. REGISTER gap in BUGS_AND_GAPS.md (with category + test contract)
 2. BRANCH: git checkout -b fix/gap-NNN-description
 3. WRITE Tier 1 test (RED — test fails before fix)
