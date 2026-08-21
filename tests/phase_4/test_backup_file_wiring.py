@@ -256,3 +256,31 @@ def test_ci_host_derives_ci_config_not_wp() -> None:
         "backup_file spec should not match 'codeigniter' label, "
         "and DEFAULT_LEAK_PATHS should be suppressed when a stack-specific spec matched"
     )
+
+
+# CI config-path derivation reachable in the LIVE recon path (slice-1 CI, anti-Lyndon #2).
+# Proves observe(codeigniter)->derive(CI config)->probe fires on run_recon end-to-end — not just the
+# units (fingerprint / select_leak_paths / dispatch) in isolation. RUNNER-SEAL != AUTONOMOUS-WIRED.
+_CI_ROOT_BODY = '<html><form><input name="csrf_test_name" value="a1b2"></form></html>'
+_CI_CONFIG_URL = _ROOT.rstrip("/") + constants.CI_CONFIG_PATHS[0]  # /application/config/database.php
+
+
+def test_w_run_recon_reaches_codeigniter_config() -> None:
+    store = InMemoryEventStore()
+    graph = NetworkXGraphStore()
+    http = FakeHttpClient(
+        {
+            _ROOT: FakeResponse(200, _CI_ROOT_BODY),  # CI marker -> fingerprint labels 'codeigniter'
+            _CI_CONFIG_URL: FakeResponse(200, "<?php $db['default']['password'] = 'p';"),
+        }
+    )
+    alpha, eid = _alpha(graph, store, http)
+
+    alpha.run_recon(eid, _ROOT)
+
+    # observe->derive->probe fired on the LIVE loop (non-island):
+    assert _CI_CONFIG_URL in http.get_calls, (
+        f"CI config path never probed on the live path; got: {http.get_calls}"
+    )
+    # precision: a CI host must NOT be sprayed with WP-config variants (anti-scanner, section recon-precision):
+    assert not any("wp-config" in u for u in http.get_calls)
