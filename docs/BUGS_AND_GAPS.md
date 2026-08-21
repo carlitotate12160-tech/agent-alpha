@@ -41,6 +41,7 @@
 | 39 | `backup_file_probe` selected for `?SA` query param | OPEN | Med | RG | Low | False tool selection for sort params |
 | 40 | Challenge mitigation consumes probe budget | OPEN | Low | CW | Low | Wasteful 3-probe budget usage |
 | 41 | Runner spy wrapper signature mismatch (`events` kwarg) | OPEN | High | DC | Low | Conductor runner scripts crash before Beta runs |
+| 42 | Relative link resolution (urljoin) drops directory on non-trailing slash | OPEN | High | RM | Low | Crawl drops sub-path on relative links |
 
 ## Summary Table — Gaps
 
@@ -234,6 +235,7 @@
 | 192 | Server dashboard & infrastructure docs crawled as security surfaces | OPEN | P3 | CW | Low | 15+ wasted LLM calls on XAMPP/dashboard docs |
 | 193 | Origin-direct retry for WAF-blocked apex fingerprinting | OPEN | P2 | RM | Med | WP/WC missed behind WAF when origin IP is known |
 | 194 | Cross-host identical-vhost fingerprint & probe consolidation | OPEN | P3 | CW | Low | Redundant 11-path well-known probes on duplicate vhosts |
+| 195 | Relative link resolution drops directory prefix when base URL lacks trailing slash | OPEN | High | RM | Low | Auth/login surfaces in sub-paths missed |
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
@@ -4222,4 +4224,23 @@ Track initial root response body hashes per origin IP. If a newly discovered sub
 ### Impact
 - Severity: LOW-MED / P3.
 - Category: `CYCLING_WASTE`. Reduces recon request volume by 50-75% on multi-subdomain architectures.
+
+---
+
+## GAP-195 — Relative link resolution drops directory prefix when base URL lacks trailing slash (Bug #42)
+
+### Problem Statement
+When crawling a directory-level URL without a trailing slash (e.g. `https://apifingeris.bernofarm.com/recruitment`), `scout.py`'s `extract_same_origin_hrefs` uses `urllib.parse.urljoin(base_url, raw)`.
+Per RFC 3986, `urljoin("https://.../recruitment", "logins")` treats `recruitment` as a leaf filename, resolving relative links to `https://.../logins` (HTTP 404), instead of preserving the directory context `https://.../recruitment/logins` (HTTP 200, 13KB active auth/registration portal).
+
+During the live-fire run on `bernofarm.com`, all relative links on `apifingeris.bernofarm.com/recruitment` (`registrasis`, `logins`, `resetpasswords`, `kirimulangaktivasis`) were stripped of their `/recruitment/` prefix, resulting in false 404s and completely missing active authentication surfaces.
+
+### Fix
+1. In `scout.py` / `surface_discovery.py`, when a URL response is received (or if base_url is a directory route), normalize `base_url` to have a trailing slash before calling `urljoin` for relative paths, or use `response.url` (the final resolved redirect target).
+2. If `raw` is a relative path not starting with `/`, ensure `base_url` directory hierarchy is preserved: `base_dir = base_url if base_url.endswith('/') else base_url.rsplit('/', 1)[0] + '/'` (or if directory-like, append `/`).
+
+### Impact
+- Category: RM (RECON_MISS)
+- Severity: HIGH — Drops all relative links inside non-root web applications.
+- Field Evidence: Discovered live on `bernofarm.com` (`apifingeris.bernofarm.com/recruitment/logins` was 200 but probed as 404).
 
