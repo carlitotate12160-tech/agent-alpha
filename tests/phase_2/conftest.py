@@ -11,6 +11,25 @@ from __future__ import annotations
 
 import dataclasses
 import os
+from pathlib import Path
+
+# Live DeepSeek tests need a real API key. If it is not already in the
+# environment, try loading it from the standard untracked env files
+# (`.env.runtime` on Oracle, `.env` on Windows dev) used by the runners.
+if not os.environ.get("DEEPSEEK_API_KEY"):
+    for _fname in (".env.runtime", ".env"):
+        env_file = Path(__file__).parent.parent.parent / _fname
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("export "):
+                    line = line[len("export "):]
+                if "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    k, v = k.strip(), v.strip()
+                    if k == "DEEPSEEK_API_KEY":
+                        os.environ.setdefault(k, v)
+            break
 
 import pytest
 
