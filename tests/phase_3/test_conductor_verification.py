@@ -17,6 +17,7 @@ from agent_alpha.graph.nodes import (
     NodeType,
     ProofArtifact,
     RelationshipType,
+    ServiceProperties,
     VerificationTier,
     node_to_dict,
 )
@@ -64,23 +65,6 @@ def _credential(store: NetworkXGraphStore, secret_ref: str) -> None:
 
 
 def _access(store: NetworkXGraphStore, *, with_proof: bool) -> None:
-    proof = (
-        [
-            ProofArtifact(
-                artifact_id=str(uuid.uuid4()),
-                type="authenticated_request",
-                storage_ref="event://proof-1",
-                description="admin via wp cred reuse",
-                captured_at="2026-07-25T00:00:00Z",
-                agent="beta",
-                subject_ref=_CRED_ID,
-                target=_HOST,
-                access_level="admin",
-            )
-        ]
-        if with_proof
-        else []
-    )
     _emit_node(
         store,
         AttackNode(
@@ -90,13 +74,42 @@ def _access(store: NetworkXGraphStore, *, with_proof: bool) -> None:
             confidence=0.80,
             agent="beta",
             verification=VerificationTier.SELF_VERIFIED,
-            proof_artifacts=proof,
+            proof_artifacts=[],
         ),
     )
     _emit_edge(
         store,
         AttackEdge(_CRED_ID, _ACCESS_ID, RelationshipType.ENABLES, 0.80, "T1078"),
     )
+    if with_proof:
+        svc_id = f"service:{_HOST}:authsurface:/wp-admin/"
+        _emit_node(
+            store,
+            AttackNode(
+                id=svc_id,
+                type=NodeType.SERVICE,
+                properties=ServiceProperties(name="authsurface"),
+                confidence=0.9,
+                agent="beta",
+                proof_artifacts=[
+                    ProofArtifact(
+                        artifact_id=str(uuid.uuid4()),
+                        type="auth_vs_unauth_diff",
+                        storage_ref="event://proof-1",
+                        description="auth-only marker present",
+                        captured_at="2026-07-25T00:00:00Z",
+                        agent="beta",
+                        subject_ref=_CRED_ID,
+                        target=_HOST,
+                        access_level="admin",
+                    )
+                ],
+            ),
+        )
+        _emit_edge(
+            store,
+            AttackEdge(_ACCESS_ID, svc_id, RelationshipType.LEADS_TO, 0.9, "T1078"),
+        )
 
 
 def test_verify_access_promotes_bound_access_to_cross_verified() -> None:
