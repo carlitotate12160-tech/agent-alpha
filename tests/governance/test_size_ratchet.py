@@ -21,7 +21,7 @@ _PKG = pathlib.Path(__file__).resolve().parents[2] / "agent_alpha"
 # scout.py ceiling absorbs in-flight Bug #37 (~+8 lines to enqueue_discovered_url); it is
 # NOT headroom for new features. New recon capability goes to ToolRegistry (§12.47).
 SIZE_CEILINGS: dict[str, int] = {
-    "agents/alpha/scout.py": 2475,  # GAP-161: freeze the Alpha god-object (#8)
+    "agents/alpha/scout.py": 2473,  # GAP-161: freeze the Alpha god-object (#8)
 }
 
 

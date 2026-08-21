@@ -68,13 +68,46 @@ def test_forget_password_email_only_does_not_match_login_rule() -> None:
 
 
 def test_auth_surface_probe_registered_in_scout() -> None:
-    """The rule's tool must be a real dispatch target (else DECIDE routes nowhere)."""
-    import re
+    """The rule's tool must be a real dispatch target (else DECIDE routes nowhere).
 
-    src = pathlib.Path("agent_alpha/agents/alpha/scout.py").read_text()
-    block = src.split("self._dispatch_registry", 1)[1].split("}", 1)[0]
-    keys = set(re.findall(r'"([a-z_]+)":', block))
-    assert "auth_surface_probe" in keys
+    Introspects the live Alpha instance instead of parsing scout.py source text,
+    so the test survives refactor of the dispatch construction (e.g. catalog
+    derivation with nested _generic/_special dicts).
+    """
+    from agent_alpha.agents.alpha.scout import Alpha
+    from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+    from agent_alpha.events.store import InMemoryEventStore
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+    from agent_alpha.llm.orchestrator import LLMOrchestrator
+    from agent_alpha.security.secrets import SecretsManager
+    from agent_alpha.tools.playbook import PlaybookEngine
+
+    class _StubProvider:
+        model = "stub"
+
+        def complete(self, *a: object, **k: object) -> object:
+            return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "stub"})()
+
+    class _FakeHttp:
+        def get(self, url: str) -> object:
+            return type("R", (), {"status_code": 404, "text": "", "headers": {}})()
+
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement(client_id="auth_surface_wiring", target="test.example")
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=["test.example"], exclusions=[]))
+    alpha = Alpha(
+        authorization=auth,
+        graph_store=NetworkXGraphStore(),
+        event_store=store,
+        orchestrator=LLMOrchestrator(
+            playbook=PlaybookEngine.from_directory(_PLAYBOOK_DIR),
+            provider=_StubProvider(),
+        ),
+        http_client=_FakeHttp(),
+        secrets_manager=SecretsManager(),
+    )
+    assert "auth_surface_probe" in alpha._dispatch_registry
 
 
 # ── CodeRabbit PR#395: single-quoted attributes must also match (quote-agnostic) ─

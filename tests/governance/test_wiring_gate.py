@@ -301,3 +301,128 @@ def test_p1_strike_threads_cred_and_attestor_reads_authsurface():
         "else the oracle reads nothing and CONFIRMED is unreachable (P1 broken)."
     )
 
+
+# ── Dispatch-catalog wiring gate (GAP-161 / §12.47) ───────────────────────
+# Precondition: every catalog tool MUST be dispatchable, and generic catalog
+# derivation must not silently override SPECIAL handlers on collision.
+
+
+def _alpha_with_stub() -> Any:
+    """Minimal Alpha instance for dispatch-introspection tests."""
+    from agent_alpha.agents.alpha.scout import Alpha
+    from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+    from agent_alpha.events.store import InMemoryEventStore
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+    from agent_alpha.llm.orchestrator import LLMOrchestrator
+    from agent_alpha.security.secrets import SecretsManager
+    from agent_alpha.tools.playbook import PlaybookEngine
+
+    class _StubProvider:
+        model = "stub"
+
+        def complete(self, *a: object, **k: object) -> object:
+            return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "stub"})()
+
+    _playbook_dir = pathlib.Path("agent_alpha/tools/playbooks")
+    store = InMemoryEventStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    rec = auth.create_engagement(client_id="dispatch_test", target="test.example")
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=["test.example"], exclusions=[]))
+    orch = LLMOrchestrator(
+        playbook=PlaybookEngine.from_directory(_playbook_dir), provider=_StubProvider()
+    )
+
+    class _FakeHttp:
+        def get(self, url: str) -> object:
+            return type("R", (), {"status_code": 404, "text": "", "headers": {}})()
+
+    return Alpha(
+        authorization=auth,
+        graph_store=NetworkXGraphStore(),
+        event_store=store,
+        orchestrator=orch,
+        http_client=_FakeHttp(),
+        secrets_manager=SecretsManager(),
+    )
+
+
+def test_every_catalog_tool_is_dispatchable() -> None:
+    """Every tool in CAPABILITY_CATALOG + PATH_PROBE_CATALOG must appear in the
+    Alpha dispatch registry. This makes half-wiring (e.g. adding a catalog spec
+    without dispatch) un-mergeable."""
+    from agent_alpha.recon.capability_probe import CAPABILITY_CATALOG
+    from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
+
+    alpha = _alpha_with_stub()
+    registry = alpha._dispatch_registry
+
+    missing: list[str] = []
+    for spec in (*CAPABILITY_CATALOG, *PATH_PROBE_CATALOG):
+        if spec.tool not in registry:
+            missing.append(spec.tool)
+    assert not missing, (
+        f"Catalog tools missing from dispatch registry: {missing} — "
+        "add the tool to CAPABILITY_CATALOG or PATH_PROBE_CATALOG and "
+        "the dispatch now auto-wires (GAP-161 / §12.47)."
+    )
+
+
+def test_dispatch_map_unchanged_by_catalog_derivation() -> None:
+    """CARDINAL: generic catalog derivation must not alter the 20 original
+    tool→handler-name routing. The 5 collision tools (in BOTH CAPABILITY_CATALOG
+    and _special) MUST resolve to their SPECIAL handler, not the generic
+    _handle_capability_fingerprint."""
+    from agent_alpha.recon.capability_probe import CAPABILITY_CATALOG
+    from agent_alpha.recon.path_probe import PATH_PROBE_CATALOG
+
+    expected = {
+        # GENERIC — derived from CAPABILITY_CATALOG
+        "tomcat_fingerprint": "_handle_capability_fingerprint",
+        "http_basic_auth_fingerprint": "_handle_capability_fingerprint",
+        "s3_bucket_fingerprint": "_handle_capability_fingerprint",
+        "graphql_fingerprint": "_handle_capability_fingerprint",
+        "wp_fingerprint": "_handle_capability_fingerprint",
+        # GENERIC — derived from PATH_PROBE_CATALOG
+        "git_exposure_probe": "_handle_path_probe",
+        "backup_file_probe": "_handle_path_probe",
+        "actuator_probe": "_handle_path_probe",
+        # SPECIAL — hand-listed, override generic on collision
+        "laravel_debug_probe": "_handle_laravel_debug",
+        "wp_config_probe": "_handle_wp_config_probe",
+        "js_secret_probe": "_handle_js_secret_probe",
+        "odoo_dbmanager_probe": "_handle_odoo_dbmanager",
+        "auth_surface_probe": "_handle_auth_surface",
+        "surface_discovery_probe": "_handle_surface_discovery",
+        "odoo_fingerprint": "_handle_odoo_fingerprint",
+        "wp_rest_routes": "_handle_wp_rest_routes",
+        "wp_rest_users": "_handle_wp_rest_users",
+        "woocommerce": "_handle_woocommerce",
+        "wp_version": "_handle_wp_version",
+        "wp_plugins": "_handle_wp_plugins",
+    }
+
+    alpha = _alpha_with_stub()
+    actual = {tool: h.__name__ for tool, h in alpha._dispatch_registry.items()}
+
+    assert actual == expected, (
+        f"Dispatch map changed after catalog derivation.\n"
+        f"Expected {len(expected)} entries, got {len(actual)}.\n"
+        f"Diff: {set(expected.items()) ^ set(actual.items())}"
+    )
+
+    # Collision guards: these tools are in CAPABILITY_CATALOG but have special
+    # handlers. SPECIAL must WIN — _special is merged after _generic.
+    collision_specials = {
+        "odoo_fingerprint": "_handle_odoo_fingerprint",
+        "wp_rest_routes": "_handle_wp_rest_routes",
+        "wp_rest_users": "_handle_wp_rest_users",
+        "woocommerce": "_handle_woocommerce",
+        "wp_version": "_handle_wp_version",
+    }
+    for tool, expected_handler in collision_specials.items():
+        actual_handler = alpha._dispatch_registry[tool].__name__
+        assert actual_handler == expected_handler, (
+            f"Collision tool '{tool}' resolved to {actual_handler} (generic) "
+            f"instead of {expected_handler} (special)."
+        )
+
