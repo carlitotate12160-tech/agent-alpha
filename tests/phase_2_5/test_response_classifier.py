@@ -303,7 +303,8 @@ def test_large_catchall_spa_with_reload_signal_stays_ok() -> None:
         + ("<span>x</span>" * 4000)  # push body well past RELOAD_SHELL_MAX_BYTES
         + "</body></html>"
     )
-    assert len(body) >= RELOAD_SHELL_MAX_BYTES  # precondition: this is a large body
+    # precondition: this is a large body (byte size, not character count)
+    assert len(body.encode("utf-8")) >= RELOAD_SHELL_MAX_BYTES
     verdict = classify_response(status_code=200, body=body)
     assert verdict is Verdict.OK, (
         f"large catch-all SPA shell classified as {verdict} instead of OK — the "

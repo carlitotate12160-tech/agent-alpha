@@ -141,7 +141,18 @@ _UNSUPPORTED_MEDIA_TYPE_STATUS_CODES: frozenset[int] = frozenset({415})
 # A cheap, safe boolean hint for the reach layer — NOT a Verdict.  This hint
 # lets ``scout._classify_host_reach`` decide whether to spend one browser
 # probe.  No delay parsing, no int(), no counting.
+# Byte (not character) threshold — use _body_size_bytes() for comparisons.
 RELOAD_SHELL_MAX_BYTES = 15000
+
+
+def _body_size_bytes(body: str) -> int:
+    """Return the UTF-8 byte size of *body*.
+
+    HTTP response sizes are byte counts; ``len(str)`` counts Unicode code
+    points. Non-ASCII content can be many bytes per code point, so use the
+    encoded byte length for size thresholds named in bytes.
+    """
+    return len(body.encode("utf-8"))
 
 
 def is_reload_shell(body: str) -> bool:
@@ -152,7 +163,7 @@ def is_reload_shell(body: str) -> bool:
     signal is *suspicious* and may warrant a browser probe.
     """
     b = body.lower()
-    return len(body) < RELOAD_SHELL_MAX_BYTES and (
+    return _body_size_bytes(body) < RELOAD_SHELL_MAX_BYTES and (
         "location.reload(" in b or 'http-equiv="refresh"' in b or "http-equiv='refresh'" in b
     )
 
@@ -202,7 +213,7 @@ def _is_reload_interstitial(body: str) -> bool:
     converge. Mirror is_reload_shell's size gate — single source
     RELOAD_SHELL_MAX_BYTES (anti-#7).
     """
-    if len(body) >= RELOAD_SHELL_MAX_BYTES:
+    if _body_size_bytes(body) >= RELOAD_SHELL_MAX_BYTES:
         return False
 
     body_lower = body.lower()
