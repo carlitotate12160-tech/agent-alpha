@@ -19,6 +19,14 @@
 #            the technique TESTED by IDENTITY (host, id) — NOT by shared event type (which
 #            would false-mark siblings). This is the single-source tool↔technique join; do
 #            not maintain a second map in constants/scout.
+#
+# requires / produces: (ADR §12.66 Slice-1) precondition/effect predicates from the CLOSED
+#   vocabulary in `agent_alpha/coverage/predicates.py`. `requires` = graph-state that must hold
+#   before this technique can fire; `produces` = graph node/edge conditions it yields on success.
+#   Predicates are STRINGS (`<kind>` or `<kind>:<arg>`) resolving to a registered resolver — the
+#   integrity gate pins them to graph/nodes.py (anti-#7). This is the DATA that lets goal-backward
+#   scoring (Slice-2) chain: leak -> credential -> reuse -> access. Reach (fronted_host) and DNS
+#   surfaces compose on a separate axis and are not modeled here.
 
 techniques:
   # ── Capable today (a tool exists + is wired on the live path) ──────────────
@@ -28,6 +36,8 @@ techniques:
     auth_mechanism: [form_post, http_basic]
     capability_present: true
     run_event: StrikeCandidateAttempted
+    requires: [credential, auth_surface]
+    produces: [access:user, enables_cred_access]
   - id: spa_json_login
     mitre: T1078
     surface: auth_surface
@@ -35,34 +45,44 @@ techniques:
     capability_present: true          # Slice B — closes GAP-097
     gap_ref: GAP-097
     run_event: StrikeCandidateAttempted
+    requires: [auth_surface:json_rpc]
+    produces: [access:user]
   - id: default_creds_login
     mitre: T1078.001
     surface: auth_surface
     capability_present: true
     run_event: StrikeCandidateAttempted
+    requires: [auth_surface]
+    produces: [access:user]
   - id: origin_exposure_bypass
     mitre: T1090
     surface: fronted_host
     capability_present: true
     run_event: OriginDirectAttempt
+    requires: [fronted_host]          # reach axis (E1/E2, §12.61) — no node `produces` (see predicates.py)
   - id: git_exposure_leak
     mitre: T1552.001
     surface: host
     capability_present: true
     tool: git_exposure_probe        # §12.64 Step 0: dispatch tool → attempt-instrumented
+    produces: [credential]
   - id: js_secret_leak
     mitre: T1552.001
     surface: host
     capability_present: true
     tool: js_secret_probe
+    produces: [credential]
   - id: wp_rest_user_enum
     mitre: T1087.001
     surface: host
     capability_present: true
     tool: wp_rest_users
     applies_to_stack: [wp]           # 187b-1: WP-only — excluded from the denominator on non-WP hosts
+    requires: [stack:wp]
+    produces: [user_enumerated]
 
   # ── Capability ABSENT (roadmap — honest "we do NOT test this") ─────────────
+  # requires/produces are annotated when the capability lands (it must run to have a real effect).
   - id: http_basic_auth_strike
     mitre: T1110
     surface: auth_surface

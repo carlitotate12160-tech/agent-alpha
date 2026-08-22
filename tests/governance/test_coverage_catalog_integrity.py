@@ -4,9 +4,11 @@ Cheap tripwires so the coverage denominator cannot silently rot:
   * every catalog run_event is a REAL EventType (a typo'd run_event would pin a
     capable technique to `not_run` forever = a false "not tested" in the client report);
   * every capability_absent entry links a gap_ref (roadmap traceability);
-  * technique ids are unique.
+  * technique ids are unique;
+  * (ADR §12.66 Slice-1) every requires/produces predicate resolves to the closed vocabulary,
+    and every capable node-technique declares its effect (else it is invisible to composition).
 FOLLOW-UP (not v1): a playbook `coverage_technique:` field to bind each rule to a
-catalog id — today playbook technique_ids are scan-level MITRE, the catalog is
+playbook id — today playbook technique_ids are scan-level MITRE, the catalog is
 outcome-level, so a direct MITRE-subset check is the wrong abstraction.
 """
 
@@ -61,3 +63,31 @@ def test_no_duplicate_catalog_tools() -> None:
     permanent `not_run`. Caught here in CI before the import-time build would raise."""
     tools = [t["tool"] for t in _techniques() if t.get("tool")]
     assert len(tools) == len(set(tools)), f"duplicate tool in techniques.yaml: {sorted(tools)}"
+
+
+# ── ADR §12.66 Slice-1: precondition/effect model integrity ────────────────────────────────
+
+_NODE_SURFACES = {"host", "auth_surface"}  # surfaces whose techniques yield graph nodes
+
+
+def test_requires_produces_predicates_resolve() -> None:
+    """Every requires/produces predicate MUST be a REGISTERED predicate in the closed vocabulary
+    (agent_alpha.coverage.predicates). An unregistered/typo'd predicate would let techniques.yaml
+    drift from graph/nodes.py (anti-#7) and goal-backward scoring (Slice-2) would silently ignore
+    an unknown precondition/effect — a false 'can't chain'."""
+    from agent_alpha.coverage.predicates import is_registered
+
+    for t in _techniques():
+        for key in ("requires", "produces"):
+            for pred in t.get(key) or []:
+                assert is_registered(pred), f"{t['id']}: unregistered {key} predicate {pred!r}"
+
+
+def test_capable_node_technique_declares_effect() -> None:
+    """A capable technique on a node-producing surface (host/auth_surface) MUST declare `produces`.
+    Without it the technique is invisible to chain composition — goal-backward scoring cannot chain
+    toward an effect it never declared. Reach (fronted_host) and DNS surfaces compose on a separate
+    axis (§12.61) and are exempt."""
+    for t in _techniques():
+        if t.get("capability_present") and t["surface"] in _NODE_SURFACES:
+            assert t.get("produces"), f"{t['id']}: capable node-technique with no `produces`"
