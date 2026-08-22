@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import string
 
 
 def _merge_in(target: dict[str, str], source: dict[str, str]) -> None:
@@ -64,15 +65,84 @@ def _is_masked(value: str) -> bool:
     return not v or set(v) == {"*"}
 
 
-def _unescape_php_string(value: str, quote: str) -> str:
-    """Undo PHP string escapes for the subset that matters in CodeIgniter configs.
+# PHP double-quoted single-char escapes (C-style + \$ variable-escape + delimiters).
+_PHP_DQ_SIMPLE_ESCAPES = {
+    "n": "\n",
+    "r": "\r",
+    "t": "\t",
+    "v": "\v",
+    "f": "\f",
+    "e": "\x1b",
+    "\\": "\\",
+    '"': '"',
+    "$": "$",
+}
 
-    PHP single-quoted strings only recognize ``\\'`` and ``\\\\``; every other ``\\X``
-    sequence is a literal backslash followed by ``X``. PHP double-quoted strings
-    recognize ``\\"``, ``\\\\``, and a small set of C-style escapes (``\\n``, ``\\r``,
-    ``\\t``). Passing the captured ``quote`` delimiter lets us unescape only the
-    escapes that are valid for that string type, so an escaped single quote inside
-    a double-quoted string (or vice versa) keeps its backslash.
+
+def _read_php_hex_escape(value: str, i: int) -> tuple[str, int]:
+    r"""``value[i:i+2] == '\x'``. PHP hex escape: 1–2 hex digits. Zero digits =>
+    PHP leaves the sequence literal (``\x`` stays)."""
+    j = i + 2
+    digits = ""
+    while j < len(value) and len(digits) < 2 and value[j] in string.hexdigits:
+        digits += value[j]
+        j += 1
+    if not digits:
+        return "\\x", j
+    return chr(int(digits, 16)), j
+
+
+def _read_php_octal_escape(value: str, i: int) -> tuple[str, int]:
+    r"""``value[i] == '\'`` and ``value[i+1]`` is an octal digit. PHP octal:
+    1–3 digits, value taken mod 256."""
+    j = i + 1
+    digits = ""
+    while j < len(value) and len(digits) < 3 and value[j] in "01234567":
+        digits += value[j]
+        j += 1
+    return chr(int(digits, 8) % 256), j
+
+
+def _read_php_unicode_escape(value: str, i: int) -> tuple[str, int]:
+    r"""``value[i:i+3] == '\u{'``. PHP 7+ ``\u{HHHH}``. Malformed (no ``}`` or
+    bad hex) is left literal, matching PHP's defined-but-lenient handling."""
+    end = value.find("}", i + 3)
+    if end != -1:
+        try:
+            return chr(int(value[i + 3 : end], 16)), end + 1
+        except ValueError:
+            pass
+    return "\\u{", i + 3
+
+
+def _read_php_dq_escape(value: str, i: int) -> tuple[str, int]:
+    r"""Resolve ONE PHP double-quoted escape at ``value[i] == '\'``. Returns
+    ``(decoded_text, next_index)``. An unrecognised ``\X`` keeps its backslash
+    (PHP: a non-special ``\X`` is a literal backslash followed by ``X``)."""
+    n = len(value)
+    if i + 1 >= n:
+        return "\\", i + 1
+    nxt = value[i + 1]
+    if nxt in _PHP_DQ_SIMPLE_ESCAPES:
+        return _PHP_DQ_SIMPLE_ESCAPES[nxt], i + 2
+    if nxt == "x":
+        return _read_php_hex_escape(value, i)
+    if nxt == "u" and i + 2 < n and value[i + 2] == "{":
+        return _read_php_unicode_escape(value, i)
+    if nxt in "01234567":
+        return _read_php_octal_escape(value, i)
+    return "\\", i + 1
+
+
+def _unescape_php_string(value: str, quote: str) -> str:
+    r"""Undo PHP string escapes for the captured delimiter.
+
+    Single-quoted strings recognize ONLY ``\'`` and ``\\``; every other ``\X``
+    is a literal backslash + X. Double-quoted strings recognize ``\"``, ``\\``,
+    ``\$``, the C-style set (``\n \r \t \v \f \e``) and numeric escapes
+    (octal ``\ooo``, hex ``\xHH``, Unicode ``\u{HHHH}``). Passing ``quote`` means
+    an escape valid for one string type is left untouched in the other (an
+    escaped single quote in a double-quoted string keeps its backslash, etc.).
     """
     out: list[str] = []
     i = 0
@@ -82,20 +152,17 @@ def _unescape_php_string(value: str, quote: str) -> str:
             out.append(value[i])
             i += 1
             continue
-        nxt = value[i + 1]
         if quote == "'":
+            nxt = value[i + 1]
             if nxt in ("'", "\\"):
                 out.append(nxt)
                 i += 2
-                continue
-        else:  # double-quoted
-            if nxt in ('"', "\\", "n", "r", "t"):
-                escapes = {"n": "\n", "r": "\r", "t": "\t"}
-                out.append(escapes.get(nxt, nxt))
-                i += 2
-                continue
-        out.append(value[i])
-        i += 1
+            else:
+                out.append(value[i])
+                i += 1
+            continue
+        decoded, i = _read_php_dq_escape(value, i)
+        out.append(decoded)
     return "".join(out)
 
 

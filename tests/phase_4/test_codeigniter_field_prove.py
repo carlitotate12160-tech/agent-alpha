@@ -1,125 +1,84 @@
-# CodeIgniter config-leak field-prove test (Phase 4 slice-1c-1).
+# CodeIgniter config-leak field-prove — HERMETIC verdict logic (Phase 4 slice-1c-1).
 #
-# Validates the CodeIgniter leak vector end-to-end on the self-owned lab:
-# Alpha.run_recon → fingerprint 'codeigniter' → derive /application/config/database.php
-# → dispatch codeigniter_config_probe → parse DB credentials → vault → mint.
+# The REAL-HTTP proof (Alpha.run_recon against the self-owned lab) lives in the
+# runner: agent_alpha/live_fire/codeigniter_field_prove.py, guarded by lab_guard
+# and run on Oracle ARM64. This test file makes NO network calls — it locks the
+# chain_proven verdict contract (anti-#3: every clause required) and the config
+# loader guard, exactly like tests/phase_4/test_backup_file_field_prove.py.
 #
-# Lab must be up on Oracle ARM64:
+# WHY the split (CodeRabbit PR #470): `tests/**` must not make real network
+# calls. Real-HTTP field-prove is a live_fire runner; tests/ verifies its logic.
+#
+# Run the real proof on Oracle ARM64 after seeding the lab:
 #   cd codeigniter_lab && sudo ./seed.sh
-#
-# Run on Oracle ARM64 only:
-#   python -m pytest tests/phase_4/test_codeigniter_field_prove.py -v
+#   python -m agent_alpha.live_fire.codeigniter_field_prove <engagement.yaml>
 
 from __future__ import annotations
 
-import os
 import pathlib
 
-import httpx
 import pytest
 
-from agent_alpha.agents.alpha.scout import Alpha
-from agent_alpha.agents.http_client import HttpClient
-from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
-from agent_alpha.events.store import InMemoryEventStore
-from agent_alpha.graph.networkx_store import NetworkXGraphStore
-from agent_alpha.graph.nodes import NodeType
-from agent_alpha.llm.orchestrator import LLMOrchestrator
-from agent_alpha.security.secrets import SecretsManager
-from agent_alpha.tools.playbook import PlaybookEngine
-
-_PLAYBOOK_DIR = pathlib.Path("agent_alpha/tools/playbooks")
-_VULN_HOST = "vuln.codeigniter.lab"
-_HARDENED_HOST = "hardened.codeigniter.lab"
-_VULN_ROOT = f"https://{_VULN_HOST}:8444/"
-_HARDENED_ROOT = f"https://{_HARDENED_HOST}:8444/"
-_EXPECTED_USER = "ci_lab_user"
-_EXPECTED_PASSWORD = "__codeigniter_lab_fixture_value__"
+from agent_alpha.live_fire.codeigniter_field_prove import (
+    CodeIgniterResult,
+    load_codeigniter_config,
+)
 
 
-class _NoLLMProvider:
-    model = "noop"
+def _result(**over: object) -> CodeIgniterResult:
+    base: dict[str, object] = {
+        "creds_added": 1,
+        "credential_vaulted": True,
+        "leak_detected": True,
+    }
+    base.update(over)
+    return CodeIgniterResult(**base)  # type: ignore[arg-type]
 
-    @staticmethod
-    def complete(*a: object, **k: object) -> object:
-        return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "noop"})()
+
+# ── chain_proven clause matrix (every clause REQUIRED — anti-#3) ───────────────
+def test_all_clauses_true_is_proven() -> None:
+    assert _result().chain_proven is True
 
 
-def _alpha(
-    *, host: str, graph_store: NetworkXGraphStore, event_store: InMemoryEventStore
-) -> tuple[Alpha, str]:
-    auth = AuthorizationStateMachine(event_store=event_store)
-    rec = auth.create_engagement(client_id="codeigniter-lab", target=host)
-    auth.enable_recon(
-        rec.engagement_id,
-        Scope(ip_ranges=[], domains=[host], exclusions=[]),
+def test_no_credential_is_not_proven() -> None:
+    assert _result(creds_added=0).chain_proven is False
+
+
+def test_unvaulted_credential_is_not_proven() -> None:
+    assert _result(credential_vaulted=False).chain_proven is False
+
+
+def test_no_real_leak_is_not_proven() -> None:
+    assert _result(leak_detected=False).chain_proven is False
+
+
+# ── config loader guards the payable contract (self-owned lab only) ───────────
+def test_config_loader_rejects_missing_key(tmp_path: object) -> None:
+    p = pathlib.Path(str(tmp_path)) / "bad.yaml"
+    p.write_text("client_id: x\n")
+    with pytest.raises(ValueError):
+        load_codeigniter_config(p)
+
+
+def test_config_loader_rejects_missing_scope_key(tmp_path: object) -> None:
+    p = pathlib.Path(str(tmp_path)) / "bad_scope.yaml"
+    p.write_text(
+        "client_id: x\nrecon_url: https://vuln.codeigniter.lab:8444/\nscope:\n  domains: [vuln.codeigniter.lab]\n"
     )
-    return Alpha(
-        authorization=auth,
-        graph_store=graph_store,
-        event_store=event_store,
-        orchestrator=LLMOrchestrator(
-            PlaybookEngine.from_directory(_PLAYBOOK_DIR),
-            _NoLLMProvider(),
-        ),
-        http_client=HttpClient(
-            engagement_id=rec.engagement_id,
-            transport=httpx.HTTPTransport(
-                verify=False
-            ),  # force plain httpx, not curl_cffi, for self-signed lab cert
-        ),
-        secrets_manager=SecretsManager(),
-    ), rec.engagement_id
+    with pytest.raises(ValueError):
+        load_codeigniter_config(p)
 
 
-@pytest.fixture
-def codeigniter_lab() -> None:
-    """Gate the live field-prove on an explicit opt-in, decided at FIXTURE-SETUP
-    time — never at collection. The previous ``skipif(not _lab_reachable())``
-    fired a real GET while pytest was still *collecting* the default suite,
-    violating the ``tests/**`` no-real-network rule (CodeRabbit PR #470).
-
-    Same shape as the ``deepseek_api_key`` live fixture: opt in on Oracle after
-    seeding the lab (``cd codeigniter_lab && sudo ./seed.sh``) with
-    ``AGENT_ALPHA_CI_LAB=1``. Opted-in-but-unreachable is a LOUD failure inside
-    the test body, not a silent skip (anti-Lyndon #3: a skip is NOT a pass).
-    """
-    if os.environ.get("AGENT_ALPHA_CI_LAB") != "1":
-        pytest.skip(
-            "codeigniter_lab live tier skipped — set AGENT_ALPHA_CI_LAB=1 on Oracle after seed.sh (NOT passed)"
-        )
-
-
-@pytest.mark.live
-def test_vuln_codeigniter_leaks_database_credentials(codeigniter_lab: None) -> None:
-    """Full live path: fingerprint CI → derive config path → extract DB creds."""
-    store = InMemoryEventStore()
-    graph = NetworkXGraphStore()
-    alpha, eid = _alpha(host=_VULN_HOST, graph_store=graph, event_store=store)
-
-    alpha.run_recon(eid, _VULN_ROOT)
-
-    creds = list(graph.nodes_by_type(NodeType.CREDENTIAL))
-    assert len(creds) >= 1, "no CREDENTIAL minted — codeigniter config was not extracted"
-
-    # Verify the EXACT planted secret was vaulted.
-    secret = alpha._secrets_manager.retrieve(creds[0].properties.secret_ref)
-    assert secret == _EXPECTED_PASSWORD, "vaulted secret does not match the lab fixture"
-
-    # Vuln node present and CVSS is HIGH.
-    vulns = [n for n in graph.nodes_by_type(NodeType.VULNERABILITY) if "ci_config" in n.id]
-    assert len(vulns) >= 1, "no ci_config_leak vulnerability node persisted"
-    assert vulns[0].properties.cvss_score >= 7.0
-
-
-@pytest.mark.live
-def test_hardened_codeigniter_yields_zero_credentials(codeigniter_lab: None) -> None:
-    """Negative control: a host without CI markers / exposed config leaks nothing."""
-    store = InMemoryEventStore()
-    graph = NetworkXGraphStore()
-    alpha, eid = _alpha(host=_HARDENED_HOST, graph_store=graph, event_store=store)
-
-    alpha.run_recon(eid, _HARDENED_ROOT)
-
-    creds = list(graph.nodes_by_type(NodeType.CREDENTIAL))
-    assert not creds, f"hardened host minted unexpected credentials: {creds}"
+def test_config_loader_happy_path(tmp_path: object) -> None:
+    p = pathlib.Path(str(tmp_path)) / "ok.yaml"
+    p.write_text(
+        "client_id: codeigniter-lab\n"
+        "recon_url: https://vuln.codeigniter.lab:8444/\n"
+        "scope:\n"
+        "  ip_ranges: []\n"
+        "  domains: [vuln.codeigniter.lab]\n"
+        "  exclusions: []\n"
+    )
+    cfg = load_codeigniter_config(p)
+    assert cfg.scope_domains == ["vuln.codeigniter.lab"]
+    assert cfg.recon_url.endswith("8444/")

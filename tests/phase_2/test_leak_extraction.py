@@ -144,3 +144,34 @@ def test_strip_php_comments_behavior_preserving() -> None:
     assert _strip_php_comments("$a=1; /* never closed") == "$a=1; "
     # trailing backslash at EOF inside a string is tolerated (no index error)
     assert _strip_php_comments("$p = 'a\\") == "$p = 'a\\"
+
+
+def test_unescape_php_string_double_quoted_escapes() -> None:
+    """CodeRabbit PR #470: double-quoted PHP escapes must resolve for payable
+    secret accuracy (a wrong secret is not reusable). Single-quoted stays
+    minimal (only \\' and \\\\)."""
+    from agent_alpha.security.leak_extraction import _unescape_php_string
+
+    dq = lambda v: _unescape_php_string(v, '"')  # noqa: E731 — terse test alias
+    sq = lambda v: _unescape_php_string(v, "'")  # noqa: E731
+
+    # C-style + \$ + delimiters
+    assert dq(r"a\$b") == "a$b"
+    assert dq(r"a\nb\tc") == "a\nb\tc"
+    assert dq(r"a\vb\fc\ed") == "a\vb\fc\x1bd"
+    assert dq(r"a\"b\\c") == 'a"b\\c'
+    # numeric escapes
+    assert dq(r"\x41\x42") == "AB"
+    assert dq(r"\101\102") == "AB"  # octal 0o101=65, 0o102=66
+    assert dq(r"\u{41}") == "A"
+    assert dq(r"\u{1F600}") == "\U0001f600"
+    # malformed numeric escapes stay literal (PHP-lenient)
+    assert dq(r"\xZZ") == r"\xZZ"
+    assert dq(r"\u{ZZ}") == r"\u{ZZ}"
+    # unrecognised escape keeps its backslash
+    assert dq(r"a\qb") == r"a\qb"
+    # single-quoted: only \' and \\ are escapes; \n stays literal
+    assert sq(r"a\'b") == "a'b"
+    assert sq(r"a\\b") == "a\\b"
+    assert sq(r"a\nb") == r"a\nb"
+    assert sq(r"a\"b") == r"a\"b"

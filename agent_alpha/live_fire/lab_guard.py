@@ -137,6 +137,9 @@ _LAB_HOSTS: tuple[LabHost, ...] = (
     # Actuator exposure lab (actuator_lab/) — 2 vhosts on 127.0.0.1:443 via nginx
     LabHost("vuln.actuator.lab", "natanael", "localhost:actuator_lab/", "#207"),
     LabHost("hardened.actuator.lab", "natanael", "localhost:actuator_lab/", "#207"),
+    # CodeIgniter config-leak lab (codeigniter_lab/) — 2 vhosts on 127.0.0.1:8444
+    LabHost("vuln.codeigniter.lab", "natanael", "localhost:codeigniter_lab/", "#470"),
+    LabHost("hardened.codeigniter.lab", "natanael", "localhost:codeigniter_lab/", "#470"),
     # Layer V-B — real-TLD self-owned lab (DuckDNS) for crt.sh-on-real-CT proof.
     LabHost("vuln.agentalpha.duckdns.org", "natanael", "dns-txt:agent-alpha=verified", "#207"),
     LabHost("hardened.agentalpha.duckdns.org", "natanael", "dns-txt:agent-alpha=verified", "#207"),
