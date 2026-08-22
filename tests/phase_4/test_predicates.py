@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from agent_alpha.coverage.predicates import is_registered, registered_kinds, resolve
 from agent_alpha.graph.nodes import NodeType, RelationshipType
 
@@ -134,6 +136,20 @@ def test_malformed_or_unregistered_predicates_are_not_registered() -> None:
     assert is_registered("stack") is False  # stack requires a label arg
     assert is_registered("credential:x") is False  # no-arg kind given an arg
     assert is_registered("nonsense") is False
+
+    # Malformed shapes must be rejected by the integrity gate (Qodo regression).
+    assert is_registered("") is False
+    assert is_registered("credential:") is False
+    assert is_registered(":credential") is False
+    assert is_registered("stack:wp:extra") is False
+    assert is_registered("stack:") is False
+
+
+def test_resolve_raises_on_malformed_predicate() -> None:
+    g = _FakeGraph([], [])
+    for malformed in ("", "credential:", "stack:wp:extra", "stack:", ":wp"):
+        with pytest.raises(ValueError):
+            resolve(malformed, g)
 
 
 def test_vocabulary_is_the_closed_set() -> None:

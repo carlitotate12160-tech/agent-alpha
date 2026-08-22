@@ -122,15 +122,33 @@ _REGISTRY: dict[str, tuple[Callable[[Any, str], bool], Callable[[str], bool]]] =
 
 
 def _split(predicate: str) -> tuple[str, str]:
-    kind, _, arg = predicate.partition(":")
-    return kind, arg
+    """Parse a predicate into ``(kind, arg)``.
+
+    A predicate is either ``<kind>`` (bare) or ``<kind>:<arg>`` (exactly one colon with a
+    non-empty arg). Any other shape — empty, trailing/leading colon, or multiple colons — is
+    malformed and raises ``ValueError``. This keeps the integrity gate fail-closed so typos
+    like ``credential:`` or ``stack:wp:extra`` cannot pass ``is_registered``.
+    """
+    if not predicate:
+        raise ValueError("empty predicate")
+    if ":" not in predicate:
+        return predicate, ""
+    parts = predicate.split(":", 1)
+    if not parts[0] or not parts[1]:
+        raise ValueError(f"malformed predicate (empty kind or arg): {predicate!r}")
+    if ":" in parts[1]:
+        raise ValueError(f"malformed predicate (multiple colons): {predicate!r}")
+    return parts[0], parts[1]
 
 
 def is_registered(predicate: str) -> bool:
     """True iff ``predicate`` is a known KIND with a well-formed arg. The integrity gate for
     techniques.yaml (Slice-1) — an unregistered/malformed predicate must fail CI, not silently
     resolve to False and mislead goal-backward scoring."""
-    kind, arg = _split(predicate)
+    try:
+        kind, arg = _split(predicate)
+    except ValueError:
+        return False
     entry = _REGISTRY.get(kind)
     return entry is not None and entry[1](arg)
 
