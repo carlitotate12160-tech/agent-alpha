@@ -89,8 +89,7 @@ def _has_user(graph: Any, arg: str) -> bool:
 
 def _has_fronted_host(graph: Any, arg: str) -> bool:
     return any(
-        bool(getattr(_props(a), "cf_protected", False))
-        for a in graph.nodes_by_type(NodeType.ASSET)
+        bool(getattr(_props(a), "cf_protected", False)) for a in graph.nodes_by_type(NodeType.ASSET)
     )
 
 
