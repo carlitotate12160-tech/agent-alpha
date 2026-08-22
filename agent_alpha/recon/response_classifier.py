@@ -191,7 +191,20 @@ def _is_reload_interstitial(body: str) -> bool:
     anchor content (fewer than N ``<a`` tags AND no ``<article`` marker). A
     legitimate page that happens to use meta-refresh or setTimeout but carries
     real content stays OK.
+
+    SIZE GATE (field-confirmed on a 200 catch-all SPA target): a genuine soft-200
+    reload interstitial ("One moment, please...") is SMALL. A large body is
+    application content that merely SHIPS a reload signal (SPA bundles routinely
+    inline setTimeout/location.reload). Without this gate a large 200 catch-all
+    SPA shell (field-observed example: ~361 KB) false-CHALLENGEs, which
+    short-circuits scout.py's soft-404 catch-all suppression (the CHALLENGE branch
+    returns _handle_waf_block BEFORE _is_soft404 runs) and makes recon never
+    converge. Mirror is_reload_shell's size gate — single source
+    RELOAD_SHELL_MAX_BYTES (anti-#7).
     """
+    if len(body) >= RELOAD_SHELL_MAX_BYTES:
+        return False
+
     body_lower = body.lower()
 
     has_js_reload = "settimeout" in body_lower and "location.reload(" in body_lower
