@@ -124,11 +124,18 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
 # symbol -> (wiring-target module(s), GAP/ADR reference). Deliberately EXCLUDES a
 # dead instantiation site (e.g. PolicyEnforcer is built in main.py but never used —
 # the target is the ENFORCEMENT site, not the constructor call).
+# N/A decision (recon-stage catalog tools): a leak/fingerprint probe dispatched via
+# PATH_PROBE_CATALOG / CAPABILITY_CATALOG is NOT tracked here. Its symbol never appears
+# by name in a consumer module (dispatch is data-driven through the registry), so neither
+# WIRED_REQUIRED (symbol-in-module) nor WIRING_DEBT (symbol-absent-until-wired) can express
+# its state — a debt entry for it is a permanent false-green that mislabels a proven-wired
+# tool as un-wired. The correct regression guard is test_every_catalog_tool_is_dispatchable
+# (catalog tool -> Alpha._dispatch_registry) plus the behavioural driver proof. Example:
+# codeigniter_config_probe is a RECON-stage (E1->E3) vector proven through the Conductor recon
+# driver (build_recon_pipeline -> _sweep_targets -> run_recon, see test_conductor_driver_*).
+# execute_agent.py is the OFFENSIVE (Beta/Gamma/Omega) path — a recon leak probe never belongs
+# there, so there is no execute_agent W-test to wait on. Wiring is SEALED via the catalog gate.
 WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
-    "codeigniter_config_probe": (
-        ("agents/alpha/scout.py",),
-        "CodeIgniter probe auto-wired via catalog but missing explicit symbol guard (test wiring gap)",
-    ),
     "SessionStore": (
         ("conductor/recon_runner.py", "conductor/execute_agent.py"),
         "GAP-002 / ADR §12.11 (scratchpad wiring)",
