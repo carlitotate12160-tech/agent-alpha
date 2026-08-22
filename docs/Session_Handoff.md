@@ -2,19 +2,22 @@
 
 # Agent-Alpha — Session Handoff (2026-08-22, PR #470 CodeIgniter field-prove + PR #472 Slice-1 predicate coverage MERGED, Oracle ARM64 green)
 
-Resume with: "lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prove) and PR #472 (ADR §12.66 Slice-1 precondition/effect predicate model) MERGED to `main` (079e4791). PR #470 RUNNER-SEAL proven on Oracle ARM64: `vuln.codeigniter.lab` positive (creds vaulted, leak detected), `hardened.codeigniter.lab` negative. CC-17 decomposition, full `_unescape_php_string` double-quoted escapes, and live-fire test isolation all pass. Conductor-autonomous wiring for CodeIgniter = NEXT (wiring debt to register in `test_wiring_gate.py` and close via `conductor/execute_agent.py` or `conductor/main.py`). Do NOT lose P1 §12.43 independent oracle or Temuan 2 Odoo cross-service reuse — they remain open. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
+Resume with: "lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prove) and PR #472 (ADR §12.66 Slice-1 precondition/effect predicate model) MERGED to `main`. PR #475 (hermetic Conductor driver tests + wiring-debt registration) MERGED. PR #470 live-fire re-run on Oracle ARM64 2026-08-22: `vuln.codeigniter.lab` positive (creds vaulted, leak detected), `hardened.codeigniter.lab` negative. Conductor-autonomous wiring for CodeIgniter is IN PROGRESS: hermetic recon path is wired and green; full `execute_agent`/`verify_access_nodes` W-test or N/A call still open. Do NOT lose P1 §12.43 independent oracle or Temuan 2 Odoo cross-service reuse — they remain open. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
 
 ---
 
 ## ▶ START HERE (new session — do this IN ORDER, do not skip the gate)
 
-1. **`git pull` + confirm HEAD.** Are PR #470 / #472 (merged as `ce9d0844` / `079e4791`) on `main` AND green on
+1. **`git pull` + confirm HEAD.** Are PR #470 / #472 / #475 on `main` AND green on
    Oracle ARM64? They are — sealed 2026-08-22. Do NOT re-run the CodeIgniter live-fire unless something regressed.
 2. **If sealed & Oracle-green → THE SLICE IS: CodeIgniter Conductor autonomous wiring (debt from PR #470).**
-   `live_fire/codeigniter_field_prove.py` is a **RUNNER-SEAL** (bypasses Conductor). It does NOT prove the
-   Conductor path can autonomously drive `recon → fingerprint codeigniter → derive config → vault → verify`.
-   This slice registers the gap in `tests/governance/test_wiring_gate.py` (WIRING_DEBT) and adds a W-test
-   exercising the vector through `conductor/execute_agent.py` (or `conductor/main.py`) with `verify_access_nodes`.
+   `live_fire/codeigniter_field_prove.py` is a **RUNNER-SEAL** (bypasses Conductor). PR #475 added hermetic
+   Conductor driver tests (`test_conductor_driver_vulnerable` / `test_conductor_driver_hardened`) that prove
+   the `build_recon_pipeline` → `_sweep_targets` recon path can autonomously drive
+   `recon → fingerprint 'codeigniter' → derive /application/config/database.php → codeigniter_config_probe → vault`.
+   The full `conductor/execute_agent.py` (Celery/eager) W-test with `verify_access_nodes`, or an explicit
+   N/A decision for this recon-only vector, remains to close before moving `codeigniter_config_probe` from
+   `WIRING_DEBT` to `WIRED_REQUIRED`.
 3. **P1 and Temuan 2 remain open in the background; do NOT fold them into this slice.**
    - P1 §12.43 independent auth-vs-unauth oracle (highest-value, separate slice).
    - Temuan 2 Odoo cross-service reuse incomplete (diagnose-first with a log).
@@ -146,11 +149,25 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 ## OPEN / NOT DONE (registered, prioritised)
 
 **Immediate follow-up from PR #470 — CodeIgniter Conductor autonomous wiring (ONE slice, do NOT fold into P1 or Temuan 2):**
-- **CodeIgniter field-prove must be wired through the Conductor autonomous path.** `live_fire/codeigniter_field_prove.py` is a runner-island (self-authorizes, bypasses Conductor). The product's payable claim requires the Conductor to drive `recon → fingerprint 'codeigniter' → derive /application/config/database.php → codeigniter_config_probe → vault → verify` without a hand-fed runner.
-- **Step 1 — register wiring debt:** Add a `WIRING_DEBT` entry in `tests/governance/test_wiring_gate.py` for the relevant symbol (e.g. `codeigniter_config_probe` or `ci_config`) and target `conductor/execute_agent.py` / `conductor/main.py`. This makes CI track the gap.
-- **Step 2 — W-test:** Add `tests/phase_4/test_conductor_codeigniter_chain.py` (or similar) that drives the vector through the real Conductor Celery/eager path (like `test_conductor_chain_characterize.py` does for Odoo), ending with a `verify_access_nodes` cross-verified outcome.
-- **Step 3 — move to WIRED_REQUIRED:** Once the symbol is referenced on the live Conductor path, move it from `WIRING_DEBT` to `WIRED_REQUIRED`.
-- **Oracle exit criterion:** same `vuln.codeigniter.lab` positive / `hardened.codeigniter.lab` negative, but triggered through `conductor/execute_agent.py`, not `live_fire/...`.
+- **Status 2026-08-22 (IN PROGRESS):**
+  - PR #475 merged hermetic Conductor driver tests in `tests/phase_4/test_codeigniter_field_prove.py`
+    (`test_conductor_driver_vulnerable` + `test_conductor_driver_hardened`). Both pass on Oracle ARM64.
+  - `codeigniter_config_probe` wiring debt registered in `tests/governance/test_wiring_gate.py`.
+  - Live-fire runner re-run on Oracle ARM64 still positive (`vuln.codeigniter.lab`) / negative
+    (`hardened.codeigniter.lab`) with credentials vaulted.
+- **Step 1 — register wiring debt:** ✅ Done in PR #475.
+- **Step 2 — hermetic Conductor recon W-test:** ✅ Done in PR #475. `build_recon_pipeline` → `_sweep_targets`
+  drives the vector through `Alpha.run_recon` with rule-tier playbooks, minting `VULNERABILITY` (`:ci_config_leak`)
+  and `CREDENTIAL` (`username=root`) nodes for the vuln target and 0 vuln nodes for the hardened target.
+- **Step 2b — full Conductor `execute_agent` W-test (or explicit N/A):** 🔄 Not yet done. Either add
+  `tests/phase_4/test_conductor_codeigniter_chain.py` driving `execute_agent(Alpha)` on the lab and asserting a
+  `verify_access_nodes` outcome, OR document that this is a **recon-only** vector and `verify` is not applicable
+  (the payable finding is the vault-minted leak, not a strike). This decision is required before Step 3.
+- **Step 3 — move to WIRED_REQUIRED:** 🔄 Pending the Step 2b decision. Once the wiring is locked, move
+  `codeigniter_config_probe` (or the chosen canonical symbol) from `WIRING_DEBT` to `WIRED_REQUIRED`.
+- **Oracle exit criterion:** same `vuln.codeigniter.lab` positive / `hardened.codeigniter.lab` negative.
+  The recon-only exit is already met by the hermetic W-test and live-fire runner; the full `execute_agent` exit
+  remains open until Step 2b is resolved.
 
 **Highest-value next slice — P1: §12.43 independent oracle:**
 - **P1 §12.43 independent auth-vs-unauth oracle** ★ — composes the 116-B authenticated crawl (already merged,
