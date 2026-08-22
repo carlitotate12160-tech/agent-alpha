@@ -33,7 +33,7 @@ _HARDENED_HOST = "hardened.codeigniter.lab"
 _VULN_ROOT = f"https://{_VULN_HOST}:8444/"
 _HARDENED_ROOT = f"https://{_HARDENED_HOST}:8444/"
 _EXPECTED_USER = "ci_lab_user"
-_EXPECTED_PASSWORD = "CiLabPassword123"
+_EXPECTED_PASSWORD = "__codeigniter_lab_fixture_value__"
 
 
 class _NoLLMProvider:
@@ -44,7 +44,7 @@ class _NoLLMProvider:
         return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "noop"})()
 
 
-def _alpha(*, host: str, graph_store: NetworkXGraphStore, event_store: InMemoryEventStore) -> Alpha:
+def _alpha(*, host: str, graph_store: NetworkXGraphStore, event_store: InMemoryEventStore) -> tuple[Alpha, str]:
     auth = AuthorizationStateMachine(event_store=event_store)
     rec = auth.create_engagement(client_id="codeigniter-lab", target=host)
     auth.enable_recon(
@@ -93,7 +93,7 @@ def test_vuln_codeigniter_leaks_database_credentials() -> None:
 
     # Verify the EXACT planted secret was vaulted.
     secret = alpha._secrets_manager.retrieve(creds[0].properties.secret_ref)
-    assert secret == _EXPECTED_PASSWORD, f"vaulted secret {secret!r} != planted {_EXPECTED_PASSWORD!r}"
+    assert secret == _EXPECTED_PASSWORD, "vaulted secret does not match the lab fixture"
 
     # Vuln node present and CVSS is HIGH.
     vulns = [n for n in graph.nodes_by_type(NodeType.VULNERABILITY) if "ci_config" in n.id]

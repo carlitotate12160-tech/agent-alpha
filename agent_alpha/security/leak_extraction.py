@@ -64,45 +64,125 @@ def _is_masked(value: str) -> bool:
     return not v or set(v) == {"*"}
 
 
+def _unescape_php_string(value: str) -> str:
+    """Undo PHP single/double-quoted string escapes for the subset that matters
+    in CodeIgniter config files (\\', \\", \\\\)."""
+    return value.replace("\\'", "'").replace('\\"', '"').replace("\\\\", "\\")
+
+
+def _strip_php_comments(body: str) -> str:
+    """Remove PHP ``//``, ``#``, and ``/* */`` comments while preserving string
+    literals. Also avoids stripping ``://`` stream-wrapper prefixes."""
+    out: list[str] = []
+    i = 0
+    n = len(body)
+    in_quote: str | None = None
+    escape = False
+    while i < n:
+        ch = body[i]
+        if escape:
+            out.append(ch)
+            escape = False
+            i += 1
+            continue
+        if in_quote:
+            if ch == "\\":
+                out.append(ch)
+                escape = True
+                i += 1
+                continue
+            out.append(ch)
+            if ch == in_quote:
+                in_quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            in_quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if body.startswith("/*", i):
+            end = body.find("*/", i + 2)
+            if end == -1:
+                break
+            i = end + 2
+            continue
+        if body.startswith("//", i) and (i == 0 or body[i - 1] != ":"):
+            while i < n and body[i] != "\n":
+                i += 1
+            continue
+        if body.startswith("#", i):
+            while i < n and body[i] != "\n":
+                i += 1
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+# Match a PHP single/double-quoted string, including escaped quotes and \\.
+_PHP_STRING_RE = r"(?P<quote>['\"])(?P<value>(?:[^'\"\\]|\\.)*?)(?P=quote)"
+
+
 def _extract_from_codeigniter_database(body: str) -> dict[str, str]:
     """Parse a CodeIgniter ``application/config/database.php`` body.
 
-    CI 3 uses ``$db['default']['username'] = '...'`` array syntax.  We flatten
-    the first ``$db['default']`` array and map ``username -> DB_USER`` and
-    ``password -> DB_PASSWORD``.  Masked/empty values are dropped (anti-#3).
+    Supports the two common CI 3 forms:
+      - ``$db['default'] = array('username' => '...', ...);``
+      - ``$db['default']['username'] = '...';`` (per-key assignment)
+    and short-array syntax ``[ ... ]``. Comments are stripped without touching
+    string literals, and escaped quotes (``\\'``, ``\\"``) are unescaped before
+    vaulting. Masked/empty values are dropped (anti-#3).
     """
     result: dict[str, str] = {}
+    source = _strip_php_comments(body)
 
-    # 1) Extract the $db['default'] = array(...) block, including nested arrays.
+    # 1) Try per-key assignments first: $db['default']['username'] = '...';
+    for m in re.finditer(
+        r"\$db\s*\[\s*['\"]default['\"]\s*\]\s*\[\s*['\"](?P<key>\w+)['\"]\s*\]\s*=\s*" + _PHP_STRING_RE,
+        source,
+        re.IGNORECASE,
+    ):
+        _store_ci_value(result, m.group("key"), _unescape_php_string(m.group("value")))
+
+    if result:
+        return result
+
+    # 2) Fall back to $db['default'] = array(...) or $db['default'] = [...]
     match = re.search(
-        r"\$db\s*\[\s*['\"]default['\"]\s*\]\s*=\s*array\s*\((.*?)\);",
-        body,
+        r"\$db\s*\[\s*['\"]default['\"]\s*\]\s*=\s*(?:array\s*\((.*?)\)\s*;|\[\s*(.*?)\s*\]\s*;)",
+        source,
         re.DOTALL | re.IGNORECASE,
     )
     if not match:
         return result
 
-    block = match.group(1)
-    # 2) Key => value pairs inside the array: 'username' => 'ci_user',
+    block = match.group(1) if match.group(1) is not None else match.group(2)
+    # 3) Key => value pairs inside the array: 'username' => 'ci_user',
     for m in re.finditer(
-        r"['\"](?P<key>\w+)['\"]\s*=>\s*['\"](?P<value>[^'\"]*)['\"]",
+        r"['\"](?P<key>\w+)['\"]\s*=>\s*" + _PHP_STRING_RE,
         block,
         re.IGNORECASE,
     ):
-        key = m.group("key").lower()
-        value = m.group("value").strip()
-        if not value or _is_masked(value):
-            continue
-        if key == "username":
-            result["DB_USER"] = value
-        elif key == "password":
-            result["DB_PASSWORD"] = value
-        elif key == "database":
-            result["DB_NAME"] = value
-        elif key == "hostname":
-            result["DB_HOST"] = value
+        _store_ci_value(result, m.group("key"), _unescape_php_string(m.group("value")))
 
     return result
+
+
+def _store_ci_value(result: dict[str, str], key: str, value: str) -> None:
+    """Map a parsed CodeIgniter key/value into canonical DB_* keys."""
+    value = value.strip()
+    if not value or _is_masked(value):
+        return
+    lkey = key.lower()
+    if lkey == "username":
+        result["DB_USER"] = value
+    elif lkey == "password":
+        result["DB_PASSWORD"] = value
+    elif lkey == "database":
+        result["DB_NAME"] = value
+    elif lkey == "hostname":
+        result["DB_HOST"] = value
 
 
 def _extract_from_actuator_env(body: str) -> dict[str, str]:

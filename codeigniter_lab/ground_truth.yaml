@@ -12,7 +12,7 @@ hosts:
     chain_proven: true
     db_source: leaked
     expected_username: ci_lab_user
-    expected_password: CiLabPassword123
+    expected_password: __codeigniter_lab_fixture_value__
 
   hardened.codeigniter.lab:
     tech_stack: []
