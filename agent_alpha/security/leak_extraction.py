@@ -64,10 +64,39 @@ def _is_masked(value: str) -> bool:
     return not v or set(v) == {"*"}
 
 
-def _unescape_php_string(value: str) -> str:
-    """Undo PHP single/double-quoted string escapes for the subset that matters
-    in CodeIgniter config files (\\', \\", \\\\)."""
-    return value.replace("\\'", "'").replace('\\"', '"').replace("\\\\", "\\")
+def _unescape_php_string(value: str, quote: str) -> str:
+    """Undo PHP string escapes for the subset that matters in CodeIgniter configs.
+
+    PHP single-quoted strings only recognize ``\\'`` and ``\\\\``; every other ``\\X``
+    sequence is a literal backslash followed by ``X``. PHP double-quoted strings
+    recognize ``\\"``, ``\\\\``, and a small set of C-style escapes (``\\n``, ``\\r``,
+    ``\\t``). Passing the captured ``quote`` delimiter lets us unescape only the
+    escapes that are valid for that string type, so an escaped single quote inside
+    a double-quoted string (or vice versa) keeps its backslash.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(value)
+    while i < n:
+        if value[i] != "\\" or i + 1 >= n:
+            out.append(value[i])
+            i += 1
+            continue
+        nxt = value[i + 1]
+        if quote == "'":
+            if nxt in ("'", "\\"):
+                out.append(nxt)
+                i += 2
+                continue
+        else:  # double-quoted
+            if nxt in ('"', "\\", "n", "r", "t"):
+                escapes = {"n": "\n", "r": "\r", "t": "\t"}
+                out.append(escapes.get(nxt, nxt))
+                i += 2
+                continue
+        out.append(value[i])
+        i += 1
+    return "".join(out)
 
 
 def _strip_php_comments(body: str) -> str:
@@ -144,7 +173,9 @@ def _extract_from_codeigniter_database(body: str) -> dict[str, str]:
         source,
         re.IGNORECASE,
     ):
-        _store_ci_value(result, m.group("key"), _unescape_php_string(m.group("value")))
+        _store_ci_value(
+            result, m.group("key"), _unescape_php_string(m.group("value"), m.group("quote"))
+        )
 
     if result:
         return result
@@ -165,7 +196,9 @@ def _extract_from_codeigniter_database(body: str) -> dict[str, str]:
         block,
         re.IGNORECASE,
     ):
-        _store_ci_value(result, m.group("key"), _unescape_php_string(m.group("value")))
+        _store_ci_value(
+            result, m.group("key"), _unescape_php_string(m.group("value"), m.group("quote"))
+        )
 
     return result
 

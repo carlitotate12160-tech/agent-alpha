@@ -77,23 +77,30 @@ def test_extract_from_codeigniter_database() -> None:
         "DB_HOST": "db.internal",
     }
 
-    escaped = (
-        "<?php $db['default'] = array("
-        "'password' => 'value" + chr(92) + "'with_quote');"
-    )
-    assert _extract_from_codeigniter_database(escaped) == {
-        "DB_PASSWORD": "value'with_quote"
+    escaped = "<?php $db['default'] = array('password' => 'value" + chr(92) + "'with_quote');"
+    assert _extract_from_codeigniter_database(escaped) == {"DB_PASSWORD": "value'with_quote"}
+
+    # Double-quoted string containing an escaped single quote: the backslash must
+    # be preserved because \\' is NOT a valid escape in double-quoted PHP strings.
+    escaped_single_in_double = '<?php $db["default"] = array("password" => "value\\\'with_quote");'
+    assert _extract_from_codeigniter_database(escaped_single_in_double) == {
+        "DB_PASSWORD": "value\\'with_quote"
+    }
+
+    # Single-quoted string containing an escaped double quote: the backslash must
+    # be preserved because \\" is NOT a valid escape in single-quoted PHP strings.
+    escaped_double_in_single = "<?php $db['default'] = array('password' => 'value\\\"with_quote');"
+    assert _extract_from_codeigniter_database(escaped_double_in_single) == {
+        "DB_PASSWORD": 'value\\"with_quote'
     }
 
     commented = (
-        "<?php // $db['default']['username'] = 'wrong';\n"
-        "$db['default']['password'] = 'real';"
+        "<?php // $db['default']['username'] = 'wrong';\n$db['default']['password'] = 'real';"
     )
     assert _extract_from_codeigniter_database(commented) == {"DB_PASSWORD": "real"}
 
     block_comment = (
-        "<?php /* $db['default']['username'] = 'wrong'; */ "
-        "$db['default']['password'] = 'real';"
+        "<?php /* $db['default']['username'] = 'wrong'; */ $db['default']['password'] = 'real';"
     )
     assert _extract_from_codeigniter_database(block_comment) == {"DB_PASSWORD": "real"}
 
