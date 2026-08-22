@@ -140,4 +140,5 @@ markers = [
   "phase1: Phase 1 exit criteria tests",
   "protected: Frozen contract tests — never modify",
   "integration: requires real backends (Postgres/Redis); skipped without them",
+  "live: hits a live target (DeepSeek API / self-owned lab); skips without opt-in, never touches the network at collection",
 ]

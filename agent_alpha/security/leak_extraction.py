@@ -99,53 +99,87 @@ def _unescape_php_string(value: str, quote: str) -> str:
     return "".join(out)
 
 
+def _scan_string_literal(body: str, start: int, quote: str, out: list[str]) -> int:
+    """Copy the quoted string literal at ``body[start] == quote`` into ``out``
+    verbatim and return the index just past the closing quote. An unterminated
+    literal consumes to end-of-input (mirrors the original loop simply ending).
+
+    Escapes are copied literally, not resolved: comment stripping must never
+    alter string *contents*. ``_unescape_php_string`` resolves them later, and
+    only for the delimiter that actually applies. A ``\\`` consumes the next
+    char (so an escaped quote never ends the string); a trailing ``\\`` at
+    end-of-input is tolerated.
+    """
+    n = len(body)
+    out.append(quote)
+    i = start + 1
+    while i < n:
+        ch = body[i]
+        out.append(ch)
+        if ch == "\\":
+            if i + 1 < n:
+                out.append(body[i + 1])
+                i += 2
+            else:
+                i += 1
+            continue
+        if ch == quote:
+            return i + 1
+        i += 1
+    return i
+
+
+def _skip_block_comment(body: str, start: int) -> int:
+    """``body[start:start + 2] == '/*'``. Return the index past the closing
+    ``*/``, or ``-1`` when the comment is unterminated (the caller stops
+    stripping there, mirroring the original ``break``)."""
+    end = body.find("*/", start + 2)
+    return -1 if end == -1 else end + 2
+
+
+def _skip_to_line_end(body: str, start: int) -> int:
+    """Return the index of the next newline at/after ``start`` (or end-of-input).
+    The newline itself is left for the dispatch loop to emit."""
+    n = len(body)
+    i = start
+    while i < n and body[i] != "\n":
+        i += 1
+    return i
+
+
+def _is_line_comment_start(body: str, i: int) -> bool:
+    """A ``//`` that is not the ``://`` of a stream-wrapper / URL prefix."""
+    return body.startswith("//", i) and (i == 0 or body[i - 1] != ":")
+
+
 def _strip_php_comments(body: str) -> str:
     """Remove PHP ``//``, ``#``, and ``/* */`` comments while preserving string
-    literals. Also avoids stripping ``://`` stream-wrapper prefixes."""
+    literals, and without stripping ``://`` stream-wrapper prefixes.
+
+    Thin dispatch loop over single-purpose scanners (anti-god-object §12.47):
+    each branch delegates the actual consumption, so this stays a readable
+    state selector rather than a nested char-by-char machine. Behavior is
+    identical to the pre-decomposition version — locked by
+    ``test_strip_php_comments_behavior_preserving``.
+    """
     out: list[str] = []
     i = 0
     n = len(body)
-    in_quote: str | None = None
-    escape = False
     while i < n:
         ch = body[i]
-        if escape:
-            out.append(ch)
-            escape = False
-            i += 1
-            continue
-        if in_quote:
-            if ch == "\\":
-                out.append(ch)
-                escape = True
-                i += 1
-                continue
-            out.append(ch)
-            if ch == in_quote:
-                in_quote = None
-            i += 1
-            continue
         if ch in ("'", '"'):
-            in_quote = ch
+            i = _scan_string_literal(body, i, ch, out)
+        elif body.startswith("/*", i):
+            i = _skip_block_comment(body, i)
+            if i == -1:
+                break
+        elif _is_line_comment_start(body, i):
+            i = _skip_to_line_end(body, i)
+        elif body.startswith("#", i):
+            i = _skip_to_line_end(body, i)
+        else:
             out.append(ch)
             i += 1
-            continue
-        if body.startswith("/*", i):
-            end = body.find("*/", i + 2)
-            if end == -1:
-                break
-            i = end + 2
-            continue
-        if body.startswith("//", i) and (i == 0 or body[i - 1] != ":"):
-            while i < n and body[i] != "\n":
-                i += 1
-            continue
-        if body.startswith("#", i):
-            while i < n and body[i] != "\n":
-                i += 1
-            continue
-        out.append(ch)
-        i += 1
     return "".join(out)
 
 

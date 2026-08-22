@@ -114,3 +114,33 @@ def test_extract_from_codeigniter_database() -> None:
 
     not_php = "<html>$db['default'] = array('username' => 'u')</html>"
     assert _extract_from_codeigniter_database(not_php) == {}
+
+
+def test_strip_php_comments_behavior_preserving() -> None:
+    """Locks _strip_php_comments behavior across the CC<10 decomposition
+    (DeepSource PY-R1000). These assertions hold on BOTH the pre- and
+    post-decomposition implementation — that equality is the whole point.
+    Comments go; string literals, ://-prefixes, and escaped quotes inside
+    strings stay untouched."""
+    from agent_alpha.security.leak_extraction import _strip_php_comments
+
+    # line comment removed, code (and the newline) kept
+    assert _strip_php_comments("$a = 1; // trailing\n$b = 2;") == "$a = 1; \n$b = 2;"
+    # hash comment removed
+    assert _strip_php_comments("$a = 1; # note\n$b = 2;") == "$a = 1; \n$b = 2;"
+    # block comment removed (single-line and multi-line)
+    assert _strip_php_comments("$a /* x */ = 1;") == "$a  = 1;"
+    assert _strip_php_comments("$a = 1;/* multi\nline */$b=2;") == "$a = 1;$b=2;"
+    # // inside a string literal is NOT a comment
+    assert _strip_php_comments("$u = 'http://h/p';\n") == "$u = 'http://h/p';\n"
+    # bare :// prefix outside quotes is not stripped (guard on preceding ':')
+    assert _strip_php_comments("a://b") == "a://b"
+    # escaped quote inside a single-quoted string does not end the string,
+    # so a trailing // after it is still recognised as a comment
+    assert _strip_php_comments(r"$p = 'a\'// b'; // real") == r"$p = 'a\'// b'; "
+    # # inside a string literal is preserved
+    assert _strip_php_comments("$p = 'a#b'; # c") == "$p = 'a#b'; "
+    # unterminated block comment stops stripping (mirrors original break)
+    assert _strip_php_comments("$a=1; /* never closed") == "$a=1; "
+    # trailing backslash at EOF inside a string is tolerated (no index error)
+    assert _strip_php_comments("$p = 'a\\") == "$p = 'a\\"

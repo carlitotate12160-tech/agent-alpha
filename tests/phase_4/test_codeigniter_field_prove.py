@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import os
 import pathlib
 
 import httpx
@@ -44,7 +45,9 @@ class _NoLLMProvider:
         return type("R", (), {"text": "{}", "usage_cost_usd": 0.0, "model": "noop"})()
 
 
-def _alpha(*, host: str, graph_store: NetworkXGraphStore, event_store: InMemoryEventStore) -> tuple[Alpha, str]:
+def _alpha(
+    *, host: str, graph_store: NetworkXGraphStore, event_store: InMemoryEventStore
+) -> tuple[Alpha, str]:
     auth = AuthorizationStateMachine(event_store=event_store)
     rec = auth.create_engagement(client_id="codeigniter-lab", target=host)
     auth.enable_recon(
@@ -61,26 +64,34 @@ def _alpha(*, host: str, graph_store: NetworkXGraphStore, event_store: InMemoryE
         ),
         http_client=HttpClient(
             engagement_id=rec.engagement_id,
-            transport=httpx.HTTPTransport(verify=False),  # force plain httpx, not curl_cffi, for self-signed lab cert
+            transport=httpx.HTTPTransport(
+                verify=False
+            ),  # force plain httpx, not curl_cffi, for self-signed lab cert
         ),
         secrets_manager=SecretsManager(),
     ), rec.engagement_id
 
 
-def _lab_reachable() -> bool:
-    client = HttpClient(
-        engagement_id="reachability-check",
-        transport=httpx.HTTPTransport(verify=False),
-    )
-    try:
-        resp = client.get(_VULN_ROOT)
-        return resp.status_code == 200 and "csrf_test_name" in resp.text
-    except Exception:
-        return False
+@pytest.fixture
+def codeigniter_lab() -> None:
+    """Gate the live field-prove on an explicit opt-in, decided at FIXTURE-SETUP
+    time — never at collection. The previous ``skipif(not _lab_reachable())``
+    fired a real GET while pytest was still *collecting* the default suite,
+    violating the ``tests/**`` no-real-network rule (CodeRabbit PR #470).
+
+    Same shape as the ``deepseek_api_key`` live fixture: opt in on Oracle after
+    seeding the lab (``cd codeigniter_lab && sudo ./seed.sh``) with
+    ``AGENT_ALPHA_CI_LAB=1``. Opted-in-but-unreachable is a LOUD failure inside
+    the test body, not a silent skip (anti-Lyndon #3: a skip is NOT a pass).
+    """
+    if os.environ.get("AGENT_ALPHA_CI_LAB") != "1":
+        pytest.skip(
+            "codeigniter_lab live tier skipped — set AGENT_ALPHA_CI_LAB=1 on Oracle after seed.sh (NOT passed)"
+        )
 
 
-@pytest.mark.skipif(not _lab_reachable(), reason="codeigniter_lab not reachable — run codeigniter_lab/seed.sh")
-def test_vuln_codeigniter_leaks_database_credentials() -> None:
+@pytest.mark.live
+def test_vuln_codeigniter_leaks_database_credentials(codeigniter_lab: None) -> None:
     """Full live path: fingerprint CI → derive config path → extract DB creds."""
     store = InMemoryEventStore()
     graph = NetworkXGraphStore()
@@ -101,8 +112,8 @@ def test_vuln_codeigniter_leaks_database_credentials() -> None:
     assert vulns[0].properties.cvss_score >= 7.0
 
 
-@pytest.mark.skipif(not _lab_reachable(), reason="codeigniter_lab not reachable — run codeigniter_lab/seed.sh")
-def test_hardened_codeigniter_yields_zero_credentials() -> None:
+@pytest.mark.live
+def test_hardened_codeigniter_yields_zero_credentials(codeigniter_lab: None) -> None:
     """Negative control: a host without CI markers / exposed config leaks nothing."""
     store = InMemoryEventStore()
     graph = NetworkXGraphStore()
