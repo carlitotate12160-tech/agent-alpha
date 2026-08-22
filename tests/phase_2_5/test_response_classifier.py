@@ -37,7 +37,11 @@ from agent_alpha.events.store import InMemoryEventStore
 from agent_alpha.graph.networkx_store import NetworkXGraphStore
 
 # Net-new canonical classifier (RED: module does not exist yet).
-from agent_alpha.recon.response_classifier import Verdict, classify_response
+from agent_alpha.recon.response_classifier import (
+    RELOAD_SHELL_MAX_BYTES,
+    Verdict,
+    classify_response,
+)
 
 _HOST = "target.example.com"
 _SEED = f"https://{_HOST}/"
@@ -281,6 +285,31 @@ def test_soft200_js_reload_interstitial_is_challenge() -> None:
     assert verdict is Verdict.CHALLENGE, (
         f"CF soft-200 reload interstitial classified as {verdict} instead of CHALLENGE — "
         "the reach ladder (browser_solve/camoufox) will never trigger"
+    )
+
+
+def test_large_catchall_spa_with_reload_signal_stays_ok() -> None:
+    """CARDINAL (field-confirmed on a 200 catch-all SPA target): a LARGE 200
+    catch-all SPA shell that merely SHIPS a reload signal
+    (bundled setTimeout+location.reload) with few anchors and no <article> must
+    NOT be mislabeled CHALLENGE. A genuine reload interstitial is small; a large
+    body is application content. Without the size gate this false-CHALLENGE
+    short-circuits scout.py soft-404 suppression and recon never converges on a
+    catch-all-200 target."""
+    body = (
+        "<!DOCTYPE html><html><head><title>ExampleStore</title></head><body>"
+        '<div id="app"></div>'
+        "<script>setTimeout(function(){window.location.reload();},1000);</script>"
+        + ("<span>x</span>" * 4000)  # push body well past RELOAD_SHELL_MAX_BYTES
+        + "</body></html>"
+    )
+    # precondition: this is a large body (byte size, not character count)
+    assert len(body.encode("utf-8")) >= RELOAD_SHELL_MAX_BYTES
+    verdict = classify_response(status_code=200, body=body)
+    assert verdict is Verdict.OK, (
+        f"large catch-all SPA shell classified as {verdict} instead of OK — the "
+        "reload-interstitial detector fired on application content, mislabeling a "
+        "200 catch-all SPA as CHALLENGE (short-circuits soft-404 suppression)"
     )
 
 
