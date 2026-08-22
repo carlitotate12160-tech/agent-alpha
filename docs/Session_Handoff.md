@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-22, PR #477 ledger cleanup + PR #478 ingco size-gate MERGED, Oracle ARM64 green; CURRENT SLICE = P1 §12.43 oracle)
+# Agent-Alpha — Session Handoff (2026-08-22, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = ChainOracle MIN-composition)
 
-Resume with: "lanjut Agent-Alpha — CodeIgniter Conductor recon wiring SEALED (N/A decision, PR #475/#477). PR #478 (response-classifier size-gate for large 200 catch-all SPAs — the ingco.co.id false-CHALLENGE fix) MERGED to `main` + Oracle ARM64 green (635 phase_4 passed, incl. `test_large_catchall_spa_with_reload_signal_stays_ok`). CURRENT SLICE = **P1 §12.43 independent auth-vs-unauth oracle** (owner: GAP-118, §12.43 is LOCKED — this is CODE realization, NO new ADR). Temuan 2 Odoo cross-service reuse remains open (diagnose-first). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
+Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (auth-vs-unauth diff BUILT + AUTONOMOUS-WIRED at `conductor/main.py:805` producer / `:810` consumer; proven end-to-end by `tests/integration/test_conductor_chain.py::test_wp_cred_reuse_chain_is_cross_verified_autonomously` — PASSED on Oracle ARM64, PR #465). Temuan 2 was a PHANTOM (E=False/F=False on alpha-ai = GAP-118's CORRECT downgrade of a non-resolving `wpvuln` bare-UUID cred, sealed commit `62d3657` — NOT a bug, no fix needed). CURRENT SLICE = **ChainOracle MIN-composition** (§12.43 chain payability: `tier(chain)=MIN(tier(edge))`, payable IFF every hop cross_verified — the ONLY §12.43 payable-value piece not yet built). AFTER ChainOracle → architect review of ADR §12.66 for ACCEPT decision (§12.66 is PROPOSED; Slice-2 blocked until ACCEPTED). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
 
 ---
 
@@ -23,16 +23,36 @@ Resume with: "lanjut Agent-Alpha — CodeIgniter Conductor recon wiring SEALED (
    `WIRING_DEBT["codeigniter_config_probe"]` entry (a permanent false-green that mislabelled a proven-wired,
    catalog-dispatched tool as un-wired) was REMOVED; a comment in `test_wiring_gate.py` records why catalog
    tools are not tracked there. `live_fire/codeigniter_field_prove.py` remains a lab RUNNER-SEAL, not the proof.
-3. **CURRENT SLICE = P1 §12.43 independent auth-vs-unauth oracle. Owner: GAP-118.**
-   - §12.43 is **LOCKED** (ADR.md §12.43, BANKED 2026-08-18) → P1 is the CODE realization of an
-     already-accepted contract. **NO new ADR.** No new GAP either — GAP-118 IS the implementation
-     track ("If §12.43 locks, this GAP becomes the implementation track" — it now has).
-   - Scope heads-up (architect): GAP-118 Effort = HIGH (~300 lines, ACTIVE_APPROVED live re-auth +
-     lockout governor §12.22 D2, composes GAP-116 authenticated crawl). This is NOT a small slice —
-     it must be DECOMPOSED before any code lands. First step next session: read the live path
-     (`attestation/attestor.py`, `conductor/verification.py`, GAP-116-B authenticated crawl at commit
-     4150814) and propose ONE bounded sub-slice + cardinal RED test. Do NOT half-scaffold the rest.
-   - Temuan 2 Odoo cross-service reuse remains open in the background (diagnose-first with a log) — do NOT fold into P1.
+3. **P1 §12.43 PER-EDGE oracle = SEALED (do NOT rebuild — that is Lyndon #2).**
+   Verified live path (HEAD `8b1f5b1`): `conductor/main.py:805 beta.run_strike()` → `run_cognitive_loop`
+   → `step()` → `_post_access_authenticated_crawl` → `run_authenticated_crawl` → `_auth_only_diff`
+   (real unauth-vs-auth marker diff, §12.32) → `_mint_surface` (`auth_vs_unauth_diff` ProofArtifact bound
+   to cred+access) → `conductor/main.py:810 verify_access_nodes()` → attestor `_has_independent_auth_diff`
+   → CROSS_VERIFIED. Seam binding matches end-to-end (`access:{host}` + `level` + `subject_ref=cred_id`).
+   Proven end-to-end by **slice-1d `test_wp_cred_reuse_chain_is_cross_verified_autonomously` — PASSED on Oracle**
+   (characterize J5 SKIPPED by design: needs PROFILE_SIGNING_KEY + real LLM). Owner GAP-118 — mark the
+   oracle portion DONE; only the CHAIN-level composition remains (below).
+
+4. **CURRENT SLICE = ChainOracle MIN-composition. (§12.43 chain payability — the one payable-value piece not built.)**
+   §12.43 gap map (Natanael, authoritative): per-edge ✅ / autonomous wiring ✅ / bidirectional diff ✅ /
+   provenance guard ✅ ; **ChainOracle MIN ❌**, OracleEvidence encapsulation ❌ (separate), deception_risk ❌ (separate),
+   screenshot storage_ref ⚠️ partial (separate), L3 corroborated ❌ (deferred BY DESIGN, anti-#2).
+   - BUILD: NEW `agent_alpha/attestation/chain_oracle.py` — `evaluate_chain(path_nodes, graph) -> ChainOracleVerdict`
+     with `chain_tier = MIN(edge_tier)` where `edge_tier := target_node.verification` (the per-edge attestor
+     already stamped it), `payable IFF chain_tier==CROSS_VERIFIED`, `weakest_hop` = the MIN edge. Empty/1-node → NOT payable.
+     Aggregates only — NEVER re-verifies (anti-#3). Wire into `graph/narrative.py::summarize_chain_finding` (attach
+     `chain_tier`+`payable`+`weakest_hop` to `ChainFinding`; Omega reports payable=False coverage-honestly).
+   - Cardinal RED (`tests/.../test_chain_oracle.py`, new component): 3-hop path, hop-2 access SELF_VERIFIED,
+     hop-1/3 CROSS_VERIFIED → `chain_tier==SELF_VERIFIED`, `payable==False`, `weakest_hop==hop-2`. GREEN: all hops
+     cross_verified → payable True. Edge: empty/1-node → payable False.
+   - SCOPE (challenge held): do NOT bundle OracleEvidence-encapsulation / deception_risk / screenshot / L3.
+     ~3 files additive (chain_oracle.py + narrative.py wire-in + test). One vertical slice.
+
+5. **AFTER ChainOracle: architect review of ADR §12.66 → ACCEPT decision (+ how to build if accepted).**
+   §12.66 is **PROPOSED** (ADR.md line 16: PROPOSED must not be production behavior). Slice-2 = production
+   `Planner.score` code → BLOCKED until §12.66 ACCEPTED. Slice-3 chain-seeking CONSUMES
+   the ChainOracle payable verdict → ChainOracle is logically prior (anti-#1 prover-before-seeker). Review §12.66
+   for ACCEPT first; do NOT write Slice-2 code on a PROPOSED ADR.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
 
@@ -74,7 +94,7 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 - `wpvuln` cred: `secret_ref='a784c712-5fe9-4153-99ec-41fde54e0d83'` (bare UUID, NOT `secret_`-prefixed, does NOT resolve in vault).
 - **F=False where it was wrongly F=True before GAP-118 — the false-provenance is closed.** This is the field-confirmation.
 
-**Still open after seal:** P1 §12.43 independent oracle (auth-vs-unauth diff composing 116-B crawl) → Temuan 2 (Odoo cross-service reuse E=False, db_enumerated=False, diagnose with a log not a guess).
+**Reconciled 2026-08-22:** The "Still open" items below were STALE. P1 §12.43 per-edge oracle was BUILT+WIRED+SEALED via PR #465 (slice-1d Oracle-green). Temuan 2 (E=False/F=False) is this same run's CORRECT GAP-118 downgrade of the non-resolving `wpvuln` bare-UUID cred — a PHANTOM, not a bug. Only ChainOracle MIN-composition remains of §12.43.
 
 ---
 
@@ -121,7 +141,8 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 |------|-----------|----------|
 | **GAP-118: CredReuseAttestor Rule 3 hardening (attestor-resolve)** | **MERGED #454 → 6fe008d2, Tier-1 + Tier-3 PROVEN** | `secret_ref` must RESOLVE to non-empty engagement-owned vaulted material via `retrieve_for_engagement`. `verify_access_nodes(*, secrets_manager)` keyword-only required (Lyndon #3). verify() CC 23→7, run_a1_validation CC 34→11. STEP-2 field-prove: `wpvuln` now INCONCLUSIVE (F=False) — false-provenance closed. 606/606 Oracle, DeepSource + quality-gate PASS. |
 || **CodeIgniter config-leak Conductor wiring** | **SEALED 2026-08-22, recon-stage, N/A** | Hermetic Conductor driver tests `test_conductor_driver_vulnerable` / `test_conductor_driver_hardened` in `tests/phase_4/test_codeigniter_field_prove.py` prove `build_recon_pipeline` → `_sweep_targets` → `run_recon` autonomously drives `fingerprint codeigniter → derive /application/config/database.php → codeigniter_config_probe → vault`. Catalog dispatchability guarded by `test_every_catalog_tool_is_dispatchable` (catalog tool → `Alpha._dispatch_registry`). `WIRING_DEBT["codeigniter_config_probe"]` removed as false-debt; catalog-dispatched recon tools do not belong in the OFFENSIVE `execute_agent` path. Live-fire runner on Oracle ARM64: `vuln` positive, `hardened` negative, credentials vaulted. |
-| **§12.43 Proof Standard (LOCKED doctrine)** | **BANKED 2026-08-18** | Payable floor = independent oracle (auth-vs-unauth diff §12.32) + human-legible artifact. ChainOracle = min over per-edge oracles. Provenance ≠ oracle. GAP-118 hardens provenance; the oracle itself is P1 (unbuilt). |
+| **§12.43 Proof Standard (LOCKED doctrine)** | **BANKED 2026-08-18** | Payable floor = independent oracle (auth-vs-unauth diff §12.32) + human-legible artifact. ChainOracle = min over per-edge oracles. Provenance ≠ oracle. |
+| **P1 §12.43 PER-EDGE independent oracle** | **SEALED — PR #465 (2026-08-21), Oracle-green** | `auth_vs_unauth_diff` BUILT (`_auth_only_diff` real unauth-vs-auth) + AUTONOMOUS-WIRED (`conductor/main.py:805` producer via run_strike→cognitive_loop→step→crawl, `:810` consumer `verify_access_nodes`→attestor `_has_independent_auth_diff`). Seam binding matches end-to-end. Proven by slice-1d `test_wp_cred_reuse_chain_is_cross_verified_autonomously` PASSED on Oracle. Remaining §12.43 piece = CHAIN-level MIN-composition (current slice). |
 | **GAP-116-B/C: Beta authenticated crawl + WP multi-cookie session jar (§12.32)** | **MERGED (commit 4150814)** | Playbook-driven GET-only DETECT, stack-gated exact-match (STACK_WP="wp"), auth-vs-unauth marker diff, depth-1 admin-filtered (refuses `?action=`/admin-ajax/destructive tokens), mints SERVICE node `service:{host}:authsurface:{surface}`. Full WP cookie jar (`HttpResponse.cookies` + `applicator._session_jar`); session cookie VALUES never persisted (names only, repr=False, deep-redact). |
 | **GAP-169: Fingerprint-First Recon Reorder (§12.65)** | **MERGED #444, Tier-1 Validated** | Root fetch hoisted to $t=0$, stack labels extracted via `fingerprint_all`, frontier seeded with stack-tailored leak paths (eliminates blind spray), `_prefetched` cache primed to prevent double GET, dead-host pruned fail-safe (D-2). 9/9 unit tests + 45/45 wiring gate passed. |
 | **GAP-026: StealthPacer Default ON Across Conductor** | **MERGED #423, Tier-1 Validated** | Pacer default ON across conductor per ADR §12.49 with strict §12.36 consent gate preserved. 100% green CI. |
@@ -161,19 +182,25 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 
 ## OPEN / NOT DONE (registered, prioritised)
 
-**CodeIgniter Conductor recon wiring — SEALED 2026-08-22 (N/A decision).** Moved to `SEALED / PROVEN` table. Remaining background: P1 and Temuan 2.
+**CodeIgniter Conductor recon wiring — SEALED 2026-08-22 (N/A decision).** Moved to `SEALED / PROVEN` table.
 
-**Highest-value next slice — P1: §12.43 independent oracle:**
-- **P1 §12.43 independent auth-vs-unauth oracle** ★ — composes the 116-B authenticated crawl (already merged,
-  commit 4150814) into an auth-vs-unauth marker diff. GAP-118 made provenance HONEST (secret must resolve);
-  it did NOT add the independent oracle. P1 is what makes a chain claim *defensible* (an independent
-  auth-vs-unauth signal), not just provenance-checked. This is the payable floor per §12.43.
+**P1 §12.43 per-edge oracle — SEALED (PR #465, slice-1d Oracle-green).** Moved to `SEALED / PROVEN` table. Do NOT rebuild (Lyndon #2).
 
-**Temuan 2 (separate, diagnose-first — do NOT guess):**
-- **Odoo cross-service reuse incomplete** — STEP-2 (2026-08-19) shows E=False (ENABLES edge does not source
-  from the vaulted cred) and db_enumerated=False. The `wpvuln` cred's secret_ref is a bare UUID
-  (`a784c712-...`) that does NOT resolve — correct post-GAP-118, but it means the harvested cred is not
-  being vaulted with a `secret_` ref on this path. Inspect the harvest→vault→reuse wiring with a log.
+**Temuan 2 — CLOSED as PHANTOM (2026-08-22).** STEP-2 (2026-08-19) E=False/F=False on alpha-ai is GAP-118's
+CORRECT downgrade of the `wpvuln` bare-UUID cred that does NOT resolve in the vault (sealed commit `62d3657`,
+"STEP-2 field-confirmed wpvuln INCONCLUSIVE"). No code fix exists because none is needed. db_enumerated=False
+follows (no point enumerating on unproven access) — not a separate defect. The ONLY honest residual is a
+FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used a WP fake) — optional field-validation, NOT a build gap.
+
+**CURRENT SLICE — ChainOracle MIN-composition (§12.43 chain payability):**
+- See START HERE point 4 for the full design. `chain_tier = MIN(edge_tier)`, payable IFF every hop cross_verified,
+  `weakest_hop` names the reason. New `attestation/chain_oracle.py` + `narrative.py::summarize_chain_finding` wire-in + test.
+  Aggregates per-edge verdicts only (never re-verifies, anti-#3). Gates the multi-hop cred-reuse moat (WP→Odoo) honestly.
+
+**AFTER ChainOracle — ADR §12.66 ACCEPT-review (PROPOSED → decide):**
+- §12.66 goal-backward scoring. Slice-2 (production `Planner.score`) is BLOCKED until §12.66 ACCEPTED (ADR.md line 16).
+  Slice-3 chain-seeking CONSUMES the ChainOracle payable verdict → ChainOracle is logically prior (anti-#1). Review §12.66
+  for ACCEPT first; do NOT write Slice-2 code on a PROPOSED ADR.
 
 **High-leverage growth (next real slice after P1 — ONE at a time):**
 - **GAP-115 historical-DNS origin discovery** ★ (§12.61 A1 DIRECT) — DIRECT pre-CF A-records (the origin IP a domain pointed to BEFORE going behind CF, often still live/unprotected). This is the ADR's "biggest missing signal": 4 field targets (niagamas/bernofarm/ibudanbalita/busonlineticket) are full-CF where crt.sh/VT/OTX ALL failed. GAP-154 now lets this enrichment run even when crt.sh is down (the exact field case). DESIGN GATE (locked, build in a NEW session): keyless-FIRST source seam (ViewDNS/DNSHistory keyless; SecurityTrails key-gated OPTIONAL like OTX/VT, None=off, keyless-safe) → `enrich_with_historical_dns(intel, source)` additive → emits ip4 `origin_ip_candidates` (DROP ip6 per GAP-155) → composes with §12.46 two-proof binding (historical IP = CANDIDATE, stale IP fails binding = fail-closed, the niagamas lesson). Moat = the COMPOSITION (historical A → proven pre-CF origin), NOT the commodity lookup. **DECISION NEEDED FROM NATANAEL:** source/key policy — keyless-only (ViewDNS, rate-limited, autonomous) vs +SecurityTrails paid key (his to provide for Tier-2 field-prove). Then cert/favicon pivot (GAP-093/086), then axis-B. MENU — one slice.
@@ -205,7 +232,7 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 - **GAP-034: read-model over events, not node-schema mutation** (event-sourced; AttackGraph = projection).
 - **GAP-026: stealth is consent-gated (§12.36 enforced)** — TEMPO is operator baseline but stays consent-gated. StealthPacer default ON per ADR §12.49.
 - **GAP-031: crash FIXED (graceful decline + Omega); residual = CF ceiling, NOT a code slice.**
-- **GAP-118: provenance ≠ oracle** — Rule 3 (secret_ref must RESOLVE to engagement-owned vaulted material) makes provenance HONEST, but the §12.43 payable floor still needs the independent auth-vs-unauth oracle (P1, unbuilt). Field-confirmed 2026-08-19: `wpvuln` bare-UUID ref correctly fails cross-verification.
+- **GAP-118: provenance ≠ oracle** — Rule 3 (secret_ref must RESOLVE to engagement-owned vaulted material) makes provenance HONEST. The §12.43 per-edge auth-vs-unauth oracle is now BUILT+WIRED+SEALED (PR #465, slice-1d Oracle-green) — GAP-118 oracle portion DONE; only chain-level MIN-composition remains. Field-confirmed 2026-08-19: `wpvuln` bare-UUID ref correctly fails cross-verification (this is the "Temuan 2" phantom — correct behavior, not a bug).
 - **Code quality target**: military-grade engineering (fail-safe, deterministic, audited, no false-success) that ENCODES APT tradecraft.
 - **Verify-before-ship, every time**: green ≠ proven; always `git pull` before writing a patch; RUNNER-SEAL ≠ AUTONOMOUS-WIRED; Oracle is the seal.
 - **Four-Operator Lineage (durable design lens, banked 2026-08-17 w/ ADR §12.65/GAP-169)** — every agent behavior maps to a real APT tradecraft; the lens is "operator OBSERVES/COMPOSES, scanner sprays". PRINCIPLE table, NOT a task list (tasks live as GAPs — do not duplicate, anti-#7):
@@ -218,13 +245,18 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — CodeIgniter Conductor recon wiring SEALED (N/A decision, PR #475/#477). PR #478 ingco size-gate (`_is_reload_interstitial` size guard, `response_classifier.py`) MERGED to `main` (HEAD `7cf1013`) + Oracle ARM64 green. CURRENT SLICE = **P1 §12.43 independent auth-vs-unauth oracle**, owner GAP-118. §12.43 is LOCKED → CODE realization, NO new ADR, NO new GAP. GAP-118 Effort=HIGH → DECOMPOSE first: read `attestation/attestor.py` + `conductor/verification.py` + GAP-116-B authenticated crawl (commit 4150814), propose ONE bounded sub-slice + cardinal RED test before code. Temuan 2 Odoo cross-service reuse still open (diagnose-first). Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle SEALED** (BUILT+AUTONOMOUS-WIRED `conductor/main.py:805`/`:810`; slice-1d `test_wp_cred_reuse_chain_is_cross_verified_autonomously` PASSED on Oracle, PR #465). Temuan 2 = PHANTOM (GAP-118 correct downgrade of non-resolving wpvuln cred, `62d3657` — not a bug). CURRENT SLICE = **ChainOracle MIN-composition**: NEW `attestation/chain_oracle.py` `evaluate_chain()` → `chain_tier=MIN(edge_tier:=target_node.verification)`, `payable IFF all cross_verified`, `weakest_hop`; wire `graph/narrative.py::summarize_chain_finding`; cardinal RED = 3-hop w/ hop-2 self_verified → payable False. ~3 files additive, aggregates-only (anti-#3). Do NOT bundle OracleEvidence/deception_risk/screenshot/L3. AFTER ChainOracle → ADR §12.66 ACCEPT-review (PROPOSED; Slice-2 blocked until ACCEPTED). Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
 
 ---
 
 ## SESSION STATUS (2026-08-22)
 
-- **Sealed slices this session:** 2
-  1. CodeIgniter Conductor recon wiring N/A decision recorded (PR #477 removed `WIRING_DEBT["codeigniter_config_probe"]` false-green; `test_every_catalog_tool_is_dispatchable` + driver proof = guard).
-  2. Response-classifier size-gate for large 200 catch-all SPAs merged (PR #478, Oracle ARM64 green, 635 phase_4 passed, `test_large_catchall_spa_with_reload_signal_stays_ok` RED).
-- **Current slice status:** `docs/Session_Handoff.md` + `BUGS_AND_GAPS.md` updated. **CURRENT SLICE = P1 §12.43 independent oracle (owner GAP-118, LOCKED contract → no new ADR/GAP; DECOMPOSE before code).**
+- **This session (2026-08-22, later): VERIFICATION/RECONCILIATION — 0 code seals, produced evidence + a corrected status.**
+  Established (grep of HEAD `8b1f5b1` + Oracle run): P1 §12.43 per-edge oracle is SEALED (PR #465, slice-1d PASSED),
+  and Temuan 2 is a PHANTOM (GAP-118 correct behavior). Corrected the stale handoff/ledger that wrongly framed P1 as
+  "current slice to build" and Temuan 2 as "open" (Lyndon #7 doc divergence — an earlier patch this session had
+  compounded it). Designed the next slice (ChainOracle MIN). No new code merged this session.
+- **Current slice status:** **ChainOracle MIN-composition — in-progress (design ready in START HERE point 4; patch not written).**
+  Decided sequence: ChainOracle MIN → ADR §12.66 ACCEPT-review → (if accepted) §12.66 Slice-2/3.
+- **Session hygiene note:** this session ran long and lost focus mid-way (over-verified already-sealed ground).
+  Continue ChainOracle in a FRESH session using START HERE points 3–5.
