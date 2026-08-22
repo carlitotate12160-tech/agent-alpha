@@ -1,0 +1,22 @@
+# CodeIgniter lab ground truth — slice 1c-1 cross-service cred-extraction chain.
+#
+# Proves: Alpha.run_recon on vuln.codeigniter.lab fingerprints 'codeigniter',
+# derives /application/config/database.php, probes it, and extracts + vaults
+# the planted DB credentials. Hardened target yields 0 credentials.
+
+hosts:
+  vuln.codeigniter.lab:
+    tech_stack: codeigniter
+    leak_creds_added_min: 1
+    leak_creds_added_max: 1
+    chain_proven: true
+    db_source: leaked
+    expected_username: ci_lab_user
+    expected_password: __codeigniter_lab_fixture_value__
+
+  hardened.codeigniter.lab:
+    tech_stack: []
+    leak_creds_added_min: 0
+    leak_creds_added_max: 0
+    chain_proven: false
+    db_source: none

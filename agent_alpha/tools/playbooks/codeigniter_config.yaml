@@ -1,0 +1,24 @@
+# RULE-tier playbook (Opsi B). Pure data — no code, no LLM.
+# Fires when Alpha fetches a CodeIgniter application/config/database.php source
+# file. The CI source is a PHP file, so we require `<?php` plus a `$db['default']`
+# signature. This avoids firing on copied snippets in docs or soft-404 pages.
+#
+# Matches both the array form (`$db['default'] = array(...)` / `[...]`) and the
+# per-key form (`$db['default']['username'] = '...'`).
+#
+# Indicators are DISJOINT from backup_file (.env / database.yml assignments),
+# git_exposure (.git/config), and wp_config (define('DB_...')).
+name: codeigniter_config_leak
+version: 1
+phase: recon
+match:
+  any_indicator:
+    # PHP source with $db['default'] = array(...) or [...]
+    - body_regex: "(?s)<\\?php.*?\\$db\\s*\\[\\s*['\"]default['\"]\\s*\\]\\s*=\\s*(?:array|\\[)"
+    # PHP source with per-key assignment $db['default']['username'] = '...'
+    - body_regex: "(?s)<\\?php.*?\\$db\\s*\\[\\s*['\"]default['\"]\\s*\\]\\s*\\[\\s*['\"](?:username|password|database|hostname)['\"]\\s*\\]\\s*=\\s*['\"]"
+action:
+  tool: codeigniter_config_probe
+  tier: rule
+  technique_id: "T1552.001"   # MITRE ATT&CK: Unsecured Credentials — Credentials In Files
+  rationale: "CodeIgniter database.php source exposed; extract DB credentials from the PHP array."
