@@ -33,14 +33,16 @@ _ACCESS_RANK: dict[str, int] = {"user": 1, "admin": 2}
 _MECHANISMS = frozenset({"form_post", "http_basic", "json_rpc", "jwt", "saml", "oauth"})
 
 # Canonical auth-surface labels produced by recon.auth_surface (not all have a mech_* mapping yet).
-_AUTH_SURFACE_LABELS = frozenset({
-    "http_basic_auth",
-    "http_digest_auth",
-    "token_auth",
-    "api_auth",
-    "login-form",
-    "spa-login-form",
-})
+_AUTH_SURFACE_LABELS = frozenset(
+    {
+        "http_basic_auth",
+        "http_digest_auth",
+        "token_auth",
+        "api_auth",
+        "login-form",
+        "spa-login-form",
+    }
+)
 
 # Closed set of valid mech_* labels that can satisfy a bare `auth_surface` precondition.
 _AUTH_MECH_LABELS: frozenset[str] = frozenset({f"mech_{m}" for m in _MECHANISMS})
