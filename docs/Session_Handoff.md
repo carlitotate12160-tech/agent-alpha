@@ -1,15 +1,17 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-22, PR #470 CodeIgniter field-prove + PR #472 Slice-1 predicate coverage MERGED, Oracle ARM64 green)
+# Agent-Alpha — Session Handoff (2026-08-22, PR #477 ledger cleanup + PR #478 ingco size-gate MERGED, Oracle ARM64 green; CURRENT SLICE = P1 §12.43 oracle)
 
-Resume with: "lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prove) and PR #472 (ADR §12.66 Slice-1 precondition/effect predicate model) MERGED to `main`. PR #475 (hermetic Conductor driver tests + N/A wiring decision) MERGED. PR #470 live-fire re-run on Oracle ARM64 2026-08-22: `vuln.codeigniter.lab` positive (creds vaulted, leak detected), `hardened.codeigniter.lab` negative. CodeIgniter Conductor autonomous wiring SEALED (recon-stage): catalog-dispatched, guarded by `test_every_catalog_tool_is_dispatchable` + driver proof; no execute_agent W-test required (N/A). P1 §12.43 independent oracle and Temuan 2 Odoo cross-service reuse remain open. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
+Resume with: "lanjut Agent-Alpha — CodeIgniter Conductor recon wiring SEALED (N/A decision, PR #475/#477). PR #478 (response-classifier size-gate for large 200 catch-all SPAs — the ingco.co.id false-CHALLENGE fix) MERGED to `main` + Oracle ARM64 green (635 phase_4 passed, incl. `test_large_catchall_spa_with_reload_signal_stays_ok`). CURRENT SLICE = **P1 §12.43 independent auth-vs-unauth oracle** (owner: GAP-118, §12.43 is LOCKED — this is CODE realization, NO new ADR). Temuan 2 Odoo cross-service reuse remains open (diagnose-first). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
 
 ---
 
 ## ▶ START HERE (new session — do this IN ORDER, do not skip the gate)
 
-1. **`git pull` + confirm HEAD.** Are PR #470 / #472 / #475 on `main` AND green on
-   Oracle ARM64? They are — sealed 2026-08-22. Do NOT re-run the CodeIgniter live-fire unless something regressed.
+1. **`git pull` + confirm HEAD.** Are PR #470 / #472 / #475 / #477 / #478 on `main` AND green on
+   Oracle ARM64? They are — sealed 2026-08-22 (HEAD `7cf1013`). Do NOT re-run the CodeIgniter live-fire unless something regressed.
+   - **PR #477 (ledger cleanup) SEALED:** removed the stale `WIRING_DEBT["codeigniter_config_probe"]` false-green (a proven-wired, catalog-dispatched tool mislabelled as un-wired). Guard is now `test_every_catalog_tool_is_dispatchable` + driver proof.
+   - **PR #478 (ingco size-gate) SEALED:** `_is_reload_interstitial` in `recon/response_classifier.py` now mirrors `is_reload_shell`'s `RELOAD_SHELL_MAX_BYTES` size gate (single source, anti-#7). Root cause: verdict-producer had no size guard → a 361 KB catch-all-200 SPA shell false-classified as CHALLENGE. Cardinal RED `test_large_catchall_spa_with_reload_signal_stays_ok` proves the fix; true-positive small-body interstitial stays CHALLENGE. Soft-404 suppression kept AFTER challenge (rejected the reorder = §12.62 coverage-honesty regression).
 2. **CodeIgniter Conductor autonomous wiring — SEALED (recon-stage). N/A decision recorded 2026-08-22.**
    PR #475 hermetic Conductor driver tests (`test_conductor_driver_vulnerable` / `test_conductor_driver_hardened`)
    prove the `build_recon_pipeline` → `_sweep_targets` → `run_recon` path autonomously drives
@@ -21,9 +23,16 @@ Resume with: "lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prov
    `WIRING_DEBT["codeigniter_config_probe"]` entry (a permanent false-green that mislabelled a proven-wired,
    catalog-dispatched tool as un-wired) was REMOVED; a comment in `test_wiring_gate.py` records why catalog
    tools are not tracked there. `live_fire/codeigniter_field_prove.py` remains a lab RUNNER-SEAL, not the proof.
-3. **P1 and Temuan 2 remain open in the background; do NOT fold them into this slice.**
-   - P1 §12.43 independent auth-vs-unauth oracle (highest-value, separate slice).
-   - Temuan 2 Odoo cross-service reuse incomplete (diagnose-first with a log).
+3. **CURRENT SLICE = P1 §12.43 independent auth-vs-unauth oracle. Owner: GAP-118.**
+   - §12.43 is **LOCKED** (ADR.md §12.43, BANKED 2026-08-18) → P1 is the CODE realization of an
+     already-accepted contract. **NO new ADR.** No new GAP either — GAP-118 IS the implementation
+     track ("If §12.43 locks, this GAP becomes the implementation track" — it now has).
+   - Scope heads-up (architect): GAP-118 Effort = HIGH (~300 lines, ACTIVE_APPROVED live re-auth +
+     lockout governor §12.22 D2, composes GAP-116 authenticated crawl). This is NOT a small slice —
+     it must be DECOMPOSED before any code lands. First step next session: read the live path
+     (`attestation/attestor.py`, `conductor/verification.py`, GAP-116-B authenticated crawl at commit
+     4150814) and propose ONE bounded sub-slice + cardinal RED test. Do NOT half-scaffold the rest.
+   - Temuan 2 Odoo cross-service reuse remains open in the background (diagnose-first with a log) — do NOT fold into P1.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
 
@@ -209,14 +218,13 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prove, RUNNER-SEAL proven on Oracle ARM64: vuln positive / hardened negative) + PR #472 (ADR §12.66 Slice-1 predicate model) MERGED to `main` (079e4791). Conductor-autonomous wiring untuk CodeIgniter = NEXT: daftarkan gap di `tests/governance/test_wiring_gate.py` (WIRING_DEBT), buat W-test melalui `conductor/execute_agent.py`/`conductor/main.py`, dan buat Oracle-green. Jangan lupakan P1 §12.43 independent oracle dan Temuan 2 Odoo cross-service reuse — keduanya masih terbuka sebagai slice terpisah. Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — CodeIgniter Conductor recon wiring SEALED (N/A decision, PR #475/#477). PR #478 ingco size-gate (`_is_reload_interstitial` size guard, `response_classifier.py`) MERGED to `main` (HEAD `7cf1013`) + Oracle ARM64 green. CURRENT SLICE = **P1 §12.43 independent auth-vs-unauth oracle**, owner GAP-118. §12.43 is LOCKED → CODE realization, NO new ADR, NO new GAP. GAP-118 Effort=HIGH → DECOMPOSE first: read `attestation/attestor.py` + `conductor/verification.py` + GAP-116-B authenticated crawl (commit 4150814), propose ONE bounded sub-slice + cardinal RED test before code. Temuan 2 Odoo cross-service reuse still open (diagnose-first). Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
 
 ---
 
 ## SESSION STATUS (2026-08-22)
 
-- **Sealed slices this session:** 3
-  1. CC-17 decomposition of `_strip_php_comments` + full `_unescape_php_string` double-quoted escapes.
-  2. Live-fire test isolation (`tests/` hermetic; field-prove moved to `live_fire/`).
-  3. CodeIgniter config-leak RUNNER-SEAL proven on Oracle ARM64 (`vuln` positive / `hardened` negative) + PR #472 predicate coverage merged.
-- **Current slice status:** `docs/Session_Handoff.md` updated; next open slice = CodeIgniter Conductor autonomous wiring (wiring debt to register + W-test).
+- **Sealed slices this session:** 2
+  1. CodeIgniter Conductor recon wiring N/A decision recorded (PR #477 removed `WIRING_DEBT["codeigniter_config_probe"]` false-green; `test_every_catalog_tool_is_dispatchable` + driver proof = guard).
+  2. Response-classifier size-gate for large 200 catch-all SPAs merged (PR #478, Oracle ARM64 green, 635 phase_4 passed, `test_large_catchall_spa_with_reload_signal_stays_ok` RED).
+- **Current slice status:** `docs/Session_Handoff.md` + `BUGS_AND_GAPS.md` updated. **CURRENT SLICE = P1 §12.43 independent oracle (owner GAP-118, LOCKED contract → no new ADR/GAP; DECOMPOSE before code).**
