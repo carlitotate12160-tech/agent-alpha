@@ -56,7 +56,7 @@ def _stack_of(node: Any) -> list[str]:
     return [str(s).lower() for s in (getattr(_props(node), "tech_stack", None) or [])]
 
 
-def _has_credential(graph: Any, arg: str) -> bool:
+def _has_credential(graph: Any, _arg: str) -> bool:
     return bool(graph.nodes_by_type(NodeType.CREDENTIAL))
 
 
@@ -69,7 +69,7 @@ def _has_access(graph: Any, arg: str) -> bool:
     return False
 
 
-def _has_enables_cred_access(graph: Any, arg: str) -> bool:
+def _has_enables_cred_access(graph: Any, _arg: str) -> bool:
     for e in graph.all_edges():
         if e.relationship != RelationshipType.ENABLES:
             continue
@@ -99,11 +99,11 @@ def _has_auth_surface(graph: Any, arg: str) -> bool:
     return False
 
 
-def _has_user(graph: Any, arg: str) -> bool:
+def _has_user(graph: Any, _arg: str) -> bool:
     return bool(graph.nodes_by_type(NodeType.USER))
 
 
-def _has_fronted_host(graph: Any, arg: str) -> bool:
+def _has_fronted_host(graph: Any, _arg: str) -> bool:
     return any(
         bool(getattr(_props(a), "cf_protected", False)) for a in graph.nodes_by_type(NodeType.ASSET)
     )
