@@ -22,6 +22,7 @@ import argparse
 import dataclasses
 import pathlib
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
@@ -65,6 +66,8 @@ class CodeIgniterResult:
 
 
 def load_codeigniter_config(path: str | pathlib.Path) -> CodeIgniterConfig:
+    # skipcq: PTC-W6004 — live-fire CLI loads an operator-supplied YAML config from argv,
+    # same pattern as all sibling live_fire/load_*_config helpers (lab_guard validates the domain).
     with open(path) as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
@@ -118,9 +121,14 @@ def run_codeigniter_field_prove(
             secrets_manager=secrets_manager,
         )
 
-        # FULL live path — OBSERVE root → fingerprint codeigniter → derive
-        # config path → dispatch codeigniter_config_probe → parse → vault → mint.
-        alpha.run_recon(rec.engagement_id, config.recon_url)
+        # Derive per-target recon URL — same scheme/port as config.recon_url,
+        # but hostname from the iteration target. The codeigniter lab runs
+        # vuln + hardened as Host-header vhosts on the same IP:port (127.0.0.1:8444);
+        # a fixed recon_url would fetch the WRONG vhost for the 2nd target.
+        parsed = urlparse(config.recon_url)
+        port_suffix = f":{parsed.port}" if parsed.port else ""
+        target_url = f"{parsed.scheme}://{target}{port_suffix}/"
+        alpha.run_recon(rec.engagement_id, target_url)
 
         creds_added = len(graph_store.nodes_by_type(NodeType.CREDENTIAL))
         leak_nodes = [

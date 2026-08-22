@@ -1,0 +1,27 @@
+# CodeIgniter config-leak field-prove — self-owned lab (PR #470)
+#
+# Consumed by: agent_alpha/live_fire/codeigniter_field_prove.py -> load_codeigniter_config()
+# Run:         python -m agent_alpha.live_fire.codeigniter_field_prove <this-file.yaml> --no-verify
+#
+# Lab: codeigniter_lab/ — 2 nginx vhosts on 127.0.0.1:8444 (Host-header routing, self-signed TLS):
+#   vuln.codeigniter.lab     → exposes /application/config/database.php (planted DB creds)
+#   hardened.codeigniter.lab → same app shape, denies config path (true-negative)
+#
+# Seed:  cd codeigniter_lab && sudo ./seed.sh
+# Verify: curl -k https://vuln.codeigniter.lab:8444/  (needs /etc/hosts entry → 127.0.0.1)
+#
+# AUTHORIZATION: both hosts are self-owned + in lab_guard._LAB_HOSTS (PR #470, ownership-proofed).
+# --no-verify: required for self-signed lab CA (production recon uses verify=True default).
+
+client_id: "codeigniter_lab"
+
+scope:
+  ip_ranges: []
+  domains:
+    - "vuln.codeigniter.lab"
+    - "hardened.codeigniter.lab"
+  exclusions: []
+
+# recon_url sets the scheme + port template; the runner derives the per-target
+# URL by replacing the hostname (vuln vs hardened vhost on the same IP:port).
+recon_url: "https://vuln.codeigniter.lab:8444/"
