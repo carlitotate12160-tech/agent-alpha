@@ -16,9 +16,16 @@
 from __future__ import annotations
 
 import pathlib
+from typing import Any
 
 import pytest
 
+from agent_alpha.agents.http_client import HttpResponse
+from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
+from agent_alpha.conductor.recon_runner import _sweep_targets, build_recon_pipeline
+from agent_alpha.events.store import InMemoryEventStore
+from agent_alpha.graph.networkx_store import NetworkXGraphStore
+from agent_alpha.graph.nodes import NodeType
 from agent_alpha.live_fire.codeigniter_field_prove import (
     CodeIgniterResult,
     load_codeigniter_config,
@@ -82,3 +89,91 @@ def test_config_loader_happy_path(tmp_path: object) -> None:
     cfg = load_codeigniter_config(p)
     assert cfg.scope_domains == ["vuln.codeigniter.lab"]
     assert cfg.recon_url.endswith("8444/")
+
+
+# ── autonomous conductor-driver tests (hermetic) ──────────────────────────────
+class _MockHttpClient:
+    def __init__(self, is_vulnerable: bool) -> None:
+        self.is_vulnerable = is_vulnerable
+
+    def get(self, url: str, **kwargs: Any) -> HttpResponse:
+        if self.is_vulnerable:
+            if "application/config/database.php" in url:
+                return HttpResponse(
+                    status_code=200,
+                    text="<?php $db['default']['username'] = 'root'; $db['default']['password'] = 'secret'; ?>",
+                    headers={},
+                    url=url,
+                )
+            if url.endswith("/"):
+                # Fingerprint trigger
+                return HttpResponse(
+                    status_code=200,
+                    text="<html></html>",
+                    headers={"Set-Cookie": "ci_session=abcdef; path=/"},
+                    url=url,
+                )
+        return HttpResponse(status_code=404, text="Not Found", headers={}, url=url)
+
+
+def test_conductor_driver_vulnerable(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy_key")
+    store = InMemoryEventStore()
+    graph = NetworkXGraphStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    eng = auth.create_engagement("test_client", "vuln.codeigniter.lab")
+    auth.enable_recon(
+        eng.engagement_id,
+        Scope(ip_ranges=[], domains=["vuln.codeigniter.lab"], exclusions=[]),
+    )
+
+    pipeline = build_recon_pipeline(
+        engagement_id=eng.engagement_id,
+        tenant_id="test",
+        auth=auth,
+        store=store,
+        browser_solve_viable=False,
+    )
+    pipeline.alpha.http_client = _MockHttpClient(is_vulnerable=True)
+    pipeline.alpha.graph_store = graph
+    pipeline.alpha.event_store = store
+
+    _sweep_targets(pipeline, eng.engagement_id, ["https://vuln.codeigniter.lab/"])
+
+    nodes = graph.all_nodes()
+    vuln_nodes = [n for n in nodes if n.type == NodeType.VULNERABILITY]
+    cred_nodes = [n for n in nodes if n.type == NodeType.CREDENTIAL]
+
+    assert len(vuln_nodes) == 1
+    assert vuln_nodes[0].id.endswith(":ci_config_leak")
+    assert len(cred_nodes) >= 1
+    assert any(c.properties.username == "root" for c in cred_nodes)
+
+
+def test_conductor_driver_hardened(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "dummy_key")
+    store = InMemoryEventStore()
+    graph = NetworkXGraphStore()
+    auth = AuthorizationStateMachine(event_store=store)
+    eng = auth.create_engagement("test_client", "secure.codeigniter.lab")
+    auth.enable_recon(
+        eng.engagement_id,
+        Scope(ip_ranges=[], domains=["secure.codeigniter.lab"], exclusions=[]),
+    )
+
+    pipeline = build_recon_pipeline(
+        engagement_id=eng.engagement_id,
+        tenant_id="test",
+        auth=auth,
+        store=store,
+        browser_solve_viable=False,
+    )
+    pipeline.alpha.http_client = _MockHttpClient(is_vulnerable=False)
+    pipeline.alpha.graph_store = graph
+    pipeline.alpha.event_store = store
+
+    _sweep_targets(pipeline, eng.engagement_id, ["https://secure.codeigniter.lab/"])
+
+    nodes = graph.all_nodes()
+    vuln_nodes = [n for n in nodes if n.type == NodeType.VULNERABILITY]
+    assert len(vuln_nodes) == 0

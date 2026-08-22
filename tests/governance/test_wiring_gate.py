@@ -125,6 +125,10 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
 # dead instantiation site (e.g. PolicyEnforcer is built in main.py but never used —
 # the target is the ENFORCEMENT site, not the constructor call).
 WIRING_DEBT: dict[str, tuple[tuple[str, ...], str]] = {
+    "codeigniter_config_probe": (
+        ("agents/alpha/scout.py",),
+        "CodeIgniter probe auto-wired via catalog but missing explicit symbol guard (test wiring gap)",
+    ),
     "SessionStore": (
         ("conductor/recon_runner.py", "conductor/execute_agent.py"),
         "GAP-002 / ADR §12.11 (scratchpad wiring)",
