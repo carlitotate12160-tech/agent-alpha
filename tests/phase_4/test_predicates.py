@@ -143,11 +143,13 @@ def test_malformed_or_unregistered_predicates_are_not_registered() -> None:
     assert is_registered(":credential") is False
     assert is_registered("stack:wp:extra") is False
     assert is_registered("stack:") is False
+    # Whitespace-only args must not register (CodeRabbit regression).
+    assert is_registered("stack:   ") is False
 
 
 def test_resolve_raises_on_malformed_predicate() -> None:
     g = _FakeGraph([], [])
-    for malformed in ("", "credential:", "stack:wp:extra", "stack:", ":wp"):
+    for malformed in ("", "credential:", "stack:wp:extra", "stack:", ":wp", "stack:   "):
         with pytest.raises(ValueError):
             resolve(malformed, g)
 

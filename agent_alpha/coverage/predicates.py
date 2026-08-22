@@ -114,7 +114,7 @@ _REGISTRY: dict[str, tuple[Callable[[Any, str], bool], Callable[[str], bool]]] =
     "credential": (_has_credential, lambda a: a == ""),
     "access": (_has_access, lambda a: a in _ACCESS_RANK),
     "enables_cred_access": (_has_enables_cred_access, lambda a: a == ""),
-    "stack": (_has_stack, lambda a: a != ""),
+    "stack": (_has_stack, lambda a: a.strip() != ""),
     "auth_surface": (_has_auth_surface, lambda a: a == "" or a in _MECHANISMS),
     "user_enumerated": (_has_user, lambda a: a == ""),
     "fronted_host": (_has_fronted_host, lambda a: a == ""),
