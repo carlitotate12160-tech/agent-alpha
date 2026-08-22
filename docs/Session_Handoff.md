@@ -1,26 +1,23 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-19, GAP-118 attestor-resolve SEALED on PR #454 + STEP-2 field-confirmed wpvuln INCONCLUSIVE)
+# Agent-Alpha — Session Handoff (2026-08-22, PR #470 CodeIgniter field-prove + PR #472 Slice-1 predicate coverage MERGED, Oracle ARM64 green)
 
-Resume with: "lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-B/C authenticated-crawl + WP multi-cookie session jar MERGED (commit 4150814) + GAP-118 attestor Rule 3 hardening SEALED (PR #454 merged as 6fe008d2, Oracle ARM64 green, 606/606 tests). STEP-2 field-prove CONFIRMED: alpha-ai `wpvuln` access now INCONCLUSIVE (F=False) — its bare-UUID secret_ref does NOT resolve in the vault, exactly the false-provenance GAP-118 closes. NEXT IN ORDER: (1) P1 = the FULL §12.43 independent oracle (auth-vs-unauth diff composing the 116-B crawl) — GAP-118 made provenance HONEST, NOT the oracle; (2) Temuan 2 = Odoo cross-service reuse incomplete (E=False, db_enumerated=False) — diagnose with a log, do NOT guess. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
+Resume with: "lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prove) and PR #472 (ADR §12.66 Slice-1 precondition/effect predicate model) MERGED to `main` (079e4791). PR #470 RUNNER-SEAL proven on Oracle ARM64: `vuln.codeigniter.lab` positive (creds vaulted, leak detected), `hardened.codeigniter.lab` negative. CC-17 decomposition, full `_unescape_php_string` double-quoted escapes, and live-fire test isolation all pass. Conductor-autonomous wiring for CodeIgniter = NEXT (wiring debt to register in `test_wiring_gate.py` and close via `conductor/execute_agent.py` or `conductor/main.py`). Do NOT lose P1 §12.43 independent oracle or Temuan 2 Odoo cross-service reuse — they remain open. Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9)."
 
 ---
 
 ## ▶ START HERE (new session — do this IN ORDER, do not skip the gate)
 
-1. **`git pull` + confirm HEAD.** Is GAP-118 (PR #454, merged as `6fe008d2`) on main AND green on
-   Oracle ARM64? It is — sealed 2026-08-19. STEP-2 field-prove already re-run: `wpvuln` = INCONCLUSIVE
-   (F=False), the false-provenance is closed. Do NOT re-run STEP-2 unless something regressed.
-2. **If sealed & Oracle-green → THE SLICE IS: P1 (§12.43 independent oracle).** GAP-118 only made
-   provenance HONEST (secret_ref must resolve to engagement-owned vaulted material). It did NOT add
-   the independent auth-vs-unauth diff oracle §12.43 mandates. P1 composes the 116-B authenticated
-   crawl (already merged) into an auth-vs-unauth marker diff — that is the payable floor. This is the
-   highest-value item: makes a chain claim *defensible* (an independent signal), not just provenance-checked.
-3. **Temuan 2 (separate, diagnose-first):** Odoo cross-service reuse still incomplete — STEP-2 shows
-   E=False (ENABLES edge does not source from the vaulted cred) and db_enumerated=False. Diagnose with
-   a log, do NOT guess (anti-mis-fix). The `wpvuln` cred's secret_ref is a bare UUID that does NOT
-   resolve — that is correct post-GAP-118 behavior, but it means the harvested cred is not being vaulted
-   with a `secret_` ref on this path. Inspect the harvest→vault→reuse wiring.
+1. **`git pull` + confirm HEAD.** Are PR #470 / #472 (merged as `ce9d0844` / `079e4791`) on `main` AND green on
+   Oracle ARM64? They are — sealed 2026-08-22. Do NOT re-run the CodeIgniter live-fire unless something regressed.
+2. **If sealed & Oracle-green → THE SLICE IS: CodeIgniter Conductor autonomous wiring (debt from PR #470).**
+   `live_fire/codeigniter_field_prove.py` is a **RUNNER-SEAL** (bypasses Conductor). It does NOT prove the
+   Conductor path can autonomously drive `recon → fingerprint codeigniter → derive config → vault → verify`.
+   This slice registers the gap in `tests/governance/test_wiring_gate.py` (WIRING_DEBT) and adds a W-test
+   exercising the vector through `conductor/execute_agent.py` (or `conductor/main.py`) with `verify_access_nodes`.
+3. **P1 and Temuan 2 remain open in the background; do NOT fold them into this slice.**
+   - P1 §12.43 independent auth-vs-unauth oracle (highest-value, separate slice).
+   - Temuan 2 Odoo cross-service reuse incomplete (diagnose-first with a log).
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
 
@@ -63,6 +60,43 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 - **F=False where it was wrongly F=True before GAP-118 — the false-provenance is closed.** This is the field-confirmation.
 
 **Still open after seal:** P1 §12.43 independent oracle (auth-vs-unauth diff composing 116-B crawl) → Temuan 2 (Odoo cross-service reuse E=False, db_enumerated=False, diagnose with a log not a guess).
+
+---
+
+## ✅ SEALED — PR #470: CodeIgniter config-leak field-prove (merged 2026-08-22 as part of `ce9d0844`)
+
+**What:** End-to-end leak → credential → vault vector for CodeIgniter `application/config/database.php` exposure.
+
+**Commits (all on `main` via merge of PR #470):**
+
+| Commit | What |
+|--------|------|
+| `c0f109b1` | v1: CodeIgniter probe, playbook, parser, live test (collection-time network). |
+| `e908838a` | v2: `_unescape_php_string` full PHP double-quoted escapes; `_strip_php_comments` decomposed to CC 7; real-HTTP field-prove moved from `tests/` to `live_fire/codeigniter_field_prove.py`; lab_guard hosts added; `--no-verify` for self-signed lab cert. |
+| `9f6414fe` | Classify `codeigniter_field_prove` as `ATTACKER_HARNESS` in `test_lab_guard_coverage.py`. |
+
+**Oracle ARM64 seal:**
+- `make check` clean (ruff + ruff format + mypy).
+- `pytest tests/phase_2/test_leak_extraction.py tests/phase_4/test_codeigniter_field_prove.py` — **12 passed**.
+- `pytest tests/phase_4/` — **623 passed, 1 skipped**.
+- Live-fire run (`agent_alpha/live_fire/codeigniter_field_prove.py` against seeded `codeigniter_lab`):
+  - `vuln.codeigniter.lab` — `creds_added: 2`, `credential_vaulted: True`, `leak_detected: True` → **positive proven**.
+  - `hardened.codeigniter.lab` — `creds_added: 0`, `credential_vaulted: False`, `leak_detected: False` → **negative proven**.
+- DeepSource PASS, quality-gate PASS, all CI green.
+
+**What is NOT claimed sealed:** Conductor-autonomous wiring. The live-fire runner is a RUNNER-SEAL (bypasses Conductor). The Conductor path driving this vector end-to-end is the next slice.
+
+---
+
+## ✅ SEALED — PR #472: ADR §12.66 Slice-1 precondition/effect predicate model (merged 2026-08-22 as `079e4791`)
+
+**What:** Closed `requires`/`produces` predicate vocabulary for techniques in `techniques.yaml`; predicate resolution against an AttackGraph-like interface; governance checks ensuring catalog predicates are registered and that capable node-producing techniques declare effects.
+
+**Oracle ARM64 seal:**
+- `make check` clean.
+- `pytest tests/governance/test_coverage_catalog_integrity.py tests/phase_4/test_predicates.py` — predicate suite passed.
+- `pytest tests/phase_4/` — **623 passed, 1 skipped** on the final run.
+- DeepSource PASS, quality-gate PASS, all CI green.
 
 ---
 
@@ -110,6 +144,13 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 ---
 
 ## OPEN / NOT DONE (registered, prioritised)
+
+**Immediate follow-up from PR #470 — CodeIgniter Conductor autonomous wiring (ONE slice, do NOT fold into P1 or Temuan 2):**
+- **CodeIgniter field-prove must be wired through the Conductor autonomous path.** `live_fire/codeigniter_field_prove.py` is a runner-island (self-authorizes, bypasses Conductor). The product's payable claim requires the Conductor to drive `recon → fingerprint 'codeigniter' → derive /application/config/database.php → codeigniter_config_probe → vault → verify` without a hand-fed runner.
+- **Step 1 — register wiring debt:** Add a `WIRING_DEBT` entry in `tests/governance/test_wiring_gate.py` for the relevant symbol (e.g. `codeigniter_config_probe` or `ci_config`) and target `conductor/execute_agent.py` / `conductor/main.py`. This makes CI track the gap.
+- **Step 2 — W-test:** Add `tests/phase_4/test_conductor_codeigniter_chain.py` (or similar) that drives the vector through the real Conductor Celery/eager path (like `test_conductor_chain_characterize.py` does for Odoo), ending with a `verify_access_nodes` cross-verified outcome.
+- **Step 3 — move to WIRED_REQUIRED:** Once the symbol is referenced on the live Conductor path, move it from `WIRING_DEBT` to `WIRED_REQUIRED`.
+- **Oracle exit criterion:** same `vuln.codeigniter.lab` positive / `hardened.codeigniter.lab` negative, but triggered through `conductor/execute_agent.py`, not `live_fire/...`.
 
 **Highest-value next slice — P1: §12.43 independent oracle:**
 - **P1 §12.43 independent auth-vs-unauth oracle** ★ — composes the 116-B authenticated crawl (already merged,
@@ -166,4 +207,14 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — §12.43 proof-standard LOCKED + GAP-116-B/C authenticated-crawl & WP multi-cookie session jar MERGED (commit 4150814) + GAP-118 attestor Rule 3 hardening SEALED (PR #454 → 6fe008d2, Oracle ARM64 green, 606/606 tests, DeepSource + quality-gate PASS). STEP-2 field-prove CONFIRMED: alpha-ai `wpvuln` access now INCONCLUSIVE (F=False) — bare-UUID secret_ref does NOT resolve in vault, false-provenance closed. NEXT IN ORDER: (1) P1 = FULL §12.43 independent oracle (auth-vs-unauth diff composing 116-B crawl) — GAP-118 is provenance-resolve only, NOT the oracle; (2) Temuan 2 = Odoo cross-service reuse incomplete (E=False, db_enumerated=False), diagnose with a log not a guess. Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prove, RUNNER-SEAL proven on Oracle ARM64: vuln positive / hardened negative) + PR #472 (ADR §12.66 Slice-1 predicate model) MERGED to `main` (079e4791). Conductor-autonomous wiring untuk CodeIgniter = NEXT: daftarkan gap di `tests/governance/test_wiring_gate.py` (WIRING_DEBT), buat W-test melalui `conductor/execute_agent.py`/`conductor/main.py`, dan buat Oracle-green. Jangan lupakan P1 §12.43 independent oracle dan Temuan 2 Odoo cross-service reuse — keduanya masih terbuka sebagai slice terpisah. Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+
+---
+
+## SESSION STATUS (2026-08-22)
+
+- **Sealed slices this session:** 3
+  1. CC-17 decomposition of `_strip_php_comments` + full `_unescape_php_string` double-quoted escapes.
+  2. Live-fire test isolation (`tests/` hermetic; field-prove moved to `live_fire/`).
+  3. CodeIgniter config-leak RUNNER-SEAL proven on Oracle ARM64 (`vuln` positive / `hardened` negative) + PR #472 predicate coverage merged.
+- **Current slice status:** `docs/Session_Handoff.md` updated; next open slice = CodeIgniter Conductor autonomous wiring (wiring debt to register + W-test).
