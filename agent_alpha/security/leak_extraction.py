@@ -139,7 +139,8 @@ def _extract_from_codeigniter_database(body: str) -> dict[str, str]:
 
     # 1) Try per-key assignments first: $db['default']['username'] = '...';
     for m in re.finditer(
-        r"\$db\s*\[\s*['\"]default['\"]\s*\]\s*\[\s*['\"](?P<key>\w+)['\"]\s*\]\s*=\s*" + _PHP_STRING_RE,
+        r"\$db\s*\[\s*['\"]default['\"]\s*\]\s*\[\s*['\"](?P<key>\w+)['\"]\s*\]\s*=\s*"
+        + _PHP_STRING_RE,
         source,
         re.IGNORECASE,
     ):
