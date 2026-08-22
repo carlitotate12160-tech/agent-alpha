@@ -10,14 +10,17 @@ Resume with: "lanjut Agent-Alpha — PR #470 (CodeIgniter config-leak field-prov
 
 1. **`git pull` + confirm HEAD.** Are PR #470 / #472 / #475 on `main` AND green on
    Oracle ARM64? They are — sealed 2026-08-22. Do NOT re-run the CodeIgniter live-fire unless something regressed.
-2. **If sealed & Oracle-green → THE SLICE IS: CodeIgniter Conductor autonomous wiring (debt from PR #470).**
-   `live_fire/codeigniter_field_prove.py` is a **RUNNER-SEAL** (bypasses Conductor). PR #475 added hermetic
-   Conductor driver tests (`test_conductor_driver_vulnerable` / `test_conductor_driver_hardened`) that prove
-   the `build_recon_pipeline` → `_sweep_targets` recon path can autonomously drive
+2. **CodeIgniter Conductor autonomous wiring — SEALED (recon-stage). N/A decision recorded 2026-08-22.**
+   PR #475 hermetic Conductor driver tests (`test_conductor_driver_vulnerable` / `test_conductor_driver_hardened`)
+   prove the `build_recon_pipeline` → `_sweep_targets` → `run_recon` path autonomously drives
    `recon → fingerprint 'codeigniter' → derive /application/config/database.php → codeigniter_config_probe → vault`.
-   The full `conductor/execute_agent.py` (Celery/eager) W-test with `verify_access_nodes`, or an explicit
-   N/A decision for this recon-only vector, remains to close before moving `codeigniter_config_probe` from
-   `WIRING_DEBT` to `WIRED_REQUIRED`.
+   **N/A decision:** `codeigniter_config_probe` is a RECON-stage (E1→E3) leak vector; `conductor/execute_agent.py` 
+   is the OFFENSIVE (Beta/Gamma/Omega) path — a recon leak probe never belongs there, so there is NO
+   execute_agent W-test to wait on. The correct regression guard is `test_every_catalog_tool_is_dispatchable` 
+   (catalog tool → `Alpha._dispatch_registry`) + the driver proof — NOT a symbol-in-module gate. The stale
+   `WIRING_DEBT["codeigniter_config_probe"]` entry (a permanent false-green that mislabelled a proven-wired,
+   catalog-dispatched tool as un-wired) was REMOVED; a comment in `test_wiring_gate.py` records why catalog
+   tools are not tracked there. `live_fire/codeigniter_field_prove.py` remains a lab RUNNER-SEAL, not the proof.
 3. **P1 and Temuan 2 remain open in the background; do NOT fold them into this slice.**
    - P1 §12.43 independent auth-vs-unauth oracle (highest-value, separate slice).
    - Temuan 2 Odoo cross-service reuse incomplete (diagnose-first with a log).
