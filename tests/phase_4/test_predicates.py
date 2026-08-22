@@ -78,6 +78,31 @@ def test_stack_and_auth_surface_and_fronted() -> None:
     assert resolve("fronted_host", g) is True
 
 
+def test_auth_surface_also_matches_canonical_labels() -> None:
+    # A host can be recognized as an auth surface before mechanism fingerprinting runs.
+    asset = NS(
+        id="asset:h",
+        type=NodeType.ASSET,
+        properties=NS(host="h", tech_stack=["login-form"], cf_protected=False),
+    )
+    g = _FakeGraph([asset], [])
+    assert resolve("auth_surface", g) is True
+    # Parameterized auth_surface still requires a valid mech_* label on the stack.
+    assert resolve("auth_surface:form_post", g) is False
+
+
+def test_bare_auth_surface_rejects_unknown_mech_labels() -> None:
+    # `mech_telnet` is not in the closed mechanism vocabulary, so it must not satisfy
+    # a bare `auth_surface` precondition that is supposed to be closed.
+    asset = NS(
+        id="asset:h",
+        type=NodeType.ASSET,
+        properties=NS(host="h", tech_stack=["mech_telnet"], cf_protected=False),
+    )
+    g = _FakeGraph([asset], [])
+    assert resolve("auth_surface", g) is False
+
+
 def test_enables_requires_cred_source_and_access_target() -> None:
     # An ENABLES edge that does NOT go CREDENTIAL -> ACCESS_LEVEL must not satisfy the predicate.
     cred = NS(id="cred:h", type=NodeType.CREDENTIAL, properties=NS())

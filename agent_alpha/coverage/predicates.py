@@ -29,8 +29,21 @@ from agent_alpha.graph.nodes import NodeType, RelationshipType
 _ACCESS_RANK: dict[str, int] = {"user": 1, "admin": 2}
 
 # Bare auth-mechanism tokens (mirrors recon.auth_surface / GAP-074). `auth_surface:<mech>` gates a
-# mechanism-specific surface; bare `auth_surface` = any fingerprinted auth surface.
+# mechanism-specific surface; bare `auth_surface` = any recognized auth-surface or mech_* label.
 _MECHANISMS = frozenset({"form_post", "http_basic", "json_rpc", "jwt", "saml", "oauth"})
+
+# Canonical auth-surface labels produced by recon.auth_surface (not all have a mech_* mapping yet).
+_AUTH_SURFACE_LABELS = frozenset({
+    "http_basic_auth",
+    "http_digest_auth",
+    "token_auth",
+    "api_auth",
+    "login-form",
+    "spa-login-form",
+})
+
+# Closed set of valid mech_* labels that can satisfy a bare `auth_surface` precondition.
+_AUTH_MECH_LABELS: frozenset[str] = frozenset({f"mech_{m}" for m in _MECHANISMS})
 
 
 def _props(node: Any) -> Any:
@@ -71,14 +84,15 @@ def _has_stack(graph: Any, arg: str) -> bool:
 
 
 def _has_auth_surface(graph: Any, arg: str) -> bool:
-    # `auth_surface:<mech>` -> that mechanism's mech_* label; bare `auth_surface` = any mech_* label.
+    # `auth_surface:<mech>` -> that mechanism's mech_* label; bare `auth_surface` = any recognized
+    # auth-surface label or any mech_* label from the closed mechanism vocabulary.
     want = f"mech_{arg}" if arg else None
     for a in graph.nodes_by_type(NodeType.ASSET):
         stack = _stack_of(a)
         if want is not None:
             if want in stack:
                 return True
-        elif any(s.startswith("mech_") for s in stack):
+        elif any(s in _AUTH_SURFACE_LABELS or s in _AUTH_MECH_LABELS for s in stack):
             return True
     return False
 
