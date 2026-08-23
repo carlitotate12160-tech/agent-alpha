@@ -66,15 +66,22 @@ def seed_fingerprint_first(alpha: Any, target_url: str, root: str, intel_signal:
         # matches the pop; using a constructed "root/" would double-fetch a distinct URL.
         root_resp = alpha.http_client.get(target_url)
     except HttpClientError:
-        # D-2: root is transport-dead. Mirror _step_once R1 — mark dead, prune this host's
-        # queued entries (incl. the pre-seeded target_url) so the loop makes NO second attempt.
+        # D-2: root front-door transport-dead. §12.61 origin-flank — the timeout is the
+        # origin-direct PRECONDITION, not an abort (the niagamas lesson). Try the
+        # discovered origin BEFORE abandoning; reuse the SAME reach path as _step_once
+        # (no 2nd path, #6). Fail-closed: None → mirror the original mark-dead + prune.
         host = urlparse(target_url).hostname or urlparse(target_url).netloc
-        alpha._dead_hosts.add(host)
-        alpha._work_queue = [
-            u for u in alpha._work_queue if (urlparse(u).hostname or urlparse(u).netloc) != host
-        ]
-        alpha._persist_host_abandoned_event(host)
-        return
+        reach = alpha._attempt_reach_transport_dead(target_url)
+        if reach is None:
+            alpha._dead_hosts.add(host)
+            alpha._work_queue = [
+                u for u in alpha._work_queue if (urlparse(u).hostname or urlparse(u).netloc) != host
+            ]
+            alpha._persist_host_abandoned_event(host)
+            return
+        # Origin-flank reached surface → fingerprint the origin body and seed stack-gated
+        # leak paths from it, exactly as the live-front-door path below.
+        root_resp = reach
 
     observation = {"body": root_resp.text, "headers": dict(root_resp.headers)}
     labels = fingerprint_all(observation, getattr(alpha.orchestrator, "playbook", None))
