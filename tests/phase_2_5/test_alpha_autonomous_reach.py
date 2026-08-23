@@ -31,6 +31,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_alpha.agents.alpha.scout import Alpha
+from agent_alpha.recon import origin_reach
 from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.conductor.engagement_profile import EngagementProfile
 from agent_alpha.events.event_types import EventType
@@ -220,7 +221,7 @@ def test_alpha_autonomous_reach_origin_direct(monkeypatch: pytest.MonkeyPatch) -
 
     from agent_alpha.agents.alpha import scout
 
-    monkeypatch.setattr(scout, "origin_direct_fetch", _fake_origin_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _fake_origin_fetch)
     profile = _make_profile(authorized_origins=frozenset({_ORIGIN_IP}))
     origin_discovery = StaticOriginDiscovery([_ORIGIN_IP])
 
@@ -394,7 +395,7 @@ def test_reach_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
 
     from agent_alpha.agents.alpha import scout
 
-    monkeypatch.setattr(scout, "origin_direct_fetch", _fake_origin_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _fake_origin_fetch)
 
     profile = _make_profile(authorized_origins=frozenset({_ORIGIN_IP}))
     origin_discovery = StaticOriginDiscovery([_ORIGIN_IP])
@@ -631,7 +632,7 @@ def test_alpha_reach_origin_direct_via_runtime_binding(monkeypatch: pytest.Monke
         return _StubOriginDirectResult(body=_OK_BODY)
 
     monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
-    monkeypatch.setattr(scout, "origin_direct_fetch", _reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
 
     alpha = _make_alpha(
         event_store=store,
@@ -668,7 +669,7 @@ def test_alpha_reach_refused_when_candidate_not_bound(monkeypatch: pytest.Monkey
     )
     # Track the reach-transport boundary: it must NEVER be hit when nothing binds.
     reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
-    monkeypatch.setattr(scout, "origin_direct_fetch", reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_alpha(
         event_store=store,
@@ -708,13 +709,13 @@ def test_origin_resolution_cached_once_per_host(monkeypatch: pytest.MonkeyPatch)
     )
 
     calls = {"n": 0}
-    real = scout.resolve_and_bind_origin
+    real = origin_reach.resolve_and_bind_origin
 
     def _counting(**kw: Any) -> Any:
         calls["n"] += 1
         return real(**kw)
 
-    monkeypatch.setattr(scout, "resolve_and_bind_origin", _counting)
+    monkeypatch.setattr(origin_reach, "resolve_and_bind_origin", _counting)
 
     alpha = _make_alpha(
         origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
@@ -810,7 +811,7 @@ def test_transport_dead_front_door_reaches_via_origin_flank(
         return _StubOriginDirectResult(body=_OK_BODY)
 
     monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
-    monkeypatch.setattr(scout, "origin_direct_fetch", _reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
 
     alpha = _make_transport_dead_alpha(
         store,
@@ -855,7 +856,7 @@ def test_transport_dead_front_door_fail_closed_on_stale_candidate(
     )
     # Reach-transport boundary: must NEVER be hit when nothing binds.
     reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
-    monkeypatch.setattr(scout, "origin_direct_fetch", reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_transport_dead_alpha(
         store,
@@ -890,7 +891,7 @@ def test_transport_dead_front_door_no_discovery_consent_marks_dead(
     from agent_alpha.agents.alpha import scout
 
     reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
-    monkeypatch.setattr(scout, "origin_direct_fetch", reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_transport_dead_alpha(
         store,
@@ -935,7 +936,7 @@ def test_transport_dead_front_door_does_not_count_as_egress_ok(
         return _StubOriginDirectResult(body=_OK_BODY)
 
     monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
-    monkeypatch.setattr(scout, "origin_direct_fetch", _reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
 
     alpha = _make_transport_dead_alpha(
         store,

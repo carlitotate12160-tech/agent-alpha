@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.recon.capability_probe import capability_for_tool
+from agent_alpha.recon.origin_reach import attempt_reach_transport_dead
 
 
 def fingerprint_all(observation: dict[str, Any], playbook: Any) -> tuple[str, ...]:
@@ -76,7 +77,7 @@ def seed_fingerprint_first(alpha: Any, target_url: str, root: str, intel_signal:
         # seed is NOT origin-flanked (it is just non-analyzable). Keeps the two
         # transport-dead call-sites symmetric (Sourcery bug_risk).
         reach = (
-            alpha._attempt_reach_transport_dead(target_url)
+            attempt_reach_transport_dead(alpha, target_url)
             if urlparse(target_url).path in ("", "/")
             else None
         )

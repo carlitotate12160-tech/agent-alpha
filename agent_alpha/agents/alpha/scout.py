@@ -48,14 +48,18 @@ from agent_alpha.recon.capability_probe import capability_for_tool
 from agent_alpha.recon.compromise_catalog import SEO_INJECTION_SPEC, detect_seo_injection
 from agent_alpha.recon.fingerprint import seed_fingerprint_first
 from agent_alpha.recon.git_exposure_probe import _default_git_dumper
-from agent_alpha.recon.origin_binding import resolve_and_bind_origin
+from agent_alpha.recon.origin_reach import (
+    _ReachResponse,
+    attempt_reach_transport_dead,
+    origin_direct_probe,
+    resolve_authorized_origin,
+)
 from agent_alpha.recon.passive_intel import passive_intel_signal_for_host
 from agent_alpha.recon.path_probe import RecoverStrategy, process_path_hit, spec_for_tool
 from agent_alpha.recon.plugin_cve_catalog import lookup as cve_lookup
-from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach, is_cloudflare_ip
+from agent_alpha.recon.reach_strategy import ReachStrategy, choose_reach
 from agent_alpha.recon.reach_transport import (
     is_tls_impersonate_available,
-    origin_direct_fetch,
     tls_impersonate_fetch,
 )
 from agent_alpha.recon.recon_coverage import emit_recon_technique_attempt
@@ -80,22 +84,6 @@ Volatile headers deliberately excluded from the hash key: see
 single source of truth).  Hashing those would defeat Bug #20 entirely —
 every request has a different CF-Ray / Date / Set-Cookie.
 """
-
-
-class _ReachResponse:
-    """Adapter so origin-direct / browser_solve results feed into the existing
-    OBSERVE→ORIENT→ACT flow which expects ``.status_code`` / ``.text`` / ``.headers``.
-
-    NOT a reimplementation of reach (anti-#6) — just a response-shaped wrapper
-    so the rest of ``_step_once`` can consume the reach result unchanged.
-    """
-
-    __slots__ = ("status_code", "text", "headers")
-
-    def __init__(self, status_code: int, body: str, headers: dict[str, str]) -> None:
-        self.status_code = status_code
-        self.text = body
-        self.headers = headers
 
 
 class Alpha:
@@ -477,7 +465,7 @@ class Alpha:
                 # origin-direct PRECONDITION, not an abort. Try the discovered origin
                 # BEFORE abandoning (the niagamas lesson). Fail-closed: None → mark dead
                 # exactly as before; success → fall through to the normal OODA flow.
-                reach = self._attempt_reach_transport_dead(url)
+                reach = attempt_reach_transport_dead(self, url)
                 if reach is None:
                     self._dead_hosts.add(host)
                     # R2: prune queued paths for this host NOW in one pass so that
@@ -930,9 +918,10 @@ class Alpha:
         )
 
         # 2. Resolve authorized origin (per-host cached; §12.46 discovery + fail-closed).
-        #    EXTRACTED to _resolve_authorized_origin so the transport-dead reach path
-        #    (root front-door timeout, no resp) reuses the SAME binding — no 2nd path (#6).
-        authorized_origins_list = self._resolve_authorized_origin(host)
+        #    origin_reach.resolve_authorized_origin is the SINGLE binding, shared with the
+        #    transport-dead path (fingerprint seed) — no 2nd origin path (#6), and lifted
+        #    out of scout to hold the GAP-161 size ratchet (anti-#8).
+        authorized_origins_list = resolve_authorized_origin(self, host)
         authorized_origin = authorized_origins_list[0] if authorized_origins_list else None
 
         # 3. Capability gate: browser_solve viable only if transport is
@@ -960,9 +949,9 @@ class Alpha:
 
         # 5. Dispatch
         if strategy is ReachStrategy.ORIGIN_DIRECT and authorized_origin is not None:
-            # EXTRACTED to _origin_direct_probe so the transport-dead path reuses the
-            # SAME §12.46-gated dispatch — no 2nd origin-direct path (#6).
-            return self._origin_direct_probe(url, host, path, authorized_origins_list)
+            # origin_reach.origin_direct_probe is the SINGLE §12.46-gated dispatch, shared
+            # with the transport-dead path — no 2nd origin-direct path (#6).
+            return origin_direct_probe(self, url, host, path, authorized_origins_list)
 
         if strategy is ReachStrategy.EVASION and self._browser_solve is not None:
             self._emit(
@@ -1031,184 +1020,6 @@ class Alpha:
             f"Reach: no authorized strategy for {url} (mitigation={mitigation})",
         )
         return None
-
-    def _resolve_authorized_origin(self, host: str) -> list[str]:
-        """Resolve authorized origin IPs for ``host`` (per-host cached, §12.46).
-
-        EXTRACTED verbatim from ``_attempt_reach`` (behaviour-preserving) so BOTH the
-        response-blocked path and the transport-dead path reuse ONE binding — no
-        duplicate origin path (anti-#6). resp-independent: needs only ``host``.
-
-        Candidates are filtered against signed authorized_origins (C9: candidate ≠
-        authorization) AND Cloudflare edge IPs are dropped (hitting CF edge with a Host
-        header is NOT origin-direct). §12.46 discovery path PROVE-binds one candidate via
-        the ownership-token canary (``resolve_and_bind_origin`` emits
-        ORIGIN_BINDING_PROVEN). Fail-closed: returns ``[]`` when nothing binds.
-
-        PER-HOST cache (perf + opsec): discovery (crt.sh, 30s timeout when down) +
-        token-canary binding are IDENTICAL for every path on the same host — including
-        the empty "tried, nothing authorized" negative case. Mirrors the _reach_class cache.
-        """
-        if self._engagement_profile is None:
-            return []
-
-        cached_origins = self._bound_origin.get(host)
-        if cached_origins is not None:
-            return cached_origins
-
-        authorized_origins_list: list[str] = []
-        if self._origin_discovery is not None and getattr(
-            self._engagement_profile, "authorized_origins", None
-        ):
-            # Static/cooperative path: client pre-signed the origin IPs.
-            candidates = self._origin_discovery.candidates(host)
-            authorized_origins_list = [
-                ip
-                for ip in candidates
-                if ip in self._engagement_profile.authorized_origins
-                and not is_cloudflare_ip(ip)  # CF edge IPs are not valid origins
-            ]
-
-        # §12.46 discovery path: no pre-signed origin, but the signed profile consented
-        # to allow_origin_discovery → discover candidates and PROVE-bind one
-        # (ownership-token canary). Fail-closed: [] (no reach) when nothing binds.
-        if (
-            not authorized_origins_list
-            and self._origin_discovery is not None
-            and getattr(self._engagement_profile, "allow_origin_discovery", False)
-        ):
-            bound_ip = resolve_and_bind_origin(
-                fronted_host=host,
-                profile=self._engagement_profile,
-                event_store=self.event_store,
-                engagement_id=self._engagement_id,
-                discovery=self._origin_discovery,
-            )
-            if bound_ip is not None:
-                authorized_origins_list = [bound_ip]
-
-        self._bound_origin[host] = authorized_origins_list
-        return authorized_origins_list
-
-    def _origin_direct_probe(
-        self, url: str, host: str, path: str, authorized_origins_list: list[str]
-    ) -> _ReachResponse | None:
-        """Origin-direct dispatch over ``authorized_origins_list`` (§12.46-gated).
-
-        EXTRACTED verbatim from ``_attempt_reach``'s ORIGIN_DIRECT branch
-        (behaviour-preserving). Every origin passes the composed auth gate
-        (``assert_origin_authorized_or_bound``) BEFORE any fetch — a gate RAISE is an
-        honest block (returns None), never an engagement-killing exception (GAP-040).
-        Returns the first useful (non-block, non-redirect/404) origin body, else the
-        last response seen, else None. resp-independent: strategy is already decided.
-        """
-        if self._engagement_profile is None:
-            return None
-
-        from agent_alpha.conductor.engagement_profile import (
-            OriginNotAuthorizedError,
-            assert_origin_authorized_or_bound,
-        )
-
-        last_response: _ReachResponse | None = None
-        for origin_ip in authorized_origins_list:
-            # §12.46 composed gate — fail-closed. Authorizes iff the IP is in the signed
-            # authorized_origins OR (allow_origin_discovery AND an ORIGIN_BINDING_PROVEN
-            # event exists for this IP + fronted host).
-            try:
-                assert_origin_authorized_or_bound(
-                    origin_ip,
-                    host,
-                    self._engagement_profile,
-                    self.event_store,
-                    self._engagement_id,
-                )
-            except OriginNotAuthorizedError:
-                self._emit(
-                    "OBSERVE",
-                    f"Reach: ORIGIN_DIRECT refused by auth gate for {host} — honest block",
-                )
-                return None
-
-            self._emit(
-                "OBSERVE",
-                f"Reach: ORIGIN_DIRECT for {url} via {origin_ip}",
-            )
-
-            # Audit event (origin-direct bypasses WAF — audit-sensitive)
-            self.event_store.append(
-                EventType.ORIGIN_DIRECT_ATTEMPT,
-                self._engagement_id,
-                "alpha",
-                {
-                    "host": host,
-                    "origin_ip": origin_ip,
-                    "authorized": True,
-                    "discovered_via": "origin_discovery",
-                },
-            )
-
-            try:
-                result = origin_direct_fetch(host, origin_ip, path)
-            except RuntimeError:
-                self._emit(
-                    "OBSERVE",
-                    f"Reach: origin_direct_fetch failed for {url} via {origin_ip}",
-                )
-                continue
-
-            candidate = _ReachResponse(
-                status_code=result.status_code,
-                body=result.body,
-                headers=dict(result.headers),
-            )
-            last_response = candidate
-
-            origin_verdict = classify_response(
-                status_code=candidate.status_code,
-                body=candidate.text,
-                headers=dict(candidate.headers),
-            )
-
-            # Useful = real content, not a WAF block, not a redirect/not-found
-            if origin_verdict not in (Verdict.BLOCKED, Verdict.CHALLENGE) and (
-                candidate.status_code not in (301, 302, 303, 307, 308, 404)
-            ):
-                return candidate
-
-        # No origin returned useful content — return the last response seen (honest:
-        # caller re-classifies; a 404/redirect is still non-block evidence) or None.
-        return last_response
-
-    def _attempt_reach_transport_dead(self, url: str) -> _ReachResponse | None:
-        """Root front-door transport-dead (no resp) → origin-flank (§12.61).
-
-        A root front-door connect/read timeout is the origin-direct PRECONDITION, not an
-        abort: the edge is stonewalling at transport, so pivot to the discovered origin
-        instead of marking the host dead (the niagamas lesson). Reuses the SAME binding
-        (``_resolve_authorized_origin``) and the SAME §12.46-gated dispatch
-        (``_origin_direct_probe``) as the response-blocked path — no 2nd reach path (#6).
-
-        Fail-closed: returns None when no candidate binds (stale/co-tenant) or the profile
-        did not consent to discovery — the caller then marks the host dead exactly as
-        before. Bounded: one attempt per url (shared ``_reach_attempted``).
-        """
-        if url in self._reach_attempted:
-            return None
-        self._reach_attempted.add(url)
-
-        # No engagement profile → no reach deps → honest block (mirror _attempt_reach).
-        if self._engagement_profile is None:
-            return None
-
-        host = urlparse(url).hostname or urlparse(url).netloc
-        origins = self._resolve_authorized_origin(host)
-        if not origins:
-            return None  # fail-closed: nothing bound → caller abandons the host
-
-        # Strategy is KNOWN = ORIGIN_DIRECT (no resp to classify_mitigation/choose_reach).
-        # The §12.46 auth gate is enforced INSIDE _origin_direct_probe.
-        return self._origin_direct_probe(url, host, urlparse(url).path, origins)
 
     # ── Private: tool handlers ──────────────────────────────────
 

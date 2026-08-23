@@ -463,7 +463,7 @@ def test_origin_direct_returns_first_useful() -> None:
             return OriginDirectResult(404, "Not Found", {"server": "nginx"})
         return OriginDirectResult(200, "Real Content", {"server": "nginx"})
 
-    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+    with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
         alpha.run_recon(eng, _SEED)
         
     assert len(orchestrator.calls) == 1
@@ -495,7 +495,7 @@ def test_origin_direct_skips_redirects() -> None:
             return OriginDirectResult(302, "Found", {"location": "/login"})
         return OriginDirectResult(200, "Real Content", {"server": "nginx"})
 
-    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+    with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
         alpha.run_recon(eng, _SEED)
         
     assert len(orchestrator.calls) == 1
@@ -525,7 +525,7 @@ def test_origin_direct_single_origin_works() -> None:
     def fake_origin_direct(host: str, origin_ip: str, path: str) -> OriginDirectResult:
         return OriginDirectResult(200, "Single Origin Content", {"server": "nginx"})
 
-    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+    with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
         alpha.run_recon(eng, _SEED)
         
     assert len(orchestrator.calls) == 1
@@ -555,7 +555,7 @@ def test_origin_direct_all_origins_raise() -> None:
     def fake_origin_direct(host: str, origin_ip: str, path: str) -> None:
         raise RuntimeError("Connection reset")
 
-    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+    with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
         alpha.run_recon(eng, _SEED)
         
     assert len(orchestrator.calls) == 0
@@ -587,7 +587,7 @@ def test_origin_direct_returns_first_useful_immediately() -> None:
         call_count += 1
         return OriginDirectResult(200, "First Content", {"server": "nginx"})
 
-    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+    with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
         alpha.run_recon(eng, _SEED)
         
     assert call_count == 1
@@ -629,7 +629,7 @@ def test_origin_direct_skips_blocked_verdicts() -> None:
             return Verdict.BLOCKED
         return original_classify(status_code=status_code, body=body, headers=headers)
 
-    with patch("agent_alpha.agents.alpha.scout.origin_direct_fetch", side_effect=fake_origin_direct):
+    with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
         with patch("agent_alpha.agents.alpha.scout.classify_response", side_effect=fake_classify):
             alpha.run_recon(eng, _SEED)
         
