@@ -280,6 +280,27 @@ class Alpha:
             engagement_id=engagement_id,
         )
 
+        # ── GAP-197: reconcile edge-fronting into the graph model ────
+        # An ORIGIN_DIRECT_ATTEMPT is emitted ONLY after the edge blocked/killed the front
+        # door, so its presence is behavioural proof the host is edge-fronted — mark the
+        # asset node (vendor UNCONFIRMED; never claimed as Cloudflare). Honest reporting
+        # must not read a flanked host as "not protected" (anti-#3). One reconcile point
+        # covers every flank path (transport-dead + response-blocked).
+        _flanked = {
+            e.payload.get("host")
+            for e in self.event_store.get_events(engagement_id)
+            if e.event_type == EventType.ORIGIN_DIRECT_ATTEMPT and e.payload.get("host")
+        }
+        if _flanked:
+            _now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+            for _host in _flanked:
+                _node = merge_asset_node(
+                    self.graph_store, _host, edge_fronted=True, timestamp_utc=_now
+                )
+                persist_node(
+                    self.event_store, self.graph_store, engagement_id, _node, agent="alpha"
+                )
+
         # ── Determine status ────────────────────────────────────
         if outcome.stop_reason is StopReason.EGRESS_BLOCKED:
             # Aborted mid-run by an egress IP block — reporting COMPLETE here would

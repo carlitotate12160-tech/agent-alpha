@@ -197,17 +197,29 @@ def evaluate_oracles(
         f"bound={proven}",
     )
 
-    # T5 — CF apex protection detected (Bug#26 signal produced + consumed).
+    # T5 — apex is edge-fronted (behind a CDN/WAF). Detected passively (NS-hint ==
+    # cloudflare) OR proven behaviourally by an origin-flank on the apex (GAP-197): an
+    # ORIGIN_BINDING_PROVEN on the apex only happens once the edge blocked/killed the front
+    # door, so the flank IS proof the edge exists. Vendor stays UNCONFIRMED — never claimed
+    # as Cloudflare (a non-CF edge like Shopify/other still counts as edge-fronted; anti-#3
+    # over-claim). Loosened from strict NS-vendor==cloudflare (2026-08-23, GAP-197): passive
+    # NS-hint misses non-CF-nameserver edges, and the flank is a strictly stronger signal.
     cf_hits = [
         e
         for e in passive
         if e.payload.get("protection_detected") == "cloudflare"
         and e.payload.get("domain", "").rstrip(".").lower() == base_domain.rstrip(".").lower()
     ]
+    apex_flanked = [
+        e
+        for e in bindings
+        if (e.payload.get("fronted_host") or "").rstrip(".").lower()
+        == base_domain.rstrip(".").lower()
+    ]
     t5 = Oracle(
-        "T5 protection_detected == cloudflare (apex)",
-        bool(cf_hits),
-        f"apex={base_domain!r} cf_signal={bool(cf_hits)}",
+        "T5 apex edge-fronted (NS-hint CF OR origin-flank proven)",
+        bool(cf_hits) or bool(apex_flanked),
+        f"apex={base_domain!r} cf_hint={bool(cf_hits)} flank_proven={bool(apex_flanked)}",
     )
 
     # T6 — every scope host is a self-owned lab host (asserted pre-run, no

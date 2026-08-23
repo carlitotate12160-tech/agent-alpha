@@ -104,8 +104,12 @@ def _has_user(graph: Any, _arg: str) -> bool:
 
 
 def _has_fronted_host(graph: Any, _arg: str) -> bool:
+    # Fronted = behind a CDN/WAF edge: confirmed CF vendor (cf_protected, NS-hint) OR
+    # behaviourally proven by an origin-flank (edge_fronted, GAP-197 — vendor unconfirmed).
     return any(
-        bool(getattr(_props(a), "cf_protected", False)) for a in graph.nodes_by_type(NodeType.ASSET)
+        bool(getattr(_props(a), "cf_protected", False))
+        or bool(getattr(_props(a), "edge_fronted", False))
+        for a in graph.nodes_by_type(NodeType.ASSET)
     )
 
 

@@ -1032,3 +1032,35 @@ def test_transport_dead_sub_path_reaches_via_origin_flank(
     assert alpha._analyzable_probes >= 2, (
         "root + at least one sub-path should be analyzable via origin-direct"
     )
+
+
+def test_flanked_host_marked_edge_fronted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§12.61 / GAP-197 (cf_protected honesty). After origin-flanking a host, its asset
+    node is marked edge_fronted (behavioural proof it's behind a CDN/WAF edge) — so honest
+    reporting NEVER calls a flanked host "not protected". Vendor is NOT claimed: cf_protected
+    stays False (we didn't confirm Cloudflare), only edge_fronted flips True."""
+    from agent_alpha.graph.nodes import NodeType
+
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+    monkeypatch.setattr(
+        origin_reach,
+        "origin_direct_fetch",
+        lambda host, ip, path="/", **kw: _StubOriginDirectResult(body=_OK_BODY),
+    )
+    alpha = _make_transport_dead_alpha(
+        store,
+        engagement_profile=_make_profile(authorized_origins=frozenset({_BOUND_IP})),
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    assets = list(alpha.graph_store.nodes_by_type(NodeType.ASSET))
+    assert any(getattr(a.properties, "edge_fronted", False) for a in assets), (
+        "flanked host asset node not marked edge_fronted — honest reporting would call a "
+        "host we bypassed the edge of 'not protected' (GAP-197)"
+    )
+    # Honesty: a behavioural flank must NOT fabricate the Cloudflare vendor claim.
+    assert not any(getattr(a.properties, "cf_protected", False) for a in assets), (
+        "cf_protected (Cloudflare vendor) claimed from a behavioural flank — vendor unconfirmed"
+    )
