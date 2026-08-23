@@ -630,7 +630,7 @@ def test_origin_direct_skips_blocked_verdicts() -> None:
         return original_classify(status_code=status_code, body=body, headers=headers)
 
     with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
-        with patch("agent_alpha.agents.alpha.scout.classify_response", side_effect=fake_classify):
+        with patch("agent_alpha.recon.origin_reach.classify_response", side_effect=fake_classify):
             alpha.run_recon(eng, _SEED)
         
     assert len(orchestrator.calls) == 1
