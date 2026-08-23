@@ -4420,3 +4420,46 @@ This is both:
 ### Cross-ref
 GAP-197 (browser_solve wiring — parent gap), GAP-164 (persistent cookie jar — infrastructure),
 GAP-196 (jitter ineffective — cf_clearance reuse is the actual stealth mechanism).
+
+---
+
+## GAP-199 — `edge_fronted` reconcile re-persists ASSET node on every `run_recon` (event churn)
+
+### Problem Statement
+After GAP-197, `Alpha.run_recon()` reconciles `ORIGIN_BINDING_PROVEN` events into the asset
+graph by calling `merge_asset_node(..., edge_fronted=True)` + `persist_node()` at the end of every
+`run_recon()` call for the current target. Because the check does not short-circuit when the graph
+already has `edge_fronted=True` for that asset, multi-target engagements (or even a single target
+whose run produces multiple `ORIGIN_BINDING_PROVEN` events) append duplicate `NodeDiscovered` events
+with the same `asset:{host}` id and `edge_fronted=True`.
+
+Evidence (2026-08-23, `bernofarm.com` post-merge field-prove):
+- 5 latest `NodeDiscovered` rows for `asset:bernofarm.com`; 4 of them have `edge_fronted=true` with
+  identical `tech_stack` and `cf_protected=false`.
+- T4 output shows `bound=[('bernofarm.com', '103.113.118.203'), ('bernofarm.com', '103.113.118.203')]`
+  (duplicate `OriginBindingProven` events for root + sub-path on the same host).
+
+### Impact
+- Event stream inflated with redundant `NodeDiscovered` events.
+- Graph projection / downstream read-models see repeated "latest node state" writes, which can
+  distort ordering and waste storage.
+- `NodeDiscovered` churn for a property that has already converged.
+
+### Fix
+1. Before `persist_node()` in the GAP-197 reconcile block, read the existing `asset:{host}` node
+   from `graph_store`.
+2. If the existing node already has `properties.edge_fronted == True` (and the same host), skip
+   the re-persist.
+3. Alternatively, collect the set of hosts that already have `edge_fronted=True` in the graph
+   before the loop and skip them.
+4. Add a regression test with two `run_recon()` calls against the same engagement that asserts only
+   one `NodeDiscovered` event with `edge_fronted=True` is emitted per host.
+
+### Impact classification
+- Severity: LOW / P2 (data quality, not correctness).
+- Category: `WIRING_GAP` / `EVENT_CHURN`.
+- Depends on: GAP-197 (must be sealed first; it is sealed).
+
+### Cross-ref
+GAP-197 (parent — edge_fronted marker), GAP-028 (generic homepage detection — next candidate slice),
+Qodo review comment on PR #494 (stale event replay / NodeDiscovered churn).

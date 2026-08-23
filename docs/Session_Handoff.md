@@ -213,6 +213,8 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
     Metabase SPA, `generic_http_probe` persists them as real surfaces). This is the recommended next slice
     because it explains the missing WordPress usernames and the misleading 200-but-Persisted-0 behavior.
   - **ChainOracle MIN-composition** — §12.43 chain payability (PARKED until user confirms).
+  - **GAP-199** — `edge_fronted` reconcile re-persists `asset:{host}` on every `run_recon` (event churn).
+    Data-quality debt; LOW/P2. Fix later, not folded into GAP-197.
   - Do NOT fold these into one broad patch; keep one vertical slice at a time.
 
 **ChainOracle MIN-composition (§12.43 chain payability) — PARKED:**
