@@ -67,7 +67,9 @@ def test_s5_all_applicable_capability_absent() -> None:
     catalog = load_catalog()
     config = DiagnosticConfig(
         engagement_ids=("eng_test",),
-        excluded_techniques=frozenset({"default_creds_login", "git_exposure_leak", "js_secret_leak"}),
+        excluded_techniques=frozenset(
+            {"default_creds_login", "git_exposure_leak", "js_secret_leak"}
+        ),
     )
     results = run_diagnostic(store, config, catalog=catalog, test_env="test")
     assert len(results) == 1
@@ -86,8 +88,15 @@ def test_empty_event_stream_no_crash_and_s1_or_s2() -> None:
     results = run_diagnostic(store, config, catalog=catalog, test_env="test")
     assert len(results) == 1
     verdict = results[0]
-    assert verdict["earliest_failed_transition"] in ("S1_AUTHORIZED_ROOT_SEED", "S2_PASSIVE_SURFACE")
-    assert all(s["passed"] is False for s in verdict["funnel"] if s["stage"] == verdict["earliest_failed_transition"])
+    assert verdict["earliest_failed_transition"] in (
+        "S1_AUTHORIZED_ROOT_SEED",
+        "S2_PASSIVE_SURFACE",
+    )
+    assert all(
+        s["passed"] is False
+        for s in verdict["funnel"]
+        if s["stage"] == verdict["earliest_failed_transition"]
+    )
     assert verdict["new_gap_required"] is False
 
 
@@ -137,7 +146,9 @@ def test_determinism() -> None:
     catalog = load_catalog()
     config = DiagnosticConfig(
         engagement_ids=("eng_test",),
-        excluded_techniques=frozenset({"default_creds_login", "git_exposure_leak", "js_secret_leak"}),
+        excluded_techniques=frozenset(
+            {"default_creds_login", "git_exposure_leak", "js_secret_leak"}
+        ),
     )
     results1 = run_diagnostic(store, config, catalog=catalog, test_env="test")
     # Re-initialize store with identical events; event sequence numbers reset to 0

@@ -72,17 +72,21 @@ _STAGE_ORDER = (
     "S12_OMEGA",
 )
 
-_ROOT_EVENTS = frozenset({
-    str(EventType.ENGAGEMENT_CREATED),
-    str(EventType.ENGAGEMENT_AUTHORIZED),
-    str(EventType.ENGAGEMENT_PROFILE_SIGNED),
-    str(EventType.STATE_TRANSITIONED),
-})
+_ROOT_EVENTS = frozenset(
+    {
+        str(EventType.ENGAGEMENT_CREATED),
+        str(EventType.ENGAGEMENT_AUTHORIZED),
+        str(EventType.ENGAGEMENT_PROFILE_SIGNED),
+        str(EventType.STATE_TRANSITIONED),
+    }
+)
 
-_PASSIVE_EVENTS = frozenset({
-    str(EventType.PASSIVE_DISCOVERY),
-    str(EventType.PASSIVE_INTEL_GATHERED),
-})
+_PASSIVE_EVENTS = frozenset(
+    {
+        str(EventType.PASSIVE_DISCOVERY),
+        str(EventType.PASSIVE_INTEL_GATHERED),
+    }
+)
 
 _SIGNAL_PRODUCES: dict[str, tuple[str, ...]] = {
     "git_exposure_leak": ("credential",),
@@ -114,7 +118,12 @@ def _event_host(payload: dict[str, Any]) -> str:
     if node_id:
         parts = node_id.split(":")
         if len(parts) >= 3 and parts[0] in {
-            "user", "cred", "vuln", "service", "data", "access",
+            "user",
+            "cred",
+            "vuln",
+            "service",
+            "data",
+            "access",
         }:
             return parts[1]
     return ""
@@ -293,7 +302,8 @@ def _compute_funnel(
     # S2
     passive_hosts = _passive_hosts(events)
     passive_surface_nodes = [
-        e for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
+        e
+        for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
         if _event_host(e.payload) in passive_hosts and _node_type(e.payload) in ("", "asset")
     ]
     s2_pass = bool(passive_hosts) and bool(passive_surface_nodes)
@@ -301,7 +311,10 @@ def _compute_funnel(
         FunnelStage(
             "S2_PASSIVE_SURFACE",
             s2_pass,
-            [f"passive_hosts={sorted(passive_hosts)}", f"NodeDiscovered(passive) x{len(passive_surface_nodes)}"],
+            [
+                f"passive_hosts={sorted(passive_hosts)}",
+                f"NodeDiscovered(passive) x{len(passive_surface_nodes)}",
+            ],
         )
     )
 
@@ -340,7 +353,10 @@ def _compute_funnel(
         FunnelStage(
             "S5_APPLICABLE_CAPABILITY",
             s5_pass,
-            [f"applicable_cells={len(_applicable_cells(report))}", f"capability_absent={len(absent_ids)}"],
+            [
+                f"applicable_cells={len(_applicable_cells(report))}",
+                f"capability_absent={len(absent_ids)}",
+            ],
         )
     )
 
@@ -351,7 +367,10 @@ def _compute_funnel(
         FunnelStage(
             "S6_DISPATCH",
             s6_pass,
-            [f"tested_cells={len(tested)}", f"tested={[(c.surface_id, c.technique_id) for c in tested]}"],
+            [
+                f"tested_cells={len(tested)}",
+                f"tested={[(c.surface_id, c.technique_id) for c in tested]}",
+            ],
         )
     )
 
@@ -374,14 +393,16 @@ def _compute_funnel(
         FunnelStage(
             "S7_TARGET_SIGNAL",
             s7_pass,
-            [f"with_signal x{len(tested_with_signal)}", f"without_signal x{len(tested_without_signal)}"],
+            [
+                f"with_signal x{len(tested_with_signal)}",
+                f"without_signal x{len(tested_without_signal)}",
+            ],
         )
     )
 
     # S8
     finding_nodes = [
-        e for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
-        if _is_non_asset_node(e.payload)
+        e for e in by_type.get(str(EventType.NODE_DISCOVERED), []) if _is_non_asset_node(e.payload)
     ]
     s8_pass = bool(finding_nodes)
     stages.append(
@@ -394,7 +415,8 @@ def _compute_funnel(
 
     # S9
     oracle_events = [
-        e for t in (str(EventType.NODE_VERIFIED), str(EventType.PROOF_ARTIFACT_RECORDED))
+        e
+        for t in (str(EventType.NODE_VERIFIED), str(EventType.PROOF_ARTIFACT_RECORDED))
         for e in by_type.get(t, [])
     ]
     s9_pass = bool(oracle_events)
@@ -429,10 +451,13 @@ def _compute_funnel(
 
     # S12
     proof_backed_findings = [
-        e for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
+        e
+        for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
         if _is_non_asset_node(e.payload) and e.payload.get("proof_artifacts")
     ]
-    s12_pass = bool(proof_backed_findings) or bool(by_type.get(str(EventType.PROOF_ARTIFACT_RECORDED), []))
+    s12_pass = bool(proof_backed_findings) or bool(
+        by_type.get(str(EventType.PROOF_ARTIFACT_RECORDED), [])
+    )
     stages.append(
         FunnelStage(
             "S12_OMEGA",
@@ -446,7 +471,9 @@ def _compute_funnel(
     for s in stages:
         if not s.passed:
             earliest = s.stage
-            detail = _stage_failure_detail(s, report, catalog, tested_without_signal, absent_ids, blocked)
+            detail = _stage_failure_detail(
+                s, report, catalog, tested_without_signal, absent_ids, blocked
+            )
             break
     if not earliest:
         earliest = "S12_OMEGA"
@@ -478,7 +505,13 @@ def _stage_failure_detail(
         return f"no technique reached bucket 'tested'; not_run={not_run}"
     if stage.stage == "S7_TARGET_SIGNAL":
         return f"tested techniques produced no non-404/non-junk signal: {tested_without_signal}"
-    if stage.stage in ("S8_HYPOTHESIS_EVIDENCE", "S9_INDEPENDENT_ORACLE", "S10_CROSS_VERIFIED_EDGE", "S11_CHAIN", "S12_OMEGA"):
+    if stage.stage in (
+        "S8_HYPOTHESIS_EVIDENCE",
+        "S9_INDEPENDENT_ORACLE",
+        "S10_CROSS_VERIFIED_EDGE",
+        "S11_CHAIN",
+        "S12_OMEGA",
+    ):
         return f"{stage.stage} not satisfied"
     return ""
 
@@ -507,7 +540,9 @@ def _next_slice_for_stage(
     return mapping.get(stage, "unknown")
 
 
-def _pick_capability_slice(report: CoverageReport, catalog: tuple[Technique, ...], absent_ids: list[str]) -> str:
+def _pick_capability_slice(
+    report: CoverageReport, catalog: tuple[Technique, ...], absent_ids: list[str]
+) -> str:
     by_id = {t.id: t for t in catalog}
     for c in report.cells:
         if c.bucket == "capability_absent" and c.technique_id in absent_ids:
@@ -600,7 +635,9 @@ def _build_verdict(
         "earliest_failed_detail": detail,
         "adr_code_divergence": _adr_divergence_for_stage(earliest),
         "existing_owner": _owner_for_stage(earliest),
-        "next_vertical_slice": _next_slice_for_stage(earliest, report, catalog, tested_without_signal, absent_ids),
+        "next_vertical_slice": _next_slice_for_stage(
+            earliest, report, catalog, tested_without_signal, absent_ids
+        ),
         "new_gap_required": False,
     }
 
@@ -761,23 +798,32 @@ def run_diagnostic(
     results: list[dict[str, Any]] = []
     if mode == "A_replay":
         for eid in config.engagement_ids:
-            results.append(_project_for_engagement(store, eid, catalog, config.excluded_techniques, test_env))
+            results.append(
+                _project_for_engagement(store, eid, catalog, config.excluded_techniques, test_env)
+            )
     elif mode == "B_live_touch":
         for target in config.targets:
-            results.append(_run_live_target(store, target, catalog, config.excluded_techniques, test_env))
+            results.append(
+                _run_live_target(store, target, catalog, config.excluded_techniques, test_env)
+            )
     return results
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Agent-Alpha Class-C CoverageLedger diagnostic")
     parser.add_argument("config", help="diagnostic YAML")
-    parser.add_argument("--allow-live-touch", action="store_true", help="permit Mode B live recon touch")
+    parser.add_argument(
+        "--allow-live-touch", action="store_true", help="permit Mode B live recon touch"
+    )
     parser.add_argument("--test-env", default="", help="override test_env (tests only)")
     args = parser.parse_args(argv)
 
     test_env = args.test_env or _test_env_name()
     if not args.test_env and not test_env.startswith("oracle-arm64"):
-        print(f"[REFUSE] test_env={test_env!r}; diagnostic JSON is emitted only on ARM64 Oracle", file=sys.stderr)
+        print(
+            f"[REFUSE] test_env={test_env!r}; diagnostic JSON is emitted only on ARM64 Oracle",
+            file=sys.stderr,
+        )
         return 1
 
     config = _load_diagnostic_config(args.config)
@@ -803,7 +849,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[ERROR] {exc}", file=sys.stderr)
         return 3
 
-    print(json.dumps({"verdicts": results, "portfolio": _portfolio_roll_up(results)}, sort_keys=True, indent=2))
+    print(
+        json.dumps(
+            {"verdicts": results, "portfolio": _portfolio_roll_up(results)},
+            sort_keys=True,
+            indent=2,
+        )
+    )
     return 0
 
 
