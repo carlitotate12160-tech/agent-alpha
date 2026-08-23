@@ -212,7 +212,10 @@ def _capability_absent_all_applicable(report: CoverageReport) -> tuple[bool, lis
 
 def _origin_signal(surface_id: str, events: Iterable[AgentEvent]) -> tuple[bool, str]:
     for e in events:
-        if e.event_type == str(EventType.ORIGIN_BINDING_PROVEN) and e.payload.get("fronted_host") == surface_id:
+        if (
+            e.event_type == str(EventType.ORIGIN_BINDING_PROVEN)
+            and e.payload.get("fronted_host") == surface_id
+        ):
             return True, "ORIGIN_BINDING_PROVEN"
     return False, "no_origin_binding"
 
@@ -238,7 +241,10 @@ def _node_signal(
             return True, f"NodeDiscovered:{node_type}"
     if has_access:
         for e in events:
-            if e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED) and e.payload.get("host") == surface_id:
+            if (
+                e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED)
+                and e.payload.get("host") == surface_id
+            ):
                 return True, "AuthenticatedSurfaceDiscovered"
     return False, "no_signal"
 
@@ -334,9 +340,7 @@ def _s4_stage(events: list[AgentEvent]) -> FunnelStage:
     )
 
 
-def _s5_stage(
-    report: CoverageReport, all_absent: bool, absent_ids: list[str]
-) -> FunnelStage:
+def _s5_stage(report: CoverageReport, all_absent: bool, absent_ids: list[str]) -> FunnelStage:
     applicable = _applicable_cells(report)
     return FunnelStage(
         "S5_APPLICABLE_CAPABILITY",
