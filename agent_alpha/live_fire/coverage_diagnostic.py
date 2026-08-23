@@ -13,7 +13,7 @@ import json
 import platform
 import sys
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, Dict
 
 import yaml
 
@@ -184,8 +184,8 @@ def _stacks_confirmed(events: Iterable[AgentEvent]) -> list[str]:
     return sorted(stacks)
 
 
-def _bucket_counts(report: CoverageReport) -> dict[str, int]:
-    counts: dict[str, int] = {}
+def _bucket_counts(report: CoverageReport) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
     for c in report.cells:
         counts[c.bucket] = counts.get(c.bucket, 0) + 1
     return counts
@@ -862,7 +862,7 @@ def main(argv: list[str] | None = None) -> int:
 def _portfolio_roll_up(results: list[dict[str, Any]]) -> dict[str, Any]:
     transitions = [r["earliest_failed_transition"] for r in results]
     distinct = sorted(set(transitions))
-    counts: dict[str, int] = {}
+    counts: Dict[str, int] = {}
     for t in transitions:
         counts[t] = counts.get(t, 0) + 1
     if len(results) >= 2 and any(c >= 2 for c in counts.values()):
