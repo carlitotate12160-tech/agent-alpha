@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; GAP-196 SEALED; CURRENT SLICE = GAP-197)
+# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; GAP-196 Tier-2 PROVEN; CURRENT SLICE = GAP-197)
 
-Resume with: "lanjut Agent-Alpha — **PR #487 SEALED 2026-08-23**: transport-dead front-door → origin-flank (§12.61) on root paths, helpers extracted to `agent_alpha/recon/origin_reach.py` (scout.py 2563→2374, ceiling held), live `niagamas.com` = `ORIGIN_DIRECT` HTTP 200 (98.766B) via `139.59.255.22`, no `EgressBlocked`, `dead_hosts` empty. **CURRENT SLICE = pick next between GAP-196 (sub-path origin propagation) vs GAP-197 (flanked asset node `cf_protected` honesty)**. NOT ChainOracle/Gamma. REACH ROOT only sealed; sub-path/leak propagation = GAP-196. `cf_protected=False` derived from origin body when front door was flanked = GAP-197. Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
+Resume with: "lanjut Agent-Alpha — **GAP-196 (sub-path origin-direct flank) Tier-2 PROVEN** (PR #491 + field-prove `niagamas.com`, 2026-08-23): 15 `OriginDirectAttempt` events untuk root + sub-paths via `139.59.255.22`, `dead_hosts` 0, `HostAbandoned` 0. Query string redaction covered by unit tests; sub-path `/data?token=REDACTED` asserted. **CURRENT SLICE = GAP-197 (flanked asset `cf_protected` honesty)**: field-prove menemukan `NodeDiscovered asset:niagamas.com` dengan `cf_protected=False, tech_stack=['nginx']` padahal front door transport-dead dan reach via origin-flank. `PASSIVE_INTEL_GATHERED.protection_detected=null` dan T5 `cf_signal=False` adalah gejala. Fix: asset node HARUS carry `edge_fronted`/`flanked` marker; `cf_protected` tidak boleh disimpulkan `False` dari body origin. NOT ChainOracle/Gamma. Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
 
 ---
 
@@ -33,16 +33,26 @@ Resume with: "lanjut Agent-Alpha — **PR #487 SEALED 2026-08-23**: transport-de
    (characterize J5 SKIPPED by design: needs PROFILE_SIGNING_KEY + real LLM). Owner GAP-118 — mark the
    oracle portion DONE; only the CHAIN-level composition remains (below).
 
-4. **SEALED 2026-08-23 (PR #487 merged): transport-dead front-door → origin-flank (§12.61).**
+4. **SEALED 2026-08-23 (PR #487 merged): transport-dead front-door → origin-flank (§12.61) for ROOT paths.**
    Root front-door `HttpClientError` now routes to `origin_reach.attempt_reach_transport_dead`
    BEFORE `_dead_hosts` abandon; fail-closed on stale/no-consent. Egress-counter guarded
    (`front_door_transport_ok`) so origin-flank success ≠ `host_ok`. Reach helpers extracted to
    `agent_alpha/recon/origin_reach.py` (GAP-161 slice-2: scout.py 2563→2374, ceiling held).
    EVIDENCE: 254 green + ruff/mypy(151) clean on Oracle; live `niagamas.com` via `Alpha.run_recon`
    = `ORIGIN_DIRECT` HTTP 200 (98,766B) on `139.59.255.22`, no `EgressBlocked`, `dead_hosts` empty.
-   SCOPE SEALED = E1→E2 reach of ROOT only. Mechanism proven; NOT field-readiness.
-   CURRENT SLICE = **GAP-197** (flanked-asset `cf_protected` honesty). GAP-196 sealed (PR #491). NOT ChainOracle/Gamma.
-5. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
+   SCOPE SEALED = E1→E2 reach of ROOT only. Mechanism proven; NOT sub-path readiness.
+
+5. **SEALED 2026-08-23 (PR #491 + field-prove): GAP-196 sub-path origin-direct flank, Tier-2 PROVEN.**
+   Transport-dead sub-paths reuse a pre-bound/authorized origin via `attempt_reach_transport_dead(..., require_bound=True)`;
+   query string preserved for fetch; `ORIGIN_DIRECT_ATTEMPT` carries `path` with query VALUES redacted.
+   FIELD-PROVE vs `niagamas.com`: 15 `OriginDirectAttempt` events (root + `/.env`, `/.git/config`, `/wp-config.php.bak`,
+   product paths, `/openapi.json`, `/swagger.json`, `/graphql`, etc.) all via `139.59.255.22`;
+   `HostAbandoned` = 0, `dead_hosts` empty, `OriginBindingProven` = 2. T1–T4 + T6 PASS.
+   **GAP-197 UNCOVERED in same run (T5 FAIL):** `NodeDiscovered asset:niagamas.com` carries `cf_protected=False` and
+   `tech_stack=['nginx']` derived from the origin body, while the apex was fronted/transport-dead. Honest graph
+   projection must carry an `edge_fronted`/`flanked` marker and not assert `cf_protected=False` from origin-direct reach.
+   CURRENT SLICE = **GAP-197**. NOT ChainOracle/Gamma.
+6. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
 
@@ -152,7 +162,7 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 | **GAP-074 Auth Mechanism Selection (Slice 2a)** | **MERGED #408, Tier-1 PROVEN** | Mechanism-aware applicator selection: reads canonical ASSET `tech_stack` `mech_*` labels. Single-source `MECH_TO_APPLICATOR_SERVICES` in `recon.auth_surface`. `applicator_factory._resolve_in_scope_targets` binds only matching services (e.g. JSON-RPC → SPA only, Form-POST → HTTP only). Fail-open when unclassified, fail-closed for any unmapped/unstrikable `mech_*`. 20/20 PASS. |
 | **GAP-074 Auth Mechanism Fingerprinting (Slice 1)** | **MERGED #406, Tier-1 PROVEN** | Universal recon fingerprinting in `scout._detect_auth_surface`: detects `mech_http_basic`, `mech_json_rpc`, `mech_jwt`, `mech_saml`, `mech_oauth`, `mech_form_post` without hardcoded catalogs. Persisted to ASSET `tech_stack`. |
 | **ADR §12.62 Coverage-Honesty & Report Section (Slice 2)** | **MERGED #407, Tier-1 PROVEN** | OMEGA client report emits formal Coverage & Methodology section: lists tested, not_run, blocked, and capability_absent techniques + not_assessed engagement targets. Anti-false-assurance (§12.45 / §12.62). |
-| **GAP-196 / PR #491: sub-path origin-direct flank** | **MERGED (squash `e11fc993`), Tier-1 Oracle-green** | Transport-dead sub-paths reuse a pre-bound/authorized origin; query string preserved for fetch; audit `path` in `ORIGIN_DIRECT_ATTEMPT` with query VALUES redacted. `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 14/14; DeepSource + Sourcery + Qodo green. |
+| **GAP-196 / PR #491: sub-path origin-direct flank** | **MERGED (squash `e11fc993`), Tier-1 + Tier-2 PROVEN** | Transport-dead sub-paths reuse a pre-bound/authorized origin; query string preserved for fetch; audit `path` in `ORIGIN_DIRECT_ATTEMPT` with query VALUES redacted. `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 14/14; DeepSource/Sourcery/Qodo green. **Field-prove (2026-08-23, Oracle ARM64) vs `niagamas.com`**: 15 `OriginDirectAttempt` (root + sub-paths via `139.59.255.22`), `HostAbandoned` 0, `OriginBindingProven` 2, T1–T4 + T6 PASS. |
 | **ADR §12.62 Engagement Coverage Ledger (Slice 1)** | **MERGED #404, Tier-1 PROVEN** | `agent_alpha/coverage/coverage_ledger.py` + `techniques.yaml` single-source technique catalog. Runtime ledger tracking execution events and surfaces across the engagement lifecycle. |
 | **OMEGA-GOV Catalog Integrity & Exit Criteria** | **MERGED #405, Tier-1 PROVEN** | `test_coverage_catalog_integrity.py` validates techniques.yaml against EventType and gap references. Phase Omega exit criteria banked in `AGENTS.md` (OMEGA-1..5, OMEGA-GOV). |
 | **GAP-030 / SpaLoginApplicator & Autonomous Path** | **MERGED #403, Tier-1 PROVEN** | JSON-API login reuse tool (`SpaLoginApplicator`): POSTs JSON credentials, extracts JWT from response, verifies via Bearer replay. Fully wired into `applicator_factory` and Conductor autonomous path (no Lyndon #2). |
@@ -188,6 +198,17 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
   be marked `cf_protected=False` as if the front door is healthy. Honest graph projection: `cf_protected` should
   reflect the edge that was actually reached (flanked origin) or carry a flanked/fronted marker. Tied to §12.61
   reach evidence and `OriginDirectAttempt` audit. One file at a time; authorized scope TBD.
+- **Field-prove evidence (2026-08-23, `niagamas.com`):** `NodeDiscovered` payload for `asset:niagamas.com` shows
+  `{'host': 'niagamas.com', 'cf_protected': false, 'tech_stack': ['nginx'], 'ip': null}`. The apex was fronted
+  (front-door transport-dead, origin reached at `139.59.255.22`), so `cf_protected=False` is dishonest.
+  `PASSIVE_INTEL_GATHERED` for the same engagement has `protection_detected: null` and nameservers
+  `dns1.registrar-servers.com / dns2.registrar-servers.com` (Namecheap), with historical A records including
+  Shopify edge `23.227.38.0/24` and origin `139.59.255.22`. T5 oracle therefore failed (`cf_signal=False`).
+- **Fix direction:** when `ORIGIN_DIRECT_ATTEMPT` is emitted for a host whose front door is transport-dead,
+  the asset node must carry an `edge_fronted` / `flanked` marker and `cf_protected` must not be asserted `False`
+  from the origin body. Use passive DNS/NS/edge-IP classification for `cf_protected`; use `OriginDirectAttempt`
+  only to record the flank success. Candidate files: `recon/fingerprint.py`, `recon/protection_classifier.py`?,
+  `graph/networkx_store.py` for node projection.
 
 **ChainOracle MIN-composition (§12.43 chain payability) — PARKED:**
 - See START HERE point 4 for the full design. `chain_tier = MIN(edge_tier)`, payable IFF every hop cross_verified,
@@ -243,7 +264,7 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — **GAP-196 (sub-path origin-direct flank) SEALED** (PR #491, squash `e11fc993`, Oracle-green). Transport-dead sub-paths reuse a pre-bound/authorized origin via `attempt_reach_transport_dead(..., require_bound=True)`; query string preserved for `origin_direct_fetch`; `ORIGIN_DIRECT_ATTEMPT` audit carries `path` with query VALUES redacted (e.g. `/data?token=REDACTED`). `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 14/14; DeepSource/Sourcery/Qodo green. **CURRENT SLICE = GAP-197 (flanked-asset `cf_protected` honesty)**: when reach is origin-flanked, the `ASSET` node must not falsely claim `cf_protected=False`; honest fronted/flanked marker tied to `OriginDirectAttempt`. ChainOracle/GAP-115/Gamma remain **PARKED**. §12.66 PROPOSED, deferred behind GAP-197. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — **GAP-196 (sub-path origin-direct flank) TIER-2 PROVEN** (PR #491 + field-prove `niagamas.com`, 2026-08-23). 15 `OriginDirectAttempt` events (root + sub-paths) via `139.59.255.22`; `HostAbandoned` 0; `OriginBindingProven` 2; query VALUES redacted. `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 14/14; DeepSource/Sourcery/Qodo green. **CURRENT SLICE = GAP-197 (flanked-asset `cf_protected` honesty)**: `NodeDiscovered asset:niagamas.com` carries `cf_protected=False, tech_stack=['nginx']` after origin-flank — dishonest; must carry `edge_fronted`/`flanked` marker and `cf_protected` not asserted `False` from origin body. ChainOracle/GAP-115/Gamma remain **PARKED**. §12.66 PROPOSED, deferred behind GAP-197. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
 
 ---
 
@@ -266,5 +287,13 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
   `agent_alpha/events/event_types.py` updated; `tests/phase_2_5/test_alpha_autonomous_reach.py` asserts
   redaction and no raw secrets in stored payloads. Oracle ARM64 `make check` clean + 14/14 phase 2.5 tests;
   GitHub `quality-gate` 5m13s, DeepSource/Sourcery/Qodo green. Qodo LOW test-filename finding (weak) deferred.
-  Current slice now **GAP-197 (flanked-asset `cf_protected` honesty)**. ChainOracle/GAP-115/Gamma remain PARKED.
-- **Sealed slices P2:** 1 (PR #491 — sub-path origin-direct flank, query redaction, redacted audit).
+  **Tier-2 field-prove vs `niagamas.com` (2026-08-23):** `recon_integrated_field_prove` produced 15
+  `OriginDirectAttempt` events (root + `/.env`, `/.git/config`, `/wp-config.php.bak`, product paths, `/openapi.json`,
+  `/swagger.json`, `/graphql`, `/graphiql`, `/`) via `139.59.255.22`; `HostAbandoned` 0; `OriginBindingProven` 2;
+  T1–T4 + T6 PASS. `PASSIVE_INTEL_GATHERED.protection_detected=null`; T5 FAIL (`cf_signal=False`).
+  **GAP-197 field evidence surfaced:** `NodeDiscovered asset:niagamas.com` payload =
+  `{'host': 'niagamas.com', 'cf_protected': false, 'tech_stack': ['nginx'], 'ip': null}` — the apex was fronted/
+  transport-dead, so `cf_protected=False` is dishonest. Fix must carry `edge_fronted`/`flanked` marker and not
+  derive `cf_protected` from origin body. Current slice now **GAP-197**. ChainOracle/GAP-115/Gamma remain PARKED.
+- **Sealed slices P2:** 2 (PR #491 — sub-path origin-direct flank, query redaction, redacted audit; field-prove
+  `niagamas.com` Tier-2 PROVEN for GAP-196).
