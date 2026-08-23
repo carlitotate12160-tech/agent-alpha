@@ -219,9 +219,8 @@ def _technique_signal(
         return False, "instrumentation_absent"
     if technique.id == "origin_exposure_bypass":
         for e in events:
-            if e.event_type == str(EventType.ORIGIN_BINDING_PROVEN):
-                if e.payload.get("fronted_host") == surface_id:
-                    return True, "ORIGIN_BINDING_PROVEN"
+            if e.event_type == str(EventType.ORIGIN_BINDING_PROVEN) and e.payload.get("fronted_host") == surface_id:
+                return True, "ORIGIN_BINDING_PROVEN"
         return False, "no_origin_binding"
 
     has_credential = "credential" in produces
@@ -243,9 +242,8 @@ def _technique_signal(
             return True, f"NodeDiscovered:{node_type}"
     if has_access:
         for e in events:
-            if e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED):
-                if e.payload.get("host") == surface_id:
-                    return True, "AuthenticatedSurfaceDiscovered"
+            if e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED) and e.payload.get("host") == surface_id:
+                return True, "AuthenticatedSurfaceDiscovered"
     return False, "no_signal"
 
 
@@ -474,7 +472,7 @@ def _compute_funnel(
         if not s.passed:
             earliest = s.stage
             detail = _stage_failure_detail(
-                s, report, catalog, tested_without_signal, absent_ids, blocked
+                s, report, tested_without_signal, absent_ids, blocked
             )
             break
     if not earliest:
@@ -487,7 +485,6 @@ def _compute_funnel(
 def _stage_failure_detail(
     stage: FunnelStage,
     report: CoverageReport,
-    catalog: tuple[Technique, ...],
     tested_without_signal: list[str],
     absent_ids: list[str],
     blocked: set[str],
@@ -656,8 +653,8 @@ def _project_for_engagement(
     return _build_verdict(engagement_id, "A_replay", test_env, events, report, catalog)
 
 
-def _load_diagnostic_config(path: str) -> DiagnosticConfig:
-    with open(path, encoding="utf-8") as f:
+def _load_diagnostic_config(config_path: str) -> DiagnosticConfig:
+    with open(config_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
         raise ValueError("diagnostic config must be a YAML mapping")
