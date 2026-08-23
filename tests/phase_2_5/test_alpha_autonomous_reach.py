@@ -907,3 +907,57 @@ def test_transport_dead_front_door_no_discovery_consent_marks_dead(
     assert _LAB_HOST in alpha._dead_hosts, (
         "host not abandoned despite no reach path — legacy fail-closed regressed"
     )
+
+
+def test_transport_dead_front_door_does_not_count_as_egress_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§12.61 GAP-037 boundary: a root origin-flank success must NOT mark the host
+    _host_ok, because the front-door transport is still dead. Subsequent sub-path
+    front-door timeouts must NOT increment _consecutive_transport_fail or abort as
+    EgressBlocked (the niagamas field lesson; Qodo/Sourcery #487 review)."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    from agent_alpha.agents.alpha import scout
+    from agent_alpha.recon import origin_binding
+
+    # Canary + reach both serve real content so the root binds.
+    def _canary_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        body = _BIND_TOKEN if origin_ip == _BOUND_IP else "cohost-no-token"
+        return _StubOriginDirectResult(body=body)
+
+    def _reach_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        return _StubOriginDirectResult(body=_OK_BODY)
+
+    monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
+    monkeypatch.setattr(scout, "origin_direct_fetch", _reach_fetch)
+
+    alpha = _make_transport_dead_alpha(
+        store,
+        engagement_profile=_make_discovery_profile(),
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    assert _LAB_HOST not in alpha._host_ok, (
+        "origin-flank root incorrectly marked the front-door egress as ok — "
+        "sub-path timeouts would count as egress block (Qodo review #487)"
+    )
+    assert not alpha._egress_blocked, (
+        "origin-flank run aborted with EgressBlocked despite sub-path failures being "
+        "front-door deadness, not a global IP cut"
+    )
+    assert alpha._consecutive_transport_fail == 0, (
+        "sub-path front-door timeouts incremented the egress counter on a host whose "
+        "front door never succeeded"
+    )
+
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.EGRESS_BLOCKED not in types, (
+        "EgressBlocked event emitted for a host whose front door was never ok"
+    )

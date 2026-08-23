@@ -454,10 +454,21 @@ class Alpha:
         # A transport failure (host down, DNS, connect/read timeout) is a
         # non-analysable probe — NOT a crash and NOT a finding. The bounded
         # loop continues; run_recon() then reports FAILED (anti-Lyndon #3).
+        host = urlparse(url).hostname or urlparse(url).netloc
+        front_door_transport_ok = False
         try:
-            resp = self._prefetched.pop(url, None) or self.http_client.get(url)
+            prefetched = self._prefetched.pop(url, None)
+            if prefetched is not None:
+                resp = prefetched
+                # GAP-037: only a real front-door fetch counts as transport-ok.
+                # _prefetched may be an origin-flank _ReachResponse from
+                # seed_fingerprint_first (the niagamas lesson) — that is reach, not a
+                # working egress path.
+                front_door_transport_ok = not isinstance(resp, _ReachResponse)
+            else:
+                resp = self.http_client.get(url)
+                front_door_transport_ok = True
         except HttpClientError:
-            host = urlparse(url).hostname or urlparse(url).netloc
             # R1: mark dead ONLY on a root/homepage transport failure. A non-root
             # failure (e.g. WAF RST on /.env while the homepage is 200) must NOT
             # kill a live host — false-negatives drop payable surface (anti-#3).
@@ -490,14 +501,17 @@ class Alpha:
                     f"{host} front-door transport-dead → origin-direct reached surface",
                 )
                 resp = reach
+                front_door_transport_ok = False
             else:
                 self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
                 # GAP-037: feed the egress counter from the MAIN fetch path too.
                 self._note_transport_fail(host)
                 return _finish(0, 0.0, f"OBSERVE: {url} unreachable")
 
-        # GAP-037: transport worked -> host reachable; reset counter, remember host.
-        self._note_transport_ok(urlparse(url).hostname or urlparse(url).netloc)
+        # GAP-037: front-door transport worked -> host reachable; reset counter.
+        # Origin-flank / _prefetched origin bodies do NOT prove the egress path.
+        if front_door_transport_ok:
+            self._note_transport_ok(host)
 
         # Classify the response through the ONE canonical classifier so a WAF/CF
         # block on ANY recon path is recorded as evidence and never dressed as
