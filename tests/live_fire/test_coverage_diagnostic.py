@@ -76,8 +76,9 @@ def test_s5_all_applicable_capability_absent() -> None:
     verdict = results[0]
     assert verdict["earliest_failed_transition"] == "S5_APPLICABLE_CAPABILITY"
     assert verdict["new_gap_required"] is False
-    s5 = next(s for s in verdict["funnel"] if s["stage"] == "S5_APPLICABLE_CAPABILITY")
-    assert s5["passed"] is False
+    s5_stages = [s for s in verdict["funnel"] if s["stage"] == "S5_APPLICABLE_CAPABILITY"]
+    assert len(s5_stages) == 1
+    assert s5_stages[0]["passed"] is False
 
 
 def test_empty_event_stream_no_crash_and_s1_or_s2() -> None:
@@ -134,8 +135,9 @@ def test_all_discovered_hosts_blocked_s3_reach() -> None:
     assert verdict["earliest_failed_transition"] == "S3_REACH"
     assert "blocked" in verdict["earliest_failed_detail"].lower()
     assert "surface not exhausted" in verdict["earliest_failed_detail"].lower()
-    s3 = next(s for s in verdict["funnel"] if s["stage"] == "S3_REACH")
-    assert s3["passed"] is False
+    s3_stages = [s for s in verdict["funnel"] if s["stage"] == "S3_REACH"]
+    assert len(s3_stages) == 1
+    assert s3_stages[0]["passed"] is False
     assert "capability_absent" not in verdict["earliest_failed_detail"].lower()
     assert "target safe" not in verdict["earliest_failed_detail"].lower()
 

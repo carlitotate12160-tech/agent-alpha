@@ -13,6 +13,7 @@ import json
 import platform
 import sys
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 import yaml
@@ -209,6 +210,39 @@ def _capability_absent_all_applicable(report: CoverageReport) -> tuple[bool, lis
     return len(absent) == len(applicable), absent
 
 
+def _origin_signal(surface_id: str, events: Iterable[AgentEvent]) -> tuple[bool, str]:
+    for e in events:
+        if e.event_type == str(EventType.ORIGIN_BINDING_PROVEN) and e.payload.get("fronted_host") == surface_id:
+            return True, "ORIGIN_BINDING_PROVEN"
+    return False, "no_origin_binding"
+
+
+def _node_signal(
+    produces: set[str], surface_id: str, events: Iterable[AgentEvent]
+) -> tuple[bool, str]:
+    has_credential = "credential" in produces
+    has_user = "user_enumerated" in produces
+    has_access = "access:user" in produces or "enables_cred_access" in produces
+    for e in events:
+        if e.event_type != str(EventType.NODE_DISCOVERED):
+            continue
+        host = _event_host(e.payload)
+        if host != surface_id:
+            continue
+        node_type = _node_type(e.payload)
+        if has_credential and node_type == "credential":
+            return True, f"NodeDiscovered:{node_type}"
+        if has_user and node_type == "user":
+            return True, f"NodeDiscovered:{node_type}"
+        if has_access and node_type in ("access_level", "service"):
+            return True, f"NodeDiscovered:{node_type}"
+    if has_access:
+        for e in events:
+            if e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED) and e.payload.get("host") == surface_id:
+                return True, "AuthenticatedSurfaceDiscovered"
+    return False, "no_signal"
+
+
 def _technique_signal(
     technique: Technique,
     surface_id: str,
@@ -218,35 +252,8 @@ def _technique_signal(
     if not produces:
         return False, "instrumentation_absent"
     if technique.id == "origin_exposure_bypass":
-        for e in events:
-            if e.event_type == str(EventType.ORIGIN_BINDING_PROVEN):
-                if e.payload.get("fronted_host") == surface_id:
-                    return True, "ORIGIN_BINDING_PROVEN"
-        return False, "no_origin_binding"
-
-    has_credential = "credential" in produces
-    has_user = "user_enumerated" in produces
-    has_access = "access:user" in produces or "enables_cred_access" in produces
-
-    for e in events:
-        if e.event_type != str(EventType.NODE_DISCOVERED):
-            continue
-        host = _event_host(e.payload)
-        if host != surface_id:
-            continue
-        node_type = _node_type(e.payload)
-        if has_credential and node_type in ("credential",):
-            return True, f"NodeDiscovered:{node_type}"
-        if has_user and node_type == "user":
-            return True, f"NodeDiscovered:{node_type}"
-        if has_access and node_type in ("access_level", "service"):
-            return True, f"NodeDiscovered:{node_type}"
-    if has_access:
-        for e in events:
-            if e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED):
-                if e.payload.get("host") == surface_id:
-                    return True, "AuthenticatedSurfaceDiscovered"
-    return False, "no_signal"
+        return _origin_signal(surface_id, events)
+    return _node_signal(produces, surface_id, events)
 
 
 def _cross_verified_nodes(events: Iterable[AgentEvent]) -> set[str]:
@@ -278,6 +285,168 @@ def _has_payable_chain(events: Iterable[AgentEvent], verified: set[str]) -> bool
     return False
 
 
+def _s1_stage(by_type: dict[str, list[AgentEvent]]) -> FunnelStage:
+    return FunnelStage(
+        "S1_AUTHORIZED_ROOT_SEED",
+        any(by_type.get(t, []) for t in _ROOT_EVENTS),
+        [f"{t} x{len(by_type.get(t, []))}" for t in _ROOT_EVENTS],
+    )
+
+
+def _s2_stage(events: list[AgentEvent], by_type: dict[str, list[AgentEvent]]) -> FunnelStage:
+    passive_hosts = _passive_hosts(events)
+    passive_surface_nodes = [
+        e
+        for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
+        if _event_host(e.payload) in passive_hosts and _node_type(e.payload) in ("", "asset")
+    ]
+    return FunnelStage(
+        "S2_PASSIVE_SURFACE",
+        bool(passive_hosts) and bool(passive_surface_nodes),
+        [
+            f"passive_hosts={sorted(passive_hosts)}",
+            f"NodeDiscovered(passive) x{len(passive_surface_nodes)}",
+        ],
+    )
+
+
+def _s3_stage(events: list[AgentEvent]) -> FunnelStage:
+    assets = _asset_hosts(events)
+    blocked = _blocked_hosts(events)
+    reachable = assets - blocked
+    return FunnelStage(
+        "S3_REACH",
+        bool(reachable),
+        [
+            f"asset_hosts={sorted(assets)}",
+            f"blocked_hosts={sorted(blocked)}",
+            f"reachable_hosts={sorted(reachable)}",
+        ],
+    )
+
+
+def _s4_stage(events: list[AgentEvent]) -> FunnelStage:
+    stacks = _stacks_confirmed(events)
+    return FunnelStage(
+        "S4_STACK_AUTH_CLASSIFICATION",
+        bool(stacks),
+        [f"stacks_confirmed={stacks}"],
+    )
+
+
+def _s5_stage(
+    report: CoverageReport, all_absent: bool, absent_ids: list[str]
+) -> FunnelStage:
+    applicable = _applicable_cells(report)
+    return FunnelStage(
+        "S5_APPLICABLE_CAPABILITY",
+        not all_absent and bool(applicable),
+        [
+            f"applicable_cells={len(applicable)}",
+            f"capability_absent={len(absent_ids)}",
+        ],
+    )
+
+
+def _s6_stage(report: CoverageReport, tested: list[CoverageCell]) -> FunnelStage:
+    return FunnelStage(
+        "S6_DISPATCH",
+        bool(tested),
+        [
+            f"tested_cells={len(tested)}",
+            f"tested={[(c.surface_id, c.technique_id) for c in tested]}",
+        ],
+    )
+
+
+def _partition_tested(
+    tested: list[CoverageCell],
+    catalog_by_id: dict[str, Technique],
+    events: list[AgentEvent],
+) -> tuple[list[str], list[str]]:
+    with_signal: list[str] = []
+    without_signal: list[str] = []
+    for c in tested:
+        tech = catalog_by_id.get(c.technique_id)
+        if not tech:
+            without_signal.append(f"{c.surface_id}/{c.technique_id}: unknown_technique")
+            continue
+        ok, detail = _technique_signal(tech, c.surface_id, events)
+        if ok:
+            with_signal.append(f"{c.surface_id}/{c.technique_id}: {detail}")
+        else:
+            without_signal.append(f"{c.surface_id}/{c.technique_id}: {detail}")
+    return with_signal, without_signal
+
+
+def _s7_stage(with_signal: list[str], without_signal: list[str]) -> FunnelStage:
+    return FunnelStage(
+        "S7_TARGET_SIGNAL",
+        bool(with_signal),
+        [
+            f"with_signal x{len(with_signal)}",
+            f"without_signal x{len(without_signal)}",
+        ],
+    )
+
+
+def _s8_stage(by_type: dict[str, list[AgentEvent]]) -> FunnelStage:
+    finding_nodes = [
+        e for e in by_type.get(str(EventType.NODE_DISCOVERED), []) if _is_non_asset_node(e.payload)
+    ]
+    return FunnelStage(
+        "S8_HYPOTHESIS_EVIDENCE",
+        bool(finding_nodes),
+        [f"finding/credential/non-asset NodeDiscovered x{len(finding_nodes)}"],
+    )
+
+
+def _s9_stage(by_type: dict[str, list[AgentEvent]]) -> FunnelStage:
+    oracle_events = [
+        e
+        for t in (str(EventType.NODE_VERIFIED), str(EventType.PROOF_ARTIFACT_RECORDED))
+        for e in by_type.get(t, [])
+    ]
+    return FunnelStage(
+        "S9_INDEPENDENT_ORACLE",
+        bool(oracle_events),
+        [f"{e.event_type} x{len(by_type.get(e.event_type, []))}" for e in oracle_events[:3]],
+    )
+
+
+def _s10_stage(events: list[AgentEvent]) -> FunnelStage:
+    verified = _cross_verified_nodes(events)
+    return FunnelStage(
+        "S10_CROSS_VERIFIED_EDGE",
+        bool(verified),
+        [f"cross_verified_nodes={sorted(verified)}"],
+    )
+
+
+def _s11_stage(events: list[AgentEvent], by_type: dict[str, list[AgentEvent]]) -> FunnelStage:
+    verified = _cross_verified_nodes(events)
+    payable = _has_payable_chain(events, verified)
+    return FunnelStage(
+        "S11_CHAIN",
+        payable,
+        ["payable_chain present" if payable else "no payable chain"],
+    )
+
+
+def _s12_stage(by_type: dict[str, list[AgentEvent]]) -> FunnelStage:
+    proof_backed_findings = [
+        e
+        for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
+        if _is_non_asset_node(e.payload) and e.payload.get("proof_artifacts")
+    ]
+    payable = bool(by_type.get(str(EventType.PROOF_ARTIFACT_RECORDED), []))
+    return FunnelStage(
+        "S12_OMEGA",
+        bool(proof_backed_findings) or payable,
+        [f"proof-backed findings x{len(proof_backed_findings)}"],
+    )
+
+
 def _compute_funnel(
     events: list[AgentEvent],
     report: CoverageReport,
@@ -288,194 +457,33 @@ def _compute_funnel(
     for e in events:
         by_type.setdefault(e.event_type, []).append(e)
 
-    stages: list[FunnelStage] = []
-
-    # S1
-    root_events = [e for t in _ROOT_EVENTS for e in by_type.get(t, [])]
-    s1_pass = bool(root_events)
-    stages.append(
-        FunnelStage(
-            "S1_AUTHORIZED_ROOT_SEED",
-            s1_pass,
-            [f"{t} x{len(by_type.get(t, []))}" for t in _ROOT_EVENTS],
-        )
-    )
-
-    # S2
-    passive_hosts = _passive_hosts(events)
-    passive_surface_nodes = [
-        e
-        for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
-        if _event_host(e.payload) in passive_hosts and _node_type(e.payload) in ("", "asset")
-    ]
-    s2_pass = bool(passive_hosts) and bool(passive_surface_nodes)
-    stages.append(
-        FunnelStage(
-            "S2_PASSIVE_SURFACE",
-            s2_pass,
-            [
-                f"passive_hosts={sorted(passive_hosts)}",
-                f"NodeDiscovered(passive) x{len(passive_surface_nodes)}",
-            ],
-        )
-    )
-
-    # S3
-    assets = _asset_hosts(events)
-    blocked = _blocked_hosts(events)
-    reachable = assets - blocked
-    s3_pass = bool(reachable)
-    stages.append(
-        FunnelStage(
-            "S3_REACH",
-            s3_pass,
-            [
-                f"asset_hosts={sorted(assets)}",
-                f"blocked_hosts={sorted(blocked)}",
-                f"reachable_hosts={sorted(reachable)}",
-            ],
-        )
-    )
-
-    # S4
-    stacks = _stacks_confirmed(events)
-    s4_pass = bool(stacks)
-    stages.append(
-        FunnelStage(
-            "S4_STACK_AUTH_CLASSIFICATION",
-            s4_pass,
-            [f"stacks_confirmed={stacks}"],
-        )
-    )
-
-    # S5
     all_absent, absent_ids = _capability_absent_all_applicable(report)
-    s5_pass = not all_absent and bool(_applicable_cells(report))
-    stages.append(
-        FunnelStage(
-            "S5_APPLICABLE_CAPABILITY",
-            s5_pass,
-            [
-                f"applicable_cells={len(_applicable_cells(report))}",
-                f"capability_absent={len(absent_ids)}",
-            ],
-        )
-    )
-
-    # S6
     tested = _tested_cells(report)
-    s6_pass = bool(tested)
-    stages.append(
-        FunnelStage(
-            "S6_DISPATCH",
-            s6_pass,
-            [
-                f"tested_cells={len(tested)}",
-                f"tested={[(c.surface_id, c.technique_id) for c in tested]}",
-            ],
-        )
-    )
-
-    # S7
     catalog_by_id = {t.id: t for t in catalog}
-    tested_with_signal: list[str] = []
-    tested_without_signal: list[str] = []
-    for c in tested:
-        tech = catalog_by_id.get(c.technique_id)
-        if not tech:
-            tested_without_signal.append(f"{c.surface_id}/{c.technique_id}: unknown_technique")
-            continue
-        ok, detail = _technique_signal(tech, c.surface_id, events)
-        if ok:
-            tested_with_signal.append(f"{c.surface_id}/{c.technique_id}: {detail}")
-        else:
-            tested_without_signal.append(f"{c.surface_id}/{c.technique_id}: {detail}")
-    s7_pass = bool(tested_with_signal)
-    stages.append(
-        FunnelStage(
-            "S7_TARGET_SIGNAL",
-            s7_pass,
-            [
-                f"with_signal x{len(tested_with_signal)}",
-                f"without_signal x{len(tested_without_signal)}",
-            ],
-        )
-    )
+    with_signal, without_signal = _partition_tested(tested, catalog_by_id, events)
+    blocked = _blocked_hosts(events)
 
-    # S8
-    finding_nodes = [
-        e for e in by_type.get(str(EventType.NODE_DISCOVERED), []) if _is_non_asset_node(e.payload)
+    stages = [
+        _s1_stage(by_type),
+        _s2_stage(events, by_type),
+        _s3_stage(events),
+        _s4_stage(events),
+        _s5_stage(report, all_absent, absent_ids),
+        _s6_stage(report, tested),
+        _s7_stage(with_signal, without_signal),
+        _s8_stage(by_type),
+        _s9_stage(by_type),
+        _s10_stage(events),
+        _s11_stage(events, by_type),
+        _s12_stage(by_type),
     ]
-    s8_pass = bool(finding_nodes)
-    stages.append(
-        FunnelStage(
-            "S8_HYPOTHESIS_EVIDENCE",
-            s8_pass,
-            [f"finding/credential/non-asset NodeDiscovered x{len(finding_nodes)}"],
-        )
-    )
-
-    # S9
-    oracle_events = [
-        e
-        for t in (str(EventType.NODE_VERIFIED), str(EventType.PROOF_ARTIFACT_RECORDED))
-        for e in by_type.get(t, [])
-    ]
-    s9_pass = bool(oracle_events)
-    stages.append(
-        FunnelStage(
-            "S9_INDEPENDENT_ORACLE",
-            s9_pass,
-            [f"{e.event_type} x{len(by_type.get(e.event_type, []))}" for e in oracle_events[:3]],
-        )
-    )
-
-    # S10
-    verified = _cross_verified_nodes(events)
-    s10_pass = bool(verified)
-    stages.append(
-        FunnelStage(
-            "S10_CROSS_VERIFIED_EDGE",
-            s10_pass,
-            [f"cross_verified_nodes={sorted(verified)}"],
-        )
-    )
-
-    # S11
-    s11_pass = _has_payable_chain(events, verified)
-    stages.append(
-        FunnelStage(
-            "S11_CHAIN",
-            s11_pass,
-            ["payable_chain present" if s11_pass else "no payable chain"],
-        )
-    )
-
-    # S12
-    proof_backed_findings = [
-        e
-        for e in by_type.get(str(EventType.NODE_DISCOVERED), [])
-        if _is_non_asset_node(e.payload) and e.payload.get("proof_artifacts")
-    ]
-    s12_pass = bool(proof_backed_findings) or bool(
-        by_type.get(str(EventType.PROOF_ARTIFACT_RECORDED), [])
-    )
-    stages.append(
-        FunnelStage(
-            "S12_OMEGA",
-            s12_pass,
-            [f"proof-backed findings x{len(proof_backed_findings)}"],
-        )
-    )
 
     earliest = ""
     detail = ""
     for s in stages:
         if not s.passed:
             earliest = s.stage
-            detail = _stage_failure_detail(
-                s, report, catalog, tested_without_signal, absent_ids, blocked
-            )
+            detail = _stage_failure_detail(s, report, without_signal, absent_ids, blocked)
             break
     if not earliest:
         earliest = "S12_OMEGA"
@@ -487,7 +495,6 @@ def _compute_funnel(
 def _stage_failure_detail(
     stage: FunnelStage,
     report: CoverageReport,
-    catalog: tuple[Technique, ...],
     tested_without_signal: list[str],
     absent_ids: list[str],
     blocked: set[str],
@@ -656,8 +663,11 @@ def _project_for_engagement(
     return _build_verdict(engagement_id, "A_replay", test_env, events, report, catalog)
 
 
-def _load_diagnostic_config(path: str) -> DiagnosticConfig:
-    with open(path, encoding="utf-8") as f:
+def _load_diagnostic_config(config_path: str) -> DiagnosticConfig:
+    p = Path(config_path).expanduser().resolve()
+    if not p.is_file():
+        raise ValueError(f"diagnostic config not found: {config_path}")
+    with p.open(encoding="utf-8") as f:
         data = yaml.safe_load(f)
     if not isinstance(data, dict):
         raise ValueError("diagnostic config must be a YAML mapping")
