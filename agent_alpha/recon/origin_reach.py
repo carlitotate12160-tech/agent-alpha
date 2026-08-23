@@ -67,7 +67,7 @@ def resolve_authorized_origin(alpha: Any, host: str) -> list[str]:
         return []
 
     cached_origins = alpha._bound_origin.get(host)
-    if cached_origins is not None:
+    if isinstance(cached_origins, list):
         return cached_origins
 
     authorized_origins_list: list[str] = []

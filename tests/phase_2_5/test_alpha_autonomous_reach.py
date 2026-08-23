@@ -703,7 +703,7 @@ def test_origin_resolution_cached_once_per_host(monkeypatch: pytest.MonkeyPatch)
         ),
     )
     monkeypatch.setattr(
-        scout,
+        origin_reach,
         "origin_direct_fetch",
         lambda host, ip, path="/", **k: _StubOriginDirectResult(body=_OK_BODY),
     )
