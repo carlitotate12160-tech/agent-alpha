@@ -71,7 +71,15 @@ def seed_fingerprint_first(alpha: Any, target_url: str, root: str, intel_signal:
         # discovered origin BEFORE abandoning; reuse the SAME reach path as _step_once
         # (no 2nd path, #6). Fail-closed: None → mirror the original mark-dead + prune.
         host = urlparse(target_url).hostname or urlparse(target_url).netloc
-        reach = alpha._attempt_reach_transport_dead(target_url)
+        # Origin-flank is a HOST-level decision keyed on a ROOT front-door timeout —
+        # mirror _step_once R1's `path in ("", "/")` guard so a non-root transport-dead
+        # seed is NOT origin-flanked (it is just non-analyzable). Keeps the two
+        # transport-dead call-sites symmetric (Sourcery bug_risk).
+        reach = (
+            alpha._attempt_reach_transport_dead(target_url)
+            if urlparse(target_url).path in ("", "/")
+            else None
+        )
         if reach is None:
             alpha._dead_hosts.add(host)
             alpha._work_queue = [
