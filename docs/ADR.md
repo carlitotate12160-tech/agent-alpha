@@ -4524,3 +4524,108 @@ goal-backward HYPOTHESIZE and COMPOSE buildable on the autonomous path (the moat
 `techniques.yaml` becomes the single source for both coverage (§12.62) AND cognition preconditions,
 guarded against drift by the integrity test. Risk: the predicate vocabulary must stay resolvable — the
 integrity test is the guard; adding a predicate is an explicit ADR step, never ad hoc.
+
+---
+
+### 12.67 Detection Lane — Data-Driven Version→CVE Correlation (ACCEPTED)
+
+**Decision status:** ACCEPTED (2026-08-24). Supersedes the PROPOSED seed in the 2026-08-23 handoff.
+
+#### Context — the field evidence that forced this decision
+
+On real authorized .id targets (>1 month, 0 payable findings), Nuclei found 49 findings (incl.
+Zimbra CVE-2022-41352 RCE CVSS 9.8 on `103.113.118.203`); Agent-Alpha found 0. The handoff
+GATE required reading the niagamas bucket histogram via existing `project_coverage` before
+locking the architectural bet. The read (2026-08-24, `eng_0e1dfdc7` 175 events / 31 cells)
+produced:
+
+```
+not_run:           18  ← wiring gap (Lyndon #2) — capable+applicable, never dispatched
+capability_absent: 12  ← detection gap — technique not built
+tested:             1  (js_secret_leak → no_signal)
+```
+
+Two walls are visible:
+1. **Wiring wall (not_run dominates)** — 18–27 capable techniques were never dispatched on
+   reachable, stack-classified surfaces. This is Lyndon #2 (island not wired to live path),
+   NOT a capability gap. Fix: attach island, no new capability.
+2. **Detection wall (capability_absent significant)** — 12–20 techniques are in the catalog
+   but not built. Additionally, **version→CVE detection does not exist in the catalog at all**
+   — it is not even `capability_absent`, it is `capability_unlisted`. The per-playbook detection
+   model (one hand-built playbook per stack: `wp_*`, `odoo_*`, `laravel_*`) cannot widen to the
+   heterogeneous .id field.
+
+#### Decision — Bet B: breadth-of-detection first, chain on top
+
+**ACCEPTED: Bet B.** Add ONE data-driven detection engine: version-inference (from recon we
+already do) → offline CVE correlation over DATA (NVD/KEV/EPSS/CVEDB corpus) → surgical confirm
+→ `VULNERABILITY` node + ProofArtifact. No exploit fired = still payable (a version-confirmed
+known-CVE is a sellable finding). The chain+oracle layer we ALREADY have (§12.43) turns it into
+a payable finding where Nuclei only lists.
+
+**REJECTED: Bet A (deep chain specialist).** "Seluruh client dilayani" — cannot pick only
+clients matching our deep stacks. The .id field is heterogeneous; a per-playbook model that
+only covers WP/Odoo/CodeIgniter structurally cannot serve most targets.
+
+**REJECTED: rewrite.** The foundation (event-sourced + AttackGraph + per-edge oracle +
+Conductor auth-gate + chain composition) is the moat — the thing a scanner cannot do. Throwing
+it away destroys the only reason the product exists (Lyndon #1–#4 origin).
+
+#### Doctrine — wrap DATA, NOT the ENGINE
+
+The scanner engine (Nuclei's request pattern/templates) IS the signature; wrapping it inherits
+the noise and the detection model. **Wrap the CVE corpus (NVD/KEV/EPSS/CVEDB) as DATA; build the
+detection engine custom** (passive-first, low-footprint, APT29-precision: targeted-per-
+fingerprint, NOT blind 13K-template spray). This is §12.22 (wrap commodity, build the moat,
+gate the dangerous) applied to detection: the corpus is commodity DATA, the detection engine is
+the moat, the exploit is gated (Gamma STOP-gated, detection ≠ exploitation).
+
+#### Precondition — wiring fix BEFORE detection code
+
+The histogram shows `not_run` (18–27) dominates over `capability_absent` (12–20). Building
+detection breadth on top of broken dispatch = Lyndon #3 (false finding from technique that
+never dispatched). **Precondition slice: fix wiring gap first** — attach capable techniques to
+the autonomous dispatch path, verify `not_run` drops to 0 on a re-run, THEN build detection.
+
+#### Build sequence (one vertical slice at a time)
+
+1. **Precondition slice (wiring fix):** diagnose why 18–27 capable techniques are `not_run` on
+   reachable surfaces; attach island to live path; verify on Oracle ARM64 + field re-run. No
+   new capability, no new technique — wiring only.
+2. **GAP-028 (catch-all calibration):** calibrate soft-404 via bound origin IP when front door
+   is transport-dead. Precondition for clean detection (else detection fires on garbage SPA =
+   Lyndon #3).
+3. **§12.67 Slice-1 (version-inference + CVE correlation):** version-inference from recon we
+   already do (headers, body, favicon, JS bundles) → offline CVE correlation over NVD/KEV/EPSS
+   corpus → `VULNERABILITY` node + ProofArtifact. No exploit fired. Authorized file scope to be
+   defined in slice spec.
+4. **§12.67 Slice-2 (subnet-walk from bound origin):** enumerate adjacent IPs from bound origin
+   (the `.202` → `.203` Zimbra lesson). Authorized file scope to be defined.
+5. **Chain on top:** ChainOracle MIN-composition (§12.43) — payable IFF every edge
+   cross_verified. PARKED until detection + reach produce edges to compose.
+
+#### Non-goals
+
+- **No Gamma.** Detection ≠ exploitation. Firing an exploit stays STOP-gated (§12.55: 1-day
+  weaponizer, but the weaponize step is Gamma, not this ADR).
+- **No scanner engine wrap.** Nuclei/nuclei-templates are NOT imported or shell-outed. The CVE
+  corpus is DATA (NVD JSON, KEV catalog, EPSS scores), not engine logic.
+- **No rewrite.** Additive over sealed OBSERVE/ACT/VERIFY/loop, sealed CoverageLedger (§12.62),
+  sealed per-edge oracle (§12.43).
+- **No finding count chase.** Yardstick stays: ONE payable chain a scanner missed (handoff
+  LOCKED yardstick). Detection breadth is the funnel-opener, not the yardstick.
+
+#### Consequences
+
+- The detection model widens from per-playbook (WP/Odoo/CodeIgniter) to data-driven (any stack
+  with a fingerprintable version → CVE match). This is the "comprehensive, all targets" path
+  WITHOUT a rewrite and WITHOUT becoming a scanner.
+- `techniques.yaml` gains a new technique family: `cve_detect` (version→CVE). The
+  CoverageLedger denominator grows honestly — `capability_absent` shrinks as cve_detect is
+  built, `not_run` shrinks as wiring is fixed.
+- The Zimbra RCE scenario (`103.113.118.203`, reached by origin-flank but never detected)
+  becomes detectable: version-inference from Zimbra headers → CVE-2022-41352 match →
+  `VULNERABILITY` node + ProofArtifact → payable finding (no exploit fired).
+- Risk: the CVE corpus must stay current (NVD refresh cadence). Risk: version-inference
+  false-positives (wrong version → wrong CVE). Mitigation: surgical confirm step + ProofArtifact
+  requires version-confirmed evidence, not heuristic guess.
