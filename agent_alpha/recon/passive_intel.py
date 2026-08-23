@@ -116,8 +116,6 @@ def passive_intel_signal_for_host(
     Domain-scoped like CompositeOriginDiscovery (a signal produced for domain A
     must not steer probing of host B). Last matching event wins.
     """
-    from agent_alpha.events.event_types import EventType
-
     host_norm = host.rstrip(".").lower()
     try:
         events = event_store.get_events(engagement_id)  # type: ignore[attr-defined]
