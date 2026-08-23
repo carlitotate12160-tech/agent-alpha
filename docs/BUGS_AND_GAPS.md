@@ -236,6 +236,38 @@
 | 193 | Origin-direct retry for WAF-blocked apex fingerprinting | OPEN | P2 | RM | Med | WP/WC missed behind WAF when origin IP is known |
 | 194 | Cross-host identical-vhost fingerprint & probe consolidation | OPEN | P3 | CW | Low | Redundant 11-path well-known probes on duplicate vhosts |
 | 195 | Relative link resolution drops directory prefix when base URL lacks trailing slash | OPEN | High | RM | Low | Auth/login surfaces in sub-paths missed |
+| 196 | transport-dead origin-flank reaches ROOT only — sub-path leak probes hit dead front door | OPEN | High | RG | Med | Fix: propagate proven/bound origin to sub-path probes on transport-dead hosts; repro: live niagamas.com `/.env,/.git/config,wp-config.php.bak` all `unreachable; non-analyzable` |
+| 197 | protection-detection lost on transport-dead flank — asset node reads `cf_protected=False` from origin body | OPEN | High | RG | Med | Fix: mark asset as edge-fronted/flanked when reach came via transport-dead origin-flank; repro: niagamas.com asset node carries `cf_protected=False` after origin-flank |
+
+## GAP-196 — transport-dead origin-flank reaches ROOT only
+
+Owner: `agent_alpha/recon/origin_reach.py` + `agent_alpha/agents/alpha/scout.py` reach path.
+
+When a fronted host's root HTTPS request times out and `attempt_reach_transport_dead` successfully proves and reaches an authorized/discovered origin, only the root `/` is fetched via origin-direct. All subsequent stack-gated leak probes (`/.env`, `/.git/config`, `wp-config.php.bak`, etc.) are still issued through the transport-dead front door, returning `unreachable; probe is non-analyzable`. This leaves reachable origin content un-analyzed and produces a false zero-finding surface.
+
+Repro (Oracle, 2026-08-23):
+```bash
+python -m agent_alpha.live_fire.recon_integrated_field_prove niagamas_coop.yaml
+# or Alpha.run_recon vs https://niagamas.com/ with a bound origin
+```
+Observation: root fetch `HTTP 200 98,766B` from `139.59.255.22`; every stack probe path returns `unreachable; non-analyzable` because it targets `https://niagamas.com/<path>` not the origin IP.
+
+Fix (next slice): carry the proven/bound origin for the host into `Alpha._http_client.get()` whenever the front door is transport-dead and the path is in scope. Origin-direct transport must be per-path, gated by `assert_origin_authorized_or_bound` and the `front_door_transport_ok` egress counter. Cardinal RED: transport-dead host + bindable origin + leak path present at origin → leak analyzed via origin, not marked non-analyzable.
+
+## GAP-197 — protection-detection lost on transport-dead flank
+
+Owner: `agent_alpha/recon/fingerprint.py` + `agent_alpha/graph/networkx_store.py` asset-node classification.
+
+When an asset is discovered through `origin_direct_fetch` because the front door was transport-dead, the `NodeDiscovered` payload currently carries `cf_protected=False` derived from the origin body (`server: nginx`). This is an Anti-#3 reporting risk: the target was in fact fronted (otherwise no flank was needed), but the graph now asserts it is not Cloudflare-protected. Omega/Conductor must not claim "not CF-protected" for a host we FLANKED.
+
+Repro (Oracle, 2026-08-23):
+Same run as GAP-196. Event:
+```text
+NodeDiscovered | ... | {'id': 'asset:niagamas.com', 'type': 'asset', 'properties': {'host': 'niagamas.com', 'cf_protected': False, 'tech_stack': ['nginx'], ...}}
+```
+The apex was CF-fronted (front-door transport-dead), so `cf_protected=False` is dishonest.
+
+Fix (next slice): when `OriginDirectAttempt` is emitted for a host with `transport_dead=True` (or via the `ORIGIN_BINDING_PROVEN` path after a front-door `HttpClientError`), the asset node must carry an `edge_fronted` / `flanked` marker and `cf_protected` must not be asserted `False` from an origin-direct body. It should remain `None` or reflect the edge classification from passive DNS/NS (`cf_protected: True`) while recording the flank success separately. Cardinal RED: transport-dead→flank run → asset node carries an `edge-fronted`/`flanked` marker and `cf_protected` is not `False`.
 
 ### Out of Scope — Documented (bounds GAP-045 claim)
 
