@@ -73,7 +73,6 @@ ATTACKER_HARNESSES: frozenset[str] = frozenset(
         "gap015_field_prove",
         "recon_integrated_field_prove",
         "codeigniter_field_prove",
-        "coverage_diagnostic",
     }
 )
 
