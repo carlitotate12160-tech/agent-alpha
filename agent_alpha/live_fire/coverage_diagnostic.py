@@ -352,7 +352,7 @@ def _s5_stage(report: CoverageReport, all_absent: bool, absent_ids: list[str]) -
     )
 
 
-def _s6_stage(report: CoverageReport, tested: list[CoverageCell]) -> FunnelStage:
+def _s6_stage(tested: list[CoverageCell]) -> FunnelStage:
     return FunnelStage(
         "S6_DISPATCH",
         bool(tested),
@@ -427,7 +427,7 @@ def _s10_stage(events: list[AgentEvent]) -> FunnelStage:
     )
 
 
-def _s11_stage(events: list[AgentEvent], by_type: dict[str, list[AgentEvent]]) -> FunnelStage:
+def _s11_stage(events: list[AgentEvent]) -> FunnelStage:
     verified = _cross_verified_nodes(events)
     payable = _has_payable_chain(events, verified)
     return FunnelStage(
@@ -473,12 +473,12 @@ def _compute_funnel(
         _s3_stage(events),
         _s4_stage(events),
         _s5_stage(report, all_absent, absent_ids),
-        _s6_stage(report, tested),
+        _s6_stage(tested),
         _s7_stage(with_signal, without_signal),
         _s8_stage(by_type),
         _s9_stage(by_type),
         _s10_stage(events),
-        _s11_stage(events, by_type),
+        _s11_stage(events),
         _s12_stage(by_type),
     ]
 
