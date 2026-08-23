@@ -183,6 +183,7 @@ def origin_direct_probe(
             body=candidate.text,
             headers=dict(candidate.headers),
         )
+        print(f"[DEBUG] origin_direct_probe verdict={origin_verdict} body={candidate.text[:30]!r} authorized={authorized_origins_list}")
 
         # Useful = real content, not a WAF block, not a redirect/not-found
         if origin_verdict not in (Verdict.BLOCKED, Verdict.CHALLENGE) and (
