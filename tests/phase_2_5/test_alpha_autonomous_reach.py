@@ -31,6 +31,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from agent_alpha.agents.alpha.scout import Alpha
+from agent_alpha.recon import origin_reach
+from agent_alpha.agents.http_client import HttpClientError
 from agent_alpha.conductor.engagement_profile import EngagementProfile
 from agent_alpha.events.event_types import EventType
 from agent_alpha.events.store import InMemoryEventStore
@@ -219,7 +221,7 @@ def test_alpha_autonomous_reach_origin_direct(monkeypatch: pytest.MonkeyPatch) -
 
     from agent_alpha.agents.alpha import scout
 
-    monkeypatch.setattr(scout, "origin_direct_fetch", _fake_origin_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _fake_origin_fetch)
     profile = _make_profile(authorized_origins=frozenset({_ORIGIN_IP}))
     origin_discovery = StaticOriginDiscovery([_ORIGIN_IP])
 
@@ -393,7 +395,7 @@ def test_reach_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
 
     from agent_alpha.agents.alpha import scout
 
-    monkeypatch.setattr(scout, "origin_direct_fetch", _fake_origin_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _fake_origin_fetch)
 
     profile = _make_profile(authorized_origins=frozenset({_ORIGIN_IP}))
     origin_discovery = StaticOriginDiscovery([_ORIGIN_IP])
@@ -630,7 +632,7 @@ def test_alpha_reach_origin_direct_via_runtime_binding(monkeypatch: pytest.Monke
         return _StubOriginDirectResult(body=_OK_BODY)
 
     monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
-    monkeypatch.setattr(scout, "origin_direct_fetch", _reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
 
     alpha = _make_alpha(
         event_store=store,
@@ -667,7 +669,7 @@ def test_alpha_reach_refused_when_candidate_not_bound(monkeypatch: pytest.Monkey
     )
     # Track the reach-transport boundary: it must NEVER be hit when nothing binds.
     reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
-    monkeypatch.setattr(scout, "origin_direct_fetch", reach_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_alpha(
         event_store=store,
@@ -701,19 +703,19 @@ def test_origin_resolution_cached_once_per_host(monkeypatch: pytest.MonkeyPatch)
         ),
     )
     monkeypatch.setattr(
-        scout,
+        origin_reach,
         "origin_direct_fetch",
         lambda host, ip, path="/", **k: _StubOriginDirectResult(body=_OK_BODY),
     )
 
     calls = {"n": 0}
-    real = scout.resolve_and_bind_origin
+    real = origin_reach.resolve_and_bind_origin
 
     def _counting(**kw: Any) -> Any:
         calls["n"] += 1
         return real(**kw)
 
-    monkeypatch.setattr(scout, "resolve_and_bind_origin", _counting)
+    monkeypatch.setattr(origin_reach, "resolve_and_bind_origin", _counting)
 
     alpha = _make_alpha(
         origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
@@ -726,4 +728,237 @@ def test_origin_resolution_cached_once_per_host(monkeypatch: pytest.MonkeyPatch)
     assert calls["n"] == 1, (
         f"resolve_and_bind_origin ran {calls['n']}x across {len(alpha._reach_attempted)} "
         f"blocked paths on one host — per-host cache regressed (was per-path)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# §12.61 transport-dead front-door → origin-flank (the niagamas lesson)
+#
+# The response-blocked path (tests above) proved reach when the front door
+# ANSWERS with a block. These prove reach when the front door is TRANSPORT-DEAD
+# (HttpClientError, no response) — the niagamas field case: https://<host>/ times
+# out from Oracle while a historical origin IP is live. Before the fix, a root
+# transport failure marked the host _dead_hosts and abandoned it BEFORE any
+# origin-flank (Lyndon #2 island; inverts §12.42/§12.61). SCOPE: root front-door
+# only — propagating origin-direct to every sub-path of a transport-dead host is a
+# separate follow-on slice, deliberately NOT done here (anti #1/#5).
+# ---------------------------------------------------------------------------
+
+
+class _TransportDeadClient:
+    """CF-fronted hostname is transport-dead for EVERY path (edge drops the
+    connection) — models niagamas. The origin IP is reachable only via the
+    (monkeypatched) origin_direct_fetch, never via this client."""
+
+    def __init__(self, dead_host: str) -> None:
+        self._dead_host = dead_host
+        self.requests: list[str] = []
+
+    def get(self, url: str, **kwargs: Any) -> _FakeResp:
+        from urllib.parse import urlparse
+
+        self.requests.append(url)
+        host = urlparse(url).hostname or urlparse(url).netloc
+        if host == self._dead_host:
+            raise HttpClientError(f"transport-dead front door: {url}")
+        return _FakeResp(text=_OK_BODY, status_code=200, headers={})
+
+
+def _make_transport_dead_alpha(
+    store: InMemoryEventStore,
+    engagement_profile: Any,
+    origin_discovery: Any = None,
+) -> Alpha:
+    return Alpha(
+        authorization=_FakeAuth(),
+        graph_store=NetworkXGraphStore(),
+        event_store=store,
+        orchestrator=_FakeOrchestrator(),
+        http_client=_TransportDeadClient(_LAB_HOST),
+        secrets_manager=MagicMock(),
+        origin_discovery=origin_discovery,
+        browser_solve=None,
+        engagement_profile=engagement_profile,
+        browser_solve_viable=False,
+    )
+
+
+def test_transport_dead_front_door_reaches_via_origin_flank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§12.61 CARDINAL RED (the niagamas lesson). Root front-door is transport-dead
+    (HttpClientError, NO resp) but a discovered origin serves the ownership token.
+
+    BEFORE fix: seed_fingerprint_first/_step_once mark the host _dead_hosts and
+    return → 0 ORIGIN_BINDING_PROVEN, 0 ORIGIN_DIRECT_ATTEMPT (reproduces niagamas).
+    AFTER fix: transport-dead → _attempt_reach_transport_dead → PROVE-bind →
+    origin-direct → body flows into OBSERVE. Host is NOT abandoned."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    from agent_alpha.agents.alpha import scout
+    from agent_alpha.recon import origin_binding
+
+    def _canary_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        body = _BIND_TOKEN if origin_ip == _BOUND_IP else "cohost-no-token"
+        return _StubOriginDirectResult(body=body)
+
+    def _reach_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        return _StubOriginDirectResult(body=_OK_BODY)
+
+    monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
+
+    alpha = _make_transport_dead_alpha(
+        store,
+        engagement_profile=_make_discovery_profile(),
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.ORIGIN_BINDING_PROVEN in types, (
+        "transport-dead front door did not trigger origin binding — host abandoned "
+        "before the origin-flank (the niagamas bug)"
+    )
+    assert EventType.ORIGIN_DIRECT_ATTEMPT in types, (
+        "origin-direct not attempted on a transport-dead front door"
+    )
+    assert _LAB_HOST not in alpha._dead_hosts, (
+        "host marked dead despite a bindable live origin — fail-closed inverted"
+    )
+    assert alpha._analyzable_probes > 0, (
+        "origin-direct body did not flow into OBSERVE (reach not continued)"
+    )
+
+
+def test_transport_dead_front_door_fail_closed_on_stale_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§12.61 EDGE (anti-false-reach). Root transport-dead AND the candidate does NOT
+    serve the ownership token (stale / co-tenant — niagamas 128.199.111.40 /
+    180.235.151.43 that answered 200 but are not the client’s origin). Alpha stays
+    fail-closed: no binding, no origin-direct, host MARKED DEAD. A live 200 is NOT reach."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    from agent_alpha.agents.alpha import scout
+    from agent_alpha.recon import origin_binding
+
+    monkeypatch.setattr(
+        origin_binding,
+        "origin_direct_fetch",
+        lambda *a, **k: _StubOriginDirectResult(body="cohost-neighbor-no-token"),
+    )
+    # Reach-transport boundary: must NEVER be hit when nothing binds.
+    reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
+
+    alpha = _make_transport_dead_alpha(
+        store,
+        engagement_profile=_make_discovery_profile(),
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.ORIGIN_BINDING_PROVEN not in types, (
+        "unbound co-tenant IP was falsely proven on a transport-dead host"
+    )
+    assert EventType.ORIGIN_DIRECT_ATTEMPT not in types, (
+        "origin-direct fired without a binding proof (collateral / false-reach risk)"
+    )
+    reach_fetch.assert_not_called()
+    assert _LAB_HOST in alpha._dead_hosts, (
+        "stale candidate did not fail-closed to dead-host — the niagamas lesson regressed"
+    )
+
+
+def test_transport_dead_front_door_no_discovery_consent_marks_dead(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§12.61 consent gate (legacy behavior preserved). Root transport-dead but the
+    profile did NOT consent to origin discovery (no allow_origin_discovery, no
+    pre-signed origins). Alpha does NOT origin-direct and marks the host dead exactly
+    as before — the fix is additive, not a fail-open."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    from agent_alpha.agents.alpha import scout
+
+    reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
+
+    alpha = _make_transport_dead_alpha(
+        store,
+        engagement_profile=_make_profile(authorized_origins=frozenset()),
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.ORIGIN_DIRECT_ATTEMPT not in types, (
+        "origin-direct attempted WITHOUT discovery consent — fix fail-opened the gate"
+    )
+    reach_fetch.assert_not_called()
+    assert _LAB_HOST in alpha._dead_hosts, (
+        "host not abandoned despite no reach path — legacy fail-closed regressed"
+    )
+
+
+def test_transport_dead_front_door_does_not_count_as_egress_ok(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§12.61 GAP-037 boundary: a root origin-flank success must NOT mark the host
+    _host_ok, because the front-door transport is still dead. Subsequent sub-path
+    front-door timeouts must NOT increment _consecutive_transport_fail or abort as
+    EgressBlocked (the niagamas field lesson; Qodo/Sourcery #487 review)."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    from agent_alpha.agents.alpha import scout
+    from agent_alpha.recon import origin_binding
+
+    # Canary + reach both serve real content so the root binds.
+    def _canary_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        body = _BIND_TOKEN if origin_ip == _BOUND_IP else "cohost-no-token"
+        return _StubOriginDirectResult(body=body)
+
+    def _reach_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        return _StubOriginDirectResult(body=_OK_BODY)
+
+    monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
+
+    alpha = _make_transport_dead_alpha(
+        store,
+        engagement_profile=_make_discovery_profile(),
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    assert _LAB_HOST not in alpha._host_ok, (
+        "origin-flank root incorrectly marked the front-door egress as ok — "
+        "sub-path timeouts would count as egress block (Qodo review #487)"
+    )
+    assert not alpha._egress_blocked, (
+        "origin-flank run aborted with EgressBlocked despite sub-path failures being "
+        "front-door deadness, not a global IP cut"
+    )
+    assert alpha._consecutive_transport_fail == 0, (
+        "sub-path front-door timeouts incremented the egress counter on a host whose "
+        "front door never succeeded"
+    )
+
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.EGRESS_BLOCKED not in types, (
+        "EgressBlocked event emitted for a host whose front door was never ok"
     )

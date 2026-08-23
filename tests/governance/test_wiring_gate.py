@@ -104,8 +104,8 @@ WIRED_REQUIRED: dict[str, tuple[str, ...]] = {
     ),  # Beta autonomous access tool wired into the ToolRegistry candidate set (protects wiring;
     # NOTE: autonomous-WIN proof via run_strike/run_beta still owed — tracked in BUGS_AND_GAPS)
     "resolve_and_bind_origin": (
-        "agents/alpha/scout.py",
-    ),  # §12.46 Slice A: origin-binding wired into _attempt_reach (verify_origin_binding transitively via this)
+        "recon/origin_reach.py",
+    ),  # §12.46 Slice A: origin-binding wired into resolve_authorized_origin in origin_reach.py (consumed by scout._attempt_reach and fingerprint.seed_fingerprint_first; verify_origin_binding transitively via this)
     "LiveOriginDiscovery": (
         "conductor/main.py",
     ),  # §12.46 Slice B: real CT/DNS origin discovery injected on the live Conductor path (discover_origin_ips transitively via this)

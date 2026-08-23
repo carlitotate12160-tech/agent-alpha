@@ -150,6 +150,13 @@ class _FakeAlpha:
         self._work_queue: list[str] = ["https://t.x"]  # _reset_target_state seeds [target_url]
         self.enqueued: list[str] = []
         self.abandoned: list[str] = []
+        # §12.61 transport-dead origin-flank seam: seed_fingerprint_first now routes a
+        # root transport-dead through attempt_reach_transport_dead. With no engagement
+        # profile the helper fail-closes (returns None) → the dead-root abandon path
+        # below runs unchanged. A profile-bearing origin-flank is covered end-to-end in
+        # tests/phase_2_5/test_alpha_autonomous_reach.py (not this pure seed unit).
+        self._reach_attempted: set[str] = set()
+        self._engagement_profile: Any = None
 
     def enqueue_discovered_url(self, url: str) -> bool:
         self.enqueued.append(url)
