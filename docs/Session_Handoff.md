@@ -1,6 +1,6 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = GAP-196 vs GAP-197 — pick next)
+# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; GAP-196 SEALED; CURRENT SLICE = GAP-197)
 
 Resume with: "lanjut Agent-Alpha — **PR #487 SEALED 2026-08-23**: transport-dead front-door → origin-flank (§12.61) on root paths, helpers extracted to `agent_alpha/recon/origin_reach.py` (scout.py 2563→2374, ceiling held), live `niagamas.com` = `ORIGIN_DIRECT` HTTP 200 (98.766B) via `139.59.255.22`, no `EgressBlocked`, `dead_hosts` empty. **CURRENT SLICE = pick next between GAP-196 (sub-path origin propagation) vs GAP-197 (flanked asset node `cf_protected` honesty)**. NOT ChainOracle/Gamma. REACH ROOT only sealed; sub-path/leak propagation = GAP-196. `cf_protected=False` derived from origin body when front door was flanked = GAP-197. Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
 
@@ -41,7 +41,7 @@ Resume with: "lanjut Agent-Alpha — **PR #487 SEALED 2026-08-23**: transport-de
    EVIDENCE: 254 green + ruff/mypy(151) clean on Oracle; live `niagamas.com` via `Alpha.run_recon`
    = `ORIGIN_DIRECT` HTTP 200 (98,766B) on `139.59.255.22`, no `EgressBlocked`, `dead_hosts` empty.
    SCOPE SEALED = E1→E2 reach of ROOT only. Mechanism proven; NOT field-readiness.
-   CURRENT SLICE = **(pick next)** between the two follow-on GAPs below. NOT ChainOracle/Gamma.
+   CURRENT SLICE = **GAP-197** (flanked-asset `cf_protected` honesty). GAP-196 sealed (PR #491). NOT ChainOracle/Gamma.
 5. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
@@ -152,6 +152,7 @@ DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch
 | **GAP-074 Auth Mechanism Selection (Slice 2a)** | **MERGED #408, Tier-1 PROVEN** | Mechanism-aware applicator selection: reads canonical ASSET `tech_stack` `mech_*` labels. Single-source `MECH_TO_APPLICATOR_SERVICES` in `recon.auth_surface`. `applicator_factory._resolve_in_scope_targets` binds only matching services (e.g. JSON-RPC → SPA only, Form-POST → HTTP only). Fail-open when unclassified, fail-closed for any unmapped/unstrikable `mech_*`. 20/20 PASS. |
 | **GAP-074 Auth Mechanism Fingerprinting (Slice 1)** | **MERGED #406, Tier-1 PROVEN** | Universal recon fingerprinting in `scout._detect_auth_surface`: detects `mech_http_basic`, `mech_json_rpc`, `mech_jwt`, `mech_saml`, `mech_oauth`, `mech_form_post` without hardcoded catalogs. Persisted to ASSET `tech_stack`. |
 | **ADR §12.62 Coverage-Honesty & Report Section (Slice 2)** | **MERGED #407, Tier-1 PROVEN** | OMEGA client report emits formal Coverage & Methodology section: lists tested, not_run, blocked, and capability_absent techniques + not_assessed engagement targets. Anti-false-assurance (§12.45 / §12.62). |
+| **GAP-196 / PR #491: sub-path origin-direct flank** | **MERGED (squash `e11fc993`), Tier-1 Oracle-green** | Transport-dead sub-paths reuse a pre-bound/authorized origin; query string preserved for fetch; audit `path` in `ORIGIN_DIRECT_ATTEMPT` with query VALUES redacted. `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 14/14; DeepSource + Sourcery + Qodo green. |
 | **ADR §12.62 Engagement Coverage Ledger (Slice 1)** | **MERGED #404, Tier-1 PROVEN** | `agent_alpha/coverage/coverage_ledger.py` + `techniques.yaml` single-source technique catalog. Runtime ledger tracking execution events and surfaces across the engagement lifecycle. |
 | **OMEGA-GOV Catalog Integrity & Exit Criteria** | **MERGED #405, Tier-1 PROVEN** | `test_coverage_catalog_integrity.py` validates techniques.yaml against EventType and gap references. Phase Omega exit criteria banked in `AGENTS.md` (OMEGA-1..5, OMEGA-GOV). |
 | **GAP-030 / SpaLoginApplicator & Autonomous Path** | **MERGED #403, Tier-1 PROVEN** | JSON-API login reuse tool (`SpaLoginApplicator`): POSTs JSON credentials, extracts JWT from response, verifies via Bearer replay. Fully wired into `applicator_factory` and Conductor autonomous path (no Lyndon #2). |
@@ -182,10 +183,17 @@ CORRECT downgrade of the `wpvuln` bare-UUID cred that does NOT resolve in the va
 follows (no point enumerating on unproven access) — not a separate defect. The ONLY honest residual is a
 FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used a WP fake) — optional field-validation, NOT a build gap.
 
-**CURRENT SLICE — ChainOracle MIN-composition (§12.43 chain payability):**
+**CURRENT SLICE — GAP-197 (flanked asset `cf_protected` honesty):**
+- When a host is reached via origin-flank (front door transport-dead / WAF blocked), the `ASSET` node MUST NOT
+  be marked `cf_protected=False` as if the front door is healthy. Honest graph projection: `cf_protected` should
+  reflect the edge that was actually reached (flanked origin) or carry a flanked/fronted marker. Tied to §12.61
+  reach evidence and `OriginDirectAttempt` audit. One file at a time; authorized scope TBD.
+
+**ChainOracle MIN-composition (§12.43 chain payability) — PARKED:**
 - See START HERE point 4 for the full design. `chain_tier = MIN(edge_tier)`, payable IFF every hop cross_verified,
   `weakest_hop` names the reason. New `attestation/chain_oracle.py` + `narrative.py::summarize_chain_finding` wire-in + test.
   Aggregates per-edge verdicts only (never re-verifies, anti-#3). Gates the multi-hop cred-reuse moat (WP→Odoo) honestly.
+  GAP-196/197 must seal first (anti-#1).
 
 **AFTER ChainOracle — ADR §12.66 ACCEPT-review (PROPOSED → decide):**
 - §12.66 goal-backward scoring. Slice-2 (production `Planner.score`) is BLOCKED until §12.66 ACCEPTED (ADR.md line 16).
@@ -235,13 +243,13 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle SEALED** (PR #465, Oracle-green). Temuan 2 = PHANTOM (GAP-118 correct downgrade). CURRENT SLICE = **Front-door-timeout origin-binding gate fix (PR #487)**: `scout.py` + `fingerprint.py` now route a root front-door `HttpClientError` to `_attempt_reach_transport_dead`, reusing `_resolve_authorized_origin` + `_origin_direct_probe` (§12.46, no 2nd binding path). Oracle ARM64 `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` green (13 passed, 4 new Cardinal RED/edge tests). `REPRESENTATIVE_FIELD_VERIFIED` SEALED: `recon_integrated_field_prove` vs `niagamas.com` produced `ORIGIN_BINDING_PROVEN` + `OriginDirectAttempt` for `139.59.255.22` (cooperative_soft_binding); post-fix re-run no longer aborts with `EgressBlocked`. T5 CF-apex signal fail = passive-intel slice, not reach blocker. ChainOracle = **PARKED**. §12.66 PROPOSED, deferred behind reach. JANGAN rebuild GAP-115, JANGAN build ChainOracle/Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — **GAP-196 (sub-path origin-direct flank) SEALED** (PR #491, squash `e11fc993`, Oracle-green). Transport-dead sub-paths reuse a pre-bound/authorized origin via `attempt_reach_transport_dead(..., require_bound=True)`; query string preserved for `origin_direct_fetch`; `ORIGIN_DIRECT_ATTEMPT` audit carries `path` with query VALUES redacted (e.g. `/data?token=REDACTED`). `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 14/14; DeepSource/Sourcery/Qodo green. **CURRENT SLICE = GAP-197 (flanked-asset `cf_protected` honesty)**: when reach is origin-flanked, the `ASSET` node must not falsely claim `cf_protected=False`; honest fronted/flanked marker tied to `OriginDirectAttempt`. ChainOracle/GAP-115/Gamma remain **PARKED**. §12.66 PROPOSED, deferred behind GAP-197. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
 
 ---
 
 ## SESSION STATUS (2026-08-23)
 
-- **This session: PR #487 sealed + post-merge live verification on Oracle, two GAPs registered.**
+- **Session P1: PR #487 sealed + post-merge live verification on Oracle, two GAPs registered.**
   PR #487 transport-dead root reach merged to `main`. Live re-run `niagamas.com` via `Alpha.run_recon`
   = `ORIGIN_DIRECT` HTTP 200 (98,766B) on `139.59.255.22` with no `EgressBlocked`; `dead_hosts`/`host_ok`
   both empty. Canary-free `verification_mode="cooperative"` also verified: `ORIGIN_BINDING_PROVEN`
@@ -249,4 +257,14 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
   GitHub `quality-gate` 4m41s passed. ROOT reach only sealed; two follow-on GAPs opened in
   `docs/BUGS_AND_GAPS.md` (GAP-196 sub-path origin propagation, GAP-197 flanked-asset `cf_protected`
   honesty). ChainOracle PARKED. §12.66 PROPOSED, deferred.
-- **Sealed slices this session:** 1 (PR #487 — front-door-timeout origin-binding gate fix, merged + live re-verified on Oracle).
+- **Sealed slices P1:** 1 (PR #487 — front-door-timeout origin-binding gate fix, merged + live re-verified on Oracle).
+
+- **Session P2: PR #491 (GAP-196 follow-up) sealed — query string, bound origin, redacted audit.**
+  Squash-merged `e11fc993`. Sub-path transport-dead probes reuse a pre-bound/authorized origin via
+  `attempt_reach_transport_dead(..., require_bound=True)`; query string preserved for `origin_direct_fetch`;
+  `ORIGIN_DIRECT_ATTEMPT` payload carries `path` with query VALUES redacted (keys kept, e.g. `/data?token=REDACTED`);
+  `agent_alpha/events/event_types.py` updated; `tests/phase_2_5/test_alpha_autonomous_reach.py` asserts
+  redaction and no raw secrets in stored payloads. Oracle ARM64 `make check` clean + 14/14 phase 2.5 tests;
+  GitHub `quality-gate` 5m13s, DeepSource/Sourcery/Qodo green. Qodo LOW test-filename finding (weak) deferred.
+  Current slice now **GAP-197 (flanked-asset `cf_protected` honesty)**. ChainOracle/GAP-115/Gamma remain PARKED.
+- **Sealed slices P2:** 1 (PR #491 — sub-path origin-direct flank, query redaction, redacted audit).
