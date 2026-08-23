@@ -498,7 +498,7 @@ class Alpha:
                 # ORIGIN_DIRECT_ATTEMPT audited, §12.46 gate enforced, per-host binding cache
                 # reused (no re-bind). Fail-closed: None → non-analyzable exactly as before
                 # (a host with no bound/authorized origin is unchanged).
-                reach = attempt_reach_transport_dead(self, url)
+                reach = attempt_reach_transport_dead(self, url, require_bound=True)
                 if reach is None:
                     self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
                     # GAP-037: feed the egress counter from the MAIN fetch path too.
@@ -966,7 +966,7 @@ class Alpha:
         if strategy is ReachStrategy.ORIGIN_DIRECT and authorized_origin is not None:
             # origin_reach.origin_direct_probe is the SINGLE §12.46-gated dispatch, shared
             # with the transport-dead path — no 2nd origin-direct path (#6).
-            return origin_direct_probe(self, url, host, path, authorized_origins_list)
+            return origin_direct_probe(self, url, host, authorized_origins_list)
 
         if strategy is ReachStrategy.EVASION and self._browser_solve is not None:
             self._emit(
