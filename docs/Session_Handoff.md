@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-22, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = ChainOracle MIN-composition)
+# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = Bounded reach-diagnostic — ChainOracle PARKED)
 
-Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (auth-vs-unauth diff BUILT + AUTONOMOUS-WIRED at `conductor/main.py:805` producer / `:810` consumer; proven end-to-end by `tests/integration/test_conductor_chain.py::test_wp_cred_reuse_chain_is_cross_verified_autonomously` — PASSED on Oracle ARM64, PR #465). Temuan 2 was a PHANTOM (E=False/F=False on alpha-ai = GAP-118's CORRECT downgrade of a non-resolving `wpvuln` bare-UUID cred, sealed commit `62d3657` — NOT a bug, no fix needed). CURRENT SLICE = **ChainOracle MIN-composition** (§12.43 chain payability: `tier(chain)=MIN(tier(edge))`, payable IFF every hop cross_verified — the ONLY §12.43 payable-value piece not yet built). AFTER ChainOracle → architect review of ADR §12.66 for ACCEPT decision (§12.66 is PROPOSED; Slice-2 blocked until ACCEPTED). Do NOT build Gamma. ALWAYS git pull + re-verify first; Oracle ARM64 = the seal (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
+Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (PR #465, Oracle-green). Temuan 2 = PHANTOM (GAP-118 correct downgrade). CURRENT SLICE = **Bounded reach-diagnostic (Class-C accepted 2026-08-23)**: historical-DNS enrichment (`enrich_with_historical_dns` in `passive_intel.py:517`) is ALREADY wired in `conductor/recon_runner.py:646` via `mnemonic_client` and gated through `verify_origin_binding` (§12.46). ChainOracle = **PARKED** (per-edge oracle sealed, ChainOracle non-binding until field-reach exists). §12.66 PROPOSED, deferred behind reach. Earliest-failed-transition = REACH/BLOCK (E0–E2) on real full-CF targets. NEXT = instrument the wired historical-DNS reach path, run `live_fire/recon_integrated_field_prove.py` vs `niagamas.com` + `bernofarm.com` on Oracle, classify A/B/C, then ONE slice (ViewDNS source [B] OR GAP-045 CF-ceiling honest-outcome [C]). JANGAN rebuild GAP-115, JANGAN build ChainOracle/Gamma. Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
 
 ---
 
@@ -33,26 +33,11 @@ Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (a
    (characterize J5 SKIPPED by design: needs PROFILE_SIGNING_KEY + real LLM). Owner GAP-118 — mark the
    oracle portion DONE; only the CHAIN-level composition remains (below).
 
-4. **CURRENT SLICE = ChainOracle MIN-composition. (§12.43 chain payability — the one payable-value piece not built.)**
+4. **CURRENT SLICE = Bounded reach-diagnostic (Class-C accepted 2026-08-23). ChainOracle = PARKED** (per-edge oracle PR #465 sealed; ChainOracle non-binding sampai field-reach ada). §12.66 = **PROPOSED**, deferred di belakang reach. Earliest-failed-transition = **REACH/BLOCK (E0–E2)** pada target full-CF (§12.60/§12.61/strategic_gaps A1). `mnemonic_client` SUDAH WIRED (`conductor/main.py:482` -> `recon_runner.py:646` -> `enrich_with_historical_dns` -> `origin_ip_candidates` -> `CompositeOriginDiscovery` -> `resolve_and_bind_origin` -> `verify_origin_binding` fail-closed).
+   - DIAGNOSE: instrument the wired historical-DNS reach path (log fail-open reason + 0-records + per-candidate binding verdict), run `live_fire/recon_integrated_field_prove.py` di Oracle ARM64 vs `niagamas.com` + `bernofarm.com`, klasifikasi **A/B/C**.
+   - THEN **ONE slice** (jangan dua): **ViewDNS source** (jika log = B: Mnemonic 0-records / fail-open untuk .id -> keyless-first seam tambahan) **ATAU** **GAP-045 CF-ceiling honest-outcome** (jika log = C: kandidat ada, semua binding REJECT stale/generic -> coverage-honest report). JANGAN build GAP-115 greenfield (sudah wired). JANGAN build ChainOracle/Gamma.
    §12.43 gap map (Natanael, authoritative): per-edge ✅ / autonomous wiring ✅ / bidirectional diff ✅ /
-   provenance guard ✅ ; **ChainOracle MIN ❌**, OracleEvidence encapsulation ❌ (separate), deception_risk ❌ (separate),
-   screenshot storage_ref ⚠️ partial (separate), L3 corroborated ❌ (deferred BY DESIGN, anti-#2).
-   - BUILD: NEW `agent_alpha/attestation/chain_oracle.py` — `evaluate_chain(path_nodes, graph) -> ChainOracleVerdict`
-     with `chain_tier = MIN(edge_tier)` where `edge_tier := target_node.verification` (the per-edge attestor
-     already stamped it), `payable IFF chain_tier==CROSS_VERIFIED`, `weakest_hop` = the MIN edge. Empty/1-node → NOT payable.
-     Aggregates only — NEVER re-verifies (anti-#3). Wire into `graph/narrative.py::summarize_chain_finding` (attach
-     `chain_tier`+`payable`+`weakest_hop` to `ChainFinding`; Omega reports payable=False coverage-honestly).
-   - Cardinal RED (`tests/.../test_chain_oracle.py`, new component): 3-hop path, hop-2 access SELF_VERIFIED,
-     hop-1/3 CROSS_VERIFIED → `chain_tier==SELF_VERIFIED`, `payable==False`, `weakest_hop==hop-2`. GREEN: all hops
-     cross_verified → payable True. Edge: empty/1-node → payable False.
-   - SCOPE (challenge held): do NOT bundle OracleEvidence-encapsulation / deception_risk / screenshot / L3.
-     ~3 files additive (chain_oracle.py + narrative.py wire-in + test). One vertical slice.
-
-5. **AFTER ChainOracle: architect review of ADR §12.66 → ACCEPT decision (+ how to build if accepted).**
-   §12.66 is **PROPOSED** (ADR.md line 16: PROPOSED must not be production behavior). Slice-2 = production
-   `Planner.score` code → BLOCKED until §12.66 ACCEPTED. Slice-3 chain-seeking CONSUMES
-   the ChainOracle payable verdict → ChainOracle is logically prior (anti-#1 prover-before-seeker). Review §12.66
-   for ACCEPT first; do NOT write Slice-2 code on a PROPOSED ADR.
+5. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
 
@@ -62,7 +47,7 @@ Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (a
 
 Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-gated).
 
-**Success bar — MET on self-owned real-world target; autonomous path now exercises binding for real:** find something a scanner missed + prove exploitable + payable report. alpha-ai.web.id (full-CF, self-owned): origin-exposure bypass → proven cred-reuse to Odoo admin (uid=2). This is the moat (prove, not just detect) — what Nuclei/Strix cannot assemble.
+**Success bar — MECHANISM proven (self-owned); REPRESENTATIVE_FIELD_VERIFIED = NOT MET.** alpha-ai.web.id (full-CF, self-owned): origin-exposure bypass → cred-reuse → Odoo admin uid=2 membuktikan mekanisme chain (leak→vault→reuse→cross_verified). Per §12.60 (lab-green ≠ field-ready) + strategic_gaps A1: pada target nyata full-CF (niagamas/bernofarm/ingco) chain BLOCKED di REACH (E0–E2) — real CF WAF, 0 creds, tak ada CROSS_VERIFIED access. REACH adalah gating blocker. Moat (prove, not detect) terbukti sebagai mekanisme; field-readiness menunggu reach.
 
 ---
 
@@ -203,7 +188,7 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
   for ACCEPT first; do NOT write Slice-2 code on a PROPOSED ADR.
 
 **High-leverage growth (next real slice after P1 — ONE at a time):**
-- **GAP-115 historical-DNS origin discovery** ★ (§12.61 A1 DIRECT) — DIRECT pre-CF A-records (the origin IP a domain pointed to BEFORE going behind CF, often still live/unprotected). This is the ADR's "biggest missing signal": 4 field targets (niagamas/bernofarm/ibudanbalita/busonlineticket) are full-CF where crt.sh/VT/OTX ALL failed. GAP-154 now lets this enrichment run even when crt.sh is down (the exact field case). DESIGN GATE (locked, build in a NEW session): keyless-FIRST source seam (ViewDNS/DNSHistory keyless; SecurityTrails key-gated OPTIONAL like OTX/VT, None=off, keyless-safe) → `enrich_with_historical_dns(intel, source)` additive → emits ip4 `origin_ip_candidates` (DROP ip6 per GAP-155) → composes with §12.46 two-proof binding (historical IP = CANDIDATE, stale IP fails binding = fail-closed, the niagamas lesson). Moat = the COMPOSITION (historical A → proven pre-CF origin), NOT the commodity lookup. **DECISION NEEDED FROM NATANAEL:** source/key policy — keyless-only (ViewDNS, rate-limited, autonomous) vs +SecurityTrails paid key (his to provide for Tier-2 field-prove). Then cert/favicon pivot (GAP-093/086), then axis-B. MENU — one slice.
+- **GAP-115 historical-DNS origin discovery** ★ (§12.61 A1 DIRECT) — DIRECT pre-CF A-records. **CORRECTED 2026-08-23:** historical-DNS enrich + binding SUDAH WIRED di autonomous path — `enrich_with_historical_dns` (`passive_intel.py:517`) dipanggil `conductor/recon_runner.py:646` via `mnemonic_client`; kandidat digate `verify_origin_binding` (§12.46, fail-closed). BUKAN unbuilt. OPEN = kenapa reach masih gagal di .id full-CF: klasifikasi (A) source error/fail-open, (B) source 0-records (Mnemonic lemah utk .id → tambah ViewDNS), (C) kandidat gagal binding = stale/generic = §12.61 CF ceiling PROVEN → GAP-045. **Diagnose dengan log SEBELUM extend** (anti-#2 rebuild). Keyless-FIRST source seam (ViewDNS/DNSHistory keyless; SecurityTrails key-gated OPTIONAL like OTX/VT, None=off, keyless-safe) tetap DESIGN GATE, tetapi hanya diambil jika log membuktikan B. Then cert/favicon pivot (GAP-093/086), then axis-B. MENU — one slice.
 - **GAP-045 CF-ceiling honest-outcome report** — (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable integrated with CoverageLedger).
 
 **Deferred GAPs (registered, own verticals — do NOT fold into recon slices):**
@@ -245,18 +230,17 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle SEALED** (BUILT+AUTONOMOUS-WIRED `conductor/main.py:805`/`:810`; slice-1d `test_wp_cred_reuse_chain_is_cross_verified_autonomously` PASSED on Oracle, PR #465). Temuan 2 = PHANTOM (GAP-118 correct downgrade of non-resolving wpvuln cred, `62d3657` — not a bug). CURRENT SLICE = **ChainOracle MIN-composition**: NEW `attestation/chain_oracle.py` `evaluate_chain()` → `chain_tier=MIN(edge_tier:=target_node.verification)`, `payable IFF all cross_verified`, `weakest_hop`; wire `graph/narrative.py::summarize_chain_finding`; cardinal RED = 3-hop w/ hop-2 self_verified → payable False. ~3 files additive, aggregates-only (anti-#3). Do NOT bundle OracleEvidence/deception_risk/screenshot/L3. AFTER ChainOracle → ADR §12.66 ACCEPT-review (PROPOSED; Slice-2 blocked until ACCEPTED). Do NOT build Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle SEALED** (PR #465, Oracle-green). Temuan 2 = PHANTOM (GAP-118 correct downgrade). CURRENT SLICE = **Bounded reach-diagnostic (Class-C accepted 2026-08-23)**: historical-DNS enrichment (`enrich_with_historical_dns` in `passive_intel.py:517`) is ALREADY wired in `conductor/recon_runner.py:646` via `mnemonic_client` and gated through `verify_origin_binding` (§12.46). ChainOracle = **PARKED**. §12.66 PROPOSED, deferred behind reach. Earliest-failed-transition = REACH/BLOCK (E0–E2) on real full-CF targets. NEXT = instrument the wired historical-DNS reach path, run `live_fire/recon_integrated_field_prove.py` vs `niagamas.com` + `bernofarm.com` on Oracle, classify A/B/C, then ONE slice (ViewDNS source [B] OR GAP-045 CF-ceiling honest-outcome [C]). JANGAN rebuild GAP-115, JANGAN build ChainOracle/Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
 
 ---
 
-## SESSION STATUS (2026-08-22)
+## SESSION STATUS (2026-08-23)
 
-- **This session (2026-08-22, later): VERIFICATION/RECONCILIATION — 0 code seals, produced evidence + a corrected status.**
-  Established (grep of HEAD `8b1f5b1` + Oracle run): P1 §12.43 per-edge oracle is SEALED (PR #465, slice-1d PASSED),
-  and Temuan 2 is a PHANTOM (GAP-118 correct behavior). Corrected the stale handoff/ledger that wrongly framed P1 as
-  "current slice to build" and Temuan 2 as "open" (Lyndon #7 doc divergence — an earlier patch this session had
-  compounded it). Designed the next slice (ChainOracle MIN). No new code merged this session.
-- **Current slice status:** **ChainOracle MIN-composition — in-progress (design ready in START HERE point 4; patch not written).**
-  Decided sequence: ChainOracle MIN → ADR §12.66 ACCEPT-review → (if accepted) §12.66 Slice-2/3.
-- **Session hygiene note:** this session ran long and lost focus mid-way (over-verified already-sealed ground).
-  Continue ChainOracle in a FRESH session using START HERE points 3–5.
+- **This session: Class-C accepted reach-diagnostic — 0 seals, evidence + decision.**
+  P1 §12.43 per-edge oracle remains SEALED (PR #465). ChainOracle PARKED. §12.66 PROPOSED, deferred.
+  Corrected handoff overclaim (Success bar = MECHANISM proven, REPRESENTATIVE_FIELD_VERIFIED NOT MET) and
+  GAP-115 framing (historical-DNS already wired; open = why reach still fails on .id full-CF).
+  Current slice: **Bounded reach-diagnostic** — instrument wired historical-DNS path, run `recon_integrated_field_prove`
+  on Oracle vs `niagamas.com` + `bernofarm.com`, classify A/B/C, then ONE slice (ViewDNS [B] vs GAP-045 [C]).
+  JANGAN seal sebelum log Oracle memisahkan A/B/C.
+- **Sealed slices this session:** 0.
