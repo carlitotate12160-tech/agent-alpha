@@ -1,318 +1,290 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; GAP-196 Tier-2 PROVEN; CURRENT SLICE = GAP-197)
+# Agent-Alpha — Session Handoff (2026-08-24)
 
-Resume with: "lanjut Agent-Alpha — **GAP-197 (flanked asset `cf_protected` honesty) MERGED** (PR #494, 2026-08-23): asset node `niagamas.com` carries `edge_fronted=True, cf_protected=False` after proven origin-flank; T5 oracle passes `flank_proven=True` for apex `niagamas.com`. `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 15/15; field-prove `niagamas.com` T1–T6 all PASS. **CURRENT SLICE = next slice selection (GAP-028 generic homepage/catch-all vs ChainOracle MIN-composition) — AWAIT USER DECISION.** GAP-028 explains the generic 98 KB Metabase SPA responses for all paths; ChainOracle completes §12.43 chain payability. Gamma/Delta/Epsilon = 0% (STOP-gated). Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
+HEAD `8eafe57b` on `main` (post-revert of #497 diagnostic). Phase 4. Gamma/Delta/Epsilon = 0% (STOP-gated).
+Reach arc SEALED through GAP-197 (#494 `8dfb2d0`). Oracle ARM64 = the seal;
+RUNNER-SEAL ≠ AUTONOMOUS-WIRED (grep the live path, not the runner).
 
----
-
-## ▶ START HERE (new session — do this IN ORDER, do not skip the gate)
-
-1. **`git pull` + confirm HEAD.** Are PR #470 / #472 / #475 / #477 / #478 on `main` AND green on
-   Oracle ARM64? They are — sealed 2026-08-22 (HEAD `7cf1013`). Do NOT re-run the CodeIgniter live-fire unless something regressed.
-   - **PR #477 (ledger cleanup) SEALED:** removed the stale `WIRING_DEBT["codeigniter_config_probe"]` false-green (a proven-wired, catalog-dispatched tool mislabelled as un-wired). Guard is now `test_every_catalog_tool_is_dispatchable` + driver proof.
-   - **PR #478 (ingco size-gate) SEALED:** `_is_reload_interstitial` in `recon/response_classifier.py` now mirrors `is_reload_shell`'s `RELOAD_SHELL_MAX_BYTES` size gate (single source, anti-#7). Root cause: verdict-producer had no size guard → a 361 KB catch-all-200 SPA shell false-classified as CHALLENGE. Cardinal RED `test_large_catchall_spa_with_reload_signal_stays_ok` proves the fix; true-positive small-body interstitial stays CHALLENGE. Soft-404 suppression kept AFTER challenge (rejected the reorder = §12.62 coverage-honesty regression).
-2. **CodeIgniter Conductor autonomous wiring — SEALED (recon-stage). N/A decision recorded 2026-08-22.**
-   PR #475 hermetic Conductor driver tests (`test_conductor_driver_vulnerable` / `test_conductor_driver_hardened`)
-   prove the `build_recon_pipeline` → `_sweep_targets` → `run_recon` path autonomously drives
-   `recon → fingerprint 'codeigniter' → derive /application/config/database.php → codeigniter_config_probe → vault`.
-   **N/A decision:** `codeigniter_config_probe` is a RECON-stage (E1→E3) leak vector; `conductor/execute_agent.py` 
-   is the OFFENSIVE (Beta/Gamma/Omega) path — a recon leak probe never belongs there, so there is NO
-   execute_agent W-test to wait on. The correct regression guard is `test_every_catalog_tool_is_dispatchable` 
-   (catalog tool → `Alpha._dispatch_registry`) + the driver proof — NOT a symbol-in-module gate. The stale
-   `WIRING_DEBT["codeigniter_config_probe"]` entry (a permanent false-green that mislabelled a proven-wired,
-   catalog-dispatched tool as un-wired) was REMOVED; a comment in `test_wiring_gate.py` records why catalog
-   tools are not tracked there. `live_fire/codeigniter_field_prove.py` remains a lab RUNNER-SEAL, not the proof.
-3. **P1 §12.43 PER-EDGE oracle = SEALED (do NOT rebuild — that is Lyndon #2).**
-   Verified live path (HEAD `8b1f5b1`): `conductor/main.py:805 beta.run_strike()` → `run_cognitive_loop`
-   → `step()` → `_post_access_authenticated_crawl` → `run_authenticated_crawl` → `_auth_only_diff`
-   (real unauth-vs-auth marker diff, §12.32) → `_mint_surface` (`auth_vs_unauth_diff` ProofArtifact bound
-   to cred+access) → `conductor/main.py:810 verify_access_nodes()` → attestor `_has_independent_auth_diff`
-   → CROSS_VERIFIED. Seam binding matches end-to-end (`access:{host}` + `level` + `subject_ref=cred_id`).
-   Proven end-to-end by **slice-1d `test_wp_cred_reuse_chain_is_cross_verified_autonomously` — PASSED on Oracle**
-   (characterize J5 SKIPPED by design: needs PROFILE_SIGNING_KEY + real LLM). Owner GAP-118 — mark the
-   oracle portion DONE; only the CHAIN-level composition remains (below).
-
-4. **SEALED 2026-08-23 (PR #487 merged): transport-dead front-door → origin-flank (§12.61) for ROOT paths.**
-   Root front-door `HttpClientError` now routes to `origin_reach.attempt_reach_transport_dead`
-   BEFORE `_dead_hosts` abandon; fail-closed on stale/no-consent. Egress-counter guarded
-   (`front_door_transport_ok`) so origin-flank success ≠ `host_ok`. Reach helpers extracted to
-   `agent_alpha/recon/origin_reach.py` (GAP-161 slice-2: scout.py 2563→2374, ceiling held).
-   EVIDENCE: 254 green + ruff/mypy(151) clean on Oracle; live `niagamas.com` via `Alpha.run_recon`
-   = `ORIGIN_DIRECT` HTTP 200 (98,766B) on `139.59.255.22`, no `EgressBlocked`, `dead_hosts` empty.
-   SCOPE SEALED = E1→E2 reach of ROOT only. Mechanism proven; NOT sub-path readiness.
-
-5. **SEALED 2026-08-23 (PR #491 + field-prove): GAP-196 sub-path origin-direct flank, Tier-2 PROVEN.**
-   Transport-dead sub-paths reuse a pre-bound/authorized origin via `attempt_reach_transport_dead(..., require_bound=True)`;
-   query string preserved for fetch; `ORIGIN_DIRECT_ATTEMPT` carries `path` with query VALUES redacted.
-   FIELD-PROVE vs `niagamas.com`: 15 `OriginDirectAttempt` events (root + `/.env`, `/.git/config`, `/wp-config.php.bak`,
-   product paths, `/openapi.json`, `/swagger.json`, `/graphql`, etc.) all via `139.59.255.22`;
-   `HostAbandoned` = 0, `dead_hosts` empty, `OriginBindingProven` = 2. T1–T4 + T6 PASS.
-   **GAP-197 UNCOVERED in same run (T5 FAIL):** `NodeDiscovered asset:niagamas.com` carries `cf_protected=False` and
-   `tech_stack=['nginx']` derived from the origin body, while the apex was fronted/transport-dead. Honest graph
-   projection must carry an `edge_fronted`/`flanked` marker and not assert `cf_protected=False` from origin-direct reach.
-   CURRENT SLICE = **GAP-197**. NOT ChainOracle/Gamma.
-6. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
-
-*(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
+**This next session is an ARCHITECTURE DISCUSSION, not a slice build.** Do not open an IDE prompt
+until the fork below is decided from evidence. **User has NOT decided Bet A vs Bet B yet.**
 
 ---
 
-## Phase
+## ⚠ ARCHITECTURE RECKONING — READ FIRST (this is the whole session)
+
+**The trigger:** on real authorized .id targets, >1 month, **0 payable findings.** Nuclei found 49
+(incl. **Zimbra CVE-2022-41352 RCE, CVSS 9.8, on `103.113.118.203`**); Agent-Alpha 0. User asks:
+"is Agent-Alpha built wrong — does it need a big change?"
+
+**Architect verdict (confidence ~70%, gated below):**
+
+1. **REJECT the reflex "salah total → perubahan besar → rewrite."** That reflex is the exact
+   engine that produced Lyndon #1–#4 (each died, got clean-rewritten into the next). Answering
+   0-findings with an architecture rewrite = starting Lyndon #5, reactive to ONE number
+   (#1/#5/#10 at the architecture level). Not approved.
+
+2. **"49 vs 0" is the WRONG yardstick.** Nuclei = scanner = spray templates → 49 *unverified*
+   version-matches (no chain, no proof-of-exploitability). Agent-Alpha's unit = a **payable
+   chain** (leak→cred→access→proof). Chasing count = *becoming Nuclei* = re-introducing Lyndon
+   frustration #1 (too generic) and #6 (no unique value). **The bar stays: ONE payable chain a
+   scanner missed** — not a bigger number.
+
+3. **BUT the substance under the number is real.** Under the 49 there is ≥1 genuinely
+   exploitable known-CVE (the Zimbra RCE) that Alpha never even reached the point of *detecting*.
+   That is a real hole. Do not dismiss it as "different job."
+
+4. **The FOUNDATION is NOT wrong.** Event-sourced + AttackGraph + per-edge oracle (§12.43) +
+   Conductor auth-gate + chain composition = the moat, the thing a scanner *cannot* do and what
+   makes a finding payable. Throwing it away destroys the only reason the product exists. **Keep it.**
+
+5. **What IS narrow/wrong (architecture-level):** the **detection MODEL is per-playbook**
+   (one hand-built playbook per stack: `wp_*`, `odoo_*`, `laravel_*`…). This does NOT scale to
+   "all targets" — the .id field is heterogeneous, most targets are not a stack we went deep on,
+   so Alpha structurally has nothing to do → 0. That is not one missing lane; it is a detection
+   model that cannot widen.
+
+**THE FORK to decide (write the choice as an ADR, do not leave it implicit):**
+
+- **Bet A — deep chain specialist.** Few high-value stacks, go deep, prove payable chains a
+  scanner can't. "0 on this target" is HONEST (we don't cover that stack). Cost: only sells to
+  engagements matching our stacks.
+- **Bet B — breadth-of-detection first, chain on top.** Add ONE **data-driven detection engine**:
+  version-inference (from recon we already do) → **offline CVE correlation over DATA** (NVD/KEV/
+  EPSS/CVEDB corpus) → surgical confirm. This gives Nuclei-like *breadth of detection* but
+  data-driven (**wrap DATA, NOT the scanner ENGINE** — the engine is the signature), and the
+  chain+oracle layer we ALREADY have turns it into a *payable* finding where Nuclei only lists.
+  This is the "comprehensive, all targets" path WITHOUT a rewrite and WITHOUT becoming a scanner.
+
+**GATE (falsifiable — do NOT lock the bet before this read):** everything above assumes the funnel
+dies at **DETECTION**. It may not. Two real targets already show **two different walls**:
+
+- **bernofarm** = **REACH/WAF wall (E-stage S3)**. Events `eng_3c9bb601` (35 ev, WafBlocked +
+  OriginDirectAttempt) + `eng_e8c071ef` (43 ev, WafBlocked + HostAbandoned). Died at the edge —
+  never reached stack classification. For bernofarm, adding detection breadth changes NOTHING.
+- **niagamas** = **deep run** `eng_0e1dfdc7` (175 ev) + `eng_fc83206f` (167 ev), NO WafBlocked in
+  the summary → tembus edge, ran ~9 min. **Wall is late and UNREAD.** niagamas is the target that
+  got furthest = its wall is the highest-ROI thing to fix and **it decides Bet A vs Bet B.**
+
+If niagamas ALSO died at REACH → detection breadth won't help; the wall is reach/edge (partly
+infra-bound, a worse place to be). **Read niagamas before choosing.**
+
+---
+
+## GATE READ — DONE (2026-08-24, zero-touch via existing `project_coverage`)
+
+Histogram niagamas via `project_coverage` (existing §12.64 projection, NO new code):
+
+```
+eng_0e1dfdc7 (175 events, 31 cells):
+  not_run:           18  ← wiring gap (Lyndon #2) — capable+applicable, never dispatched
+  capability_absent: 12  ← detection gap — technique not built
+  tested:             1  (hub.niagamas.com/js_secret_leak → no_signal)
+
+eng_fc83206f (167 events, 48 cells):
+  not_run:           27  ← wiring gap
+  capability_absent: 20  ← detection gap
+  tested:             1  (hub.niagamas.com/js_secret_leak → no_signal)
+```
+
+**Niagamas tembus edge (no WafBlocked), reached + stack classified, tapi wall = DUA lapis:**
+
+1. **Wiring wall (not_run dominates)** — 18–27 technique capable + applicable tapi tidak
+   di-dispatch. Ini bukan detection gap, ini Lyndon #2 (island tidak ter-wire ke live path).
+   Fix: attach island, no new capability.
+2. **Detection wall (capability_absent significant)** — 12–20 technique di catalog tapi tidak
+   di-built. Plus **version→CVE detection tidak ada di catalog sama sekali** — itu completely
+   missing, bukan capability_absent, tapi capability_unlisted.
+
+**Mekanik baca per handoff guide:**
+- `not_run` dominates → wiring gap (Lyndon #2) → attach island to live path, no new capability
+- `capability_absent` significant → detection gap → Bet B candidate is live
+- `tested` (0 finding) → dispatch ran, selection/effectiveness failed
+
+**Verdict: dua wall, bukan satu.** Wiring wall adalah wall pertama (not_run dominates).
+Detection wall adalah wall kedua (capability_absent significant + version→CVE unlisted).
+Bet B is live TAPI preconditioned on wiring fix — detection breadth di atas wiring yang
+broken = Lyndon #3 (false finding dari technique yang tidak pernah dispatch).
+
+**Portfolio histogram (4 fresh targets, re-run 2026-08-24 via `run_recon_for_engagement`):**
+
+| Target | Earliest fail | Wall |
+|---|---|---|
+| solusibersama.co.id (`eng_044e877b`) | S3_REACH | WAF block, 9 origin candidates tidak di-test |
+| quantum-laboratories.com (`eng_bead8806`) | S3_REACH | Cloudflare, 1 origin candidate tidak di-test |
+| hashmicro.com (`eng_7d4af3a8`) | S2_PASSIVE_SURFACE | RECON_ONLY consent, 0 passive hosts |
+| niagamas.com (`eng_0e1dfdc7`) | S7_TARGET_SIGNAL | Origin-flank works, tapi js_secret_leak no_signal |
+
+**3 wall berbeda di portfolio:**
+- **Passive wall** — passive intel tidak persist surface (hashmicro)
+- **Reach wall** — WAF/CF block, origin candidates tidak di-test (solusibersama, quantum)
+- **Dispatch+Detection wall** — host reachable, technique tidak dispatch + capability_absent (niagamas)
+
+**All-engagement aggregate (1040 engagements, ≥20 events each):**
+
+| Bucket pattern | Count | Artinya |
+|---|---|---|
+| `buckets: {}` | 34 | 0 surface terbentuk (passive wall) |
+| `blocked: 3, capability_absent: 1` | 31 | Surface terbentuk, semua WAF-blocked (reach wall) |
+| `not_run: 2, capability_absent: 1` | 15 | Host reachable, technique tidak dispatch (dispatch wall) |
+| `tested: 2, capability_absent: 1` | 4 | Technique di-dispatch (niagamas runs only) |
+
+**Hanya 6 engagement yang pernah `tested` — semua niagamas.** Semua target lain (bernofarm,
+solusibersama, quantum, hashmicro, pyfa, unibis, platinumcredit) — 0 tested. Spectra tidak ada
+di event store (never run).
+
+---
+
+## ▶ START HERE (new session — in order)
+
+1. **`git pull` + confirm HEAD = `8eafe57b`.** Reach arc (#487 root, #491 GAP-196, #494 GAP-197)
+   is on `main`, green on Oracle. coverage_diagnostic reverted (#498). Do NOT rebuild it.
+2. **GATE read sudah done (above).** Niagamas wall = wiring (not_run=18) + detection
+   (capability_absent=12 + version→CVE unlisted). Dua wall, bukan satu.
+3. **Decide Bet A vs Bet B from that evidence and WRITE it as an ADR** (`docs/ADR.md`). Do not
+   leave the bet implicit (that is how the field stayed ambiguous for a month). **User decides,
+   not architect.** Architect provides evidence + recommendation, user picks.
+4. **If Bet B chosen:** design the data-driven detection engine as ONE additive slice
+   (version-inference → offline CVE correlation → `VULNERABILITY` node + ProofArtifact; no exploit
+   fired = still payable). §12.67 is PROPOSED, NOT ACCEPTED — ACCEPT into `docs/ADR.md` before code.
+   **Precondition: fix wiring gap (not_run) BEFORE detection code** (anti-Lyndon #3).
+5. **Do NOT build Gamma.** Detection ≠ exploitation. Firing an exploit stays STOP-gated.
+
+*(Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED. One vertical slice at a time.)*
+
+---
+
+## Phase & Success Bar
 
 Phase 4 (recon + reach + initial-access proof). Gamma/Delta/Epsilon = 0% (STOP-gated).
 
-**Success bar — MECHANISM proven (self-owned); REPRESENTATIVE_FIELD_VERIFIED = NOT MET.** alpha-ai.web.id (full-CF, self-owned): origin-exposure bypass → cred-reuse → Odoo admin uid=2 membuktikan mekanisme chain (leak→vault→reuse→cross_verified). Per §12.60 (lab-green ≠ field-ready) + strategic_gaps A1: pada target nyata full-CF (niagamas/bernofarm/ingco) chain BLOCKED di REACH (E0–E2) — real CF WAF, 0 creds, tak ada CROSS_VERIFIED access. REACH adalah gating blocker. Moat (prove, not detect) terbukti sebagai mekanisme; field-readiness menunggu reach.
+**MECHANISM proven (self-owned), REPRESENTATIVE_FIELD_VERIFIED = NOT MET.** alpha-ai.web.id
+(self-owned full-CF): origin-bypass → cred-reuse → Odoo admin uid=2 proves the chain mechanism
+(leak→vault→reuse→cross_verified). On real targets we REACH (bernofarm 11 IPs where Nuclei was
+edge-blocked) but find nothing payable. Success bar = ONE payable chain a scanner missed, on
+representative field conditions — NOT a finding count.
 
 ---
 
-## ✅ SEALED — GAP-118 attestor-resolve (PR #454, merged 2026-08-19 as `6fe008d2`)
+## ✅ SEALED (recent — do NOT rebuild)
 
-**GAP-118 — CredReuseAttestor Rule 3 hardening.** Fixes a field-confirmed FALSE-PROVENANCE: on alpha-ai the
-access reached via cred `wpvuln` cross-verified even though `wpvuln.secret_ref` was a bare UUID that does NOT
-resolve in the vault (NOT harvested material). Rule 3 now requires `secret_ref` to RESOLVE to **non-empty,
-engagement-owned** vaulted material — provenance ≠ oracle, but at least provenance is now HONEST.
+| PR / arc | Seal | What |
+|---|---|---|
+| **#498 revert** | MERGED `8eafe57b` | Revert coverage_diagnostic (#497). Diagnostic was read-only projection tool, not product capability. Teardown verified: 0 references, lab guard 3/3, ruff+mypy clean. |
+| **#494 GAP-197** | MERGED `8dfb2d0`, Oracle 15/15 | Flanked-asset honesty: `AssetProperties.edge_fronted`; `scout.run_recon` reconciles current-run `ORIGIN_BINDING_PROVEN` into graph as `edge_fronted=True`; `cf_protected` no longer asserted False from origin body; `predicates._has_fronted_host` = `cf_protected OR edge_fronted`; T5 accepts `flank_proven`. `niagamas.com` T1–T6 PASS. |
+| **#491 GAP-196** | MERGED `e11fc99`, Tier-2 PROVEN | Sub-path origin-direct flank: transport-dead sub-paths reuse pre-bound origin (`require_bound=True`); query preserved for fetch, VALUES redacted in audit. `niagamas.com`: 15 OriginDirectAttempt via `139.59.255.22`, HostAbandoned 0, OriginBindingProven 2. |
+| **#487 root flank** | MERGED, 254 green Oracle | §12.61 transport-dead front-door → origin-flank for ROOT. Front-door timeout = origin-direct PRECONDITION, not abort. Reach helpers → `recon/origin_reach.py`. `niagamas.com` ORIGIN_DIRECT 200 (98,766B) on `139.59.255.22`. E1→E2 root reach only. |
+| **#465 §12.43 per-edge oracle** | SEALED, slice-1d Oracle-green | `auth_vs_unauth_diff` BUILT (`_auth_only_diff`, §12.32) + AUTONOMOUS-WIRED (`conductor/main.py:805` producer → `:810 verify_access_nodes` → attestor `_has_independent_auth_diff` → CROSS_VERIFIED). Only CHAIN-level MIN-composition remains. |
+| **#454 GAP-118** | MERGED `6fe008d2`, field-confirmed | Attestor Rule 3: `secret_ref` must RESOLVE to engagement-owned vaulted material. `verify_access_nodes(*, secrets_manager)` keyword-only required (anti-#3). `wpvuln` bare-UUID now correctly INCONCLUSIVE. 606/606 Oracle. |
+| **#470/#475/#477 CodeIgniter** | SEALED 2026-08-22 (recon-stage) | Leak→cred→vault for `application/config/database.php`. Hermetic Conductor driver tests prove `build_recon_pipeline → _sweep_targets → run_recon` autonomous path. Stale `WIRING_DEBT` false-green removed. |
+| **#472 §12.66 Slice-1** | MERGED `079e479` | Closed precondition/effect predicate vocabulary (`coverage/predicates.py`); integrity gate pins catalog to `graph/nodes.py` (anti-#7). DATA + registry only, no scoring. |
+| **#404/#407 §12.62** | MERGED, Tier-1 | CoverageLedger + `techniques.yaml` single-source catalog; Omega Coverage & Methodology report section (tested/not_run/blocked/capability_absent). |
+| **#388 GAP-044/048** | MERGED, Tier-1+2 | Soft-404 two-probe differential (diff volatile tokens, no regex whack-a-mole). catchall.lab 11/11 suppressed. |
+| **#406-416 GAP-074** | MERGED, Tier-1 | Auth-mechanism fingerprint → applicator selection, single-source in `recon.auth_surface`; Odoo JSON-RPC transport fallback. |
+| **#444 GAP-169** | MERGED, Tier-1 | Fingerprint-First recon reorder (§12.65): root fetch at t=0, stack-tailored frontier seed, no blind spray. |
 
-**Commits (all on main via squash merge `6fe008d2`):**
+Earlier still-valid: #346 stealth-by-default (curl_cffi chrome124 from request #1); origin-direct
+reach (RC1/RC2/RC3, tls_impersonate); GAP-029 dead-host skip; GAP-037 stop-on-block; GAP-038–041.
 
-| Commit | What |
-|--------|------|
-| `8b184d0` | Rule 3 resolve via `retrieve_for_engagement`; threaded through `verify_access_nodes` + odoo/a1 runners; 6 GAP-118 tests; infra errors propagate (not swallowed). |
-| `c422271` | `verify_access_nodes(*, secrets_manager)` now KEYWORD-ONLY REQUIRED (production can't silently fall back to legacy non-empty check — Lyndon #3); DEBUG audit log on non-resolving ref (sanitized, CWE-117). |
-| `f0bb236` | Decompose `verify()` — extract `_find_backing_credential` + `_has_bound_auth_proof` as `@staticmethod`, collapse nested ifs. **CC 23 → 7 (radon).** |
-| `5d0bd57` | Decompose `run_a1_validation` (a1_validation_runner.py) — extract `_resolve_origin_direct_reach`/`_mint_credentials`/`_beta_login_with_reused_cred`/`_run_attestor_pass`. **CC 34 → 17 (radon).** Fixes DeepSource PY-R1000. |
-| `1e83914` | Extract `_score_and_build_result` + fix PYL-W0212 (`_raw_value` via getattr). **CC 17 → 11 (radon).** Clears DeepSource re-check. |
-
-**Oracle ARM64 seal:** `make check` clean (ruff + mypy, 148 files); `make all` 606 passed / 1 skipped / 0 fail
-(2 live DeepSeek tests deselected — 401, unrelated). `test_a1_validation` 19/19, `test_attestor + test_wiring_gate` 67/67.
-DeepSource PASS, quality-gate PASS, all CI green. PR #454 squash-merged + branch deleted.
-
-**STEP-2 field-prove (2026-08-19, post-merge):** `run_alphaai_chain_step2.py` on Oracle, target
-`https://odoo.alpha-ai.web.id/` (domain `alpha-ai.web.id`), NO credential injection. Result:
-- A. Odoo fingerprinted: **True** | B. Cred HARVESTED+VAULTED: **True** | C. Beta selected/executed: **True/True**
-- D. Access WON: **True** | E. ENABLES edge FROM harvested cred: **False** | F. CROSS_VERIFIED: **False** | G. db_enumerated: **False**
-- `wpvuln` cred: `secret_ref='a784c712-5fe9-4153-99ec-41fde54e0d83'` (bare UUID, NOT `secret_`-prefixed, does NOT resolve in vault).
-- **F=False where it was wrongly F=True before GAP-118 — the false-provenance is closed.** This is the field-confirmation.
-
-**Reconciled 2026-08-22:** The "Still open" items below were STALE. P1 §12.43 per-edge oracle was BUILT+WIRED+SEALED via PR #465 (slice-1d Oracle-green). Temuan 2 (E=False/F=False) is this same run's CORRECT GAP-118 downgrade of the non-resolving `wpvuln` bare-UUID cred — a PHANTOM, not a bug. Only ChainOracle MIN-composition remains of §12.43.
+**Agent real capability today (from `coverage/techniques.yaml` — the honest denominator):** 7
+capable techniques = leak-hunt (git/js) + generic cred plumbing (cred_reuse, spa_json_login,
+default_creds_login) + reach (origin_exposure_bypass) + WP-only depth (wp_rest_user_enum, the ONLY
+stack-specific capable technique). 12 roadmap techniques capability_absent. **NO version→CVE
+detection exists. NO wp_plugin_enum. NO service/port breadth (GAP-081).** This is why the field is
+heterogeneous-but-uncovered.
 
 ---
 
-## ✅ SEALED — PR #470: CodeIgniter config-leak field-prove (merged 2026-08-22 as part of `ce9d0844`)
+## OPEN / NEXT (do NOT pick before user decides Bet A vs Bet B)
 
-**What:** End-to-end leak → credential → vault vector for CodeIgniter `application/config/database.php` exposure.
+- **ADR bet A vs B (await user decision)** — write it explicitly to `docs/ADR.md` after user
+  decides. GATE read is done (above). Evidence supports both bets:
+  - Bet B: capability_absent (12–20) + version→CVE unlisted → detection gap is real
+  - Bet A: not_run (18–27) dominates → wiring gap is wall pertama, detection premature
+  - User constraint: "seluruh client dilayani" → leans toward Bet B (breadth) but user has NOT confirmed
+- **ADR §12.67 detection lane (PROPOSED, NOT ACCEPTED)** — IF Bet B: version-inference → offline
+  CVE correlation over DATA (NVD/KEV/EPSS/CVEDB) → `VULNERABILITY` node + ProofArtifact (no exploit
+  fired = still payable). **Wrap the DATA, never the scanner ENGINE.** ACCEPT before any code.
+  **Precondition: fix wiring gap (not_run) BEFORE detection code.**
+- **GAP-028** — origin returns same ~98 KB SPA for all paths; `_calibrate_soft404()` can't
+  calibrate when front door transport-dead. Precondition for clean detection (else Bet B fires on
+  garbage = Lyndon #3). Fix: calibrate via bound origin IP.
+- **GAP-045 CF-ceiling honest report** — Omega + CoverageLedger turns full-CF "beta_failed" into a
+  sellable defensive-validation deliverable. Low-effort honest-outcome floor.
+- **ChainOracle MIN-composition (§12.43)** — `chain_tier = MIN(edge_tier)`, payable IFF every hop
+  cross_verified. New `attestation/chain_oracle.py`. Aggregates per-edge verdicts only. PARKED.
+- **§12.66 ACCEPT-review** — Slice-2 `Planner.score` BLOCKED until §12.66 ACCEPTED. Deferred.
 
-**Commits (all on `main` via merge of PR #470):**
+**Deferred GAPs (own verticals, do NOT fold in):** GAP-115 historical-DNS (WIRED; diagnose w/ log
+before extending — anti-#2), GAP-155 IPv6 bracketing, GAP-156 in-scope IP gate, GAP-157 ENABLES
+edge, GAP-158 multi-target pivot, GAP-159 cloud IAM, GAP-043 non-CF edge IPs, GAP-042 origin-probe
+stealth, GAP-046/047 basic-auth+username-harvest, GAP-036 LLM tool-pick, GAP-081 network/service
+exposure (breadth).
 
-| Commit | What |
-|--------|------|
-| `c0f109b1` | v1: CodeIgniter probe, playbook, parser, live test (collection-time network). |
-| `e908838a` | v2: `_unescape_php_string` full PHP double-quoted escapes; `_strip_php_comments` decomposed to CC 7; real-HTTP field-prove moved from `tests/` to `live_fire/codeigniter_field_prove.py`; lab_guard hosts added; `--no-verify` for self-signed lab cert. |
-| `9f6414fe` | Classify `codeigniter_field_prove` as `ATTACKER_HARNESS` in `test_lab_guard_coverage.py`. |
-
-**Oracle ARM64 seal:**
-- `make check` clean (ruff + ruff format + mypy).
-- `pytest tests/phase_2/test_leak_extraction.py tests/phase_4/test_codeigniter_field_prove.py` — **12 passed**.
-- `pytest tests/phase_4/` — **623 passed, 1 skipped**.
-- Live-fire run (`agent_alpha/live_fire/codeigniter_field_prove.py` against seeded `codeigniter_lab`):
-  - `vuln.codeigniter.lab` — `creds_added: 2`, `credential_vaulted: True`, `leak_detected: True` → **positive proven**.
-  - `hardened.codeigniter.lab` — `creds_added: 0`, `credential_vaulted: False`, `leak_detected: False` → **negative proven**.
-- DeepSource PASS, quality-gate PASS, all CI green.
-
-**What is NOT claimed sealed:** Conductor-autonomous wiring. The live-fire runner is a RUNNER-SEAL (bypasses Conductor). The Conductor path driving this vector end-to-end is the next slice.
-
----
-
-## ✅ SEALED — PR #472: ADR §12.66 Slice-1 precondition/effect predicate model (merged 2026-08-22 as `079e4791`)
-
-**What:** Closed `requires`/`produces` predicate vocabulary for techniques in `techniques.yaml`; predicate resolution against an AttackGraph-like interface; governance checks ensuring catalog predicates are registered and that capable node-producing techniques declare effects.
-
-**Oracle ARM64 seal:**
-- `make check` clean.
-- `pytest tests/governance/test_coverage_catalog_integrity.py tests/phase_4/test_predicates.py` — predicate suite passed.
-- `pytest tests/phase_4/` — **623 passed, 1 skipped** on the final run.
-- DeepSource PASS, quality-gate PASS, all CI green.
-
----
-
-## SEALED / PROVEN (recent merged arcs)
-
-| Work | Seal level | Evidence |
-|------|-----------|----------|
-| **GAP-118: CredReuseAttestor Rule 3 hardening (attestor-resolve)** | **MERGED #454 → 6fe008d2, Tier-1 + Tier-3 PROVEN** | `secret_ref` must RESOLVE to non-empty engagement-owned vaulted material via `retrieve_for_engagement`. `verify_access_nodes(*, secrets_manager)` keyword-only required (Lyndon #3). verify() CC 23→7, run_a1_validation CC 34→11. STEP-2 field-prove: `wpvuln` now INCONCLUSIVE (F=False) — false-provenance closed. 606/606 Oracle, DeepSource + quality-gate PASS. |
-|| **CodeIgniter config-leak Conductor wiring** | **SEALED 2026-08-22, recon-stage, N/A** | Hermetic Conductor driver tests `test_conductor_driver_vulnerable` / `test_conductor_driver_hardened` in `tests/phase_4/test_codeigniter_field_prove.py` prove `build_recon_pipeline` → `_sweep_targets` → `run_recon` autonomously drives `fingerprint codeigniter → derive /application/config/database.php → codeigniter_config_probe → vault`. Catalog dispatchability guarded by `test_every_catalog_tool_is_dispatchable` (catalog tool → `Alpha._dispatch_registry`). `WIRING_DEBT["codeigniter_config_probe"]` removed as false-debt; catalog-dispatched recon tools do not belong in the OFFENSIVE `execute_agent` path. Live-fire runner on Oracle ARM64: `vuln` positive, `hardened` negative, credentials vaulted. |
-| **§12.43 Proof Standard (LOCKED doctrine)** | **BANKED 2026-08-18** | Payable floor = independent oracle (auth-vs-unauth diff §12.32) + human-legible artifact. ChainOracle = min over per-edge oracles. Provenance ≠ oracle. |
-| **P1 §12.43 PER-EDGE independent oracle** | **SEALED — PR #465 (2026-08-21), Oracle-green** | `auth_vs_unauth_diff` BUILT (`_auth_only_diff` real unauth-vs-auth) + AUTONOMOUS-WIRED (`conductor/main.py:805` producer via run_strike→cognitive_loop→step→crawl, `:810` consumer `verify_access_nodes`→attestor `_has_independent_auth_diff`). Seam binding matches end-to-end. Proven by slice-1d `test_wp_cred_reuse_chain_is_cross_verified_autonomously` PASSED on Oracle. Remaining §12.43 piece = CHAIN-level MIN-composition (current slice). |
-| **GAP-116-B/C: Beta authenticated crawl + WP multi-cookie session jar (§12.32)** | **MERGED (commit 4150814)** | Playbook-driven GET-only DETECT, stack-gated exact-match (STACK_WP="wp"), auth-vs-unauth marker diff, depth-1 admin-filtered (refuses `?action=`/admin-ajax/destructive tokens), mints SERVICE node `service:{host}:authsurface:{surface}`. Full WP cookie jar (`HttpResponse.cookies` + `applicator._session_jar`); session cookie VALUES never persisted (names only, repr=False, deep-redact). |
-| **GAP-169: Fingerprint-First Recon Reorder (§12.65)** | **MERGED #444, Tier-1 Validated** | Root fetch hoisted to $t=0$, stack labels extracted via `fingerprint_all`, frontier seeded with stack-tailored leak paths (eliminates blind spray), `_prefetched` cache primed to prevent double GET, dead-host pruned fail-safe (D-2). 9/9 unit tests + 45/45 wiring gate passed. |
-| **GAP-026: StealthPacer Default ON Across Conductor** | **MERGED #423, Tier-1 Validated** | Pacer default ON across conductor per ADR §12.49 with strict §12.36 consent gate preserved. 100% green CI. |
-| **GAP-062: MX/SPF Origin Candidates & GAP-154 Gate-Fix** | **MERGED #421, Tier-1 Validated** | In-domain MX subdomains + SPF pass-ip4 origin candidates. Unconditional enrichment on total CT failure (DNS/OTX/VT/MX-SPF/Wayback always fire; `PASSIVE_INTEL_GATHERED` always emitted; anti-#3). Fan-out cap (8), `net.version!=4` IPv6 drop (interim per GAP-155). 247+ test assertions PASS. |
-| **GAP-115: Keyless Wayback CDX Historical Recon (Slice 1)** | **MERGED #420, Tier-1 Validated** | Keyless `WaybackClient` queries `web.archive.org/cdx/search/cdx` API (HTTPS) to extract in-domain historical subdomains (for `CompositeOriginDiscovery` origin resolution) + historical URL paths. Additive `enrich_with_wayback` with per-row parsing error resilience. 52/52 PASS, 100% green CI. |
-| **GAP-051: Engagement-Level Wall Verdict (Slice 1)** | **MERGED #419, Tier-1 Validated** | Conductor sweep records `WallVerdict` with `reason: Literal["waf_walled", "clear", "dead"]` scoped to stream head (`run_start_seq`) after target sweep. Emits `ENGAGEMENT_WALLED` audit event when all targets encounter WAF blocks. 10/10 PASS, 100% green CI. |
-| **Bug #34: Engagement-Scoped State Reset** | **MERGED #418, Tier-1 Validated** | Fixed deduplication and health state (probed URLs, dead/reachable hosts) to persist across sibling targets within the same engagement while keeping content-keyed and egress state target-scoped. State resets on a new engagement ID. 7/7 PASS. |
-| **Bug #35: LLM Orientation Budget & Retry Resilience** | **MERGED #417, Tier-1 Validated** | Right-sized orientation token budget (2048 primary, 4096 retry) for reasoning models (DeepSeek-v4-pro). Added one-shot retry resilience on `CompletionTruncatedError` (including non-empty truncated text) with accurate cost aggregation (`prior_cost`) and double-truncation fallback. 6/6 PASS, 100% green CI. |
-| **GAP-074 Odoo JSON-RPC Fallback (Slice 2c)** | **MERGED #416, Tier-1 PROVEN** | OdooAccessTool now implements transport fallback (GAP-067). WAF/CDN blocked XML-RPC endpoints automatically fall back to web JSON-RPC login. Resolves CI, SAST (Aikido/GitGuardian), and formatting issues. 29/29 PASS. |
-| **Auth Path Test Environment Isolation** | **MERGED #415, Tier-1 PROVEN** | Isolated `AGENT_ALPHA_SKIP_DOMAIN_VERIFICATION` in `test_conductor_auth_path.py` fixture: prevents `.env` environment variables from leaking into domain verification tests. 10/10 PASS, 100% green CI. |
-| **Beta Offensive Profile Fail-Closed** | **MERGED #414, Tier-1 PROVEN** | Enforced ADR §12.36 fail-closed for Beta offensive run in `run_agent_task`: missing/invalid signed profile aborts and records `ENGAGEMENT_RUN_FAILED` (`missing_signed_profile`). Isolated to Beta role. 376/376 PASS. |
-| **Beta State-Leak Fix** | **MERGED #413, Tier-1 PROVEN** | Fixed `Beta._strike_attempted` state persistence: resets to `False` on `run_strike()` entry. Reused `Beta` instance across multi-target execution no longer skips subsequent targets. 7/7 PASS. |
-| **Signed Profile Fail-Closed** | **MERGED #412, Tier-1 PROVEN** | Enforced ADR §12.36 fail-closed: missing/invalid signed `EngagementProfile` records explicit failure (`missing_signed_profile`/`profile_signature_invalid`) and aborts immediately (never null-and-continue / fail-open). 375/375 PASS. |
-| **CI Security & Secret Hardening** | **MERGED #411, Tier-1 PROVEN** | Remediated Aikido SAST / CI findings: pinned `gitleaks-action` to immutable commit SHA `e0c47f4f...` (v3), added `persist-credentials: false` to all `actions/checkout@v4` workflows (CWE-522), removed ad-hoc runner scripts `run_lab*.sh`. 100% CI green, Aikido Deep Review PASS. |
-| **Slice X: Default-Cred Single-Source Catalog** | **MERGED #410, Tier-1 PROVEN** | Default-cred #7 divergence ditutup: externalized catalog to `default_credentials.yaml` via `default_credentials.py` loader. `default_creds` and `odoo_access` now single-source from YAML (odoo tak lagi punya daftar sendiri). 4/4 PASS. |
-| **GAP-074 Coverage Ledger Mechanism Precision (Slice 2b)** | **MERGED #409, Tier-1 PROVEN** | Denominator precision in `coverage_ledger.py`: maps `mech_*` to bare tokens via `bare_mechanisms()`. Excludes mismatched techniques from applicable denominator (e.g. form-only surface excludes `spa_json_login`). Fail-open when unknown. Known limitations documented in `BUGS_AND_GAPS.md`. 10/10 PASS. |
-| **GAP-074 Auth Mechanism Selection (Slice 2a)** | **MERGED #408, Tier-1 PROVEN** | Mechanism-aware applicator selection: reads canonical ASSET `tech_stack` `mech_*` labels. Single-source `MECH_TO_APPLICATOR_SERVICES` in `recon.auth_surface`. `applicator_factory._resolve_in_scope_targets` binds only matching services (e.g. JSON-RPC → SPA only, Form-POST → HTTP only). Fail-open when unclassified, fail-closed for any unmapped/unstrikable `mech_*`. 20/20 PASS. |
-| **GAP-074 Auth Mechanism Fingerprinting (Slice 1)** | **MERGED #406, Tier-1 PROVEN** | Universal recon fingerprinting in `scout._detect_auth_surface`: detects `mech_http_basic`, `mech_json_rpc`, `mech_jwt`, `mech_saml`, `mech_oauth`, `mech_form_post` without hardcoded catalogs. Persisted to ASSET `tech_stack`. |
-| **ADR §12.62 Coverage-Honesty & Report Section (Slice 2)** | **MERGED #407, Tier-1 PROVEN** | OMEGA client report emits formal Coverage & Methodology section: lists tested, not_run, blocked, and capability_absent techniques + not_assessed engagement targets. Anti-false-assurance (§12.45 / §12.62). |
-| **GAP-196 / PR #491: sub-path origin-direct flank** | **MERGED (squash `e11fc993`), Tier-1 + Tier-2 PROVEN** | Transport-dead sub-paths reuse a pre-bound/authorized origin; query string preserved for fetch; audit `path` in `ORIGIN_DIRECT_ATTEMPT` with query VALUES redacted. `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 14/14; DeepSource/Sourcery/Qodo green. **Field-prove (2026-08-23, Oracle ARM64) vs `niagamas.com`**: 15 `OriginDirectAttempt` (root + sub-paths via `139.59.255.22`), `HostAbandoned` 0, `OriginBindingProven` 2, T1–T4 + T6 PASS. |
-| **ADR §12.62 Engagement Coverage Ledger (Slice 1)** | **MERGED #404, Tier-1 PROVEN** | `agent_alpha/coverage/coverage_ledger.py` + `techniques.yaml` single-source technique catalog. Runtime ledger tracking execution events and surfaces across the engagement lifecycle. |
-| **OMEGA-GOV Catalog Integrity & Exit Criteria** | **MERGED #405, Tier-1 PROVEN** | `test_coverage_catalog_integrity.py` validates techniques.yaml against EventType and gap references. Phase Omega exit criteria banked in `AGENTS.md` (OMEGA-1..5, OMEGA-GOV). |
-| **GAP-030 / SpaLoginApplicator & Autonomous Path** | **MERGED #403, Tier-1 PROVEN** | JSON-API login reuse tool (`SpaLoginApplicator`): POSTs JSON credentials, extracts JWT from response, verifies via Bearer replay. Fully wired into `applicator_factory` and Conductor autonomous path (no Lyndon #2). |
-| **GAP-044 / GAP-048 soft-404 differential calibration** | **MERGED #388, Tier-1 + Tier-2 PROVEN** | Two-probe DIFFERENTIAL: probe 2 independent random missing paths → diff volatile positions (CSRF/session/timestamp) → format-agnostic signature. 7/7 Tier-1 PASS, 11/11 catchall.lab suppressed (0 false findings). |
-| **GAP-034 reachability read-model** | **MERGED #390** | `events/reachability.py::unreachable_hosts(events)` — pure read-model over event store. `HOST_ABANDONED` marks host strike-dead; `WAF_BLOCKED` does NOT (origin-exposure-bypass target). `select_strike_entry` demotes dead hosts below live ones. |
-| **GAP-035 multi-candidate entry-selection** | **MERGED #389** | Beta strikes ALL in-scope surfaces (up to MAX_STRIKE_CANDIDATES=3), NOT stop-on-first-COMPLETE. Shared CredentialLockoutGovernor per engagement. STRIKE_CANDIDATE_ATTEMPTED/SKIPPED events wired. |
-| **catchall.lab & real-world lab stacks** | **MERGED #387, #401, #400** | catchall.lab on Oracle (:443 returns 200 + 93k body), alpha-ai.web.id real-world lab stacks, and vercel-lab multi-IP origin target. |
-
-### Earlier sealed (still valid — context)
-
-- **PR #346 stealth-by-default** (merged 2026-08-07): curl_cffi chrome124 as DEFAULT transport from request #1.
-- **Reach**: origin-direct (bypass CF edge) sealed + robust — RC1/RC2/RC3, seed_hosts, tls_impersonate.
-- **GAP-029 dead-host skip** (merged): ibudanbalita 118→7 hosts probed.
-- **GAP-037 stop-on-block** (#385 merged): mid-run egress death detection.
-- **GAP-038/039/040/041** (merged #381-384): cooperative origin discovery, apex scope, ownership gate, stale candidate guard.
-
----
-
-## OPEN / NOT DONE (registered, prioritised)
-
-**CodeIgniter Conductor recon wiring — SEALED 2026-08-22 (N/A decision).** Moved to `SEALED / PROVEN` table.
-
-**P1 §12.43 per-edge oracle — SEALED (PR #465, slice-1d Oracle-green).** Moved to `SEALED / PROVEN` table. Do NOT rebuild (Lyndon #2).
-
-**Temuan 2 — CLOSED as PHANTOM (2026-08-22).** STEP-2 (2026-08-19) E=False/F=False on alpha-ai is GAP-118's
-CORRECT downgrade of the `wpvuln` bare-UUID cred that does NOT resolve in the vault (sealed commit `62d3657`,
-"STEP-2 field-confirmed wpvuln INCONCLUSIVE"). No code fix exists because none is needed. db_enumerated=False
-follows (no point enumerating on unproven access) — not a separate defect. The ONLY honest residual is a
-FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used a WP fake) — optional field-validation, NOT a build gap.
-
-**SEALED 2026-08-23 (PR #494 MERGED): GAP-197 — flanked asset `cf_protected` honesty.**
-- When a host is reached via origin-flank (front door transport-dead / WAF blocked), the `ASSET` node MUST NOT
-  be marked `cf_protected=False` as if the front door is healthy. Fix: reconcile `ORIGIN_BINDING_PROVEN` events
-  with `fronted_host` into the asset graph as `edge_fronted=True`. `cf_protected` stays reserved for passive
-  Cloudflare/edge-IP classification; `edge_fronted` is behavioral proof the host is behind a CDN/WAF edge.
-- **Implementation:** `AssetProperties.edge_fronted` added; `scout.run_recon` post-loop reconcile scans current-run
-  `ORIGIN_BINDING_PROVEN` events only (after_sequence cursor captured BEFORE `seed_fingerprint_first` to avoid
-  missing transport-dead root binding); `coverage.predicates._has_fronted_host` accepts `edge_fronted` or
-  `cf_protected`; `recon_integrated_field_prove` T5 now passes for `cf_hint OR flank_proven`, extracted into
-  `_apex_edge_fronted()`.
-- **Field-prove evidence (2026-08-23, `niagamas.com`):** `NodeDiscovered` payload for `asset:niagamas.com` now
-  shows `{'host': 'niagamas.com', 'cf_protected': False, 'edge_fronted': True, 'tech_stack': ['nginx']}`. T5
-  `apex edge-fronted (NS-hint CF OR origin-flank proven)` passes with `cf_hint=False, flank_proven=True`.
-  `make check` clean; `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 15/15; `recon_integrated_field_prove`
-  T1–T6 all PASS on Oracle ARM64.
-- **Debt / next candidates:**
-  - **GAP-028** — generic homepage/catch-all detection for origin-direct responses (all paths return ~98 KB
-    Metabase SPA, `generic_http_probe` persists them as real surfaces). This is the recommended next slice
-    because it explains the missing WordPress usernames and the misleading 200-but-Persisted-0 behavior.
-  - **ChainOracle MIN-composition** — §12.43 chain payability (PARKED until user confirms).
-  - **GAP-199** — `edge_fronted` reconcile re-persists `asset:{host}` on every `run_recon` (event churn).
-    Data-quality debt; LOW/P2. Fix later, not folded into GAP-197.
-  - Do NOT fold these into one broad patch; keep one vertical slice at a time.
-
-**ChainOracle MIN-composition (§12.43 chain payability) — PARKED:**
-- See START HERE point 4 for the full design. `chain_tier = MIN(edge_tier)`, payable IFF every hop cross_verified,
-  `weakest_hop` names the reason. New `attestation/chain_oracle.py` + `narrative.py::summarize_chain_finding` wire-in + test.
-  Aggregates per-edge verdicts only (never re-verifies, anti-#3). Gates the multi-hop cred-reuse moat (WP→Odoo) honestly.
-  GAP-196/197 must seal first (anti-#1).
-
-**AFTER ChainOracle — ADR §12.66 ACCEPT-review (PROPOSED → decide):**
-- §12.66 goal-backward scoring. Slice-2 (production `Planner.score`) is BLOCKED until §12.66 ACCEPTED (ADR.md line 16).
-  Slice-3 chain-seeking CONSUMES the ChainOracle payable verdict → ChainOracle is logically prior (anti-#1). Review §12.66
-  for ACCEPT first; do NOT write Slice-2 code on a PROPOSED ADR.
-
-**High-leverage growth (next real slice after P1 — ONE at a time):**
-- **GAP-115 historical-DNS origin discovery** ★ (§12.61 A1 DIRECT) — DIRECT pre-CF A-records. **CORRECTED 2026-08-23:** historical-DNS enrich + binding SUDAH WIRED di autonomous path — `enrich_with_historical_dns` (`passive_intel.py:517`) dipanggil `conductor/recon_runner.py:646` via `mnemonic_client`; kandidat digate `verify_origin_binding` (§12.46, fail-closed). BUKAN unbuilt. OPEN = kenapa reach masih gagal di .id full-CF: klasifikasi (A) source error/fail-open, (B) source 0-records (Mnemonic lemah utk .id → tambah ViewDNS), (C) kandidat gagal binding = stale/generic = §12.61 CF ceiling PROVEN → GAP-045. **Diagnose dengan log SEBELUM extend** (anti-#2 rebuild). Keyless-FIRST source seam (ViewDNS/DNSHistory keyless; SecurityTrails key-gated OPTIONAL like OTX/VT, None=off, keyless-safe) tetap DESIGN GATE, tetapi hanya diambil jika log membuktikan B. Then cert/favicon pivot (GAP-093/086), then axis-B. MENU — one slice.
-- **GAP-045 CF-ceiling honest-outcome report** — (LOW effort, HIGH product value, isolated Omega/Conductor — turns "beta_failed" on full-CF into a sellable defensive-validation deliverable integrated with CoverageLedger).
-
-**Deferred GAPs (registered, own verticals — do NOT fold into recon slices):**
-- **GAP-155** IPv6 origin candidates can't bind — `origin_direct_fetch` lacks `[...]` URL bracketing; ip6 dropped interim.
-- **GAP-156** Candidate public IPs token-probed before `is_in_scope(ip)` when Scope.ip_ranges non-empty — binding-layer, all IP sources; domain SOWs unaffected by design.
-- **GAP-157** Autonomous ACCESS_LEVEL missing ENABLES edge to CREDENTIAL node in graph projection (#422).
-- **GAP-158** Multi-target credential reuse pivot across sibling stacks (#422).
-- **GAP-159** Cloud IAM Privilege Escalation & Policy Trust Graph (AWS/GCP/Azure policy traversal).
-- **GAP-043** CDN edge IP filter only covers Cloudflare (Sucuri/Incapsula/Akamai).
-- **GAP-042** Origin probe bypasses stealth HttpClient (opsec debt).
-- **GAP-046/047** Basic-auth applicator, username-harvest breadth — deferred (cred-acquisition).
-- **GAP-036** LLM tool-pick on auth pages — root = DUPLICATE password detection.
-
-**Needs a log to diagnose (do NOT guess — anti-mis-fix):**
-- **Spectranet frontier cycling** (Bug #34) — run did not converge, repeated same paths across 3+ cycles.
+⚠ **GAP-numbering COLLISION (Lyndon #7 — reconcile):** in this handoff's history GAP-196/197 = reach
+slices; in `docs/BUGS_AND_GAPS.md` GAP-196 = StealthPacer-no-effect, GAP-197 = browser_solve-unwired.
+Two meanings per number — fix the ledger before opening GAP-198+.
 
 ---
 
 ## DOCTRINE BANKED (durable)
 
-- **ADR §12.62 Coverage-Honesty Doctrine** — the client report MUST carry a Coverage & Methodology ledger (tested / not_run / blocked / capability_absent). Negative results carry methodology caveats (what WAS / was NOT tested); NEVER emit an affirmative "fully secure" / "no vulnerabilities" from an absence.
-- **ADR §12.60 Two-Tier Proof + Field-Feedback Ratchet** — lab-green ≠ field-ready. Tier-1 lab-seal < Tier-2 field-prove (THE bar). Every field failure → permanent fixture in `test_field_regression`.
-- **ADR §12.61 Flank-when-CF-hard** — CF "ceiling" is ONLY bruteing the edge. Operator FLANKS: find origin via side channels (historical DNS ★, mail/MX, cert/favicon pivot, grey-cloud) or skip perimeter (leaked-cred stuffing, exposed secrets, S3, subdomain takeover). Full-CF-no-origin → sellable defensive-validation report.
-- **GAP-074 Single-Source Mechanism Resolution** — mechanism-to-applicator mapping is centralized in `recon.auth_surface`. ASSET `tech_stack` is the canonical projection. Unknown/unmapped mechanisms fail-closed.
-- **Soft-404: two-probe differential > regex whack-a-mole** — let the target reveal its volatile tokens by diffing two catch-all samples; don't enumerate token formats. Verified empirically + Tier-2 catchall.lab proven.
-- **GAP-034: read-model over events, not node-schema mutation** (event-sourced; AttackGraph = projection).
-- **GAP-026: stealth is consent-gated (§12.36 enforced)** — TEMPO is operator baseline but stays consent-gated. StealthPacer default ON per ADR §12.49.
-- **GAP-031: crash FIXED (graceful decline + Omega); residual = CF ceiling, NOT a code slice.**
-- **GAP-118: provenance ≠ oracle** — Rule 3 (secret_ref must RESOLVE to engagement-owned vaulted material) makes provenance HONEST. The §12.43 per-edge auth-vs-unauth oracle is now BUILT+WIRED+SEALED (PR #465, slice-1d Oracle-green) — GAP-118 oracle portion DONE; only chain-level MIN-composition remains. Field-confirmed 2026-08-19: `wpvuln` bare-UUID ref correctly fails cross-verification (this is the "Temuan 2" phantom — correct behavior, not a bug).
-- **Code quality target**: military-grade engineering (fail-safe, deterministic, audited, no false-success) that ENCODES APT tradecraft.
-- **Verify-before-ship, every time**: green ≠ proven; always `git pull` before writing a patch; RUNNER-SEAL ≠ AUTONOMOUS-WIRED; Oracle is the seal.
-- **Four-Operator Lineage (durable design lens, banked 2026-08-17 w/ ADR §12.65/GAP-169)** — every agent behavior maps to a real APT tradecraft; the lens is "operator OBSERVES/COMPOSES, scanner sprays". PRINCIPLE table, NOT a task list (tasks live as GAPs — do not duplicate, anti-#7):
-  - **APT29 (Cozy Bear) → low-and-slow, anti-detection.** Recon: fingerprint-first, probe only stack-relevant paths, no 404 breadth-anomaly that trips the WAF (GAP-169). Beta: bounded credential mutation under the lockout governor (never spray) + honest MFA/CAPTCHA classification.
-  - **Volt Typhoon → living-off-the-land, blend with legitimate traffic.** Recon: requests mimic a real browser exploring what EXISTS (GAP-169). Beta: post-access re-recon reuses the won session, read-only, blends as the logged-in user (§12.32).
-  - **APT41 → intelligence-driven, victim-tailored toolset.** Recon: seed from the ACTUAL fingerprinted stack, multi-stack aware (`fingerprint_all`, GAP-169). Beta: polyglot applicators tailored per stack (WP/Odoo/Laravel/Spring…), one stack at a time on real need (§12.47).
-  - **Lazarus → EXPLOIT CHAINING (Beta's signature).** Stitch small, individually-harmless leaks into total compromise; the AttackGraph chains leak → reused credential → deeper access. Only `cross_verified` per-edge oracles back a payable chain (§12.31/§12.43 — never graph traversal alone). Field-proven: alpha-ai origin-bypass → `wp-config.php.bak` → DB pass → Odoo XML-RPC → uid=2 admin.
-  - **The link:** recon precision (169) surfaces the CLEAN small footholds a scanner buries in 404 noise; the chain oracle (Beta) composes them into proof. Recon precision IN → provable chain OUT.
+- **Yardstick (LOCKED)** — success = ONE payable chain a scanner missed, on representative field
+  conditions. NEVER a finding count. Chasing count = becoming a scanner = losing.
+- **Wrap DATA, not the ENGINE** — the scanner engine (Nuclei's request pattern/templates) IS the
+  signature; wrapping it inherits the noise. Wrap the CVE corpus (NVD/KEV/EPSS/CVEDB) as DATA;
+  build the detection engine custom (passive-first, low-footprint).
+- **Rewrite reflex = Lyndon origin** — "salah total → bongkar besar" is how Lyndon #1–#4 were born.
+  Big change = ADDITIVE architectural piece on a kept foundation, never a rewrite.
+- **§12.43 Proof Standard (LOCKED)** — payable floor = independent oracle (auth-vs-unauth diff
+  §12.32) + human-legible artifact. ChainOracle = MIN over per-edge oracles. Provenance ≠ oracle.
+- **§12.61 Flank-when-CF-hard** — CF "ceiling" is only bruteing the edge. Operator FLANKS: origin
+  via side channels (historical DNS, MX, cert/favicon pivot). Transport-dead front-door =
+  origin-direct PRECONDITION ("the niagamas lesson").
+- **§12.60 Two-Tier Proof + Field Ratchet** — lab-green ≠ field-ready; every field failure →
+  permanent `test_field_regression` fixture.
+- **§12.62 Coverage-Honesty** — report carries tested/not_run/blocked/capability_absent; never emit
+  "fully secure" from an absence. bucket=blocked ⇒ surface NOT exhausted; not_run ⇒ wiring/self-audit.
+- **§12.22 tool strategy** — wrap commodity DATA, build the moat, gate the dangerous. Moat =
+  **reach × detection × chain × proof** (detection is the model that must widen; §12.67).
+- **§12.55 1-day weaponizer, NOT 0-day hunter** — detection matches KNOWN CVEs; never hallucinate 0-day.
+- **Four-Operator Lineage (design lens)** — APT29 low-and-slow precision, Volt Typhoon LOTL/blend,
+  APT41 intel-driven victim-tailored, Lazarus exploit-chaining. Operator OBSERVES/COMPOSES; scanner
+  sprays. Targeted-per-fingerprint CVE match = APT29 precision (NOT Nuclei's blind spray).
+- **RUNNER-SEAL ≠ AUTONOMOUS-WIRED** — a runner-proven capability is an ISLAND until the autonomous
+  path (scout.py / execute_agent.py / run_cognitive_loop) calls it. Grep the live path, always.
+- **Oracle ARM64 only** — Windows/local results invalid (Lyndon #9). Verify-before-ship; green ≠ proven.
 
 ---
+
+## SESSION LOG (2026-08-24)
+
+- **Sealed slices this session: 0.** Architecture-reckoning + teardown + GATE read session.
+  Produced evidence, NOT a seal (Class-C discipline: diagnosis is not progress).
+- **REJECTED (my own errors, corrected under user challenge):** (1) "wrap Nuclei" —
+  noisy/signatured, contradicts APT29-precision doctrine; corrected to wrap DATA not ENGINE.
+  (2) "B→A recommendation" — jumped to a lane before proving where the funnel breaks; retracted.
+  (3) building a `coverage_diagnostic.py` tool — over-build (diagnosis-as-progress trap); the
+  question ("which wall") is answerable from EXISTING `project_coverage` in ~10 lines.
+  (4) writing ADR §12.67 Bet B before user decided — premature; PR #499 closed, branch deleted.
+- **TEARDOWN done:** `coverage_diagnostic` reverted (#498, merged `8eafe57b`). Do NOT rebuild it.
+- **GATE read done:** niagamas histogram via `project_coverage` (existing, zero-touch). Result:
+  not_run=18 (wiring) + capability_absent=12 (detection) + tested=1 (no_signal). Dua wall.
+- **Portfolio read done:** 4 fresh targets re-run via `run_recon_for_engagement` (solusibersama,
+  quantum, hashmicro, niagamas). 3 wall berbeda: passive, reach, dispatch+detection.
+- **All-engagement aggregate:** 1040 engagements scanned. Hanya 6 pernah `tested` (semua niagamas).
+  Spectra tidak ada di event store.
+- **Current slice status: ARCHITECTURE FORK OPEN** — Bet A (deep specialist) vs Bet B (data-driven
+  detection breadth on kept foundation). **User has NOT decided.** GATE read done. Evidence
+  recorded above. Foundation verdict: NOT wrong (event/graph/chain/oracle = the moat); narrow gap =
+  per-playbook detection model that cannot widen + wiring gap (not_run dominates).
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — **GAP-197 (flanked-asset `cf_protected` honesty) MERGED** (PR #494, 2026-08-23). `NodeDiscovered asset:niagamas.com` now carries `cf_protected=False, edge_fronted=True, tech_stack=['nginx']`; T5 passes `flank_proven=True`. `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 15/15; `recon_integrated_field_prove` T1–T6 all PASS on Oracle ARM64. **CURRENT SLICE = AWAIT USER DECISION** — next slice candidates: (A) GAP-028 generic homepage/catch-all detection (recommended, explains missing WP users and 200-but-generic behavior), or (B) ChainOracle MIN-composition (§12.43, parked behind GAP-197). GAP-115/Gamma remain **PARKED**. §12.66 PROPOSED, deferred. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
-
----
-
-## SESSION STATUS (2026-08-23)
-
-- **Session P1: PR #487 sealed + post-merge live verification on Oracle, two GAPs registered.**
-  PR #487 transport-dead root reach merged to `main`. Live re-run `niagamas.com` via `Alpha.run_recon`
-  = `ORIGIN_DIRECT` HTTP 200 (98,766B) on `139.59.255.22` with no `EgressBlocked`; `dead_hosts`/`host_ok`
-  both empty. Canary-free `verification_mode="cooperative"` also verified: `ORIGIN_BINDING_PROVEN`
-  `cooperative_soft_binding` emitted on `139.59.255.22`. 254 green + ruff/mypy(151) clean on Oracle;
-  GitHub `quality-gate` 4m41s passed. ROOT reach only sealed; two follow-on GAPs opened in
-  `docs/BUGS_AND_GAPS.md` (GAP-196 sub-path origin propagation, GAP-197 flanked-asset `cf_protected`
-  honesty). ChainOracle PARKED. §12.66 PROPOSED, deferred.
-- **Sealed slices P1:** 1 (PR #487 — front-door-timeout origin-binding gate fix, merged + live re-verified on Oracle).
-
-- **Session P2: PR #491 (GAP-196 follow-up) sealed — query string, bound origin, redacted audit.**
-  Squash-merged `e11fc993`. Sub-path transport-dead probes reuse a pre-bound/authorized origin via
-  `attempt_reach_transport_dead(..., require_bound=True)`; query string preserved for `origin_direct_fetch`;
-  `ORIGIN_DIRECT_ATTEMPT` payload carries `path` with query VALUES redacted (keys kept, e.g. `/data?token=REDACTED`);
-  `agent_alpha/events/event_types.py` updated; `tests/phase_2_5/test_alpha_autonomous_reach.py` asserts
-  redaction and no raw secrets in stored payloads. Oracle ARM64 `make check` clean + 14/14 phase 2.5 tests;
-  GitHub `quality-gate` 5m13s, DeepSource/Sourcery/Qodo green. Qodo LOW test-filename finding (weak) deferred.
-  **Tier-2 field-prove vs `niagamas.com` (2026-08-23):** `recon_integrated_field_prove` produced 15
-  `OriginDirectAttempt` events (root + `/.env`, `/.git/config`, `/wp-config.php.bak`, product paths, `/openapi.json`,
-  `/swagger.json`, `/graphql`, `/graphiql`, `/`) via `139.59.255.22`; `HostAbandoned` 0; `OriginBindingProven` 2;
-  T1–T4 + T6 PASS. `PASSIVE_INTEL_GATHERED.protection_detected=null`; T5 FAIL (`cf_signal=False`).
-  **GAP-197 field evidence surfaced:** `NodeDiscovered asset:niagamas.com` payload =
-  `{'host': 'niagamas.com', 'cf_protected': false, 'tech_stack': ['nginx'], 'ip': null}` — the apex was fronted/
-  transport-dead, so `cf_protected=False` is dishonest. Fix must carry `edge_fronted`/`flanked` marker and not
-  derive `cf_protected` from origin body. Current slice now **GAP-197**. ChainOracle/GAP-115/Gamma remain PARKED.
-- **Sealed slices P2:** 2 (PR #491 — sub-path origin-direct flank, query redaction, redacted audit; field-prove
-  `niagamas.com` Tier-2 PROVEN for GAP-196).
-
-- **Session P3: PR #494 (GAP-197) MERGED.**
-  Squash-merged `8dfb2d03`. `AssetProperties` gains `edge_fronted`; `scout.run_recon` reconciles current-run
-  `ORIGIN_BINDING_PROVEN` events into the graph with `edge_fronted=True`; reconcile cursor captured before
-  `seed_fingerprint_first` so transport-dead root bindings are not missed. `coverage.predicates._has_fronted_host`
-  accepts `edge_fronted` or `cf_protected`; T5 oracle in `recon_integrated_field_prove` accepts Cloudflare NS hint
-  OR origin-flank proof. Regression test asserts the specific `_LAB_HOST` asset is `edge_fronted=True` and
-  `cf_protected=False`. Oracle ARM64 `make check` clean + 15/15 phase 2.5 tests; `recon_integrated_field_prove`
-  vs `niagamas.com` T1–T6 all PASS. DeepSource/Sourcery/Qodo bot comments reviewed before merge.
-  **CURRENT SLICE = AWAIT USER DECISION** — next candidates GAP-028 (generic homepage/catch-all, recommended) or
-  ChainOracle MIN-composition.
-- **Sealed slices P3:** 1 (PR #494 — GAP-197 edge-fronted marker for flanked assets, merged).
+> lanjut Agent-Alpha — DISKUSI ARSITEKTUR (bukan build). Reach arc SEALED (GAP-197 #494).
+> coverage_diagnostic REVERTED (#498). GATE read DONE: niagamas histogram via `project_coverage`
+> menunjukkan not_run=18 (wiring gap) + capability_absent=12 (detection gap) + tested=1 (no_signal).
+> Dua wall: wiring (Lyndon #2) + detection (per-playbook model tak bisa melebar + version→CVE
+> unlisted). Portfolio 4-target: 3 wall berbeda (passive/reach/dispatch+detection). 1040 engagement
+> aggregate: hanya 6 pernah tested (semua niagamas). **FORK OPEN: Bet A vs Bet B — USER BELUM
+> DECIDE.** Fondasi TIDAK salah (moat, KEEP). TOLAK rewrite. Gamma STOP-gated. git pull dulu;
+> Oracle ARM64 = seal.
