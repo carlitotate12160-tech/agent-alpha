@@ -129,6 +129,9 @@ def resolve_and_bind_origin(
             if is_internal_ip(ip):
                 continue
             if not probe_as_origin(str(ip), fronted_host):
+                logger.info(
+                    "origin-binding REJECT %s (%s): dead/stale probe (C signal)", ip, fronted_host
+                )
                 continue  # dead/stale candidate — try the next one
             event_store.append(
                 EventType.ORIGIN_BINDING_PROVEN,
@@ -158,5 +161,11 @@ def resolve_and_bind_origin(
                 },
             )
             return str(ip)
+        else:
+            logger.info(
+                "origin-binding REJECT %s (%s): token mismatch/co-tenant (C signal)",
+                ip,
+                fronted_host,
+            )
 
     return None

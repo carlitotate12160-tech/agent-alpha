@@ -255,6 +255,7 @@ def run_integrated_field_prove(config: IntegratedConfig) -> list[Oracle]:
     base = LiveOriginDiscovery(engagement_id, auth)  # §12.46 CT/DNS discovery
     origin_discovery = CompositeOriginDiscovery(base, event_store, engagement_id)  # GAP-017
     otx_client = recon_runner.build_otx_client(engagement_id)  # slice-5 (None if no key)
+    mnemonic_client = recon_runner.build_mnemonic_client(engagement_id)  # §12.61 A1 (keyless)
     dns_resolver = DnspythonResolver()  # slice-3
 
     run_result = recon_runner.run_recon_for_engagement(
@@ -269,6 +270,7 @@ def run_integrated_field_prove(config: IntegratedConfig) -> list[Oracle]:
         origin_discovery=origin_discovery,
         otx_client=otx_client,
         dns_resolver=dns_resolver,
+        mnemonic_client=mnemonic_client,
     )
 
     print(

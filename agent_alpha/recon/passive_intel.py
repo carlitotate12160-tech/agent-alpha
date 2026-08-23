@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Protocol
 
@@ -71,6 +72,9 @@ class PassiveIntelMap:
     nameservers: tuple[str, ...] = field(default_factory=tuple)
     historical_paths: tuple[str, ...] = field(default_factory=tuple)
     historical_a_records: tuple[tuple[str, int, int], ...] = field(default_factory=tuple)
+
+
+_log = logging.getLogger(__name__)
 
 
 # ── crt.sh slice: PassiveDiscoveryResult → PassiveIntelMap (pure, no I/O) ──────
@@ -527,8 +531,21 @@ def enrich_with_historical_dns(
     """
     try:
         records = source.historical_a_records(intel.domain)
-    except Exception:  # noqa: BLE001 — OSINT boundary; fail-open = no enrichment
+    except Exception as e:  # noqa: BLE001 — OSINT boundary; fail-open = no enrichment
+        _log.warning("historical_dns %s FAILED for %s: %s", type(source).__name__, intel.domain, e)
         return intel
+    if records:
+        _log.info(
+            "historical_dns %s returned %d records for %s: %s",
+            type(source).__name__,
+            len(records),
+            intel.domain,
+            records,
+        )
+    else:
+        _log.info(
+            "historical_dns %s returned 0 records for %s", type(source).__name__, intel.domain
+        )
 
     existing_ips = list(intel.origin_ip_candidates)
     seen_ips = set(existing_ips)
