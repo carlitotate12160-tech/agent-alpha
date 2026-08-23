@@ -237,6 +237,15 @@ class Alpha:
             self._reset_engagement_state()
         self._reset_target_state(engagement_id, target_url)
 
+        # GAP-197: cursor so the post-loop edge-fronting reconcile sees ONLY this run's
+        # events — earlier targets on the shared Alpha are not re-persisted every call
+        # (Qodo: no stale replay / NodeDiscovered churn). MUST be captured before
+        # seed_fingerprint_first, because a transport-dead root can emit
+        # ORIGIN_BINDING_PROVEN during the fingerprint prime (§12.61).
+        _seq_before = max(
+            (e.sequence_number for e in self.event_store.get_events(engagement_id)), default=0
+        )
+
         parsed = urlparse(target_url)
         root = f"{parsed.scheme}://{parsed.netloc}"
         # Stack-gated initial seed (was: raw WELL_KNOWN_LEAK_PATHS union fired
@@ -281,15 +290,17 @@ class Alpha:
         )
 
         # ── GAP-197: reconcile edge-fronting into the graph model ────
-        # An ORIGIN_DIRECT_ATTEMPT is emitted ONLY after the edge blocked/killed the front
-        # door, so its presence is behavioural proof the host is edge-fronted — mark the
-        # asset node (vendor UNCONFIRMED; never claimed as Cloudflare). Honest reporting
-        # must not read a flanked host as "not protected" (anti-#3). One reconcile point
-        # covers every flank path (transport-dead + response-blocked).
+        # A PROVEN hidden origin behind the front door (ORIGIN_BINDING_PROVEN) is
+        # UNAMBIGUOUS edge-fronting evidence: we found a distinct origin serving the owned
+        # host via the ownership-token canary, so something fronts it. (ORIGIN_DIRECT_ATTEMPT
+        # alone is too broad — Qodo: it also fires for pre-signed origins / app-level 403s
+        # where no edge exists.) Vendor UNCONFIRMED — never claimed as Cloudflare (anti-#3);
+        # honest reporting must not read a flanked host as "not protected". Scoped to THIS
+        # run's events (after_sequence) so earlier targets are not re-persisted every call.
         _flanked = {
-            e.payload.get("host")
-            for e in self.event_store.get_events(engagement_id)
-            if e.event_type == EventType.ORIGIN_DIRECT_ATTEMPT and e.payload.get("host")
+            e.payload.get("fronted_host")
+            for e in self.event_store.get_events(engagement_id, _seq_before)
+            if e.event_type == EventType.ORIGIN_BINDING_PROVEN and e.payload.get("fronted_host")
         }
         if _flanked:
             _now = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"

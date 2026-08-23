@@ -55,10 +55,11 @@ class AssetProperties:
     ip: str | None = None
     cf_protected: bool = False
     # GAP-197: behaviourally proven behind a CDN/WAF edge — set when the agent
-    # origin-flanks the host (ORIGIN_DIRECT_ATTEMPT: we only origin-direct once the edge
-    # blocked/killed the front door, so the flank IS proof the edge exists). Vendor
-    # UNCONFIRMED — distinct from cf_protected (NS-hint == Cloudflare). Honest reporting
-    # must never read edge_fronted as "not protected" for a flanked host (anti-#3).
+    # PROVES a hidden origin serves the owned host (ORIGIN_BINDING_PROVEN: we only
+    # origin-bind once the edge blocked/killed the front door, so the binding IS proof
+    # the edge exists). Vendor UNCONFIRMED — distinct from cf_protected (NS-hint ==
+    # Cloudflare). Honest reporting must never read edge_fronted as "not protected" for
+    # a flanked host (anti-#3).
     edge_fronted: bool = False
     tech_stack: list[str] = field(default_factory=list)
     open_ports: list[int] = field(default_factory=list)

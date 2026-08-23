@@ -1035,14 +1035,24 @@ def test_transport_dead_sub_path_reaches_via_origin_flank(
 
 
 def test_flanked_host_marked_edge_fronted(monkeypatch: pytest.MonkeyPatch) -> None:
-    """§12.61 / GAP-197 (cf_protected honesty). After origin-flanking a host, its asset
-    node is marked edge_fronted (behavioural proof it's behind a CDN/WAF edge) — so honest
-    reporting NEVER calls a flanked host "not protected". Vendor is NOT claimed: cf_protected
-    stays False (we didn't confirm Cloudflare), only edge_fronted flips True."""
+    """§12.61 / GAP-197 (cf_protected honesty). After PROVING a hidden origin behind a
+    transport-dead front door (ORIGIN_BINDING_PROVEN), the SPECIFIC target asset node is
+    marked edge_fronted — so honest reporting NEVER calls a flanked host "not protected".
+    Signal is the PROVEN binding (not a bare ORIGIN_DIRECT_ATTEMPT — Qodo: too broad).
+    Vendor is NOT claimed: cf_protected stays False, only edge_fronted flips True."""
     from agent_alpha.graph.nodes import NodeType
+    from agent_alpha.recon import origin_binding
 
     front_door = f"https://{_LAB_HOST}"
     store = InMemoryEventStore()
+    # Canary (binding proof) serves the ownership token on the bound IP; reach serves content.
+    monkeypatch.setattr(
+        origin_binding,
+        "origin_direct_fetch",
+        lambda host, ip, path="/", **kw: _StubOriginDirectResult(
+            body=_BIND_TOKEN if ip == _BOUND_IP else "cohost-no-token"
+        ),
+    )
     monkeypatch.setattr(
         origin_reach,
         "origin_direct_fetch",
@@ -1050,17 +1060,28 @@ def test_flanked_host_marked_edge_fronted(monkeypatch: pytest.MonkeyPatch) -> No
     )
     alpha = _make_transport_dead_alpha(
         store,
-        engagement_profile=_make_profile(authorized_origins=frozenset({_BOUND_IP})),
+        engagement_profile=_make_discovery_profile(),
         origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
     )
     alpha.run_recon(_ENGAGEMENT, front_door)
 
-    assets = list(alpha.graph_store.nodes_by_type(NodeType.ASSET))
-    assert any(getattr(a.properties, "edge_fronted", False) for a in assets), (
-        "flanked host asset node not marked edge_fronted — honest reporting would call a "
-        "host we bypassed the edge of 'not protected' (GAP-197)"
+    types = [e.event_type for e in store.get_events(_ENGAGEMENT)]
+    assert EventType.ORIGIN_BINDING_PROVEN in types, "binding not proven — edge signal absent"
+
+    # Assert the SPECIFIC target asset (Sourcery), not merely that "some" asset is fronted.
+    target = next(
+        (
+            a
+            for a in alpha.graph_store.nodes_by_type(NodeType.ASSET)
+            if a.properties.host == _LAB_HOST
+        ),
+        None,
+    )
+    assert target is not None, f"no asset node for {_LAB_HOST}"
+    assert target.properties.edge_fronted is True, (
+        f"{_LAB_HOST} asset not marked edge_fronted after a proven origin-flank (GAP-197)"
     )
     # Honesty: a behavioural flank must NOT fabricate the Cloudflare vendor claim.
-    assert not any(getattr(a.properties, "cf_protected", False) for a in assets), (
+    assert target.properties.cf_protected is False, (
         "cf_protected (Cloudflare vendor) claimed from a behavioural flank — vendor unconfirmed"
     )
