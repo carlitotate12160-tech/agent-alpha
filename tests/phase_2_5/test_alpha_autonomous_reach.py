@@ -1019,9 +1019,14 @@ def test_transport_dead_sub_path_reaches_via_origin_flank(
         e for e in store.get_events(_ENGAGEMENT) if e.event_type == EventType.ORIGIN_DIRECT_ATTEMPT
     ]
     assert len(od) >= 2, f"expected ORIGIN_DIRECT_ATTEMPT for root AND sub-path(s), got {len(od)}"
-    # Audit carries the per-path request-target, not just the host (coverage honesty).
-    assert any(e.payload.get("path") == "/data?token=abc123" for e in od), (
-        "ORIGIN_DIRECT_ATTEMPT payload must record the queried request-target"
+    # Audit carries the per-path request-target with query VALUES redacted (Qodo HIGH:
+    # the append-only store must never persist secrets like ?token=abc123).
+    assert any(e.payload.get("path") == "/data?token=REDACTED" for e in od), (
+        "ORIGIN_DIRECT_ATTEMPT payload must record the request-target with query redacted"
+    )
+    all_events = store.get_events(_ENGAGEMENT)
+    assert all("abc123" not in str(e.payload) for e in all_events), (
+        "raw query secret leaked into the append-only event store — must be redacted"
     )
     assert _LAB_HOST not in alpha._dead_hosts, "flanked host wrongly marked dead"
     assert alpha._analyzable_probes >= 2, (

@@ -173,7 +173,9 @@ class EventType(enum.StrEnum):
     # ^ An origin-direct fetch was attempted: agent hit the origin IP directly,
     # bypassing the CDN/WAF front door.  Audit-sensitive because it bypasses the
     # client's WAF — requires signed authorized_origins consent (§12.36).
-    # Carries {host, origin_ip, authorized, discovered_via}.
+    # Carries {host, origin_ip, authorized, discovered_via, path}. `path` is the
+    # origin-direct request-target with query VALUES redacted (keys kept, e.g.
+    # "/x?token=REDACTED") — never the raw query, since the store is append-only (GAP-196).
 
     # ── Phase 2.5 (TLS-impersonation reach — §12.33) ─────────────────
     TLS_IMPERSONATE_ATTEMPT = "TlsImpersonateAttempt"

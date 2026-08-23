@@ -22,7 +22,7 @@ binding and one origin-direct dispatch in the codebase.
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from agent_alpha.events.event_types import EventType
 from agent_alpha.recon.origin_binding import resolve_and_bind_origin
@@ -124,6 +124,13 @@ def origin_direct_probe(
     # /path?token=... (Sourcery/Qodo). Carry the full request-target from `url`.
     _p = urlparse(url)
     request_target = _p.path + (f"?{_p.query}" if _p.query else "")
+    # Audit MUST NOT persist secrets: query VALUES can be tokens/keys and the event store
+    # is append-only (Qodo HIGH). Redact values, KEEP keys, for the audit event only —
+    # the full request_target above is used for the fetch, never stored.
+    audit_target = _p.path
+    if _p.query:
+        _keys = [k for k, _ in parse_qsl(_p.query, keep_blank_values=True)]
+        audit_target = f"{_p.path}?" + "&".join(f"{k}=REDACTED" for k in _keys)
 
     from agent_alpha.conductor.engagement_profile import (
         OriginNotAuthorizedError,
@@ -150,9 +157,11 @@ def origin_direct_probe(
             )
             return None
 
+        # audit_target (query VALUES redacted) in narration too — the monologue stream
+        # must not carry secrets any more than the event store does.
         alpha._emit(
             "OBSERVE",
-            f"Reach: ORIGIN_DIRECT for {url} via {origin_ip}",
+            f"Reach: ORIGIN_DIRECT for {audit_target} via {origin_ip}",
         )
 
         # Audit event (origin-direct bypasses WAF — audit-sensitive)
@@ -167,7 +176,8 @@ def origin_direct_probe(
                 "discovered_via": "origin_discovery",
                 # GAP-196: sub-paths are origin-directed too — audit WHICH request-target
                 # was flanked, not just the host (per-path coverage honesty, anti-#3).
-                "path": request_target,
+                # Query VALUES redacted (keys kept) — never persist secrets (Qodo HIGH).
+                "path": audit_target,
             },
         )
 
@@ -176,7 +186,7 @@ def origin_direct_probe(
         except RuntimeError:
             alpha._emit(
                 "OBSERVE",
-                f"Reach: origin_direct_fetch failed for {url} via {origin_ip}",
+                f"Reach: origin_direct_fetch failed for {audit_target} via {origin_ip}",
             )
             continue
 
