@@ -12,7 +12,7 @@ import dataclasses
 import json
 import platform
 import sys
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -218,7 +218,7 @@ def _origin_signal(surface_id: str, events: Iterable[AgentEvent]) -> tuple[bool,
 
 
 def _node_signal(
-    produces: set[str], surface_id: str, events: Iterable[AgentEvent]
+    produces: Collection[str], surface_id: str, events: Iterable[AgentEvent]
 ) -> tuple[bool, str]:
     has_credential = "credential" in produces
     has_user = "user_enumerated" in produces
