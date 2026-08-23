@@ -219,7 +219,10 @@ def _technique_signal(
         return False, "instrumentation_absent"
     if technique.id == "origin_exposure_bypass":
         for e in events:
-            if e.event_type == str(EventType.ORIGIN_BINDING_PROVEN) and e.payload.get("fronted_host") == surface_id:
+            if (
+                e.event_type == str(EventType.ORIGIN_BINDING_PROVEN)
+                and e.payload.get("fronted_host") == surface_id
+            ):
                 return True, "ORIGIN_BINDING_PROVEN"
         return False, "no_origin_binding"
 
@@ -242,7 +245,10 @@ def _technique_signal(
             return True, f"NodeDiscovered:{node_type}"
     if has_access:
         for e in events:
-            if e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED) and e.payload.get("host") == surface_id:
+            if (
+                e.event_type == str(EventType.AUTHENTICATED_SURFACE_DISCOVERED)
+                and e.payload.get("host") == surface_id
+            ):
                 return True, "AuthenticatedSurfaceDiscovered"
     return False, "no_signal"
 
@@ -471,9 +477,7 @@ def _compute_funnel(
     for s in stages:
         if not s.passed:
             earliest = s.stage
-            detail = _stage_failure_detail(
-                s, report, tested_without_signal, absent_ids, blocked
-            )
+            detail = _stage_failure_detail(s, report, tested_without_signal, absent_ids, blocked)
             break
     if not earliest:
         earliest = "S12_OMEGA"
