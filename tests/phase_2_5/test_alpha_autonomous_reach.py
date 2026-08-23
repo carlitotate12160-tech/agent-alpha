@@ -962,3 +962,55 @@ def test_transport_dead_front_door_does_not_count_as_egress_ok(
     assert EventType.EGRESS_BLOCKED not in types, (
         "EgressBlocked event emitted for a host whose front door was never ok"
     )
+
+
+def test_transport_dead_sub_path_reaches_via_origin_flank(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§12.61 / GAP-196 (sub-path breadth). On a transport-dead-flanked host, SUB-PATH
+    leak probes must route origin-direct too — not die at the dead front door as
+    "non-analyzable". Reuses the root flank path per sub-path: ORIGIN_DIRECT_ATTEMPT
+    audited, §12.46 gate enforced, per-host binding cache reused (no re-bind).
+
+    Setup: front door transport-dead for EVERY path; a pre-signed origin serves the root
+    (which links to /secret) and the /secret leak. BEFORE this slice the loop's non-root
+    transport-fail branch returned "non-analyzable"; AFTER it routes origin-direct."""
+    front_door = f"https://{_LAB_HOST}"
+    store = InMemoryEventStore()
+
+    fetched_paths: list[str] = []
+
+    def _origin_fetch(
+        host: str, origin_ip: str, path: str = "/", **kw: Any
+    ) -> _StubOriginDirectResult:
+        fetched_paths.append(path)
+        if path in ("", "/"):
+            return _StubOriginDirectResult(body=_OK_BODY)  # links to /secret
+        if path == "/secret":
+            return _StubOriginDirectResult(body="<html>api_key=AKIA-leak</html>")
+        return _StubOriginDirectResult(body="<html>404 Not Found</html>", status_code=404)
+
+    monkeypatch.setattr(origin_reach, "origin_direct_fetch", _origin_fetch)
+
+    alpha = _make_transport_dead_alpha(
+        store,
+        engagement_profile=_make_profile(authorized_origins=frozenset({_BOUND_IP})),
+        origin_discovery=StaticOriginDiscovery([_BOUND_IP]),
+    )
+    alpha.run_recon(_ENGAGEMENT, front_door)
+
+    # The sub-path leak probe routed origin-direct (not left non-analyzable at the edge).
+    assert "/secret" in fetched_paths, (
+        "sub-path leak probe did not route origin-direct on a transport-dead host — "
+        "leak-path breadth died at the dead front door (GAP-196)"
+    )
+    od = [
+        e for e in store.get_events(_ENGAGEMENT) if e.event_type == EventType.ORIGIN_DIRECT_ATTEMPT
+    ]
+    assert len(od) >= 2, (
+        f"expected ORIGIN_DIRECT_ATTEMPT for root AND sub-path(s), got {len(od)}"
+    )
+    assert _LAB_HOST not in alpha._dead_hosts, "flanked host wrongly marked dead"
+    assert alpha._analyzable_probes >= 2, (
+        "root + at least one sub-path should be analyzable via origin-direct"
+    )

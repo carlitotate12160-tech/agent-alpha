@@ -491,10 +491,25 @@ class Alpha:
                 resp = reach
                 front_door_transport_ok = False
             else:
-                self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
-                # GAP-037: feed the egress counter from the MAIN fetch path too.
-                self._note_transport_fail(host)
-                return _finish(0, 0.0, f"OBSERVE: {url} unreachable")
+                # §12.61 sub-path origin-flank (GAP-196): a SUB-PATH whose front door is
+                # transport-dead but whose HOST already has a bound/authorized origin routes
+                # origin-direct too — else leak-path breadth dies at the dead front door (the
+                # niagamas sub-path gap). Reuses the SAME origin_reach path as the root flank:
+                # ORIGIN_DIRECT_ATTEMPT audited, §12.46 gate enforced, per-host binding cache
+                # reused (no re-bind). Fail-closed: None → non-analyzable exactly as before
+                # (a host with no bound/authorized origin is unchanged).
+                reach = attempt_reach_transport_dead(self, url)
+                if reach is None:
+                    self._emit("OBSERVE", f"{url} unreachable; probe is non-analyzable")
+                    # GAP-037: feed the egress counter from the MAIN fetch path too.
+                    self._note_transport_fail(host)
+                    return _finish(0, 0.0, f"OBSERVE: {url} unreachable")
+                self._emit(
+                    "OBSERVE",
+                    f"{url} front-door transport-dead → origin-direct reached surface",
+                )
+                resp = reach
+                front_door_transport_ok = False
 
         # GAP-037: front-door transport worked -> host reachable; reset counter.
         # Origin-flank / _prefetched origin bodies do NOT prove the egress path.
