@@ -1,8 +1,8 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = Front-door-timeout origin-binding gate fix — reach-diagnostic COMPLETE)
+# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = GAP-196 vs GAP-197 — pick next)
 
-Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (PR #465, Oracle-green). Temuan 2 = PHANTOM (GAP-118 correct downgrade). CURRENT SLICE = **Bounded reach-diagnostic (Class-C accepted 2026-08-23)**: historical-DNS enrichment (`enrich_with_historical_dns` in `passive_intel.py:517`) is ALREADY wired in `conductor/recon_runner.py:646` via `mnemonic_client` and gated through `verify_origin_binding` (§12.46). ChainOracle = **PARKED** (per-edge oracle sealed, ChainOracle non-binding until field-reach exists). §12.66 PROPOSED, deferred behind reach. Earliest-failed-transition = REACH/BLOCK (E0–E2) on real full-CF targets. NEXT = instrument the wired historical-DNS reach path, run `live_fire/recon_integrated_field_prove.py` vs `niagamas.com` + `bernofarm.com` on Oracle, classify A/B/C, then ONE slice (ViewDNS source [B] OR GAP-045 CF-ceiling honest-outcome [C]). JANGAN rebuild GAP-115, JANGAN build ChainOracle/Gamma. Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
+Resume with: "lanjut Agent-Alpha — **PR #487 SEALED 2026-08-23**: transport-dead front-door → origin-flank (§12.61) on root paths, helpers extracted to `agent_alpha/recon/origin_reach.py` (scout.py 2563→2374, ceiling held), live `niagamas.com` = `ORIGIN_DIRECT` HTTP 200 (98.766B) via `139.59.255.22`, no `EgressBlocked`, `dead_hosts` empty. **CURRENT SLICE = pick next between GAP-196 (sub-path origin propagation) vs GAP-197 (flanked asset node `cf_protected` honesty)**. NOT ChainOracle/Gamma. REACH ROOT only sealed; sub-path/leak propagation = GAP-196. `cf_protected=False` derived from origin body when front door was flanked = GAP-197. Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
 
 ---
 
@@ -33,24 +33,15 @@ Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (P
    (characterize J5 SKIPPED by design: needs PROFILE_SIGNING_KEY + real LLM). Owner GAP-118 — mark the
    oracle portion DONE; only the CHAIN-level composition remains (below).
 
-4. **CURRENT SLICE = Front-door-timeout origin-binding gate fix — IMPLEMENTED (PR #487).**
-   Diagnostic result: NOT B (Mnemonic 5 rec both targets), NOT C (§12.61 CF-ceiling NOT proven —
-   niagamas candidate 139.59.255.22 live HTTP 200, binding never attempted).
-     bernofarm.com = REACH PROVEN (103.113.118.202 cooperative_soft_binding, 37× OriginDirectAttempt
-                     authorized, 404 leak-paths = honest zero-finding). No slice.
-     niagamas.com  = CONTROL-FLOW DEFECT: front-door timeout → _dead_hosts pre-empts origin-binding.
-                     Violates §12.42 external-first (front-door-down is the PRECONDITION for
-                     origin-direct, not an abort). Earliest-failed-transition = E1→E2.
-   FIX (PR #487): `scout.py` `_step_once` and `fingerprint.py` `seed_fingerprint_first` now call
-   `_attempt_reach_transport_dead` on a root `HttpClientError`. This method reuses the SAME
-   `_resolve_authorized_origin` + `_origin_direct_probe` (§12.46 two-proof binding) as the
-   response-blocked path — no 2nd binding path. Fail-closed: no binding → mark dead exactly as before.
-   VERIFICATION: Oracle ARM64 `make check` passed (ruff + mypy); `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 13 passed, including 4 new Cardinal RED/edge tests.
-   `REPRESENTATIVE_FIELD_VERIFIED`: `recon_integrated_field_prove` vs `niagamas.com` on Oracle
-   produced `ORIGIN_BINDING_PROVEN` + `OriginDirectAttempt` for `139.59.255.22` (cooperative_soft_binding),
-   no `EgressBlocked` after the GAP-037 fix. T5 `protection_detected == cloudflare` failed — the apex
-   was not classified as CF in passive DNS; does not affect the reach slice.
-   GAP: front-door-timeout aborts before origin-direct binding — CLOSED by PR #487. Do NOT proliferate.
+4. **SEALED 2026-08-23 (PR #487 merged): transport-dead front-door → origin-flank (§12.61).**
+   Root front-door `HttpClientError` now routes to `origin_reach.attempt_reach_transport_dead`
+   BEFORE `_dead_hosts` abandon; fail-closed on stale/no-consent. Egress-counter guarded
+   (`front_door_transport_ok`) so origin-flank success ≠ `host_ok`. Reach helpers extracted to
+   `agent_alpha/recon/origin_reach.py` (GAP-161 slice-2: scout.py 2563→2374, ceiling held).
+   EVIDENCE: 254 green + ruff/mypy(151) clean on Oracle; live `niagamas.com` via `Alpha.run_recon`
+   = `ORIGIN_DIRECT` HTTP 200 (98,766B) on `139.59.255.22`, no `EgressBlocked`, `dead_hosts` empty.
+   SCOPE SEALED = E1→E2 reach of ROOT only. Mechanism proven; NOT field-readiness.
+   CURRENT SLICE = **(pick next)** between the two follow-on GAPs below. NOT ChainOracle/Gamma.
 5. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
@@ -250,15 +241,12 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
 
 ## SESSION STATUS (2026-08-23)
 
-- **This session: Front-door-timeout origin-binding gate fix + field Cardinal RED sealed on Oracle.**
-  P1 §12.43 per-edge oracle remains SEALED (PR #465). ChainOracle PARKED. §12.66 PROPOSED, deferred.
-  PR #487 routes a root front-door `HttpClientError` through `_attempt_reach_transport_dead`, reusing
-  `_resolve_authorized_origin` + `_origin_direct_probe` (§12.46). After Sourcery/Qodo review, added
-  `front_door_transport_ok` guard (commit 0ccc5087) so origin-flank success no longer marks the front-door
-  egress path as ok and no longer feeds the `EgressBlocked` counter. 4 unit tests in
-  `tests/phase_2_5/test_alpha_autonomous_reach.py` cover: reach, stale-candidate fail-closed, consent gate,
-  and GAP-037 egress-counter boundary. Oracle `make check` (ruff + mypy) passed; focused pytest 13 passed.
-  `REPRESENTATIVE_FIELD_VERIFIED` on `niagamas.com` produced `ORIGIN_BINDING_PROVEN` + `OriginDirectAttempt`
-  for `139.59.255.22` (cooperative_soft_binding) with no `EgressBlocked` after the fix. T5 CF-apex signal
-  failed on passive DNS; not a reach blocker.
-- **Sealed slices this session:** 1 (front-door-timeout origin-binding gate fix — unit + field Cardinal RED on Oracle).
+- **This session: PR #487 sealed + post-merge live verification on Oracle, two GAPs registered.**
+  PR #487 transport-dead root reach merged to `main`. Live re-run `niagamas.com` via `Alpha.run_recon`
+  = `ORIGIN_DIRECT` HTTP 200 (98,766B) on `139.59.255.22` with no `EgressBlocked`; `dead_hosts`/`host_ok`
+  both empty. Canary-free `verification_mode="cooperative"` also verified: `ORIGIN_BINDING_PROVEN`
+  `cooperative_soft_binding` emitted on `139.59.255.22`. 254 green + ruff/mypy(151) clean on Oracle;
+  GitHub `quality-gate` 4m41s passed. ROOT reach only sealed; two follow-on GAPs opened in
+  `docs/BUGS_AND_GAPS.md` (GAP-196 sub-path origin propagation, GAP-197 flanked-asset `cf_protected`
+  honesty). ChainOracle PARKED. §12.66 PROPOSED, deferred.
+- **Sealed slices this session:** 1 (PR #487 — front-door-timeout origin-binding gate fix, merged + live re-verified on Oracle).
