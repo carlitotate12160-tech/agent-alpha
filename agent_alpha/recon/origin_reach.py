@@ -232,12 +232,14 @@ def attempt_reach_transport_dead(
 
     # Sub-path: reuse an EXISTING per-host binding ONLY; never trigger fresh discovery.
     # Checked BEFORE consuming the one-shot so an unbound host stays retryable at its root.
-    if require_bound and not alpha._bound_origin.get(host):
+    # skipcq PYL-W0212: origin_reach is a declared Alpha reach-collaborator (module
+    # docstring) — same tolerated `alpha._<state>` seam as fingerprint.seed_fingerprint_first.
+    if require_bound and not alpha._bound_origin.get(host):  # skipcq: PYL-W0212
         return None
 
-    if url in alpha._reach_attempted:
+    if url in alpha._reach_attempted:  # skipcq: PYL-W0212
         return None
-    alpha._reach_attempted.add(url)
+    alpha._reach_attempted.add(url)  # skipcq: PYL-W0212
 
     origins = resolve_authorized_origin(alpha, host)
     if not origins:
