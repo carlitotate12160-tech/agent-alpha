@@ -22,7 +22,7 @@ binding and one origin-direct dispatch in the codebase.
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from agent_alpha.events.event_types import EventType
 from agent_alpha.recon.origin_binding import resolve_and_bind_origin
@@ -106,7 +106,7 @@ def resolve_authorized_origin(alpha: Any, host: str) -> list[str]:
 
 
 def origin_direct_probe(
-    alpha: Any, url: str, host: str, path: str, authorized_origins_list: list[str]
+    alpha: Any, url: str, host: str, authorized_origins_list: list[str]
 ) -> _ReachResponse | None:
     """Origin-direct dispatch over ``authorized_origins_list`` (§12.46-gated).
 
@@ -118,6 +118,19 @@ def origin_direct_probe(
     """
     if alpha._engagement_profile is None:
         return None
+
+    # Request-target = path + query. origin_direct_fetch builds https://<ip><target>,
+    # so passing path ALONE drops the query and yields a false negative on
+    # /path?token=... (Sourcery/Qodo). Carry the full request-target from `url`.
+    _p = urlparse(url)
+    request_target = _p.path + (f"?{_p.query}" if _p.query else "")
+    # Audit MUST NOT persist secrets: query VALUES can be tokens/keys and the event store
+    # is append-only (Qodo HIGH). Redact values, KEEP keys, for the audit event only —
+    # the full request_target above is used for the fetch, never stored.
+    audit_target = _p.path
+    if _p.query:
+        _keys = [k for k, _ in parse_qsl(_p.query, keep_blank_values=True)]
+        audit_target = f"{_p.path}?" + "&".join(f"{k}=REDACTED" for k in _keys)
 
     from agent_alpha.conductor.engagement_profile import (
         OriginNotAuthorizedError,
@@ -144,9 +157,11 @@ def origin_direct_probe(
             )
             return None
 
+        # audit_target (query VALUES redacted) in narration too — the monologue stream
+        # must not carry secrets any more than the event store does.
         alpha._emit(
             "OBSERVE",
-            f"Reach: ORIGIN_DIRECT for {url} via {origin_ip}",
+            f"Reach: ORIGIN_DIRECT for {audit_target} via {origin_ip}",
         )
 
         # Audit event (origin-direct bypasses WAF — audit-sensitive)
@@ -159,15 +174,19 @@ def origin_direct_probe(
                 "origin_ip": origin_ip,
                 "authorized": True,
                 "discovered_via": "origin_discovery",
+                # GAP-196: sub-paths are origin-directed too — audit WHICH request-target
+                # was flanked, not just the host (per-path coverage honesty, anti-#3).
+                # Query VALUES redacted (keys kept) — never persist secrets (Qodo HIGH).
+                "path": audit_target,
             },
         )
 
         try:
-            result = origin_direct_fetch(host, origin_ip, path)
+            result = origin_direct_fetch(host, origin_ip, request_target)
         except RuntimeError:
             alpha._emit(
                 "OBSERVE",
-                f"Reach: origin_direct_fetch failed for {url} via {origin_ip}",
+                f"Reach: origin_direct_fetch failed for {audit_target} via {origin_ip}",
             )
             continue
 
@@ -195,8 +214,10 @@ def origin_direct_probe(
     return last_response
 
 
-def attempt_reach_transport_dead(alpha: Any, url: str) -> _ReachResponse | None:
-    """Root front-door transport-dead (no resp) → origin-flank (§12.61).
+def attempt_reach_transport_dead(
+    alpha: Any, url: str, *, require_bound: bool = False
+) -> _ReachResponse | None:
+    """Front-door transport-dead (no resp) → origin-flank (§12.61).
 
     A root front-door connect/read timeout is the origin-direct PRECONDITION, not an abort:
     the edge is stonewalling at transport, so pivot to the discovered origin instead of
@@ -204,23 +225,36 @@ def attempt_reach_transport_dead(alpha: Any, url: str) -> _ReachResponse | None:
     (``resolve_authorized_origin``) and the SAME §12.46-gated dispatch
     (``origin_direct_probe``) as the response-blocked path — no 2nd reach path (#6).
 
-    Fail-closed: returns None when no candidate binds (stale/co-tenant) or the profile did
-    not consent to discovery — the caller then marks the host dead exactly as before.
-    Bounded: one attempt per url (shared ``alpha._reach_attempted``).
-    """
-    if url in alpha._reach_attempted:
-        return None
-    alpha._reach_attempted.add(url)
+    ``require_bound`` (sub-path caller, GAP-196): route origin-direct ONLY when the host
+    ALREADY has a cached binding — a sub-path must never TRIGGER fresh discovery/binding
+    (crt.sh + canary). Binding is a host-level decision owned by the ROOT flank; sub-paths
+    only ride the cache. Without this a sub-path could kick off discovery (Qodo).
 
+    Fail-closed: returns None when no candidate binds (stale/co-tenant) or the profile did
+    not consent to discovery — the caller then marks the host dead / non-analyzable as
+    before. Bounded: one attempt per url (shared ``alpha._reach_attempted``).
+    """
     # No engagement profile → no reach deps → honest block (mirror _attempt_reach).
     if alpha._engagement_profile is None:
         return None
 
     host = urlparse(url).hostname or urlparse(url).netloc
+
+    # Sub-path: reuse an EXISTING per-host binding ONLY; never trigger fresh discovery.
+    # Checked BEFORE consuming the one-shot so an unbound host stays retryable at its root.
+    # skipcq PYL-W0212: origin_reach is a declared Alpha reach-collaborator (module
+    # docstring) — same tolerated `alpha._<state>` seam as fingerprint.seed_fingerprint_first.
+    if require_bound and not alpha._bound_origin.get(host):  # skipcq: PYL-W0212
+        return None
+
+    if url in alpha._reach_attempted:  # skipcq: PYL-W0212
+        return None
+    alpha._reach_attempted.add(url)  # skipcq: PYL-W0212
+
     origins = resolve_authorized_origin(alpha, host)
     if not origins:
         return None  # fail-closed: nothing bound → caller abandons the host
 
     # Strategy is KNOWN = ORIGIN_DIRECT (no resp to classify_mitigation/choose_reach).
     # The §12.46 auth gate is enforced INSIDE origin_direct_probe.
-    return origin_direct_probe(alpha, url, host, urlparse(url).path, origins)
+    return origin_direct_probe(alpha, url, host, origins)

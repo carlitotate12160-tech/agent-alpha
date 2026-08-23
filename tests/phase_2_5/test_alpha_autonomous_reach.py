@@ -978,6 +978,12 @@ def test_transport_dead_sub_path_reaches_via_origin_flank(
     front_door = f"https://{_LAB_HOST}"
     store = InMemoryEventStore()
 
+    # Root links to a plain sub-path AND a QUERIED sub-path — the latter guards the
+    # query-preservation fix (origin_direct_fetch builds https://<ip><target>).
+    _root_body = (
+        '<html><body><a href="/secret">s</a> '
+        '<a href="/data?token=abc123">d</a></body></html>'
+    )
     fetched_paths: list[str] = []
 
     def _origin_fetch(
@@ -985,7 +991,7 @@ def test_transport_dead_sub_path_reaches_via_origin_flank(
     ) -> _StubOriginDirectResult:
         fetched_paths.append(path)
         if path in ("", "/"):
-            return _StubOriginDirectResult(body=_OK_BODY)  # links to /secret
+            return _StubOriginDirectResult(body=_root_body)
         if path == "/secret":
             return _StubOriginDirectResult(body="<html>api_key=AKIA-leak</html>")
         return _StubOriginDirectResult(body="<html>404 Not Found</html>", status_code=404)
@@ -1004,11 +1010,23 @@ def test_transport_dead_sub_path_reaches_via_origin_flank(
         "sub-path leak probe did not route origin-direct on a transport-dead host — "
         "leak-path breadth died at the dead front door (GAP-196)"
     )
+    # Query string preserved through the origin-direct request-target (Sourcery/Qodo fix).
+    assert "/data?token=abc123" in fetched_paths, (
+        "query string dropped on origin-direct sub-path — /data?token=abc123 became /data "
+        "(false negative)"
+    )
     od = [
         e for e in store.get_events(_ENGAGEMENT) if e.event_type == EventType.ORIGIN_DIRECT_ATTEMPT
     ]
-    assert len(od) >= 2, (
-        f"expected ORIGIN_DIRECT_ATTEMPT for root AND sub-path(s), got {len(od)}"
+    assert len(od) >= 2, f"expected ORIGIN_DIRECT_ATTEMPT for root AND sub-path(s), got {len(od)}"
+    # Audit carries the per-path request-target with query VALUES redacted (Qodo HIGH:
+    # the append-only store must never persist secrets like ?token=abc123).
+    assert any(e.payload.get("path") == "/data?token=REDACTED" for e in od), (
+        "ORIGIN_DIRECT_ATTEMPT payload must record the request-target with query redacted"
+    )
+    all_events = store.get_events(_ENGAGEMENT)
+    assert all("abc123" not in str(e.payload) for e in all_events), (
+        "raw query secret leaked into the append-only event store — must be redacted"
     )
     assert _LAB_HOST not in alpha._dead_hosts, "flanked host wrongly marked dead"
     assert alpha._analyzable_probes >= 2, (
