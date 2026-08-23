@@ -1,6 +1,6 @@
 > CANONICAL SOURCE: current status — done/next/phase. THE ONLY status doc.
 
-# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = Bounded reach-diagnostic — ChainOracle PARKED)
+# Agent-Alpha — Session Handoff (2026-08-23, P1 §12.43 per-edge oracle SEALED; CURRENT SLICE = Front-door-timeout origin-binding gate fix — reach-diagnostic COMPLETE)
 
 Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (PR #465, Oracle-green). Temuan 2 = PHANTOM (GAP-118 correct downgrade). CURRENT SLICE = **Bounded reach-diagnostic (Class-C accepted 2026-08-23)**: historical-DNS enrichment (`enrich_with_historical_dns` in `passive_intel.py:517`) is ALREADY wired in `conductor/recon_runner.py:646` via `mnemonic_client` and gated through `verify_origin_binding` (§12.46). ChainOracle = **PARKED** (per-edge oracle sealed, ChainOracle non-binding until field-reach exists). §12.66 PROPOSED, deferred behind reach. Earliest-failed-transition = REACH/BLOCK (E0–E2) on real full-CF targets. NEXT = instrument the wired historical-DNS reach path, run `live_fire/recon_integrated_field_prove.py` vs `niagamas.com` + `bernofarm.com` on Oracle, classify A/B/C, then ONE slice (ViewDNS source [B] OR GAP-045 CF-ceiling honest-outcome [C]). JANGAN rebuild GAP-115, JANGAN build ChainOracle/Gamma. Oracle ARM64 = seal; RUNNER-SEAL ≠ AUTONOMOUS-WIRED."
 
@@ -33,10 +33,20 @@ Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (P
    (characterize J5 SKIPPED by design: needs PROFILE_SIGNING_KEY + real LLM). Owner GAP-118 — mark the
    oracle portion DONE; only the CHAIN-level composition remains (below).
 
-4. **CURRENT SLICE = Bounded reach-diagnostic (Class-C accepted 2026-08-23). ChainOracle = PARKED** (per-edge oracle PR #465 sealed; ChainOracle non-binding sampai field-reach ada). §12.66 = **PROPOSED**, deferred di belakang reach. Earliest-failed-transition = **REACH/BLOCK (E0–E2)** pada target full-CF (§12.60/§12.61/strategic_gaps A1). `mnemonic_client` SUDAH WIRED (`conductor/main.py:482` -> `recon_runner.py:646` -> `enrich_with_historical_dns` -> `origin_ip_candidates` -> `CompositeOriginDiscovery` -> `resolve_and_bind_origin` -> `verify_origin_binding` fail-closed).
-   - DIAGNOSE: instrument the wired historical-DNS reach path (log fail-open reason + 0-records + per-candidate binding verdict), run `live_fire/recon_integrated_field_prove.py` di Oracle ARM64 vs `niagamas.com` + `bernofarm.com`, klasifikasi **A/B/C**.
-   - THEN **ONE slice** (jangan dua): **ViewDNS source** (jika log = B: Mnemonic 0-records / fail-open untuk .id -> keyless-first seam tambahan) **ATAU** **GAP-045 CF-ceiling honest-outcome** (jika log = C: kandidat ada, semua binding REJECT stale/generic -> coverage-honest report). JANGAN build GAP-115 greenfield (sudah wired). JANGAN build ChainOracle/Gamma.
-   §12.43 gap map (Natanael, authoritative): per-edge ✅ / autonomous wiring ✅ / bidirectional diff ✅ /
+4. **CURRENT SLICE = Front-door-timeout origin-binding gate fix (reach-diagnostic COMPLETE 2026-08-23).**
+   Diagnostic result: NOT B (Mnemonic 5 rec both targets), NOT C (§12.61 CF-ceiling NOT proven —
+   niagamas candidate 139.59.255.22 live HTTP 200, binding never attempted).
+     bernofarm.com = REACH PROVEN (103.113.118.202 cooperative_soft_binding, 37× OriginDirectAttempt
+                     authorized, 404 leak-paths = honest zero-finding). No slice.
+     niagamas.com  = CONTROL-FLOW DEFECT: front-door timeout → _dead_hosts pre-empts origin-binding.
+                     Violates §12.42 external-first (front-door-down is the PRECONDITION for
+                     origin-direct, not an abort). Earliest-failed-transition = E1→E2.
+   NEXT = grep-confirm gate in live path (recon_runner.py/_dead_hosts) → minimal redirect: front-door
+          block/timeout on fronted host routes to resolve_and_bind_origin (reuse verify_origin_binding
+          §12.46, NO 2nd binding path). Cardinal RED = niagamas repro. ≤2 files.
+   REJECTED post-diagnostic: ViewDNS (source works), GAP-045 CF-ceiling (candidate live), ChainOracle/Gamma.
+   GAP: register ONE — "front-door-timeout aborts before origin-direct binding" (distinct reproducible
+        defect; owner = reach/origin_binding path; sealed by Cardinal RED). Do NOT proliferate.
 5. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
