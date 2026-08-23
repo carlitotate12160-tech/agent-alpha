@@ -33,7 +33,7 @@ Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (P
    (characterize J5 SKIPPED by design: needs PROFILE_SIGNING_KEY + real LLM). Owner GAP-118 — mark the
    oracle portion DONE; only the CHAIN-level composition remains (below).
 
-4. **CURRENT SLICE = Front-door-timeout origin-binding gate fix (reach-diagnostic COMPLETE 2026-08-23).**
+4. **CURRENT SLICE = Front-door-timeout origin-binding gate fix — IMPLEMENTED (PR #487).**
    Diagnostic result: NOT B (Mnemonic 5 rec both targets), NOT C (§12.61 CF-ceiling NOT proven —
    niagamas candidate 139.59.255.22 live HTTP 200, binding never attempted).
      bernofarm.com = REACH PROVEN (103.113.118.202 cooperative_soft_binding, 37× OriginDirectAttempt
@@ -41,12 +41,13 @@ Resume with: "lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle is SEALED** (P
      niagamas.com  = CONTROL-FLOW DEFECT: front-door timeout → _dead_hosts pre-empts origin-binding.
                      Violates §12.42 external-first (front-door-down is the PRECONDITION for
                      origin-direct, not an abort). Earliest-failed-transition = E1→E2.
-   NEXT = grep-confirm gate in live path (recon_runner.py/_dead_hosts) → minimal redirect: front-door
-          block/timeout on fronted host routes to resolve_and_bind_origin (reuse verify_origin_binding
-          §12.46, NO 2nd binding path). Cardinal RED = niagamas repro. ≤2 files.
-   REJECTED post-diagnostic: ViewDNS (source works), GAP-045 CF-ceiling (candidate live), ChainOracle/Gamma.
-   GAP: register ONE — "front-door-timeout aborts before origin-direct binding" (distinct reproducible
-        defect; owner = reach/origin_binding path; sealed by Cardinal RED). Do NOT proliferate.
+   FIX (PR #487): `scout.py` `_step_once` and `fingerprint.py` `seed_fingerprint_first` now call
+   `_attempt_reach_transport_dead` on a root `HttpClientError`. This method reuses the SAME
+   `_resolve_authorized_origin` + `_origin_direct_probe` (§12.46 two-proof binding) as the
+   response-blocked path — no 2nd binding path. Fail-closed: no binding → mark dead exactly as before.
+   VERIFICATION: Oracle ARM64 `make check` passed (ruff + mypy); `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` 12 passed, including 3 new Cardinal RED tests.
+   PENDING: `REPRESENTATIVE_FIELD_VERIFIED` — run the autonomous path against `niagamas.com` on Oracle and observe `ORIGIN_BINDING_PROVEN` + `OriginDirectAttempt` for the historical IP.
+   GAP: front-door-timeout aborts before origin-direct binding — CLOSED by PR #487. Do NOT proliferate.
 5. **AFTER reach slice: resume ChainOracle MIN-composition OR architect review of ADR §12.66 → ACCEPT decision**, tergantung mana yang unblocks. ChainOracle tetap PARKED sampai ORIGIN_BINDING_PROVEN nyata dari field.
 
 *(Do NOT build Gamma. Oracle = the seal. RUNNER-SEAL ≠ AUTONOMOUS-WIRED — verify the live path, not the runner.)*
@@ -240,17 +241,18 @@ FIELD-prove of the oracle on a real target with a RESOLVING cred (slice-1d used 
 ---
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle SEALED** (PR #465, Oracle-green). Temuan 2 = PHANTOM (GAP-118 correct downgrade). CURRENT SLICE = **Bounded reach-diagnostic (Class-C accepted 2026-08-23)**: historical-DNS enrichment (`enrich_with_historical_dns` in `passive_intel.py:517`) is ALREADY wired in `conductor/recon_runner.py:646` via `mnemonic_client` and gated through `verify_origin_binding` (§12.46). ChainOracle = **PARKED**. §12.66 PROPOSED, deferred behind reach. Earliest-failed-transition = REACH/BLOCK (E0–E2) on real full-CF targets. NEXT = instrument the wired historical-DNS reach path, run `live_fire/recon_integrated_field_prove.py` vs `niagamas.com` + `bernofarm.com` on Oracle, classify A/B/C, then ONE slice (ViewDNS source [B] OR GAP-045 CF-ceiling honest-outcome [C]). JANGAN rebuild GAP-115, JANGAN build ChainOracle/Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
+> lanjut Agent-Alpha — **P1 §12.43 PER-EDGE oracle SEALED** (PR #465, Oracle-green). Temuan 2 = PHANTOM (GAP-118 correct downgrade). CURRENT SLICE = **Front-door-timeout origin-binding gate fix (PR #487)**: `scout.py` + `fingerprint.py` now route a root front-door `HttpClientError` to `_attempt_reach_transport_dead`, reusing `_resolve_authorized_origin` + `_origin_direct_probe` (§12.46, no 2nd binding path). Oracle ARM64 `make check` + `pytest tests/phase_2_5/test_alpha_autonomous_reach.py` green (3 new transport-dead Cardinal RED tests). PENDING `REPRESENTATIVE_FIELD_VERIFIED`: run autonomous path vs `niagamas.com` on Oracle and observe `ORIGIN_BINDING_PROVEN` + `OriginDirectAttempt` for historical IP `139.59.255.22`. ChainOracle = **PARKED**. §12.66 PROPOSED, deferred behind reach. JANGAN rebuild GAP-115, JANGAN build ChainOracle/Gamma. ALWAYS git pull + re-verify on Oracle first (Lyndon #9); RUNNER-SEAL ≠ AUTONOMOUS-WIRED.
 
 ---
 
 ## SESSION STATUS (2026-08-23)
 
-- **This session: Class-C accepted reach-diagnostic — 0 seals, evidence + decision.**
+- **This session: Front-door-timeout origin-binding gate fix implemented + unit Cardinal RED passed on Oracle.**
   P1 §12.43 per-edge oracle remains SEALED (PR #465). ChainOracle PARKED. §12.66 PROPOSED, deferred.
-  Corrected handoff overclaim (Success bar = MECHANISM proven, REPRESENTATIVE_FIELD_VERIFIED NOT MET) and
-  GAP-115 framing (historical-DNS already wired; open = why reach still fails on .id full-CF).
-  Current slice: **Bounded reach-diagnostic** — instrument wired historical-DNS path, run `recon_integrated_field_prove`
-  on Oracle vs `niagamas.com` + `bernofarm.com`, classify A/B/C, then ONE slice (ViewDNS [B] vs GAP-045 [C]).
-  JANGAN seal sebelum log Oracle memisahkan A/B/C.
-- **Sealed slices this session:** 0.
+  PR #487 modifies `scout.py` and `fingerprint.py` to route a root front-door `HttpClientError` through
+  `_attempt_reach_transport_dead`, reusing `_resolve_authorized_origin` + `_origin_direct_probe` (§12.46).
+  3 new unit tests in `tests/phase_2_5/test_alpha_autonomous_reach.py` cover: reach via origin-flank,
+  fail-closed on stale candidate, and consent-gate legacy behavior.
+  Oracle `make check` (ruff + mypy) passed; `pytest tests/phase_2_5/test_alpha_autonomous_reach.py -v` 12 passed.
+  `REPRESENTATIVE_FIELD_VERIFIED` (field niagamas repro) pending.
+- **Sealed slices this session:** 1 (front-door-timeout origin-binding gate fix — unit Cardinal RED, PR #487 open).
