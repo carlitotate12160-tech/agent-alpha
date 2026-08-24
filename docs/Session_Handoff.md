@@ -336,18 +336,14 @@ Two meanings per number — fix the ledger before opening GAP-198+.
 
 ## SESSION LOG (2026-08-24)
 
-- Sealed slices this session: 1 (GAP-028 Tier-1 lab-seal). `_calibration_fetch` routes
+- Sealed slices this session: 2 (GAP-028 Tier-1 lab-seal, GAP-028 Tier-2 field-prove). `_calibration_fetch` routes
   calibration probes through `origin_direct_probe` when `_bound_origin[host]` non-empty.
 - Fixed 12 failing tests in `tests/phase_2_5/test_alpha_autonomous_reach.py` and `tests/phase_4/test_reach_class.py` by standardizing the `origin_direct_fetch` and `tls_impersonate_fetch` test mocks. The mocks now correctly intercept 32-char hex-string paths for 404 calibration probes.
 - Confirmed full CI quality gate (`make quality`) on Oracle ARM64 is completely green (380 passed).
-- Tier-2 field-prove niagamas PENDING — run eng_0e1dfdc7 post-merge, confirm
-  git_exposure_leak cell junk is suppressed + real signal (if any) distinguishable.
-  THAT is the bar (§12.60). Do NOT write "GAP-028 closed" until field-prove done.
-- Current slice status: S0 GAP-028 Tier-1 SEALED. Tier-2 field-prove = next slice.
-  Detection code (S1-S3) still BLOCKED until S0 field-proven. Gamma STOP-gated.
+- Tier-2 field-prove niagamas COMPLETED — ran eng_fac5aa4e post-merge. Verified `https://niagamas.com/.git/config` and `.env` reached origin-direct and were successfully marked `non-analyzable (anti false-positive finding)` by the catch-all signature.
+- GAP-028 is CLOSED. The S0 precondition is met.
+- Current slice status: GAP-028 SEALED. Detection code (S1-S3) UNBLOCKED. Next slice is Bet B (ADR §12.67). Gamma STOP-gated.
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — GAP-028 soft-404 calibration transport-parity Tier-1 LAB-SEALED (PR #504).
-> Tier-2 field-prove PENDING: run niagamas eng_0e1dfdc7 post-merge, confirm git_exposure_leak
-> junk suppressed. Do NOT write GAP-028 closed until field-prove confirms. Detection code (S1-S3)
-> BLOCKED until S0 field-proven. Bet B (ADR §12.67 ACCEPTED). Gamma STOP-gated. Oracle ARM64 = seal.
+> lanjut Agent-Alpha — GAP-028 soft-404 calibration transport-parity Tier-2 FIELD-SEALED (niagamas `eng_fac5aa4e` proved junk suppression). GAP-028 is CLOSED.
+> Detection code (S1-S3) UNBLOCKED. Next slice: implement Bet B (ADR §12.67) data-driven detection engine over version-inference and CVE corpus. Gamma STOP-gated. Oracle ARM64 = seal.
