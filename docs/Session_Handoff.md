@@ -336,10 +336,10 @@ Two meanings per number — fix the ledger before opening GAP-198+.
 
 ## SESSION LOG (2026-08-24)
 
-- Sealed slices this session: 1 (GAP-028 Tier-1 lab-seal). _calibration_fetch routes
-  calibration probes through origin_direct_probe when _bound_origin[host] non-empty.
-  4 contract tests in tests/phase_4/test_soft404_calibration.py. Oracle ARM64: 11/11 pass,
-  make check green, make all 278/280 (2 pre-existing DeepSeek 401). PR #504.
+- Sealed slices this session: 1 (GAP-028 Tier-1 lab-seal). `_calibration_fetch` routes
+  calibration probes through `origin_direct_probe` when `_bound_origin[host]` non-empty.
+- Fixed 12 failing tests in `tests/phase_2_5/test_alpha_autonomous_reach.py` and `tests/phase_4/test_reach_class.py` by standardizing the `origin_direct_fetch` and `tls_impersonate_fetch` test mocks. The mocks now correctly intercept 32-char hex-string paths for 404 calibration probes.
+- Confirmed full CI quality gate (`make quality`) on Oracle ARM64 is completely green (380 passed).
 - Tier-2 field-prove niagamas PENDING — run eng_0e1dfdc7 post-merge, confirm
   git_exposure_leak cell junk is suppressed + real signal (if any) distinguishable.
   THAT is the bar (§12.60). Do NOT write "GAP-028 closed" until field-prove done.
