@@ -129,6 +129,6 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     assert "apache" in names
     assert "php" in names
     
-    apache_node = next(n for n in service_nodes if n.properties.name == "apache")
+    apache_node = next((n for n in service_nodes if n.properties.name == "apache"), None)
     assert apache_node.properties.version == "2.4.6"
     assert apache_node.properties.source == "server_header"
