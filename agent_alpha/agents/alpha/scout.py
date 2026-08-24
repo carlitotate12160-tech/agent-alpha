@@ -176,6 +176,7 @@ class Alpha:
         # Per-host resolved origin (crt.sh + binding is identical for every blocked
         # path on a host — resolve ONCE, reuse incl. the empty negative case).
         self._bound_origin: dict[str, list[str]] = {}
+        self._fp_flanked: set[str] = set()  # bounded: one fingerprint-flank per host per run
         # host -> set of tech_stack labels fingerprinted THIS run (R2 selective
         # crawl). Local to Alpha, NOT read from graph_store/world_model — keeps
         # the gate pure/synchronous and avoids a graph query on every discovered
@@ -378,6 +379,7 @@ class Alpha:
         self._reach_class = {}
         self._reach_body_cache = {}
         self._bound_origin = {}
+        self._fp_flanked = set()
         self._host_stack = {}
         self._organic_crawl_count = {}
         self._consecutive_transport_fail = 0
@@ -1362,15 +1364,27 @@ class Alpha:
         from agent_alpha.recon.service_fingerprint import get_merged_service_nodes
 
         nodes = get_merged_service_nodes(resp, url)
-        nodes_added = 0
 
-        for service_node in nodes:
-            existing = self.graph_store.get_node(service_node.id)
-            if not existing:
+        # §12.67-S1 fingerprint-flank: edge gave no version-bearing nodes on an
+        # edge-fronted host → flank to origin for the real stack (anti-#8: logic
+        # in origin_reach.py, scout stays under GAP-161 ratchet).
+        from agent_alpha.recon.origin_reach import maybe_fingerprint_flank
+
+        nodes = maybe_fingerprint_flank(self, resp, url, nodes)
+
+        nodes_added = 0
+        for sn in nodes:
+            ex = self.graph_store.get_node(sn.id)
+            # Version-priority: never clobber version-bearing with versionless.
+            if (
+                ex
+                and getattr(ex.properties, "version", "")
+                and not getattr(sn.properties, "version", "")
+            ):
+                continue
+            if not ex:
                 nodes_added += 1
-            persist_node(
-                self.event_store, self.graph_store, self._engagement_id, service_node, agent="alpha"
-            )
+            persist_node(self.event_store, self.graph_store, self._engagement_id, sn, agent="alpha")
 
         return nodes_added
 

@@ -28,6 +28,21 @@ class OriginDirectResult:
     challenge_encountered: bool = False
     challenge_solved: bool = False
 
+    def __post_init__(self) -> None:
+        # Invariant (anti-#7): header keys are ALWAYS lowercase, regardless of the
+        # producing transport. httpx (origin_direct_fetch) lowercases via its Headers
+        # type; curl_cffi (tls_impersonate_fetch) preserves the server's original
+        # casing. Every consumer reads headers.get("server"/"x-powered-by") with a
+        # lowercase literal (service_fingerprint.get_merged_service_nodes,
+        # origin_reach.is_edge_fronted_host, origin_resolver._is_origin) — a title-case
+        # "Server" silently misses. Normalize ONCE here so producers AND consumers are
+        # transport-agnostic. frozen=True -> object.__setattr__.
+        object.__setattr__(
+            self,
+            "headers",
+            {str(k).lower(): str(v) for k, v in self.headers.items()},
+        )
+
 
 def origin_direct_fetch(
     host: str,

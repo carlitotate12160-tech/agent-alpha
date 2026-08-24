@@ -4595,3 +4595,37 @@ A patched service -> honest 0 REPORTED as "fingerprinted + CVE-checked + confirm
 Rejected: (a) wrap Nuclei/scanner engine — inherits signature+noise; (b) more per-stack
 playbooks — the per-playbook model is exactly what cannot widen; (c) building S1-S3 before S0 —
 Lyndon #3; (d) firing any exploit — Gamma, out of this lane.
+
+### 12.68 Universal Credential/Secret Exposure Lane (PROPOSED)
+
+**Decision status:** PROPOSED (built AFTER §12.67 reaches one payable — NOT parallel).
+
+Reframes the DEMOTED leak-hunt lane: downgrade PATH-GUESSING as the primary strategy, NOT credential hunting. The 5 existing lanes (git/backup/actuator/config/js) are RECOVERY executors — good; the gap is evidence-driven artifact DISCOVERY, not more filenames (a wordlist scanner is rejected).
+
+Artifact-centric, NOT stack-centric (Universal-by-Design): a generic secret lane is ALWAYS capable; stack knowledge is ENRICHMENT, never a dispatch prerequisite. unknown_stack ≠ credential_capability_absent. This fixes the CoverageLedger over-counting capability_absent.
+
+Two layers (grounded in current code, NOT a rebuild):
+- **L1 CANDIDATE** — provider-signature (constants.py:567 AKIA/sk_live, provider-agnostic — ALREADY exists) > key-semantics+value-structure > credential-pair-proximity > entropy (constants.py:596, weak last-resort, never mints high-confidence alone). Format parsers (env/yml, ALREADY exist) feed it. Output = `SecretCandidate {artifact_ref, logical_path, key, value_ref (VAULT, never plaintext in graph/event), candidate_type, confidence, provenance, contextual_signals}`.
+- **L2 ASSEMBLY** — DE-STACK the assembler (the ONLY genuinely stack-keyed part today: `*_CREDENTIAL_LOGIN_PAIRS/_SECRET_KEYS`). Generic pairing (username-ish↔password-ish↔host/port proximity); stack pairs become enrichment. Output = `CredentialAssembly`.
+
+Epistemic chain (parallel to §12.67, LOCKED invariant secret_string ≠ valid_credential):
+`ArtifactObservation → SecretCandidate → CredentialAssembly → CredentialExposureHypothesis → INDEPENDENT ORACLE → VULNERABILITY`.
+The oracle SPLITS (do not conflate): passive-context-oracle (RECON — environment + provider-format + service-relation → HIGH-priority HYPOTHESIS, never proves "active") vs active-use-oracle (USING a credential = invasive = auth+blast gated, Beta/Gamma, NOT recon). Payable requires the gated active validation; recon produces hypothesis.
+
+environment_confidence {dev|test|staging|production|example|local} = a PRIORITISATION signal only, NEVER finding-confidence (a mislabeled "prod" is still a guess). Provenance {source_asset, artifact, logical_path, extraction_method, environment, provider, first_seen} distinguishes a production DB credential from a doc example without regex-only reliance.
+
+ONE canonical VULNERABILITY node (anti-#6); SECRET is an evidence-domain taxonomy BEFORE promotion {CREDENTIAL, API_TOKEN, PRIVATE_KEY, SIGNING_SECRET, DATABASE_AUTH, APPLICATION_SECRET} — NOT six vuln node types. First slice when built: SecretCandidate model + candidate→hypothesis→oracle chain OVER the existing extractors (reuse working code); THEN de-stack assembler; THEN artifact-discovery; stack playbooks LAST (P3 — one-per-target is the un-scalable trap we are escaping).
+
+### 12.69 Evidence-Resolution Engine (PROPOSED)
+
+**Decision status:** PROPOSED (supersedes §12.67's "CVE = primary production lane" framing + retires "every exposed service has a version").
+
+Alpha is an EVIDENCE-RESOLUTION ENGINE, not a CVE-detector-with-credential-hunting. First principle: "Every observable surface produces evidence — GATED by a minimum-signal promotion threshold (§12.30), never 'any header is a hypothesis'. Evidence forms identity / artifact / exposure / vulnerability hypotheses. Alpha resolves the highest-value uncertainty THAT ADVANCES THE CURRENT OBJECTIVE (§12.29) at lowest independent-evidence cost. Only independently established facts promote to payable VULNERABILITY and chain state."
+
+Three hypothesis classes compete in ONE queue (no permanent primary lane): vulnerability (§12.67 version→CVE), exposure/secret (§12.68), misconfig. Priority is SUBORDINATE to the objective, not a free-standing info-gain maximiser (anti-wander, §12.24). DECIDE stays deterministic (§12.57): the ranker starts as a fixed ORDER (confirmed > exact-version+KEV > exposed-artifact-prod > bounded-version > version-none/concealed) and earns factors ONLY when the simple order demonstrably mis-ranks on real evidence (§12.58 one-heuristic-first). A six-factor multiplicative ThreatScore is REJECTED as a first cut (laundered soft-estimates; entropy-trap parallel).
+
+Epistemic invariants (parallel, both LOCKED): version_match ≠ vulnerability (§12.43) AND secret_string ≠ vulnerability (§12.68). VersionResolutionStatus {EXACT|BOUNDED|FAMILY_ONLY|UNRESOLVED|CONCEALED|CONFLICTING} is an ADDITIVE field on the EXISTING SERVICE node (NOT a new ProductIdentity/VersionIdentity node hierarchy — anti-#6); CONCEALED (actively stripped) ≠ UNRESOLVED (not yet sourced) ≠ unknown-product. version="" is NEVER an S1 failure.
+
+NegativeEvidence as GLOBAL substrate (§12.62 generalised) = the crown deliverable: AttemptResult {technique, target, hypothesis, outcome, evidence_ref} with outcome ∈ {NOT_RUN, NOT_APPLICABLE, NOT_OBSERVED, NOT_FOUND, CONCEALED, BLOCKED, INCONCLUSIVE, PATCHED, INVALID, EXPIRED, CONFIRMED}. Makes "0 findings" EXPLAINABLE (the 49-vs-0 answer): .env→404 = "artifact hypothesis .env, executed, NOT_FOUND", not "credential lane clean". Build this EARLY (cheap, makes every slice honest) as an outcome enum on existing coverage/attempt records — NOT a new framework.
+
+BUILD DISCIPLINE (the guard against Lyndon #1 / this ADR's own big-bang risk): the shared observation substrate + priority engine are EXTRACTED from ≥2 working lanes (promotion-on-repeat, §12.58/59), NEVER designed up front. Order: finish S1/Bug-2 → S2 CVE to ONE payable field-proven → §12.68 credential ONE slice → THEN extract substrate from what the two lanes actually repeated. Designing the universal engine before either lane pays is the premature-universal-framework the Universal-by-Design law forbids. This ADR is the NORTH STAR governing HOW each lane is built, NOT a build order for a framework.

@@ -142,6 +142,73 @@ def _binding_events(event_store: Any, engagement_id: str) -> list[Any]:
     return [e for e in events if e.event_type == EventType.ORIGIN_BINDING_PROVEN]
 
 
+def _fingerprint_flank_events(event_store: Any, engagement_id: str) -> list[Any]:
+    events = event_store.get_events(engagement_id)
+    return [e for e in events if e.event_type == EventType.FINGERPRINT_FLANK_ATTEMPTED]
+
+
+def _flank_mechanism_oracle(flank_events: list[Any]) -> Oracle:
+    """PASS iff the fingerprint-flank positive path exercised and minted origin service nodes."""
+    if not flank_events:
+        return Oracle(
+            "FLANK_MECHANISM_FIELD_PROVEN",
+            False,
+            "flank precondition (edge-fronted host with no version-bearing edge service) "
+            "never arose this run — positive path NOT exercised; inconclusive.",
+            skipped=True,
+        )
+
+    minted = [e for e in flank_events if e.payload.get("outcome") == "minted"]
+    if minted:
+        return Oracle(
+            "FLANK_MECHANISM_FIELD_PROVEN",
+            True,
+            f"{len(minted)} minted flank event(s) — origin service header(s) observed",
+        )
+
+    non_minted = [e for e in flank_events if e.payload.get("outcome") != "minted"]
+    counts: dict[str, int] = {}
+    for e in non_minted:
+        outcome = str(e.payload.get("outcome", "unknown"))
+        counts[outcome] = counts.get(outcome, 0) + 1
+    dominant = max(counts, key=lambda k: (counts[k], k)) if counts else "unknown"
+    return Oracle(
+        "FLANK_MECHANISM_FIELD_PROVEN",
+        False,
+        f"dominant non-minted outcome={dominant!r}; "
+        "this is the fail-closed outcome, NOT a positive-path proof",
+    )
+
+
+def _flank_s2_eligible_oracle(flank_events: list[Any], base_domain: str) -> Oracle:
+    """Informational oracle: did the flank mint a product with a non-empty version?"""
+    minted = [e for e in flank_events if e.payload.get("outcome") == "minted"]
+    versioned = [e for e in minted for p in e.payload.get("products", []) if p.get("version")]
+    if versioned:
+        return Oracle(
+            "FLANK_S2_ELIGIBLE",
+            True,
+            f"{len(versioned)} minted flank product(s) with version — S2 CVE correlation eligible",
+        )
+
+    if minted:
+        return Oracle(
+            "FLANK_S2_ELIGIBLE",
+            False,
+            f"origin stack observed via flank but version CONCEALED at origin — "
+            f"S2 CVE-eligibility NOT demonstrated on {base_domain}; §12.60 needs a 2nd archetype "
+            "(a target whose origin exposes a version) before S1→S2 is field-representative.",
+            skipped=True,
+        )
+
+    return Oracle(
+        "FLANK_S2_ELIGIBLE",
+        False,
+        "no minted fingerprint-flank outcome observed — S2 not applicable",
+        skipped=True,
+    )
+
+
 def _apex_edge_fronted(
     passive: list[Any], bindings: list[Any], base_domain: str
 ) -> tuple[bool, str]:
@@ -172,6 +239,7 @@ def evaluate_oracles(
 ) -> list[Oracle]:
     passive = _passive_events(event_store, engagement_id)
     bindings = _binding_events(event_store, engagement_id)
+    flank_events = _fingerprint_flank_events(event_store, engagement_id)
     apex = urlparse(config.recon_url).hostname or ""
     # apex CF signal is keyed on the base domain (NS-derived, domain-scoped).
     base_domain = config.scope_domains[0] if config.scope_domains else apex
@@ -240,7 +308,10 @@ def evaluate_oracles(
         f"{len(config.scope_domains)} scope host(s) all lab-allowlisted",
     )
 
-    return [t1, t2, t3, t4, t5, t6]
+    f1 = _flank_mechanism_oracle(flank_events)
+    f2 = _flank_s2_eligible_oracle(flank_events, base_domain)
+
+    return [t1, t2, t3, t4, t5, t6, f1, f2]
 
 
 def run_integrated_field_prove(config: IntegratedConfig) -> list[Oracle]:

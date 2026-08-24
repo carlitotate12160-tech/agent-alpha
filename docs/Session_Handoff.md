@@ -6,9 +6,8 @@ HEAD `11a35af2` on `main`. Phase 4. Gamma/Delta/Epsilon = 0% (STOP-gated).
 Reach arc SEALED through GAP-197 (#494 `8dfb2d0`). Oracle ARM64 = the seal;
 RUNNER-SEAL ≠ AUTONOMOUS-WIRED (grep the live path, not the runner).
 
-**ARCHITECTURE FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** S0 RE-SCOPED → GAP-028
-(soft-404 calibration transport-parity; origin baseline for flank-reached hosts). Detection code (S1-S3)
-BLOCKED until S0 sealed on Oracle. Gamma STOP-gated.
+**ARCHITECTURE FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** ADR §12.68 and §12.69 PROPOSED and documented.
+S0 (GAP-028) SEALED. S1 (fingerprint-flank + CDN identity guard) SEALED. Detection code S2 (offline correlation) is IN PROGRESS. Gamma STOP-gated.
 
 ---
 
@@ -333,14 +332,13 @@ Two meanings per number — fix the ledger before opening GAP-198+.
 
 ## SESSION LOG (2026-08-24)
 
-- Sealed slices this session: 2 (GAP-028 Tier-1 lab-seal, GAP-028 Tier-2 field-prove). `_calibration_fetch` routes
-  calibration probes through `origin_direct_probe` when `_bound_origin[host]` non-empty.
-- Fixed 12 failing tests in `tests/phase_2_5/test_alpha_autonomous_reach.py` and `tests/phase_4/test_reach_class.py` by standardizing the `origin_direct_fetch` and `tls_impersonate_fetch` test mocks. The mocks now correctly intercept 32-char hex-string paths for 404 calibration probes.
-- Confirmed full CI quality gate (`make quality`) on Oracle ARM64 is completely green (380 passed).
-- Tier-2 field-prove niagamas COMPLETED — ran eng_fac5aa4e post-merge. Verified `https://niagamas.com/.git/config` and `.env` reached origin-direct and were successfully marked `non-analyzable (anti false-positive finding)` by the catch-all signature.
+- Sealed slices this session: 3 (GAP-028 Tier-1 lab-seal, GAP-028 Tier-2 field-prove, S1 fingerprint-flank).
+- `_calibration_fetch` routes calibration probes through `origin_direct_probe` when `_bound_origin[host]` non-empty.
+- Added `maybe_fingerprint_flank` in `origin_reach.py` (version-priority guard) and fixed exact-match CDN bug in `service_fingerprint.py`. CI is green (ignoring DeepSeek intermittent API timeout).
+- Documented §12.68 (Universal Credential/Secret Exposure Lane) and §12.69 (Evidence-Resolution Engine) in ADRs.
 - GAP-028 is CLOSED. The S0 precondition is met.
-- Current slice status: GAP-028 SEALED. Detection code (S1-S3) UNBLOCKED. Next slice is Bet B (ADR §12.67). Gamma STOP-gated.
+- Current slice status: S1 SEALED. S2 (CVE offline correlation) IN PROGRESS. Gamma STOP-gated.
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — GAP-028 soft-404 calibration transport-parity Tier-2 FIELD-SEALED (niagamas `eng_fac5aa4e` proved junk suppression). GAP-028 is CLOSED.
-> Detection code (S1-S3) UNBLOCKED. Next slice: implement Bet B (ADR §12.67) data-driven detection engine over version-inference and CVE corpus. Gamma STOP-gated. Oracle ARM64 = seal.
+> lanjut Agent-Alpha — S1 fingerprint-flank SEALED. S2 (offline CVE correlation) IN PROGRESS.
+> Implementation Plan for S2 is drafted. Next slice: implement S2 data-driven detection engine over version-inference and CVE corpus. Gamma STOP-gated. Oracle ARM64 = seal.

@@ -1,7 +1,7 @@
 """Origin-flank reach primitives (§12.46 / §12.61) — extracted from ``scout.py``.
 
 An external red team facing a CDN/WAF edge does not brute the edge; it flanks to the
-origin (§12.61). These three primitives are that flank, lifted out of ``Alpha`` so
+origin (§12.61). These primitives are that flank, lifted out of ``Alpha`` so
 ``scout.py`` stays under the GAP-161 size ratchet (anti-#8 god object, §12.47) while the
 autonomous OODA loop keeps orchestrating them:
 
@@ -10,6 +10,11 @@ autonomous OODA loop keeps orchestrating them:
 - ``origin_direct_probe`` — §12.46-gated origin-direct dispatch over the bound origins.
 - ``attempt_reach_transport_dead`` — the transport-dead front-door entry (the niagamas
   lesson): a root connect/read timeout is the origin-direct PRECONDITION, not an abort.
+- ``fingerprint_flank`` — §12.67-S1 lazy origin-flank for service headers when the edge
+  gave no version-bearing product (CF-passthrough). Consent fail-closed.
+- ``maybe_fingerprint_flank`` — trigger wrapper called by ``_detect_service_evidence``;
+  checks CVE-eligibility + edge-fronted + bounded guard, then delegates to
+  ``fingerprint_flank``. Keeps ``scout.py`` to ~2 lines (anti-#8).
 
 They are Alpha *collaborators* (they read/emit through the injected Alpha recon context —
 ``event_store``, ``_bound_origin``, ``_origin_discovery``, ``_engagement_profile``,
@@ -25,6 +30,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlparse
 
 from agent_alpha.events.event_types import EventType
+from agent_alpha.graph.nodes import ServiceProperties
 from agent_alpha.recon.origin_binding import resolve_and_bind_origin
 from agent_alpha.recon.reach_strategy import is_cloudflare_ip
 from agent_alpha.recon.reach_transport import origin_direct_fetch
@@ -39,12 +45,19 @@ class _ReachResponse:
     of ``_step_once`` can consume the reach result unchanged.
     """
 
-    __slots__ = ("status_code", "text", "headers")
+    __slots__ = ("status_code", "text", "headers", "origin_ip")
 
-    def __init__(self, status_code: int, body: str, headers: dict[str, str]) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        body: str,
+        headers: dict[str, str],
+        origin_ip: str = "",
+    ) -> None:
         self.status_code = status_code
         self.text = body
         self.headers = headers
+        self.origin_ip = origin_ip
 
 
 def resolve_authorized_origin(alpha: Any, host: str) -> list[str]:
@@ -138,7 +151,9 @@ def origin_direct_probe(
     )
 
     last_response: _ReachResponse | None = None
+    last_ip = ""
     for origin_ip in authorized_origins_list:
+        last_ip = origin_ip
         # §12.46 composed gate — fail-closed. Authorizes iff the IP is in the signed
         # authorized_origins OR (allow_origin_discovery AND an ORIGIN_BINDING_PROVEN
         # event exists for this IP + fronted host).
@@ -194,6 +209,7 @@ def origin_direct_probe(
             status_code=result.status_code,
             body=result.body,
             headers=dict(result.headers),
+            origin_ip=origin_ip,
         )
         last_response = candidate
 
@@ -211,6 +227,8 @@ def origin_direct_probe(
 
     # No origin returned useful content — return the last response seen (honest: caller
     # re-classifies; a 404/redirect is still non-block evidence) or None.
+    if last_response is not None and not last_response.origin_ip:
+        last_response.origin_ip = last_ip
     return last_response
 
 
@@ -258,3 +276,128 @@ def attempt_reach_transport_dead(
     # Strategy is KNOWN = ORIGIN_DIRECT (no resp to classify_mitigation/choose_reach).
     # The §12.46 auth gate is enforced INSIDE origin_direct_probe.
     return origin_direct_probe(alpha, url, host, origins)
+
+
+# ── §12.67-S1: fingerprint-flank (lazy origin headers on CF-passthrough) ─────
+
+
+def is_edge_fronted_host(alpha: Any, host: str, resp: Any) -> bool:
+    """True when *host* is behind a CDN/WAF edge.
+
+    Three-signal detection (no target hostname literal — Universal-by-Design):
+    1. Graph ``asset:{host}`` has ``cf_protected=True`` (NS-hint confirmed vendor).
+    2. Graph ``asset:{host}`` has ``edge_fronted=True`` (behaviourally proven, GAP-197).
+    3. Current response ``Server`` header matches a ``CDN_IDENTITY_SERVERS`` entry.
+    """
+    from agent_alpha.recon.service_fingerprint import CDN_IDENTITY_SERVERS
+
+    asset_node = alpha.graph_store.get_node(f"asset:{host}")
+    if asset_node is not None:
+        props = asset_node.properties
+        if getattr(props, "cf_protected", False) or getattr(props, "edge_fronted", False):
+            return True
+
+    server = (getattr(resp, "headers", {}).get("server") or "").lower()
+    return any(edge in server for edge in CDN_IDENTITY_SERVERS)
+
+
+def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
+    """§12.67-S1 + §12.61: edge gave no version-bearing service → flank to origin
+    for the real stack headers.  Consent fail-closed (§12.46); returns ``[]`` on
+    unbound/unreachable.  Headers/cookies/CSP only — no body/frontier analysis
+    on the origin response.
+
+    Emits FINGERPRINT_FLANK_ATTEMPTED on every exit (§12.64 / §8o-1) so the event
+    stream, not the graph alone, is the machine-readable proof of the flank."""
+    engagement_id = alpha._engagement_id  # skipcq: PYL-W0212
+    origins = resolve_authorized_origin(alpha, host)
+    if not origins:
+        alpha._emit(  # skipcq: PYL-W0212
+            "OBSERVE",
+            f"S1 fingerprint-flank: {host} edge-only (origin unbound/unconsented); "
+            "coverage note: edge-only fingerprint, origin unreachable",
+        )
+        alpha.event_store.append(  # skipcq: PYL-W0212
+            EventType.FINGERPRINT_FLANK_ATTEMPTED,
+            engagement_id,
+            "alpha",
+            {
+                "host": host,
+                "outcome": "origin_unbound",
+                "origin_ip": "",
+                "products": [],
+            },
+        )
+        return []
+
+    parsed = urlparse(url)
+    root_url = f"{parsed.scheme}://{parsed.hostname}/"
+    origin_resp = origin_direct_probe(alpha, root_url, host, origins)
+    if origin_resp is None:
+        alpha._emit(  # skipcq: PYL-W0212
+            "OBSERVE",
+            f"S1 fingerprint-flank: {host} origin probe returned None; "
+            "coverage note: edge-only fingerprint, origin unreachable",
+        )
+        alpha.event_store.append(  # skipcq: PYL-W0212
+            EventType.FINGERPRINT_FLANK_ATTEMPTED,
+            engagement_id,
+            "alpha",
+            {
+                "host": host,
+                "outcome": "origin_unreachable",
+                "origin_ip": origins[0] if origins else "",
+                "products": [],
+            },
+        )
+        return []
+
+    from agent_alpha.recon.service_fingerprint import get_merged_service_nodes
+
+    flank_nodes = get_merged_service_nodes(origin_resp, url)
+    outcome = "minted" if flank_nodes else "no_new_service"
+    products = []
+    for n in flank_nodes:
+        props = n.properties
+        assert isinstance(props, ServiceProperties)
+        products.append({"name": props.name, "version": props.version})
+    alpha.event_store.append(  # skipcq: PYL-W0212
+        EventType.FINGERPRINT_FLANK_ATTEMPTED,
+        engagement_id,
+        "alpha",
+        {
+            "host": host,
+            "outcome": outcome,
+            "origin_ip": getattr(origin_resp, "origin_ip", ""),
+            "products": products,
+        },
+    )
+    return flank_nodes
+
+
+def maybe_fingerprint_flank(alpha: Any, resp: Any, url: str, nodes: list[Any]) -> list[Any]:
+    """Trigger wrapper for ``fingerprint_flank`` (§12.67-S1).
+
+    Called by ``scout._detect_service_evidence``.  Checks:
+    1. No CVE-correlation-eligible (version-bearing) node in *nodes*.
+    2. Host is edge-fronted (3-signal: cf_protected / edge_fronted / Server CDN).
+    3. Host not already fingerprint-flanked this run (``alpha._fp_flanked``).
+
+    Returns *nodes* **merged** with origin nodes (edge info kept), or *nodes*
+    unchanged when no flank is needed/possible.
+    """
+    from agent_alpha.recon.service_fingerprint import is_cve_correlation_eligible
+
+    if any(is_cve_correlation_eligible(n.properties) for n in nodes):
+        return nodes  # edge already has version-bearing signal → no flank needed
+
+    host = urlparse(url).hostname or urlparse(url).netloc
+    if not host or host in alpha._fp_flanked:  # skipcq: PYL-W0212
+        return nodes
+
+    if not is_edge_fronted_host(alpha, host, resp):
+        return nodes
+
+    alpha._fp_flanked.add(host)  # skipcq: PYL-W0212  — bounded: one attempt per host
+    flank_nodes = fingerprint_flank(alpha, host, url)
+    return nodes + flank_nodes  # MERGE: keep edge product info, append origin
