@@ -96,6 +96,8 @@ class ServiceProperties:
     port: int = 0
     protocol: str = "tcp"
     banner: str = ""
+    source: str = ""
+    confidence: float = 0.0
 
 
 @dataclass

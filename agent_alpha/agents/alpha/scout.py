@@ -736,6 +736,10 @@ class Alpha:
         # login/auth surface becomes a first-class finding, whatever tool ran.
         nodes_added += self._detect_auth_surface(resp, url)
 
+        # Universal service-evidence extraction (S1): extract product/version from
+        # headers, cookies, CSP without relying on LLM/body-matching (anti-#3/#7).
+        nodes_added += self._detect_service_evidence(resp, url)
+
         self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
 
         # ── FRONTIER EXPANSION (R1) ─────────────────────────────
@@ -1350,6 +1354,25 @@ class Alpha:
             self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
         )
         return 1
+
+    def _detect_service_evidence(self, resp: Any, url: str) -> int:
+        """Universal service-evidence persistence (S1). Extracts product/version
+        from non-body sources (Header, Cookie, CSP). Idempotent via dedup and
+        deterministic node ids."""
+        from agent_alpha.recon.service_fingerprint import get_merged_service_nodes
+
+        nodes = get_merged_service_nodes(resp, url)
+        nodes_added = 0
+
+        for service_node in nodes:
+            existing = self.graph_store.get_node(service_node.id)
+            if not existing:
+                nodes_added += 1
+            persist_node(
+                self.event_store, self.graph_store, self._engagement_id, service_node, agent="alpha"
+            )
+
+        return nodes_added
 
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""
