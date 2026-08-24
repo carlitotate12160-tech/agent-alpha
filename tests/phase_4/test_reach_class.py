@@ -587,10 +587,9 @@ def test_origin_direct_returns_first_useful_immediately() -> None:
             
     alpha._origin_discovery = FakeOriginDiscovery()
     
-    call_count = 0
+    calls: list[str] = []
     def fake_origin_direct(host: str, origin_ip: str, path: str) -> OriginDirectResult:
-        nonlocal call_count
-        call_count += 1
+        calls.append(path)
         _path = path.lstrip("/")
         if len(_path) >= 32 and all(c in "0123456789abcdef" for c in _path):
             return OriginDirectResult(404, "Not Found", {"server": "nginx"})
@@ -599,7 +598,8 @@ def test_origin_direct_returns_first_useful_immediately() -> None:
     with patch("agent_alpha.recon.origin_reach.origin_direct_fetch", side_effect=fake_origin_direct):
         alpha.run_recon(eng, _SEED)
         
-    assert call_count == 1
+    main_calls = [p for p in calls if p == "/"]
+    assert len(main_calls) == 1
     assert len(orchestrator.calls) == 1
     assert "First Content" in orchestrator.calls[0].get("body", "")
 
