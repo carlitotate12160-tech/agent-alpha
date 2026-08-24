@@ -129,6 +129,12 @@ class _FakeOrchestrator:
 class _StubOriginDirectResult:
     """Mimics _OriginDirectResult from a1_validation_runner."""
 
+    def __init__(self, body: str, status_code: int = 200) -> None:
+        self.body = body
+        self.status_code = status_code
+        self.headers: dict[str, str] = {}
+        self.challenge_encountered = False
+        self.challenge_solved = False
 
 def _default_stub_tls_fetch(url: str, **kwargs: Any) -> _StubOriginDirectResult:
     from urllib.parse import urlparse
@@ -141,13 +147,6 @@ def _default_stub_origin_direct_fetch(host: str, origin_ip: str, path: str = "/"
     if len(path.lstrip("/")) >= 32:
         return _StubOriginDirectResult("<html>404 Not Found</html>", 404)
     return _StubOriginDirectResult(body=_OK_BODY, status_code=200)
-
-    def __init__(self, body: str, status_code: int = 200) -> None:
-        self.body = body
-        self.status_code = status_code
-        self.headers: dict[str, str] = {}
-        self.challenge_encountered = False
-        self.challenge_solved = False
 
 
 class _StubBrowserSolveResult:
