@@ -134,6 +134,11 @@ representative authorized field conditions and explain every zero-finding outcom
 - Exploit payload bodies stay in the dedicated payload lane; Claude owns architecture, gates,
   interfaces, test contracts, and review.
 - Oracle ARM64 is the authoritative verification environment.
+- Universal-by-Design (CLAUDE.md canonical): design for the target-CLASS, never the named target.
+  Build gate before coding — name the class invariant + a counter-example archetype the design must
+  survive; a target name/IP in logic or a "for <target>" rationale fails review. Ship a test across
+  ≥2 archetypes (not the motivating target alone). Universal ≠ big-bang: source-general mechanism,
+  coverage one slice at a time.
 
 ## Proof and Wiring
 

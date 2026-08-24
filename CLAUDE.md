@@ -307,6 +307,32 @@ If yes → don't patch, redesign the interface.
 
 ---
 
+## Design Law: Universal-by-Design — Target-Class, not Target-Instance
+
+A field run is EVIDENCE of a target-CLASS gap, never a spec for a target-INSTANCE fix.
+Design for the class the target exemplifies, never for the named target.
+
+- The example is not the spec. "bernofarm exposes Zimbra" → build version→CVE for the CLASS
+  "exposed-service-with-known-CVE", NOT a Zimbra detector. "niagamas hides version in a cookie" →
+  build a multi-source fingerprint extractor, NOT a Metabase-cookie special-case. A target name/IP
+  in logic, or a rationale that says "for <target>", is a build-time SMELL that fails review.
+- Falsifiable build gate (state BEFORE coding): name the target-CLASS invariant the design serves,
+  then the DIFFERENTIAL — "does this still work on a target that LACKS the property that motivated
+  it?" bernofarm has Server-version; niagamas strips it. A design keyed on Server-version fails
+  niagamas → overfit → redesign. If you cannot name a counter-example class it survives, you are
+  building for one target.
+- Enforcement (TEST, not prose): a new capability ships a test proving it fires across ≥2 DIFFERENT
+  archetypes of its class (echoes §12.9 ≥M targets, §12.60 field-shaped fixtures). A test that only
+  uses the motivating target proves the anecdote, not the capability.
+- Universal ≠ big-bang (the opposite Lyndon #1). Universal-by-design = a source-GENERAL MECHANISM
+  (a ranked, data-driven evidence/technique registry) extended ONE slice at a time, each proven on
+  ≥2 archetypes. It does NOT license building the whole universe up front. General mechanism,
+  incremental coverage. Per-target special-case AND premature universal framework are both failures.
+- Operator lens: an APT builds tradecraft for a target-CLASS, never re-tools per victim.
+  Re-tooling per target = scanner/script-kiddie pattern = Lyndon #1/#5/#11.
+
+---
+
 ## Current Project Status
 
 Status lives in ONE place: repo `docs/Session_Handoff.md` ("THE ONLY status doc"). Do NOT
