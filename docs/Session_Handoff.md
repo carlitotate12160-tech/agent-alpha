@@ -2,12 +2,13 @@
 
 # Agent-Alpha — Session Handoff (2026-08-24)
 
-HEAD `8eafe57b` on `main` (post-revert of #497 diagnostic). Phase 4. Gamma/Delta/Epsilon = 0% (STOP-gated).
+HEAD `11a35af2` on `main`. Phase 4. Gamma/Delta/Epsilon = 0% (STOP-gated).
 Reach arc SEALED through GAP-197 (#494 `8dfb2d0`). Oracle ARM64 = the seal;
 RUNNER-SEAL ≠ AUTONOMOUS-WIRED (grep the live path, not the runner).
 
-**This next session is an ARCHITECTURE DISCUSSION, not a slice build.** Do not open an IDE prompt
-until the fork below is decided from evidence. **User has NOT decided Bet A vs Bet B yet.**
+**ARCHITECTURE FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** NEXT = 12.67-S0 WIRING
+(close not_run on run_recon live path; bet-agnostic; no new capability). Detection code (S1-S3)
+BLOCKED until S0 sealed on Oracle. Gamma STOP-gated.
 
 ---
 
@@ -346,17 +347,18 @@ Two meanings per number — fix the ledger before opening GAP-198+.
   quantum, hashmicro, niagamas). 3 wall berbeda: passive, reach, dispatch+detection.
 - **All-engagement aggregate:** 1040 engagements scanned. Hanya 6 pernah `tested` (semua niagamas).
   Spectra tidak ada di event store.
-- **Current slice status: ARCHITECTURE FORK OPEN** — Bet A (deep specialist) vs Bet B (data-driven
-  detection breadth on kept foundation). **User has NOT decided.** GATE read done. Evidence
-  recorded above. Foundation verdict: NOT wrong (event/graph/chain/oracle = the moat); narrow gap =
-  per-playbook detection model that cannot widen + wiring gap (not_run dominates).
+- **Current slice status: FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** NEXT =
+  12.67-S0 WIRING (close not_run on run_recon live path; bet-agnostic; no new capability).
+  Detection code (S1-S3) BLOCKED until S0 sealed on Oracle. Gamma STOP-gated. Foundation verdict:
+  NOT wrong (event/graph/chain/oracle = the moat); narrow gap = per-playbook detection model that
+  cannot widen + wiring gap (not_run dominates). WRAP THE DATA, NOT THE ENGINE. Leak-hunt DEMOTED
+  to one lane (NOT deleted — anti-rewrite).
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — DISKUSI ARSITEKTUR (bukan build). Reach arc SEALED (GAP-197 #494).
-> coverage_diagnostic REVERTED (#498). GATE read DONE: niagamas histogram via `project_coverage`
-> menunjukkan not_run=18 (wiring gap) + capability_absent=12 (detection gap) + tested=1 (no_signal).
-> Dua wall: wiring (Lyndon #2) + detection (per-playbook model tak bisa melebar + version→CVE
-> unlisted). Portfolio 4-target: 3 wall berbeda (passive/reach/dispatch+detection). 1040 engagement
-> aggregate: hanya 6 pernah tested (semua niagamas). **FORK OPEN: Bet A vs Bet B — USER BELUM
-> DECIDE.** Fondasi TIDAK salah (moat, KEEP). TOLAK rewrite. Gamma STOP-gated. git pull dulu;
-> Oracle ARM64 = seal.
+> lanjut Agent-Alpha — FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24). NEXT = 12.67-S0
+> WIRING (close not_run on run_recon live path; bet-agnostic; no new capability). Detection code
+> (S1-S3) BLOCKED until S0 sealed on Oracle. Gamma STOP-gated. Reach arc SEALED (GAP-197 #494).
+> GATE read DONE: niagamas histogram via `project_coverage` menunjukkan not_run=18 (wiring gap) +
+> capability_absent=12 (detection gap) + tested=1 (no_signal). Dua wall: wiring (Lyndon #2) +
+> detection (per-playbook model tak bisa melebar + version→CVE unlisted). WRAP THE DATA, NOT THE
+> ENGINE. Leak-hunt DEMOTED to one lane (NOT deleted). git pull dulu; Oracle ARM64 = seal.
