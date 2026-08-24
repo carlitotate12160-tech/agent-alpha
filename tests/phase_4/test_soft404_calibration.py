@@ -248,7 +248,10 @@ def test_origin_direct_calibrates_via_origin() -> None:
     call_counter = itertools.count()
 
     def _fake_origin_probe(alpha_obj, url, host, origins_list):
-        n = next(call_counter, 0)
+        try:
+            n = next(call_counter)
+        except StopIteration:
+            n = 0
         return _ReachResponse(
             status_code=200,
             body=_spa_body(urlparse(url).path, f"{n:032x}"),
