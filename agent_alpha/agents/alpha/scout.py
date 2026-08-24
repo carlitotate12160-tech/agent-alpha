@@ -736,6 +736,10 @@ class Alpha:
         # login/auth surface becomes a first-class finding, whatever tool ran.
         nodes_added += self._detect_auth_surface(resp, url)
 
+        # Universal service-evidence extraction (S1): extract product/version from
+        # headers, cookies, CSP without relying on LLM/body-matching (anti-#3/#7).
+        nodes_added += self._detect_service_evidence(resp, url)
+
         self._emit("PERSIST", f"Persisted {nodes_added} graph node(s) from {url}")
 
         # ── FRONTIER EXPANSION (R1) ─────────────────────────────
@@ -1350,6 +1354,89 @@ class Alpha:
             self.event_store, self.graph_store, self._engagement_id, asset_node, agent="alpha"
         )
         return 1
+
+    def _detect_service_evidence(self, resp: Any, url: str) -> int:
+        """Universal service-evidence persistence (S1). Extracts product/version
+        from non-body sources (Header, Cookie, CSP). Idempotent via dedup and
+        deterministic node ids."""
+        from agent_alpha.recon.service_fingerprint import extract_service_evidence
+        
+        host = urlparse(url).hostname or urlparse(url).netloc
+        if not host:
+            return 0
+        
+        headers = dict(getattr(resp, "headers", {}))
+        
+        # Requests structures CaseInsensitiveDict lacks get_all, try fallback
+        set_cookies: list[str] = []
+        if hasattr(resp, "headers") and hasattr(resp.headers, "get_all"):
+            set_cookies = resp.headers.get_all("set-cookie", [])
+        elif "set-cookie" in headers:
+            # Handle multiple set-cookies joined by comma if Requests merged them
+            # or it might be a single string. We'll just pass the string in a list.
+            set_cookies = [headers["set-cookie"]]
+            
+        csp_header = headers.get("content-security-policy", "")
+        body = getattr(resp, "text", "") or ""
+        
+        evidences = extract_service_evidence(headers, set_cookies, csp_header, body)
+        if not evidences:
+            return 0
+            
+        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        nodes_added = 0
+        
+        # R5: Merge semantics dedup.
+        # Group by product to merge versions and increase confidence.
+        from collections import defaultdict
+        grouped = defaultdict(list)
+        for ev in evidences:
+            grouped[ev.product].append(ev)
+            
+        parsed_url = urlparse(url)
+        port = parsed_url.port or (443 if parsed_url.scheme == "https" else 80)
+        
+        for product, ev_list in grouped.items():
+            best_version = None
+            max_confidence = 0.0
+            sources = []
+            
+            for ev in ev_list:
+                if ev.version and (best_version is None or ev.confidence > max_confidence):
+                    best_version = ev.version
+                sources.append(ev.source)
+                max_confidence = max(max_confidence, ev.confidence)
+                
+            # R5: Corroboration increases confidence
+            if len(set(sources)) > 1:
+                max_confidence = min(1.0, max_confidence + 0.1)
+                
+            # R2: Anti-#7 single-source of truth. We use the product as the canonical label.
+            # R4: No hostname literal inside service_fingerprint.py (enforced in tests).
+            # Anti-#3: version=None -> version="", low confidence, NOT eligible for CVE
+            service_node = AttackNode(
+                id=f"service:{host}:{port}:{product}",
+                type=NodeType.SERVICE,
+                properties=ServiceProperties(
+                    name=product,
+                    version=best_version or "",
+                    port=port,
+                    protocol=parsed_url.scheme,
+                    source=",".join(set(sources)),
+                    confidence=max_confidence
+                ),
+                confidence=max_confidence,
+                timestamp_utc=now_utc,
+                agent="alpha"
+            )
+            
+            # Check if this node is completely new to graph_store to count nodes_added
+            existing = self.graph_store.get_node(service_node.id)
+            if not existing:
+                nodes_added += 1
+            persist_node(self.event_store, self.graph_store, self._engagement_id, service_node, agent="alpha")
+            
+        return nodes_added
 
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""
