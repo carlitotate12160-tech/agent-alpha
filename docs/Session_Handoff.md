@@ -75,7 +75,7 @@ infra-bound, a worse place to be). **Read niagamas before choosing.**
 
 Histogram niagamas via `project_coverage` (existing §12.64 projection, NO new code):
 
-```
+```text
 eng_0e1dfdc7 (175 events, 31 cells):
   not_run:           18  ← wiring gap (Lyndon #2) — capable+applicable, never dispatched
   capability_absent: 12  ← detection gap — technique not built
@@ -95,16 +95,16 @@ eng_fc83206f (167 events, 48 cells):
 | `not_run` | 18 | Technique di-built + applicable, tidak di-dispatch |
 | `tested` | 1 | Hanya `hub.niagamas.com/js_secret_leak` |
 
-### eng_0e1dfdc7 — surface type
+### eng_0e1dfdc7 — applicable cell count by surface type
 
-| Surface | Count |
+| Surface | Applicable cell count |
 |---|---|
-| `host` | 24 |
-| `auth_surface` | 7 |
+| `host` | 26 |
+| `auth_surface` | 5 |
 
 ### eng_0e1dfdc7 — cell detail (surface_id, technique_id, bucket)
 
-```
+```text
 apifingeris.bernofarm.com    git_exposure_leak           not_run
 apifingeris.bernofarm.com    js_secret_leak              not_run
 apifingeris.bernofarm.com    network_service_exposure    capability_absent
@@ -140,7 +140,7 @@ hub.niagamas.com             sqli_auth_bypass            capability_absent
 
 ### eng_0e1dfdc7 — not_assessed (capability_absent technique ids)
 
-```
+```text
 http_basic_auth_strike
 sqli_auth_bypass
 mfa_challenge_honest
@@ -154,7 +154,7 @@ trust_path_vendor_portal
 
 ### eng_0e1dfdc7 — recon not_run gaps (deduplicated technique ids)
 
-```
+```text
 git_exposure_leak
 js_secret_leak
 ```
