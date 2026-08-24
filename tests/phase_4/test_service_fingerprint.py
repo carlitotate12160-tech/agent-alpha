@@ -85,10 +85,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     class MockResponse:
         status_code = 200
         text = "<html>body</html>"
-        headers = {
-            "server": "Apache/2.4.6",
-            "x-powered-by": "PHP/7.1.33"
-        }
+        headers = {"server": "Apache/2.4.6", "x-powered-by": "PHP/7.1.33"}
 
     mock_http = MagicMock()
     mock_http.get.return_value = MockResponse()
@@ -106,17 +103,20 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
     rec = auth.create_engagement(client_id="client_test", target="example.com")
-    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=["example.com"], exclusions=[]))
+    auth.enable_recon(
+        rec.engagement_id, Scope(ip_ranges=[], domains=["example.com"], exclusions=[])
+    )
 
-    with patch("agent_alpha.agents.alpha.scout.classify_response", return_value=Verdict.OK), \
-         patch("agent_alpha.agents.alpha.scout.detect_auth_surface_labels", return_value=[]):
-
+    with (
+        patch("agent_alpha.agents.alpha.scout.classify_response", return_value=Verdict.OK),
+        patch("agent_alpha.agents.alpha.scout.detect_auth_surface_labels", return_value=[]),
+    ):
         scout = Alpha(
             graph_store=graph_store,
             event_store=event_store,
             http_client=mock_http,
             authorization=auth,
-            orchestrator=mock_orchestrator
+            orchestrator=mock_orchestrator,
         )
 
         # Run the full recon loop on the target URL
@@ -124,6 +124,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
 
     # Verify nodes
     from agent_alpha.graph.nodes import NodeType
+
     service_nodes = graph_store.nodes_by_type(NodeType.SERVICE)
 
     # We should have Apache and PHP
@@ -134,3 +135,37 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     apache_node = next((n for n in service_nodes if n.properties.name == "apache"), None)
     assert apache_node.properties.version == "2.4.6"
     assert apache_node.properties.source == "server_header"
+
+
+def test_cdn_edge_server_not_minted_as_product() -> None:
+    """Universal-by-Design archetype C (Bug 1): a CDN/WAF edge banner (Server: cloudflare)
+    identifies the edge, NOT the origin stack — it must yield NO product evidence (junk for S2
+    + masks the real origin). Edge posture is owned by AssetProperties (GAP-197), not here."""
+    ev = extract_service_evidence(headers={"server": "cloudflare"}, set_cookies=[], csp_header="")
+    assert ev == [], f"CDN edge banner must yield no product evidence; got {ev}"
+
+
+def test_origin_stack_behind_cdn_not_over_suppressed() -> None:
+    """The guard must not eat real signal: a genuine origin token in the SAME header survives
+    even when a CDN token is also present (a proxy may append both)."""
+    ev = extract_service_evidence(
+        headers={"server": "cloudflare Apache/2.4.6"}, set_cookies=[], csp_header=""
+    )
+    products = {e.product for e in ev}
+    assert "cloudflare" not in products
+    assert "apache" in products
+
+
+def test_cdn_edge_with_trailing_punctuation_not_minted() -> None:
+    """Punctuation after the edge banner (e.g. 'cloudflare,') must be normalized and skipped."""
+    ev = extract_service_evidence(headers={"server": "cloudflare,"}, set_cookies=[], csp_header="")
+    assert ev == [], f"CDN edge banner with punctuation must yield no product evidence; got {ev}"
+
+
+def test_cdn_edge_compound_token_not_minted() -> None:
+    """Compound tokens like 'cloudflare-nginx' contain an edge identity and must not mint
+    a product, even if the full string is not in CDN_IDENTITY_SERVERS exactly."""
+    ev = extract_service_evidence(
+        headers={"server": "cloudflare-nginx"}, set_cookies=[], csp_header=""
+    )
+    assert ev == [], f"CDN compound token must yield no product evidence; got {ev}"

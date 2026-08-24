@@ -28,6 +28,23 @@ CSP_DOMAIN_PRODUCT: dict[str, str] = {
     "metabase.com": "Metabase",
 }
 
+# CDN/WAF edge identities — a Server banner like "cloudflare" identifies the EDGE, not the
+# target's origin stack. Edge posture is owned by AssetProperties.edge_fronted/cf_protected
+# (GAP-197, anti-#7); minting it as a product SERVICE node = junk for S2 CVE correlation AND
+# masks the real origin. Conservative set: only unambiguous edge identities that are NEVER a
+# payable origin product (nginx/apache/varnish are real products → NOT here).
+CDN_IDENTITY_SERVERS: frozenset[str] = frozenset(
+    {
+        "cloudflare",
+        "sucuri",
+        "akamaighost",
+        "akamai",
+        "fastly",
+        "imperva",
+        "incapsula",
+    }
+)
+
 
 def is_cve_correlation_eligible(svc: ServiceProperties) -> bool:
     """§12.67 anti-#3: version-inference needs a VERSION. product-without-version
@@ -37,17 +54,32 @@ def is_cve_correlation_eligible(svc: ServiceProperties) -> bool:
 
 def _parse_version_optional_header(header_value: str, source: str) -> list[ProductEvidence]:
     """Parse a server identity string which may or may not contain a version.
-    E.g. 'Apache/2.4.6' -> (Apache, 2.4.6), 'nginx' -> (nginx, None)."""
+    E.g. 'Apache/2.4.6' -> (Apache, 2.4.6), 'nginx' -> (nginx, None).
+    CDN/WAF edge identities are skipped (they identify the edge, not the origin stack).
+    Tokens are normalized to catch common variants: punctuation and compound
+    tokens such as 'cloudflare-nginx' or 'cloudflare,'."""
     results = []
     # Can contain multiple tokens separated by space, e.g., "Apache/2.4.6 OpenSSL/1.0.2"
     for token in header_value.split():
         if not token.strip():
             continue
         if "/" in token:
-            product, version = token.split("/", 1)
-            results.append(ProductEvidence(product.strip().lower(), version.strip(), source, 0.8))
+            raw_product, version = token.split("/", 1)
+            product = raw_product.strip().lower()
+            version = version.strip()
         else:
-            results.append(ProductEvidence(token.strip().lower(), None, source, 0.6))
+            product = token.strip().lower()
+            version = None
+
+        # Normalize: strip surrounding punctuation and whitespace.
+        product = product.strip(".,;()[]{} ")
+
+        # CDN-identity guard (Bug 1): never mint an edge banner as a product (anti-#7 / anti-#3).
+        # Substring match handles compound/punctuated variants (cloudflare-nginx, cloudflare,).
+        if any(edge in product for edge in CDN_IDENTITY_SERVERS):
+            continue
+
+        results.append(ProductEvidence(product, version, source, 0.8 if version else 0.6))
     return results
 
 
