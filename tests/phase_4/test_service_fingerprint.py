@@ -74,7 +74,7 @@ def test_merge_semantics_corroboration() -> None:
 
 def test_scout_run_recon_mints_service_nodes() -> None:
     """Wiring: assert run_recon on archetype_A response persists a SERVICE node via the live path (anti-island)."""
-    from agent_alpha.agents.alpha.scout import AlphaScout
+    from agent_alpha.agents.alpha.scout import Alpha, Verdict
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
     from agent_alpha.config.stores import MemoryEventStore
     from agent_alpha.conductor.authorization import EngagementAuthorization
@@ -97,10 +97,10 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     # Ensure scope is allowed
     auth.init_engagement("eng_test", "example.com", set(), set(), "ACTIVE_APPROVED", True)
 
-    with patch("agent_alpha.agents.alpha.scout.classify_response", return_value=Mock("OK")), \
+    with patch("agent_alpha.agents.alpha.scout.classify_response", return_value=Verdict.OK), \
          patch("agent_alpha.agents.alpha.scout.detect_auth_surface_labels", return_value=[]):
         
-        scout = AlphaScout(
+        scout = Alpha(
             graph_store=graph_store,
             event_store=event_store,
             http_client=mock_http,
