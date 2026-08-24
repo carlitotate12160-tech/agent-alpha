@@ -76,7 +76,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     """Wiring: assert run_recon on archetype_A response persists a SERVICE node via the live path (anti-island)."""
     from agent_alpha.agents.alpha.scout import Alpha, Verdict
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
-    from agent_alpha.config.stores import MemoryEventStore
+    from agent_alpha.events.store import InMemoryEventStore
     from agent_alpha.conductor.authorization import EngagementAuthorization
     from unittest.mock import Mock, MagicMock, patch
 
@@ -92,7 +92,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     mock_http.get.return_value = MockResponse()
 
     graph_store = NetworkXGraphStore()
-    event_store = MemoryEventStore()
+    event_store = InMemoryEventStore()
     auth = EngagementAuthorization()
     # Ensure scope is allowed
     auth.init_engagement("eng_test", "example.com", set(), set(), "ACTIVE_APPROVED", True)
