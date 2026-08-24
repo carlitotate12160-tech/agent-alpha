@@ -89,7 +89,9 @@ def extract_service_evidence(
     return evidence
 
 
-def _merge_evidences(evidences: list[ProductEvidence]) -> list[tuple[str, str | None, float, list[str]]]:
+def _merge_evidences(
+    evidences: list[ProductEvidence],
+) -> list[tuple[str, str | None, float, list[str]]]:
     """Helper to group evidences by product and calculate merged confidence."""
     from collections import defaultdict
 
