@@ -248,7 +248,7 @@ def test_origin_direct_calibrates_via_origin() -> None:
     call_counter = itertools.count()
 
     def _fake_origin_probe(alpha_obj, url, host, origins_list):
-        n = next(call_counter)
+        n = next(call_counter, 0)
         return _ReachResponse(
             status_code=200,
             body=_spa_body(urlparse(url).path, f"{n:032x}"),
@@ -290,7 +290,7 @@ def test_origin_direct_real_content_not_suppressed() -> None:
     call_counter = itertools.count()
 
     def _fake_origin_probe(alpha_obj, url, host, origins_list):
-        n = next(call_counter)
+        n = next(call_counter, 0)
         return _ReachResponse(
             status_code=200,
             body=_spa_body(urlparse(url).path, f"{n:032x}"),
@@ -359,7 +359,7 @@ def test_origin_direct_calls_origin_probe_not_http_client() -> None:
     call_counter = itertools.count()
 
     def _fake_origin_probe(alpha_obj, url, host, origins_list):
-        n = next(call_counter)
+        n = next(call_counter, 0)
         return _ReachResponse(
             status_code=200,
             body=_spa_body(urlparse(url).path, f"{n:032x}"),
