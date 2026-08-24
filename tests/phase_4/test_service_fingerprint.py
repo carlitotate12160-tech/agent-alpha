@@ -97,7 +97,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     mock_orchestrator.playbook.match_all.return_value = []
     
     # Use SimpleNamespace so cost is a real float, not a Mock
-    decision_mock = SimpleNamespace(tool=None, cost=0.0, tier="RULE", reasoning="Test")
+    decision_mock = SimpleNamespace(tool=None, cost_usd=0.0, tier="RULE", reasoning="Test")
     mock_orchestrator.decide.return_value = decision_mock
     
     graph_store = NetworkXGraphStore()
