@@ -113,8 +113,8 @@ def test_scout_run_recon_mints_service_nodes() -> None:
         scout.step({})
 
     # Verify nodes
-    nodes = list(graph_store.nodes.values())
-    service_nodes = [n for n in nodes if n.type == "service"]
+    from agent_alpha.graph.nodes import NodeType
+    service_nodes = graph_store.nodes_by_type(NodeType.SERVICE)
     
     # We should have Apache and PHP
     names = {n.properties.name for n in service_nodes}
