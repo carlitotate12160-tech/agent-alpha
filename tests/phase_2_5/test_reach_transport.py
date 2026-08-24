@@ -122,51 +122,52 @@ class TestIsTlsImpersonateAvailable:
 # ---------------------------------------------------------------------------
 
 
-class TestOriginDirectResultHeaderInvariant:
-    def test_origin_direct_result_lowercases_headers(self) -> None:
-        """OriginDirectResult normalizes header keys to lowercase regardless of transport.
+def test_origin_direct_result_lowercases_headers() -> None:
+    """OriginDirectResult normalizes header keys to lowercase regardless of transport.
 
-        Consumers (get_merged_service_nodes, is_edge_fronted_host, _is_origin) read
-        lowercase keys literally; title-case 'Server' silently misses."""
-        result = OriginDirectResult(
-            200,
-            "",
-            {"Server": "Apache/2.4.6", "X-Powered-By": "PHP/7.1.33"},
+    Consumers (get_merged_service_nodes, is_edge_fronted_host, _is_origin) read
+    lowercase keys literally; title-case 'Server' silently misses."""
+    result = OriginDirectResult(
+        200,
+        "",
+        {"Server": "Apache/2.4.6", "X-Powered-By": "PHP/7.1.33"},
+    )
+    assert result.headers == {
+        "server": "Apache/2.4.6",
+        "x-powered-by": "PHP/7.1.33",
+    }
+
+
+def test_tls_impersonate_reach_fingerprints_titlecase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """tls_impersonate_fetch can return title-case headers (curl_cffi behavior).
+
+    OriginDirectResult.__post_init__ lowercases them so downstream
+    get_merged_service_nodes mints a version-bearing nginx service node."""
+
+    def _fake_get(url: str, **kwargs: Any) -> _FakeCffiResponse:
+        return _FakeCffiResponse(
+            status_code=200,
+            text="<html>origin</html>",
+            headers={"Server": "nginx/1.18.0", "X-Powered-By": "PHP/7.1.33"},
         )
-        assert result.headers == {
-            "server": "Apache/2.4.6",
-            "x-powered-by": "PHP/7.1.33",
-        }
 
-    def test_tls_impersonate_reach_fingerprints_titlecase(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """tls_impersonate_fetch can return title-case headers (curl_cffi behavior).
+    from agent_alpha.recon import reach_transport
 
-        OriginDirectResult.__post_init__ lowercases them so downstream
-        get_merged_service_nodes mints a version-bearing nginx service node."""
+    monkeypatch.setattr(reach_transport, "cffi_requests", MagicMock(get=_fake_get))
+    monkeypatch.setattr(reach_transport, "_CURL_CFFI_AVAILABLE", True)
 
-        def _fake_get(url: str, **kwargs: Any) -> _FakeCffiResponse:
-            return _FakeCffiResponse(
-                status_code=200,
-                text="<html>origin</html>",
-                headers={"Server": "nginx/1.18.0", "X-Powered-By": "PHP/7.1.33"},
-            )
+    result = tls_impersonate_fetch("https://example.com/")
+    nodes = get_merged_service_nodes(result, "https://example.com/")
 
-        from agent_alpha.recon import reach_transport
+    names = {n.properties.name for n in nodes}
+    assert "nginx" in names, f"Expected nginx in {names}"
 
-        monkeypatch.setattr(reach_transport, "cffi_requests", MagicMock(get=_fake_get))
-        monkeypatch.setattr(reach_transport, "_CURL_CFFI_AVAILABLE", True)
+    nginx_node = next((n for n in nodes if n.properties.name == "nginx"), None)
+    assert nginx_node is not None
+    assert nginx_node.properties.version == "1.18.0"
 
-        result = tls_impersonate_fetch("https://example.com/")
-        nodes = get_merged_service_nodes(result, "https://example.com/")
-
-        names = {n.properties.name for n in nodes}
-        assert "nginx" in names, f"Expected nginx in {names}"
-
-        nginx_node = next(n for n in nodes if n.properties.name == "nginx")
-        assert nginx_node.properties.version == "1.18.0"
-
-        php_node = next((n for n in nodes if n.properties.name == "php"), None)
-        assert php_node is not None
-        assert php_node.properties.version == "7.1.33"
+    php_node = next((n for n in nodes if n.properties.name == "php"), None)
+    assert php_node is not None
+    assert php_node.properties.version == "7.1.33"
