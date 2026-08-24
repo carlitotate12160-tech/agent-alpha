@@ -179,7 +179,7 @@ js_secret_leak
 
 **S0 RE-SCOPED: not "wire not_run" (near-empty) but GAP-028 calibration transport-parity.**
 NEXT = calibrate soft-404 over the SAME transport the real probe used (origin-direct when
-_reach_class[host] is origin-direct). Build-spec ready. STEP 0 Oracle diagnostic: confirm niagamas
+_bound_origin[host] is non-empty). Build-spec ready. STEP 0 Oracle diagnostic: confirm niagamas
 hub git cell = origin-swapped-200-junk-no-signature (else pivot to REACH).
 
 **Portfolio histogram (4 fresh targets, re-run 2026-08-24 via `run_recon_for_engagement`):**
@@ -336,14 +336,18 @@ Two meanings per number — fix the ledger before opening GAP-198+.
 
 ## SESSION LOG (2026-08-24)
 
-- Sealed slices this session: 0. Class-C diagnosis + code verification.
-  FINDING: S0 "wiring wall" falsified by code (git seeded+registered). Real precondition = GAP-028
-  soft-404 calibration transport-parity (front-door baseline vs origin-direct real probe).
-  Build-spec written (scout._calibrate_soft404 route via origin_direct_probe when host origin-direct).
-- Current slice status: S0 RE-SCOPED -> GAP-028 calibration. Build-spec ready; STEP 0 Oracle
-  diagnostic pending before implementation. Gamma STOP-gated.
+- Sealed slices this session: 1 (GAP-028 Tier-1 lab-seal). _calibration_fetch routes
+  calibration probes through origin_direct_probe when _bound_origin[host] non-empty.
+  4 contract tests in tests/phase_4/test_soft404_calibration.py. Oracle ARM64: 11/11 pass,
+  make check green, make all 278/280 (2 pre-existing DeepSeek 401). PR #504.
+- Tier-2 field-prove niagamas PENDING — run eng_0e1dfdc7 post-merge, confirm
+  git_exposure_leak cell junk is suppressed + real signal (if any) distinguishable.
+  THAT is the bar (§12.60). Do NOT write "GAP-028 closed" until field-prove done.
+- Current slice status: S0 GAP-028 Tier-1 SEALED. Tier-2 field-prove = next slice.
+  Detection code (S1-S3) still BLOCKED until S0 field-proven. Gamma STOP-gated.
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — S0 RE-SCOPED → GAP-028 soft-404 calibration transport-parity (flank-reached
-> origin baseline). Bet B (ADR §12.67 ACCEPTED). Detection code (S1-S3) BLOCKED until S0 sealed on
-> Oracle. STEP 0 diagnostic pending before field-prove. Reach arc SEALED (GAP-197 #494). Oracle ARM64 = seal.
+> lanjut Agent-Alpha — GAP-028 soft-404 calibration transport-parity Tier-1 LAB-SEALED (PR #504).
+> Tier-2 field-prove PENDING: run niagamas eng_0e1dfdc7 post-merge, confirm git_exposure_leak
+> junk suppressed. Do NOT write GAP-028 closed until field-prove confirms. Detection code (S1-S3)
+> BLOCKED until S0 field-proven. Bet B (ADR §12.67 ACCEPTED). Gamma STOP-gated. Oracle ARM64 = seal.

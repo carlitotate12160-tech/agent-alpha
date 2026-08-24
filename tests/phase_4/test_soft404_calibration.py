@@ -243,9 +243,9 @@ def test_origin_direct_calibrates_via_origin() -> None:
 
     from agent_alpha.recon.origin_reach import _ReachResponse
 
-    alpha, eid, store = _build_origin_alpha()
+    alpha, _eid, _store = _build_origin_alpha()
 
-    call_counter = iter(range(1000))
+    call_counter = itertools.count()
 
     def _fake_origin_probe(alpha_obj, url, host, origins_list):
         n = next(call_counter)
@@ -285,9 +285,9 @@ def test_origin_direct_real_content_not_suppressed() -> None:
 
     from agent_alpha.recon.origin_reach import _ReachResponse
 
-    alpha, eid, store = _build_origin_alpha()
+    alpha, _eid, _store = _build_origin_alpha()
 
-    call_counter = iter(range(1000))
+    call_counter = itertools.count()
 
     def _fake_origin_probe(alpha_obj, url, host, origins_list):
         n = next(call_counter)
@@ -329,7 +329,7 @@ def test_origin_probe_failure_no_signature() -> None:
 
     from agent_alpha.recon.origin_reach import _ReachResponse
 
-    alpha, eid, store = _build_origin_alpha()
+    alpha, _eid, _store = _build_origin_alpha()
 
     # origin_direct_probe returns None (blocked / no useful response).
     mock_probe = MagicMock(return_value=None)
@@ -354,9 +354,9 @@ def test_origin_direct_calls_origin_probe_not_http_client() -> None:
 
     from agent_alpha.recon.origin_reach import _ReachResponse
 
-    alpha, eid, store = _build_origin_alpha()
+    alpha, _eid, _store = _build_origin_alpha()
 
-    call_counter = iter(range(1000))
+    call_counter = itertools.count()
 
     def _fake_origin_probe(alpha_obj, url, host, origins_list):
         n = next(call_counter)
@@ -382,7 +382,6 @@ def test_origin_direct_calls_origin_probe_not_http_client() -> None:
     # Every call must pass the bound origin list.
     for call in mock_probe.call_args_list:
         args = call[0]
-        # args = (alpha, url, host, origins_list)
         assert args[3] == [_ORIGIN_IP], (
             f"origin_direct_probe called with origins={args[3]}, expected [{_ORIGIN_IP}]"
         )
