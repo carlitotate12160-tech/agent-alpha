@@ -4574,6 +4574,14 @@ Slices (additive; each ships a field-shaped Tier-1 fixture + a Tier-2 field note
   cross_verified + ProofArtifact. NO exploit fired (Gamma STOP-gated). Event:
   VULNERABILITY_CONFIRMED. Feeds ChainOracle MIN-composition.
 
+#### 12.67-a Corpus substrate (resolves open storage question)
+
+CVE corpus SoT = offline, human-diffable JSONL at `data/cve_corpus/*.jsonl`, NOT data-in-code (`plugin_cve_catalog._CATALOG` moves to file; `lookup()` API unchanged). Built out-of-band by `scripts/build_cve_corpus.py` (curate NVD+KEV+EPSS+CPE, KEV-first subset — NOT the raw 250k dump). Pinned by `CVE_CORPUS_VERSION` single-source in `constants.py` (anti-#7). SQLite/in-memory index = DEFERRED performance upgrade, promotion-on-need only (anti-#1). HARD NON-NEGOTIABLE: runtime detection path does ZERO network for CVE data — any live NVD/vendor API call in the detection path = §12.67 violation (Nuclei-pattern: network dependency + rate-limit + per-target signature). Enforced by `test_no_network_in_detection` (correlation module imports no HTTP client).
+
+#### 12.67-b Data-driven dynamic playbook (resolves probe-selection question)
+
+The per-target probe set is COMPUTED at runtime = f(fingerprint × corpus), deterministic — NOT hardcoded per target, NOT LLM-generated (§12.57), NOT self-modifying code (§8o-6). Each corpus record carries its own `confirm_probe` (DATA): `{kind, method, path, matcher, oracle:"independent", gamma_gated}`. Version-match = HYPOTHESIS, never payable alone (Nuclei's stopping point). Promotion rule: `confirm_probe` oracle passes → `VULNERABILITY CROSS_VERIFIED` (payable); `gamma_gated:true` or no safe confirmer → stays `SELF_VERIFIED`/version-inferred, NOT payable without Gamma (STOP-gated). The existing WP `_handle_wp_plugins` `SELF_VERIFIED` prototype is upgraded to `CROSS_VERIFIED` via this confirm probe, implemented as a §12.47 `Tool` that consumes the existing `VULNERABILITY` node and promotes it; no new handler is appended to `scout.py` (§12.47; anti-#8). Leak-path lane retained as the orthogonal misconfig axis (DEMOTED not deleted). New lane lives in `recon/cve_correlation.py` + a confirm executor, ranked as a §12.47 `Tool` by `applies_to(ServiceObservation)` — NOT appended to `scout.py` (anti-#8).
+
 Non-negotiables preserved: Gamma STOP-gated (DETECT != ACT — detection lane never fires a PoC);
 auth gate Conductor-only; A2A structured English JSON (proto/a2a.proto); event-sourced (4 new
 events); no self-modifying code; ONE VULNERABILITY node type; CVE-corpus refresh config
