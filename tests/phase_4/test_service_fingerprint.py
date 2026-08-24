@@ -108,9 +108,8 @@ def test_scout_run_recon_mints_service_nodes() -> None:
             orchestrator=Mock()
         )
 
-        scout.enqueue_discovered_url("http://example.com/")
-        # Step once to process the URL
-        scout.step({})
+        # Run the full recon loop on the target URL
+        scout.run_recon(rec.engagement_id, "http://example.com/")
 
     # Verify nodes
     from agent_alpha.graph.nodes import NodeType
