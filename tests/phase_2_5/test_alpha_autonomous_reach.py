@@ -217,6 +217,8 @@ def test_alpha_autonomous_reach_origin_direct(monkeypatch: pytest.MonkeyPatch) -
     def _fake_origin_fetch(
         host: str, origin_ip: str, path: str = "/", **kw: Any
     ) -> _StubOriginDirectResult:
+        if len(path.lstrip("/")) >= 32:
+            return _StubOriginDirectResult("<html>404 Not Found</html>", 404)
         return _StubOriginDirectResult(body=_OK_BODY)
 
     from agent_alpha.agents.alpha import scout
