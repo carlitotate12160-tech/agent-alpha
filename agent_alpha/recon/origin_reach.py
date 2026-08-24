@@ -30,6 +30,7 @@ from typing import Any
 from urllib.parse import parse_qsl, urlparse
 
 from agent_alpha.events.event_types import EventType
+from agent_alpha.graph.nodes import ServiceProperties
 from agent_alpha.recon.origin_binding import resolve_and_bind_origin
 from agent_alpha.recon.reach_strategy import is_cloudflare_ip
 from agent_alpha.recon.reach_transport import origin_direct_fetch
@@ -354,7 +355,11 @@ def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
 
     flank_nodes = get_merged_service_nodes(origin_resp, url)
     outcome = "minted" if flank_nodes else "no_new_service"
-    products = [{"name": n.properties.name, "version": n.properties.version} for n in flank_nodes]
+    products = []
+    for n in flank_nodes:
+        props = n.properties
+        assert isinstance(props, ServiceProperties)
+        products.append({"name": props.name, "version": props.version})
     alpha.event_store.append(  # skipcq: PYL-W0212
         EventType.FINGERPRINT_FLANK_ATTEMPTED,
         alpha._engagement_id,
