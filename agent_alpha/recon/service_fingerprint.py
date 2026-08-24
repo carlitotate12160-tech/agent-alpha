@@ -54,7 +54,6 @@ def extract_service_evidence(
     headers: dict[str, str],
     set_cookies: list[str],
     csp_header: str,
-    body: str,  # noqa: ARG001
 ) -> list[ProductEvidence]:
     """Extract product/version evidence from multiple heterogenous sources."""
     evidence = []
@@ -87,3 +86,72 @@ def extract_service_evidence(
                 evidence.append(ProductEvidence(product, None, "csp_domain", 0.7))
 
     return evidence
+
+
+def get_merged_service_nodes(resp, url: str) -> list:
+    """Consumes HTTP metadata, extracts product evidences, groups and dedups them,
+    and returns a list of AttackNodes (SERVICE) ready for persistence."""
+    import datetime
+    from collections import defaultdict
+    from urllib.parse import urlparse
+
+    from agent_alpha.graph.nodes import AttackNode, NodeType, ServiceProperties
+
+    host = urlparse(url).hostname or urlparse(url).netloc
+    if not host:
+        return []
+
+    headers = dict(getattr(resp, "headers", {}))
+    set_cookies: list[str] = []
+    if hasattr(resp, "headers") and hasattr(resp.headers, "get_all"):
+        set_cookies = resp.headers.get_all("set-cookie", [])
+    elif "set-cookie" in headers:
+        set_cookies = [headers["set-cookie"]]
+
+    csp_header = headers.get("content-security-policy", "")
+
+    evidences = extract_service_evidence(headers, set_cookies, csp_header)
+    if not evidences:
+        return []
+
+    grouped = defaultdict(list)
+    for ev in evidences:
+        grouped[ev.product].append(ev)
+
+    parsed_url = urlparse(url)
+    port = parsed_url.port or (443 if parsed_url.scheme == "https" else 80)
+    now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+
+    nodes = []
+    for product, ev_list in grouped.items():
+        best_version = None
+        max_confidence = 0.0
+        sources = []
+
+        for ev in ev_list:
+            if ev.version and (best_version is None or ev.confidence > max_confidence):
+                best_version = ev.version
+            sources.append(ev.source)
+            max_confidence = max(max_confidence, ev.confidence)
+
+        if len(set(sources)) > 1:
+            max_confidence = min(1.0, max_confidence + 0.1)
+
+        nodes.append(
+            AttackNode(
+                id=f"service:{host}:{port}:{product}",
+                type=NodeType.SERVICE,
+                properties=ServiceProperties(
+                    name=product,
+                    version=best_version or "",
+                    port=port,
+                    protocol=parsed_url.scheme,
+                    source=",".join(set(sources)),
+                    confidence=max_confidence,
+                ),
+                confidence=max_confidence,
+                timestamp_utc=now_utc,
+                agent="alpha",
+            )
+        )
+    return nodes

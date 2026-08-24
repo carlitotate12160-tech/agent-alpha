@@ -37,7 +37,6 @@ from agent_alpha.graph.nodes import (
     NodeType,
     ProofArtifact,
     RelationshipType,
-    ServiceProperties,
     UserProperties,
     VerificationTier,
     VulnerabilityProperties,
@@ -1360,79 +1359,12 @@ class Alpha:
         """Universal service-evidence persistence (S1). Extracts product/version
         from non-body sources (Header, Cookie, CSP). Idempotent via dedup and
         deterministic node ids."""
-        from agent_alpha.recon.service_fingerprint import extract_service_evidence
+        from agent_alpha.recon.service_fingerprint import get_merged_service_nodes
 
-        host = urlparse(url).hostname or urlparse(url).netloc
-        if not host:
-            return 0
-
-        headers = dict(getattr(resp, "headers", {}))
-
-        # Requests structures CaseInsensitiveDict lacks get_all, try fallback
-        set_cookies: list[str] = []
-        if hasattr(resp, "headers") and hasattr(resp.headers, "get_all"):
-            set_cookies = resp.headers.get_all("set-cookie", [])
-        elif "set-cookie" in headers:
-            # Handle multiple set-cookies joined by comma if Requests merged them
-            # or it might be a single string. We'll just pass the string in a list.
-            set_cookies = [headers["set-cookie"]]
-
-        csp_header = headers.get("content-security-policy", "")
-        body = getattr(resp, "text", "") or ""
-
-        evidences = extract_service_evidence(headers, set_cookies, csp_header, body)
-        if not evidences:
-            return 0
-
-        now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
+        nodes = get_merged_service_nodes(resp, url)
         nodes_added = 0
 
-        # R5: Merge semantics dedup.
-        # Group by product to merge versions and increase confidence.
-        from collections import defaultdict
-
-        grouped = defaultdict(list)
-        for ev in evidences:
-            grouped[ev.product].append(ev)
-
-        parsed_url = urlparse(url)
-        port = parsed_url.port or (443 if parsed_url.scheme == "https" else 80)
-
-        for product, ev_list in grouped.items():
-            best_version = None
-            max_confidence = 0.0
-            sources = []
-
-            for ev in ev_list:
-                if ev.version and (best_version is None or ev.confidence > max_confidence):
-                    best_version = ev.version
-                sources.append(ev.source)
-                max_confidence = max(max_confidence, ev.confidence)
-
-            # R5: Corroboration increases confidence
-            if len(set(sources)) > 1:
-                max_confidence = min(1.0, max_confidence + 0.1)
-
-            # R2: Anti-#7 single-source of truth. We use the product as the canonical label.
-            # R4: No hostname literal inside service_fingerprint.py (enforced in tests).
-            # Anti-#3: version=None -> version="", low confidence, NOT eligible for CVE
-            service_node = AttackNode(
-                id=f"service:{host}:{port}:{product}",
-                type=NodeType.SERVICE,
-                properties=ServiceProperties(
-                    name=product,
-                    version=best_version or "",
-                    port=port,
-                    protocol=parsed_url.scheme,
-                    source=",".join(set(sources)),
-                    confidence=max_confidence,
-                ),
-                confidence=max_confidence,
-                timestamp_utc=now_utc,
-                agent="alpha",
-            )
-
-            # Check if this node is completely new to graph_store to count nodes_added
+        for service_node in nodes:
             existing = self.graph_store.get_node(service_node.id)
             if not existing:
                 nodes_added += 1
