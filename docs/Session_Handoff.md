@@ -75,7 +75,7 @@ infra-bound, a worse place to be). **Read niagamas before choosing.**
 
 Histogram niagamas via `project_coverage` (existing §12.64 projection, NO new code):
 
-```
+```text
 eng_0e1dfdc7 (175 events, 31 cells):
   not_run:           18  ← wiring gap (Lyndon #2) — capable+applicable, never dispatched
   capability_absent: 12  ← detection gap — technique not built
@@ -85,6 +85,78 @@ eng_fc83206f (167 events, 48 cells):
   not_run:           27  ← wiring gap
   capability_absent: 20  ← detection gap
   tested:             1  (hub.niagamas.com/js_secret_leak → no_signal)
+```
+
+### eng_0e1dfdc7 — bucket histogram
+
+| Bucket | Count | Artinya |
+|---|---|---|
+| `capability_absent` | 12 | Technique tidak di-built |
+| `not_run` | 18 | Technique di-built + applicable, tidak di-dispatch |
+| `tested` | 1 | Hanya `hub.niagamas.com/js_secret_leak` |
+
+### eng_0e1dfdc7 — applicable cell count by surface type
+
+| Surface | Applicable cell count |
+|---|---|
+| `host` | 26 |
+| `auth_surface` | 5 |
+
+### eng_0e1dfdc7 — cell detail (surface_id, technique_id, bucket)
+
+```text
+apifingeris.bernofarm.com    git_exposure_leak           not_run
+apifingeris.bernofarm.com    js_secret_leak              not_run
+apifingeris.bernofarm.com    network_service_exposure    capability_absent
+apifingernew.bernofarm.com   git_exposure_leak           not_run
+apifingernew.bernofarm.com   js_secret_leak              not_run
+apifingernew.bernofarm.com   network_service_exposure    capability_absent
+appform.bernofarm.com        git_exposure_leak           not_run
+appform.bernofarm.com        js_secret_leak              not_run
+appform.bernofarm.com        network_service_exposure    capability_absent
+erp.bernofarm.com            git_exposure_leak           not_run
+erp.bernofarm.com            js_secret_leak              not_run
+erp.bernofarm.com            network_service_exposure    capability_absent
+global.bernofarm.com         git_exposure_leak           not_run
+global.bernofarm.com         js_secret_leak              not_run
+global.bernofarm.com         network_service_exposure    capability_absent
+hr.bernofarm.com             git_exposure_leak           not_run
+hr.bernofarm.com             js_secret_leak              not_run
+hr.bernofarm.com             network_service_exposure    capability_absent
+hris.bernofarm.com           git_exposure_leak           not_run
+hris.bernofarm.com           js_secret_leak              not_run
+hris.bernofarm.com           network_service_exposure    capability_absent
+hub.niagamas.com             breach_credential_reuse     capability_absent
+hub.niagamas.com             cred_reuse                  not_run
+hub.niagamas.com             default_creds_login         not_run
+hub.niagamas.com             git_exposure_leak           not_run
+hub.niagamas.com             http_basic_auth_strike      capability_absent
+hub.niagamas.com             js_secret_leak              tested
+hub.niagamas.com             mfa_challenge_honest        capability_absent
+hub.niagamas.com             network_service_exposure    capability_absent
+hub.niagamas.com             spa_json_login              not_run
+hub.niagamas.com             sqli_auth_bypass            capability_absent
+```
+
+### eng_0e1dfdc7 — not_assessed (capability_absent technique ids)
+
+```text
+http_basic_auth_strike
+sqli_auth_bypass
+mfa_challenge_honest
+network_service_exposure
+subdomain_takeover
+dns_zone_transfer
+breach_credential_reuse
+oauth_saml_jwt_forgery
+trust_path_vendor_portal
+```
+
+### eng_0e1dfdc7 — recon not_run gaps (deduplicated technique ids)
+
+```text
+git_exposure_leak
+js_secret_leak
 ```
 
 **Niagamas tembus edge (no WafBlocked), reached + stack classified, tapi wall = DUA lapis:**
