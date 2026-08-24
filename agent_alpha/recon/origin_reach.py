@@ -309,6 +309,7 @@ def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
 
     Emits FINGERPRINT_FLANK_ATTEMPTED on every exit (§12.64 / §8o-1) so the event
     stream, not the graph alone, is the machine-readable proof of the flank."""
+    engagement_id = alpha._engagement_id  # skipcq: PYL-W0212
     origins = resolve_authorized_origin(alpha, host)
     if not origins:
         alpha._emit(  # skipcq: PYL-W0212
@@ -318,7 +319,7 @@ def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
         )
         alpha.event_store.append(  # skipcq: PYL-W0212
             EventType.FINGERPRINT_FLANK_ATTEMPTED,
-            alpha._engagement_id,
+            engagement_id,
             "alpha",
             {
                 "host": host,
@@ -340,7 +341,7 @@ def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
         )
         alpha.event_store.append(  # skipcq: PYL-W0212
             EventType.FINGERPRINT_FLANK_ATTEMPTED,
-            alpha._engagement_id,
+            engagement_id,
             "alpha",
             {
                 "host": host,
@@ -362,7 +363,7 @@ def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
         products.append({"name": props.name, "version": props.version})
     alpha.event_store.append(  # skipcq: PYL-W0212
         EventType.FINGERPRINT_FLANK_ATTEMPTED,
-        alpha._engagement_id,
+        engagement_id,
         "alpha",
         {
             "host": host,
