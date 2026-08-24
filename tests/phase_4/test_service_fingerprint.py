@@ -72,13 +72,13 @@ def test_merge_semantics_corroboration() -> None:
     assert meta_ev[1].source == "csp_domain"
 
 
-def test_scout_run_recon_mints_service_nodes(mocker) -> None:
+def test_scout_run_recon_mints_service_nodes() -> None:
     """Wiring: assert run_recon on archetype_A response persists a SERVICE node via the live path (anti-island)."""
     from agent_alpha.agents.alpha.scout import AlphaScout
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
     from agent_alpha.config.stores import MemoryEventStore
     from agent_alpha.conductor.authorization import EngagementAuthorization
-    from unittest.mock import Mock, MagicMock
+    from unittest.mock import Mock, MagicMock, patch
 
     class MockResponse:
         status_code = 200
@@ -91,27 +91,26 @@ def test_scout_run_recon_mints_service_nodes(mocker) -> None:
     mock_http = MagicMock()
     mock_http.get.return_value = MockResponse()
 
-    # Disable classification routing out of bounds
-    mocker.patch("agent_alpha.agents.alpha.scout.classify_response", return_value=Mock("OK"))
-    mocker.patch("agent_alpha.agents.alpha.scout.detect_auth_surface_labels", return_value=[])
-
     graph_store = NetworkXGraphStore()
     event_store = MemoryEventStore()
     auth = EngagementAuthorization()
     # Ensure scope is allowed
     auth.init_engagement("eng_test", "example.com", set(), set(), "ACTIVE_APPROVED", True)
 
-    scout = AlphaScout(
-        graph_store=graph_store,
-        event_store=event_store,
-        http_client=mock_http,
-        authorization=auth,
-        orchestrator=Mock()
-    )
+    with patch("agent_alpha.agents.alpha.scout.classify_response", return_value=Mock("OK")), \
+         patch("agent_alpha.agents.alpha.scout.detect_auth_surface_labels", return_value=[]):
+        
+        scout = AlphaScout(
+            graph_store=graph_store,
+            event_store=event_store,
+            http_client=mock_http,
+            authorization=auth,
+            orchestrator=Mock()
+        )
 
-    scout.seed_fingerprint_first("http://example.com/")
-    # Step once to process the URL
-    scout.step({})
+        scout.seed_fingerprint_first("http://example.com/")
+        # Step once to process the URL
+        scout.step({})
 
     # Verify nodes
     nodes = list(graph_store.nodes.values())
