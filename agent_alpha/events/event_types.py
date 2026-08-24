@@ -114,6 +114,14 @@ class EventType(enum.StrEnum):
     # coverage-catalog technique TESTED by IDENTITY (host, technique_id) so `not_run` stops
     # conflating "not attempted" with "attempted but not instrumented" (§12.64 / GAP-187b).
 
+    # ── §12.67-S1 (fingerprint-flank origin service observation) ─────
+    FINGERPRINT_FLANK_ATTEMPTED = "FingerprintFlankAttempted"
+    # ^ Alpha attempted the origin-flank for service headers because the edge response
+    # carried no version-bearing product. Emitted on EVERY exit (minted / no_new_service /
+    # origin_unreachable / origin_unbound) so the event stream, not the graph alone, is the
+    # machine-readable proof of the flank outcome (§12.64 / §8o-1). Carries
+    # {host, outcome, origin_ip, products: [{name, version}]}.
+
     # ── Phase 2.5 (passive recon — R2 subdomain discovery) ────────
     PASSIVE_DISCOVERY = "PassiveDiscovery"
     # ^ PassiveDiscovery.discover(): one event per passive crt.sh run.

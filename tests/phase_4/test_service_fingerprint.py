@@ -337,9 +337,7 @@ def test_fingerprint_flank_honest_limit_no_origin() -> None:
     Edge nginx node still persisted (MERGE preserves edge info)."""
     from unittest.mock import MagicMock, patch
 
-    from agent_alpha.events.store import InMemoryEventStore
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
-    from agent_alpha.graph.nodes import NodeType
     from agent_alpha.recon.origin_reach import fingerprint_flank, is_edge_fronted_host
 
     class NginxEdgeResponse:
@@ -437,13 +435,9 @@ def test_fingerprint_flank_bounded_one_per_host() -> None:
         ) as mock_odp,
     ):
         # First call — flank fires
-        maybe_fingerprint_flank(
-            alpha_mock, CloudflareResponse(), "https://example.com/", []
-        )
+        maybe_fingerprint_flank(alpha_mock, CloudflareResponse(), "https://example.com/", [])
         # Second call — same host, should be blocked by _fp_flanked
-        maybe_fingerprint_flank(
-            alpha_mock, CloudflareResponse(), "https://example.com/page", []
-        )
+        maybe_fingerprint_flank(alpha_mock, CloudflareResponse(), "https://example.com/page", [])
 
     assert mock_odp.call_count == 1, (
         f"Expected exactly 1 origin_direct_probe call; got {mock_odp.call_count}"
@@ -520,3 +514,81 @@ def test_fingerprint_flank_same_product_collision_version_wins() -> None:
     )
 
 
+def test_fingerprint_flank_emits_minted_event_on_success() -> None:
+    """Positive path: edge Server: cloudflare (0 CVE-eligible) → flank reaches origin
+    with Apache/2.4.6 + PHP/7.1.33 → FINGERPRINT_FLANK_ATTEMPTED outcome='minted'."""
+    from unittest.mock import MagicMock, patch
+
+    from agent_alpha.events.event_types import EventType
+    from agent_alpha.events.store import InMemoryEventStore
+    from agent_alpha.recon.origin_reach import fingerprint_flank
+
+    class OriginResponse:
+        status_code = 200
+        text = "<html>origin</html>"
+        headers = {"server": "Apache/2.4.6", "x-powered-by": "PHP/7.1.33"}
+        origin_ip = "1.2.3.4"
+
+    event_store = InMemoryEventStore()
+    alpha = MagicMock()
+    alpha.event_store = event_store
+    alpha._engagement_id = "eng_test"
+    alpha._emit = MagicMock()
+
+    with (
+        patch(
+            "agent_alpha.recon.origin_reach.resolve_authorized_origin",
+            return_value=["1.2.3.4"],
+        ),
+        patch(
+            "agent_alpha.recon.origin_reach.origin_direct_probe",
+            return_value=OriginResponse(),
+        ),
+    ):
+        result = fingerprint_flank(alpha, "example.com", "https://example.com/")
+
+    assert len(result) == 2, f"Expected 2 service nodes; got {len(result)}"
+    names = {n.properties.name for n in result}
+    assert "apache" in names
+    assert "php" in names
+
+    events = event_store.get_events("eng_test")
+    flank_events = [e for e in events if e.event_type == EventType.FINGERPRINT_FLANK_ATTEMPTED]
+    assert len(flank_events) == 1, f"Expected 1 flank event; got {len(flank_events)}"
+    payload = flank_events[0].payload
+    assert payload["outcome"] == "minted"
+    assert payload["origin_ip"] == "1.2.3.4"
+    products = payload["products"]
+    assert any(p["name"] == "apache" and p["version"] == "2.4.6" for p in products), products
+
+
+def test_fingerprint_flank_emits_unbound_event_on_no_consent() -> None:
+    """No origin binding/consent → resolve_authorized_origin returns [] →
+    fingerprint_flank emits origin_unbound and zero SERVICE nodes."""
+    from unittest.mock import MagicMock, patch
+
+    from agent_alpha.events.event_types import EventType
+    from agent_alpha.events.store import InMemoryEventStore
+    from agent_alpha.recon.origin_reach import fingerprint_flank
+
+    event_store = InMemoryEventStore()
+    alpha = MagicMock()
+    alpha.event_store = event_store
+    alpha._engagement_id = "eng_test"
+    alpha._emit = MagicMock()
+
+    with patch(
+        "agent_alpha.recon.origin_reach.resolve_authorized_origin",
+        return_value=[],
+    ):
+        result = fingerprint_flank(alpha, "example.com", "https://example.com/")
+
+    assert result == [], f"Expected empty list; got {result}"
+
+    events = event_store.get_events("eng_test")
+    flank_events = [e for e in events if e.event_type == EventType.FINGERPRINT_FLANK_ATTEMPTED]
+    assert len(flank_events) == 1, f"Expected 1 flank event; got {len(flank_events)}"
+    payload = flank_events[0].payload
+    assert payload["outcome"] == "origin_unbound"
+    assert payload["origin_ip"] == ""
+    assert payload["products"] == []

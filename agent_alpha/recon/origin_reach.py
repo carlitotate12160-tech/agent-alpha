@@ -44,12 +44,19 @@ class _ReachResponse:
     of ``_step_once`` can consume the reach result unchanged.
     """
 
-    __slots__ = ("status_code", "text", "headers")
+    __slots__ = ("status_code", "text", "headers", "origin_ip")
 
-    def __init__(self, status_code: int, body: str, headers: dict[str, str]) -> None:
+    def __init__(
+        self,
+        status_code: int,
+        body: str,
+        headers: dict[str, str],
+        origin_ip: str = "",
+    ) -> None:
         self.status_code = status_code
         self.text = body
         self.headers = headers
+        self.origin_ip = origin_ip
 
 
 def resolve_authorized_origin(alpha: Any, host: str) -> list[str]:
@@ -143,7 +150,9 @@ def origin_direct_probe(
     )
 
     last_response: _ReachResponse | None = None
+    last_ip = ""
     for origin_ip in authorized_origins_list:
+        last_ip = origin_ip
         # §12.46 composed gate — fail-closed. Authorizes iff the IP is in the signed
         # authorized_origins OR (allow_origin_discovery AND an ORIGIN_BINDING_PROVEN
         # event exists for this IP + fronted host).
@@ -199,6 +208,7 @@ def origin_direct_probe(
             status_code=result.status_code,
             body=result.body,
             headers=dict(result.headers),
+            origin_ip=origin_ip,
         )
         last_response = candidate
 
@@ -216,6 +226,8 @@ def origin_direct_probe(
 
     # No origin returned useful content — return the last response seen (honest: caller
     # re-classifies; a 404/redirect is still non-block evidence) or None.
+    if last_response is not None and not last_response.origin_ip:
+        last_response.origin_ip = last_ip
     return last_response
 
 
@@ -292,13 +304,27 @@ def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
     """§12.67-S1 + §12.61: edge gave no version-bearing service → flank to origin
     for the real stack headers.  Consent fail-closed (§12.46); returns ``[]`` on
     unbound/unreachable.  Headers/cookies/CSP only — no body/frontier analysis
-    on the origin response."""
+    on the origin response.
+
+    Emits FINGERPRINT_FLANK_ATTEMPTED on every exit (§12.64 / §8o-1) so the event
+    stream, not the graph alone, is the machine-readable proof of the flank."""
     origins = resolve_authorized_origin(alpha, host)
     if not origins:
         alpha._emit(  # skipcq: PYL-W0212
             "OBSERVE",
             f"S1 fingerprint-flank: {host} edge-only (origin unbound/unconsented); "
             "coverage note: edge-only fingerprint, origin unreachable",
+        )
+        alpha.event_store.append(  # skipcq: PYL-W0212
+            EventType.FINGERPRINT_FLANK_ATTEMPTED,
+            alpha._engagement_id,
+            "alpha",
+            {
+                "host": host,
+                "outcome": "origin_unbound",
+                "origin_ip": "",
+                "products": [],
+            },
         )
         return []
 
@@ -311,11 +337,36 @@ def fingerprint_flank(alpha: Any, host: str, url: str) -> list[Any]:
             f"S1 fingerprint-flank: {host} origin probe returned None; "
             "coverage note: edge-only fingerprint, origin unreachable",
         )
+        alpha.event_store.append(  # skipcq: PYL-W0212
+            EventType.FINGERPRINT_FLANK_ATTEMPTED,
+            alpha._engagement_id,
+            "alpha",
+            {
+                "host": host,
+                "outcome": "origin_unreachable",
+                "origin_ip": origins[0] if origins else "",
+                "products": [],
+            },
+        )
         return []
 
     from agent_alpha.recon.service_fingerprint import get_merged_service_nodes
 
-    return get_merged_service_nodes(origin_resp, url)
+    flank_nodes = get_merged_service_nodes(origin_resp, url)
+    outcome = "minted" if flank_nodes else "no_new_service"
+    products = [{"name": n.properties.name, "version": n.properties.version} for n in flank_nodes]
+    alpha.event_store.append(  # skipcq: PYL-W0212
+        EventType.FINGERPRINT_FLANK_ATTEMPTED,
+        alpha._engagement_id,
+        "alpha",
+        {
+            "host": host,
+            "outcome": outcome,
+            "origin_ip": getattr(origin_resp, "origin_ip", ""),
+            "products": products,
+        },
+    )
+    return flank_nodes
 
 
 def maybe_fingerprint_flank(alpha: Any, resp: Any, url: str, nodes: list[Any]) -> list[Any]:
