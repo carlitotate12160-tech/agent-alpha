@@ -4531,7 +4531,13 @@ integrity test is the guard; adding a predicate is an explicit ADR step, never a
 
 **Decision status:** ACCEPTED (2026-08-24; Bet B. Gated on 12.67-S0 wiring precondition). Resolves
 the ARCHITECTURE FORK (Session_Handoff 2026-08-24): FOUNDATION KEPT (event/graph/chain/oracle =
-moat), NO rewrite. The narrow-but-load-bearing gap = the detection model is misconfig-leak only
+moat), NO rewrite. The gap is not absence of version-to-CVE detection: the existing WordPress
+plugin CVE lane (`agent_alpha/recon/plugin_cve_catalog.py` + `Alpha._handle_wp_plugins` in
+`scout.py`) extracts plugin slug+version from HTML, correlates to a hardcoded catalog, and mints
+SELF_VERIFIED VULNERABILITY nodes; §12.67 generalises that primitive to arbitrary exposed
+services/products rather than introducing it from zero. The remaining gap is a production-wide
+detection model: the existing lane is WP-only, hardcoded-catalog (1 entry), SELF_VERIFIED (no
+independent oracle). The broader detection model outside this lane is misconfig-leak only
 (.env/.bak/swagger — a DEV-target signature; verified: constants.py leak paths + techniques.yaml
 capable set are leak-hunt + generic cred plumbing + WP-only, grep nvd|kev|epss|cpe = 0).
 Production surface = legitimate services on known-vulnerable versions (Zimbra 8.8.15 →
