@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
-from agent_alpha.graph.nodes import ServiceProperties
+from agent_alpha.graph.nodes import AttackNode, NodeType, ServiceProperties
 
 
 @dataclass(frozen=True)
@@ -88,14 +89,39 @@ def extract_service_evidence(
     return evidence
 
 
-def get_merged_service_nodes(resp, url: str) -> list:
+def _merge_evidences(evidences: list[ProductEvidence]) -> list[tuple[str, str | None, float, list[str]]]:
+    """Helper to group evidences by product and calculate merged confidence."""
+    from collections import defaultdict
+
+    grouped = defaultdict(list)
+    for ev in evidences:
+        grouped[ev.product].append(ev)
+
+    results = []
+    for product, ev_list in grouped.items():
+        best_version = None
+        max_confidence = 0.0
+        sources = []
+
+        for ev in ev_list:
+            if ev.version and (best_version is None or ev.confidence > max_confidence):
+                best_version = ev.version
+            sources.append(ev.source)
+            max_confidence = max(max_confidence, ev.confidence)
+
+        if len(set(sources)) > 1:
+            max_confidence = min(1.0, max_confidence + 0.1)
+
+        results.append((product, best_version, max_confidence, list(set(sources))))
+
+    return results
+
+
+def get_merged_service_nodes(resp: Any, url: str) -> list[AttackNode]:
     """Consumes HTTP metadata, extracts product evidences, groups and dedups them,
     and returns a list of AttackNodes (SERVICE) ready for persistence."""
     import datetime
-    from collections import defaultdict
     from urllib.parse import urlparse
-
-    from agent_alpha.graph.nodes import AttackNode, NodeType, ServiceProperties
 
     host = urlparse(url).hostname or urlparse(url).netloc
     if not host:
@@ -114,29 +140,14 @@ def get_merged_service_nodes(resp, url: str) -> list:
     if not evidences:
         return []
 
-    grouped = defaultdict(list)
-    for ev in evidences:
-        grouped[ev.product].append(ev)
+    merged_data = _merge_evidences(evidences)
 
     parsed_url = urlparse(url)
     port = parsed_url.port or (443 if parsed_url.scheme == "https" else 80)
     now_utc = datetime.datetime.now(datetime.UTC).replace(tzinfo=None).isoformat() + "Z"
 
     nodes = []
-    for product, ev_list in grouped.items():
-        best_version = None
-        max_confidence = 0.0
-        sources = []
-
-        for ev in ev_list:
-            if ev.version and (best_version is None or ev.confidence > max_confidence):
-                best_version = ev.version
-            sources.append(ev.source)
-            max_confidence = max(max_confidence, ev.confidence)
-
-        if len(set(sources)) > 1:
-            max_confidence = min(1.0, max_confidence + 0.1)
-
+    for product, best_version, max_confidence, sources in merged_data:
         nodes.append(
             AttackNode(
                 id=f"service:{host}:{port}:{product}",
@@ -146,7 +157,7 @@ def get_merged_service_nodes(resp, url: str) -> list:
                     version=best_version or "",
                     port=port,
                     protocol=parsed_url.scheme,
-                    source=",".join(set(sources)),
+                    source=",".join(sources),
                     confidence=max_confidence,
                 ),
                 confidence=max_confidence,
