@@ -108,7 +108,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
             orchestrator=Mock()
         )
 
-        scout.seed_fingerprint_first("http://example.com/")
+        scout.enqueue_discovered_url("http://example.com/")
         # Step once to process the URL
         scout.step({})
 
