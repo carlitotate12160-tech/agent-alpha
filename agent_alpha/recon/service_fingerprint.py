@@ -10,6 +10,7 @@ from agent_alpha.graph.nodes import ServiceProperties
 @dataclass(frozen=True)
 class ProductEvidence:
     """A product and optional version extracted from an observation."""
+
     product: str
     version: str | None
     source: str
@@ -50,7 +51,10 @@ def _parse_version_optional_header(header_value: str, source: str) -> list[Produ
 
 
 def extract_service_evidence(
-    headers: dict[str, str], set_cookies: list[str], csp_header: str, body: str  # noqa: ARG001
+    headers: dict[str, str],
+    set_cookies: list[str],
+    csp_header: str,
+    body: str,  # noqa: ARG001
 ) -> list[ProductEvidence]:
     """Extract product/version evidence from multiple heterogenous sources."""
     evidence = []

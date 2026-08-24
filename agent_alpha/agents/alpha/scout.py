@@ -1390,6 +1390,7 @@ class Alpha:
         # R5: Merge semantics dedup.
         # Group by product to merge versions and increase confidence.
         from collections import defaultdict
+
         grouped = defaultdict(list)
         for ev in evidences:
             grouped[ev.product].append(ev)
@@ -1424,18 +1425,20 @@ class Alpha:
                     port=port,
                     protocol=parsed_url.scheme,
                     source=",".join(set(sources)),
-                    confidence=max_confidence
+                    confidence=max_confidence,
                 ),
                 confidence=max_confidence,
                 timestamp_utc=now_utc,
-                agent="alpha"
+                agent="alpha",
             )
 
             # Check if this node is completely new to graph_store to count nodes_added
             existing = self.graph_store.get_node(service_node.id)
             if not existing:
                 nodes_added += 1
-            persist_node(self.event_store, self.graph_store, self._engagement_id, service_node, agent="alpha")
+            persist_node(
+                self.event_store, self.graph_store, self._engagement_id, service_node, agent="alpha"
+            )
 
         return nodes_added
 
