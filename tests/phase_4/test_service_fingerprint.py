@@ -93,7 +93,13 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     
     mock_orchestrator = Mock()
     mock_orchestrator.playbook.match_all.return_value = []
-
+    
+    # Need a valid decision to prevent TypeError when += cost
+    decision_mock = Mock()
+    decision_mock.cost = 0.0
+    decision_mock.tool = None
+    mock_orchestrator.decide.return_value = decision_mock
+    
     graph_store = NetworkXGraphStore()
     event_store = InMemoryEventStore()
     auth = AuthorizationStateMachine(event_store=event_store)
