@@ -91,15 +91,14 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     mock_http = MagicMock()
     mock_http.get.return_value = MockResponse()
     
-    mock_orchestrator = Mock()
+    from types import SimpleNamespace
+    
+    mock_orchestrator = MagicMock(spec=["decide", "playbook"])
     mock_orchestrator.playbook.match_all.return_value = []
     
-    # Need a valid decision to prevent TypeError when += cost
-    decision_mock = Mock()
-    decision_mock.cost = 0.0
-    decision_mock.tool = None
+    # Use SimpleNamespace so cost is a real float, not a Mock
+    decision_mock = SimpleNamespace(tool=None, cost=0.0, tier="RULE")
     mock_orchestrator.decide.return_value = decision_mock
-    mock_orchestrator.decide_excluding.return_value = decision_mock
     
     graph_store = NetworkXGraphStore()
     event_store = InMemoryEventStore()
