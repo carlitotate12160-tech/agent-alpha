@@ -283,9 +283,6 @@ heterogeneous-but-uncovered.
   CVE correlation over DATA (NVD/KEV/EPSS/CVEDB) → `VULNERABILITY` node + ProofArtifact (no exploit
   fired = still payable). **Wrap the DATA, never the scanner ENGINE.** ACCEPT before any code.
   **Precondition: fix wiring gap (not_run) BEFORE detection code.**
-- **GAP-028** — origin returns same ~98 KB SPA for all paths; `_calibrate_soft404()` can't
-  calibrate when front door transport-dead. Precondition for clean detection (else Bet B fires on
-  garbage = Lyndon #3). Fix: calibrate via bound origin IP.
 - **GAP-045 CF-ceiling honest report** — Omega + CoverageLedger turns full-CF "beta_failed" into a
   sellable defensive-validation deliverable. Low-effort honest-outcome floor.
 - **ChainOracle MIN-composition (§12.43)** — `chain_tier = MIN(edge_tier)`, payable IFF every hop
