@@ -77,7 +77,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     from agent_alpha.agents.alpha.scout import Alpha, Verdict
     from agent_alpha.graph.networkx_store import NetworkXGraphStore
     from agent_alpha.events.store import InMemoryEventStore
-    from agent_alpha.conductor.authorization import EngagementAuthorization
+    from agent_alpha.conductor.authorization import AuthorizationStateMachine, Scope
     from unittest.mock import Mock, MagicMock, patch
 
     class MockResponse:
@@ -93,9 +93,9 @@ def test_scout_run_recon_mints_service_nodes() -> None:
 
     graph_store = NetworkXGraphStore()
     event_store = InMemoryEventStore()
-    auth = EngagementAuthorization()
-    # Ensure scope is allowed
-    auth.init_engagement("eng_test", "example.com", set(), set(), "ACTIVE_APPROVED", True)
+    auth = AuthorizationStateMachine(event_store=event_store)
+    rec = auth.create_engagement(client_id="client_test", target="example.com")
+    auth.enable_recon(rec.engagement_id, Scope(ip_ranges=[], domains=["example.com"], exclusions=[]))
 
     with patch("agent_alpha.agents.alpha.scout.classify_response", return_value=Verdict.OK), \
          patch("agent_alpha.agents.alpha.scout.detect_auth_surface_labels", return_value=[]):
