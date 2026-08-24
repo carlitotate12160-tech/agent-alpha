@@ -4524,3 +4524,60 @@ goal-backward HYPOTHESIZE and COMPOSE buildable on the autonomous path (the moat
 `techniques.yaml` becomes the single source for both coverage (§12.62) AND cognition preconditions,
 guarded against drift by the integrity test. Risk: the predicate vocabulary must stay resolvable — the
 integrity test is the guard; adding a predicate is an explicit ADR step, never ad hoc.
+
+---
+
+### 12.67 Data-Driven Detection Lane — service+version → offline CVE posture (ACCEPTED)
+
+**Decision status:** ACCEPTED (2026-08-24; Bet B. Gated on 12.67-S0 wiring precondition). Resolves
+the ARCHITECTURE FORK (Session_Handoff 2026-08-24): FOUNDATION KEPT (event/graph/chain/oracle =
+moat), NO rewrite. The narrow-but-load-bearing gap = the detection model is misconfig-leak only
+(.env/.bak/swagger — a DEV-target signature; verified: constants.py leak paths + techniques.yaml
+capable set are leak-hunt + generic cred plumbing + WP-only, grep nvd|kev|epss|cpe = 0).
+Production surface = legitimate services on known-vulnerable versions (Zimbra 8.8.15 →
+CVE-2022-41352 CVSS 9.8, Alpha never fingerprinted it). This lane adds the operator's real target
+model — "every exposed service has a version, every version has a known-CVE posture" — the ONE
+primitive that generalises across all clients WITHOUT becoming a scanner, and the ONLY
+production-realistic chain-ENTRY primitive (leak-entry is rare on hardened targets = why the field
+stayed 0).
+
+WRAP THE DATA, NOT THE ENGINE. Ingest the CVE corpus (NVD + CISA-KEV + EPSS + CPE dictionary) as
+an offline, versioned snapshot refreshed out-of-band. The request/confirm engine is OURS:
+passive-first, ONE surgical per-CVE probe, never template-spray (Nuclei's request pattern IS the
+WAF signature; wrapping it inherits the noise — contradicts APT29-precision doctrine). The
+existing chain+oracle moat turns a version match into a PAYABLE finding where Nuclei only lists.
+
+PRECONDITION 12.67-S0 (WIRING — MUST ship & seal BEFORE any detection code): close the not_run
+gap. GATE read: not_run (18-27) DOMINATES capability_absent (12-20) at niagamas — built +
+applicable techniques never dispatched (Lyndon #2). Detection on a non-dispatching layer =
+Lyndon #3. S0 wires the EXISTING catalog into the run_recon live path + ratchets it in
+tests/governance/test_wiring_gate.py. NO new capability in S0.
+
+Slices (additive; each ships a field-shaped Tier-1 fixture + a Tier-2 field note, §12.60):
+- **S0 WIRING** — dispatch the already-built catalog on run_recon; every capable+applicable
+  cell moves not_run -> tested. (bet-agnostic; highest-ROI; do first)
+- **S1 OBSERVE** — ServiceObservation{host, port, service, product, version, evidence_ref} from
+  EXISTING recon signals (banners/headers/HTML/TLS), zero new HTTP. Promotes
+  network_service_exposure -> capable so mail/SNMP/DB surfaces are SEEN (the Zimbra/.203 blind
+  spot). Event: SERVICE_OBSERVED.
+- **S2 CORRELATE** — offline correlation over DATA: (product,version) -> CPE -> CVE set, ranked
+  KEV-membership then EPSS. Emits CVEHypothesis = ADVISORY, NOT a finding (anti-#3). Event:
+  CVE_HYPOTHESIS_RAISED.
+- **S3 CONFIRM** — per-CVE surgical confirmer = INDEPENDENT oracle (different failure mode than
+  the version banner; §12.43). Confirmed -> VULNERABILITY node (single canonical type, anti-#6)
+  cross_verified + ProofArtifact. NO exploit fired (Gamma STOP-gated). Event:
+  VULNERABILITY_CONFIRMED. Feeds ChainOracle MIN-composition.
+
+Non-negotiables preserved: Gamma STOP-gated (DETECT != ACT — detection lane never fires a PoC);
+auth gate Conductor-only; A2A structured English JSON (proto/a2a.proto); event-sourced (4 new
+events); no self-modifying code; ONE VULNERABILITY node type; CVE-corpus refresh config
+single-source in constants.py (anti-#7). Leak-hunt is NOT deleted (rewrite reflex) — DEMOTED
+from "the detection model" to one lane; version->CVE becomes the primary production lane.
+
+Accepted trade-off: version->CVE stays 1-day/misconfig ONLY (§12.55), never 0-day hallucination.
+A patched service -> honest 0 REPORTED as "fingerprinted + CVE-checked + confirmed patched"
+(§12.45), never "secure" from absence.
+
+Rejected: (a) wrap Nuclei/scanner engine — inherits signature+noise; (b) more per-stack
+playbooks — the per-playbook model is exactly what cannot widen; (c) building S1-S3 before S0 —
+Lyndon #3; (d) firing any exploit — Gamma, out of this lane.
