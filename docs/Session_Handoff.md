@@ -6,8 +6,8 @@ HEAD `11a35af2` on `main`. Phase 4. Gamma/Delta/Epsilon = 0% (STOP-gated).
 Reach arc SEALED through GAP-197 (#494 `8dfb2d0`). Oracle ARM64 = the seal;
 RUNNER-SEAL ≠ AUTONOMOUS-WIRED (grep the live path, not the runner).
 
-**ARCHITECTURE FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** NEXT = 12.67-S0 WIRING
-(close not_run on run_recon live path; bet-agnostic; no new capability). Detection code (S1-S3)
+**ARCHITECTURE FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** S0 RE-SCOPED → GAP-028
+(soft-404 calibration transport-parity; origin baseline for flank-reached hosts). Detection code (S1-S3)
 BLOCKED until S0 sealed on Oracle. Gamma STOP-gated.
 
 ---
@@ -160,24 +160,27 @@ git_exposure_leak
 js_secret_leak
 ```
 
-**Niagamas tembus edge (no WafBlocked), reached + stack classified, tapi wall = DUA lapis:**
+## GATE READ — CORRECTED (2026-08-24, code-verified, not raw-bucket)
 
-1. **Wiring wall (not_run dominates)** — 18–27 technique capable + applicable tapi tidak
-   di-dispatch. Ini bukan detection gap, ini Lyndon #2 (island tidak ter-wire ke live path).
-   Fix: attach island, no new capability.
-2. **Detection wall (capability_absent significant)** — 12–20 technique di catalog tapi tidak
-   di-built. Plus **version→CVE detection tidak ada di catalog sama sekali** — itu completely
-   missing, bukan capability_absent, tapi capability_unlisted.
+**Framing "wiring wall (18-27 not_run)" = MISDIAGNOSIS.** Code evidence:
+- `/.git/config` ∈ DEFAULT_LEAK_PATHS (constants.py:476) — universally seeded.
+- `git_exposure_probe` ∈ PATH_PROBE_CATALOG (path_probe.py:95), applies_to_stacks=∅ (universal).
+- conductor/main.py:571 OBSERVES recon_not_run_gaps but does NOT re-dispatch (honesty gate only).
+- recon_not_run_gaps already reduces raw not_run=18 to {git_exposure_leak, js_secret_leak};
+  js_secret_leak = tested(no_signal). git_exposure is SEEDED + REGISTERED = NOT an unwired island.
 
-**Mekanik baca per handoff guide:**
-- `not_run` dominates → wiring gap (Lyndon #2) → attach island to live path, no new capability
-- `capability_absent` significant → detection gap → Bet B candidate is live
-- `tested` (0 finding) → dispatch ran, selection/effectiveness failed
+**Real walls (two, neither is wiring):**
+1. REACH — bernofarm subdomains dead/WAF-blocked; git not_run there = blocked, not wiring.
+2. CALIBRATION (GAP-028) — niagamas hub SPA reached via flank: _calibrate_soft404 fetches its
+   two samples via FRONT DOOR (http_client.get on fronted netloc) while the real probe body is
+   ORIGIN-DIRECT. Front-door WAF-block -> no signature -> origin 200-junk never suppressed ->
+   git_exposure/js_secret analyse junk. This ALSO poisons §12.67-S3 confirm_probe (fires on junk
+   = Lyndon #3). GAP-028 = the load-bearing S0 precondition.
 
-**Verdict: dua wall, bukan satu.** Wiring wall adalah wall pertama (not_run dominates).
-Detection wall adalah wall kedua (capability_absent significant + version→CVE unlisted).
-Bet B is live TAPI preconditioned on wiring fix — detection breadth di atas wiring yang
-broken = Lyndon #3 (false finding dari technique yang tidak pernah dispatch).
+**S0 RE-SCOPED: not "wire not_run" (near-empty) but GAP-028 calibration transport-parity.**
+NEXT = calibrate soft-404 over the SAME transport the real probe used (origin-direct when
+_bound_origin[host] is non-empty). Build-spec ready. STEP 0 Oracle diagnostic: confirm niagamas
+hub git cell = origin-swapped-200-junk-no-signature (else pivot to REACH).
 
 **Portfolio histogram (4 fresh targets, re-run 2026-08-24 via `run_recon_for_engagement`):**
 
@@ -212,8 +215,9 @@ di event store (never run).
 
 1. **`git pull` + confirm HEAD = `8eafe57b`.** Reach arc (#487 root, #491 GAP-196, #494 GAP-197)
    is on `main`, green on Oracle. coverage_diagnostic reverted (#498). Do NOT rebuild it.
-2. **GATE read sudah done (above).** Niagamas wall = wiring (not_run=18) + detection
-   (capability_absent=12 + version→CVE unlisted). Dua wall, bukan satu.
+2. **GATE read CORRECTED (above).** Framing "wiring wall" = misdiagnosis (git seeded+registered).
+   Real walls = REACH (bernofarm) + CALIBRATION GAP-028 (niagamas SPA junk uncalibrated over front door).
+   S0 RE-SCOPED to GAP-028 soft-404 calibration transport-parity.
 3. **Decide Bet A vs Bet B from that evidence and WRITE it as an ADR** (`docs/ADR.md`). Do not
    leave the bet implicit (that is how the field stayed ambiguous for a month). **User decides,
    not architect.** Architect provides evidence + recommendation, user picks.
@@ -332,33 +336,14 @@ Two meanings per number — fix the ledger before opening GAP-198+.
 
 ## SESSION LOG (2026-08-24)
 
-- **Sealed slices this session: 0.** Architecture-reckoning + teardown + GATE read session.
-  Produced evidence, NOT a seal (Class-C discipline: diagnosis is not progress).
-- **REJECTED (my own errors, corrected under user challenge):** (1) "wrap Nuclei" —
-  noisy/signatured, contradicts APT29-precision doctrine; corrected to wrap DATA not ENGINE.
-  (2) "B→A recommendation" — jumped to a lane before proving where the funnel breaks; retracted.
-  (3) building a `coverage_diagnostic.py` tool — over-build (diagnosis-as-progress trap); the
-  question ("which wall") is answerable from EXISTING `project_coverage` in ~10 lines.
-  (4) writing ADR §12.67 Bet B before user decided — premature; PR #499 closed, branch deleted.
-- **TEARDOWN done:** `coverage_diagnostic` reverted (#498, merged `8eafe57b`). Do NOT rebuild it.
-- **GATE read done:** niagamas histogram via `project_coverage` (existing, zero-touch). Result:
-  not_run=18 (wiring) + capability_absent=12 (detection) + tested=1 (no_signal). Dua wall.
-- **Portfolio read done:** 4 fresh targets re-run via `run_recon_for_engagement` (solusibersama,
-  quantum, hashmicro, niagamas). 3 wall berbeda: passive, reach, dispatch+detection.
-- **All-engagement aggregate:** 1040 engagements scanned. Hanya 6 pernah `tested` (semua niagamas).
-  Spectra tidak ada di event store.
-- **Current slice status: FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** NEXT =
-  12.67-S0 WIRING (close not_run on run_recon live path; bet-agnostic; no new capability).
-  Detection code (S1-S3) BLOCKED until S0 sealed on Oracle. Gamma STOP-gated. Foundation verdict:
-  NOT wrong (event/graph/chain/oracle = the moat); narrow gap = per-playbook detection model that
-  cannot widen + wiring gap (not_run dominates). WRAP THE DATA, NOT THE ENGINE. Leak-hunt DEMOTED
-  to one lane (NOT deleted — anti-rewrite).
+- Sealed slices this session: 2 (GAP-028 Tier-1 lab-seal, GAP-028 Tier-2 field-prove). `_calibration_fetch` routes
+  calibration probes through `origin_direct_probe` when `_bound_origin[host]` non-empty.
+- Fixed 12 failing tests in `tests/phase_2_5/test_alpha_autonomous_reach.py` and `tests/phase_4/test_reach_class.py` by standardizing the `origin_direct_fetch` and `tls_impersonate_fetch` test mocks. The mocks now correctly intercept 32-char hex-string paths for 404 calibration probes.
+- Confirmed full CI quality gate (`make quality`) on Oracle ARM64 is completely green (380 passed).
+- Tier-2 field-prove niagamas COMPLETED — ran eng_fac5aa4e post-merge. Verified `https://niagamas.com/.git/config` and `.env` reached origin-direct and were successfully marked `non-analyzable (anti false-positive finding)` by the catch-all signature.
+- GAP-028 is CLOSED. The S0 precondition is met.
+- Current slice status: GAP-028 SEALED. Detection code (S1-S3) UNBLOCKED. Next slice is Bet B (ADR §12.67). Gamma STOP-gated.
 
 ## RESUME LINE (paste into new session)
-> lanjut Agent-Alpha — FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24). NEXT = 12.67-S0
-> WIRING (close not_run on run_recon live path; bet-agnostic; no new capability). Detection code
-> (S1-S3) BLOCKED until S0 sealed on Oracle. Gamma STOP-gated. Reach arc SEALED (GAP-197 #494).
-> GATE read DONE: niagamas histogram via `project_coverage` menunjukkan not_run=18 (wiring gap) +
-> capability_absent=12 (detection gap) + tested=1 (no_signal). Dua wall: wiring (Lyndon #2) +
-> detection (per-playbook model tak bisa melebar + version→CVE unlisted). WRAP THE DATA, NOT THE
-> ENGINE. Leak-hunt DEMOTED to one lane (NOT deleted). git pull dulu; Oracle ARM64 = seal.
+> lanjut Agent-Alpha — GAP-028 soft-404 calibration transport-parity Tier-2 FIELD-SEALED (niagamas `eng_fac5aa4e` proved junk suppression). GAP-028 is CLOSED.
+> Detection code (S1-S3) UNBLOCKED. Next slice: implement Bet B (ADR §12.67) data-driven detection engine over version-inference and CVE corpus. Gamma STOP-gated. Oracle ARM64 = seal.

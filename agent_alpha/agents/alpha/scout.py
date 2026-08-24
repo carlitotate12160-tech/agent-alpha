@@ -2239,6 +2239,21 @@ class Alpha:
     def _soft404_mask(self, tokens: list[str], volatile: frozenset[int]) -> str:
         return "\x00".join("\u00a7" if i in volatile else t for i, t in enumerate(tokens))
 
+    def _calibration_fetch(self, host: str, probe_url: str) -> Any | None:
+        """Fetch a calibration probe via the SAME transport the real probe used.
+
+        Origin-bound host (``_bound_origin[host]`` non-empty) → ``origin_direct_probe``
+        (reuses the resolved list; returns ``None`` on block per GAP-040, never raises).
+        Otherwise → front-door ``http_client.get`` (unchanged for "clear" hosts).
+        """
+        bound = self._bound_origin.get(host)
+        if bound:  # non-empty ⟺ origin bound ⟺ real probe was origin-direct (parity)
+            return origin_direct_probe(self, probe_url, host, bound)
+        try:
+            return self.http_client.get(probe_url)
+        except HttpClientError:
+            return None
+
     def _calibrate_soft404(self, host: str, parsed: Any) -> None:
         """GAP-048 two-probe DIFFERENTIAL calibration: fetch TWO independent missing paths.
         Both 200 with equal token count -> catch-all; the token POSITIONS that DIFFER between
@@ -2251,11 +2266,8 @@ class Alpha:
         samples: list[list[str]] = []
         for salt in ("a", "b"):
             probe_url = f"{parsed.scheme}://{parsed.netloc}/{self._soft404_probe_path(host, salt)}"
-            try:
-                probe = self.http_client.get(probe_url)
-            except HttpClientError:
-                return
-            if getattr(probe, "status_code", 0) != 200:
+            probe = self._calibration_fetch(host, probe_url)
+            if probe is None or getattr(probe, "status_code", 0) != 200:
                 return
             samples.append(self._soft404_tokens(probe_url, getattr(probe, "text", "") or ""))
         t1, t2 = samples[0], samples[1]  # loop guarantees exactly 2 (early-return on failure)
@@ -2267,10 +2279,12 @@ class Alpha:
             volatile,
             hashlib.sha256(self._soft404_mask(t1, volatile).encode("utf-8")).hexdigest(),
         )
+        transport = "origin-direct" if self._bound_origin.get(host) else "front-door"
         self._emit(
             "OBSERVE",
             f"{host} soft-404 catch-all calibrated via 2-probe differential "
-            f"({len(volatile)} volatile token positions masked); format-agnostic (anti-#3)",
+            f"({len(volatile)} volatile token positions masked); "
+            f"transport={transport}; format-agnostic (anti-#3)",
         )
 
     def _is_soft404(self, host: str, url: str, resp: Any) -> bool:

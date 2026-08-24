@@ -136,6 +136,18 @@ class _StubOriginDirectResult:
         self.challenge_encountered = False
         self.challenge_solved = False
 
+def _default_stub_tls_fetch(url: str, **kwargs: Any) -> _StubOriginDirectResult:
+    from urllib.parse import urlparse
+    path = urlparse(url).path
+    if len(path.lstrip("/")) >= 32:
+        return _StubOriginDirectResult("<html>404 Not Found</html>", 404)
+    return _StubOriginDirectResult(body=_OK_BODY, status_code=200)
+
+def _default_stub_origin_direct_fetch(host: str, origin_ip: str, path: str = "/", **kw: Any) -> _StubOriginDirectResult:
+    if len(path.lstrip("/")) >= 32:
+        return _StubOriginDirectResult("<html>404 Not Found</html>", 404)
+    return _StubOriginDirectResult(body=_OK_BODY, status_code=200)
+
 
 class _StubBrowserSolveResult:
     """Mimics BrowserSolveResponse."""
@@ -214,10 +226,8 @@ def test_alpha_autonomous_reach_origin_direct(monkeypatch: pytest.MonkeyPatch) -
     store = InMemoryEventStore()
 
     # Stub origin_direct_fetch to return the real content
-    def _fake_origin_fetch(
-        host: str, origin_ip: str, path: str = "/", **kw: Any
-    ) -> _StubOriginDirectResult:
-        return _StubOriginDirectResult(body=_OK_BODY)
+    def _fake_origin_fetch(host: str, origin_ip: str, path: str = "/", **kw: Any) -> _StubOriginDirectResult:
+        return _default_stub_origin_direct_fetch(host, origin_ip, path, **kw)
 
     from agent_alpha.agents.alpha import scout
 
@@ -463,7 +473,7 @@ def test_fingerprint_403_reaches_via_tls_impersonate(
 
     # Monkeypatch tls_impersonate_fetch to return clean 200
     def _fake_tls_fetch(url: str, **kwargs: Any) -> _StubOriginDirectResult:
-        return _StubOriginDirectResult(body=_OK_BODY, status_code=200)
+        return _default_stub_tls_fetch(url, **kwargs)
 
     from agent_alpha.agents.alpha import scout
 
@@ -537,7 +547,7 @@ def test_fingerprint_403_consent_gate_blocks_tls_impersonate(
     def _fake_tls_fetch(url: str, **kwargs: Any) -> _StubOriginDirectResult:
         nonlocal tls_called
         tls_called = True
-        return _StubOriginDirectResult(body=_OK_BODY, status_code=200)
+        return _default_stub_tls_fetch(url, **kwargs)
 
     from agent_alpha.agents.alpha import scout
 
@@ -629,7 +639,7 @@ def test_alpha_reach_origin_direct_via_runtime_binding(monkeypatch: pytest.Monke
     def _reach_fetch(
         host: str, origin_ip: str, path: str = "/", **kw: Any
     ) -> _StubOriginDirectResult:
-        return _StubOriginDirectResult(body=_OK_BODY)
+        return _default_stub_origin_direct_fetch(host, origin_ip, path, **kw)
 
     monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
     monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
@@ -668,7 +678,7 @@ def test_alpha_reach_refused_when_candidate_not_bound(monkeypatch: pytest.Monkey
         lambda *a, **k: _StubOriginDirectResult(body="cohost-neighbor-no-token"),
     )
     # Track the reach-transport boundary: it must NEVER be hit when nothing binds.
-    reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
+    reach_fetch = MagicMock(side_effect=_default_stub_origin_direct_fetch)
     monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_alpha(
@@ -705,7 +715,7 @@ def test_origin_resolution_cached_once_per_host(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         origin_reach,
         "origin_direct_fetch",
-        lambda host, ip, path="/", **k: _StubOriginDirectResult(body=_OK_BODY),
+        _default_stub_origin_direct_fetch,
     )
 
     calls = {"n": 0}
@@ -808,7 +818,7 @@ def test_transport_dead_front_door_reaches_via_origin_flank(
     def _reach_fetch(
         host: str, origin_ip: str, path: str = "/", **kw: Any
     ) -> _StubOriginDirectResult:
-        return _StubOriginDirectResult(body=_OK_BODY)
+        return _default_stub_origin_direct_fetch(host, origin_ip, path, **kw)
 
     monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
     monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
@@ -855,7 +865,7 @@ def test_transport_dead_front_door_fail_closed_on_stale_candidate(
         lambda *a, **k: _StubOriginDirectResult(body="cohost-neighbor-no-token"),
     )
     # Reach-transport boundary: must NEVER be hit when nothing binds.
-    reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
+    reach_fetch = MagicMock(side_effect=_default_stub_origin_direct_fetch)
     monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_transport_dead_alpha(
@@ -890,7 +900,7 @@ def test_transport_dead_front_door_no_discovery_consent_marks_dead(
 
     from agent_alpha.agents.alpha import scout
 
-    reach_fetch = MagicMock(return_value=_StubOriginDirectResult(body=_OK_BODY))
+    reach_fetch = MagicMock(side_effect=_default_stub_origin_direct_fetch)
     monkeypatch.setattr(origin_reach, "origin_direct_fetch", reach_fetch)
 
     alpha = _make_transport_dead_alpha(
@@ -933,7 +943,7 @@ def test_transport_dead_front_door_does_not_count_as_egress_ok(
     def _reach_fetch(
         host: str, origin_ip: str, path: str = "/", **kw: Any
     ) -> _StubOriginDirectResult:
-        return _StubOriginDirectResult(body=_OK_BODY)
+        return _default_stub_origin_direct_fetch(host, origin_ip, path, **kw)
 
     monkeypatch.setattr(origin_binding, "origin_direct_fetch", _canary_fetch)
     monkeypatch.setattr(origin_reach, "origin_direct_fetch", _reach_fetch)
@@ -1056,7 +1066,7 @@ def test_flanked_host_marked_edge_fronted(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         origin_reach,
         "origin_direct_fetch",
-        lambda host, ip, path="/", **kw: _StubOriginDirectResult(body=_OK_BODY),
+        _default_stub_origin_direct_fetch,
     )
     alpha = _make_transport_dead_alpha(
         store,
