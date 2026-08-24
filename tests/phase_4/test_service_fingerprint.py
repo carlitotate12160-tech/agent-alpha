@@ -99,6 +99,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
     decision_mock.cost = 0.0
     decision_mock.tool = None
     mock_orchestrator.decide.return_value = decision_mock
+    mock_orchestrator.decide_excluding.return_value = decision_mock
     
     graph_store = NetworkXGraphStore()
     event_store = InMemoryEventStore()
