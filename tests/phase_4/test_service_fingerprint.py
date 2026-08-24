@@ -90,6 +90,9 @@ def test_scout_run_recon_mints_service_nodes() -> None:
 
     mock_http = MagicMock()
     mock_http.get.return_value = MockResponse()
+    
+    mock_orchestrator = Mock()
+    mock_orchestrator.playbook.match_all.return_value = []
 
     graph_store = NetworkXGraphStore()
     event_store = InMemoryEventStore()
@@ -105,7 +108,7 @@ def test_scout_run_recon_mints_service_nodes() -> None:
             event_store=event_store,
             http_client=mock_http,
             authorization=auth,
-            orchestrator=Mock()
+            orchestrator=mock_orchestrator
         )
 
         # Run the full recon loop on the target URL
