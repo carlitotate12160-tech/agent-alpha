@@ -17,7 +17,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from agent_alpha.events.event_types import EventType
-from tests.phase_4.test_dead_host_skip import FakeResponse, _StubProvider, _build_alpha
+from tests.phase_4.test_dead_host_skip import FakeResponse, _build_alpha, _StubProvider
 
 _HOST = "catchall.example"
 _PAD = "X" * 4000
