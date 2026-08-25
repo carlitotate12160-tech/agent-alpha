@@ -121,6 +121,7 @@ class EventType(enum.StrEnum):
     # origin_unreachable / origin_unbound) so the event stream, not the graph alone, is the
     # machine-readable proof of the flank outcome (§12.64 / §8o-1). Carries
     # {host, outcome, origin_ip, products: [{name, version}]}.
+    CVE_HYPOTHESIS_RAISED = "CveHypothesisRaised"
 
     # ── Phase 2.5 (passive recon — R2 subdomain discovery) ────────
     PASSIVE_DISCOVERY = "PassiveDiscovery"

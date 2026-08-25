@@ -122,7 +122,9 @@ def test_no_network_in_detection() -> None:
                         pending.append(candidate)
             else:
                 continue
-            assert not names & forbidden, f"network client imported by detection graph: {names & forbidden}"
+            assert not names & forbidden, (
+                f"network client imported by detection graph: {names & forbidden}"
+            )
 
 
 def test_corpus_jsonl_loads_and_is_version_pinned() -> None:
@@ -200,7 +202,7 @@ def test_run_recon_emits_cve_hypothesis() -> None:
         "product": "nginx",
         "version": "1.18.0",
         "cve_id": "CVE-2021-23017",
-        "cvss": 9.4,
+        "cvss": 7.7,
         "kev": True,
         "epss": 0.944,
         "corpus_version": constants.CVE_CORPUS_VERSION,
