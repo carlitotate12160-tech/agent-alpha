@@ -4586,7 +4586,16 @@ Non-negotiables preserved: Gamma STOP-gated (DETECT != ACT — detection lane ne
 auth gate Conductor-only; A2A structured English JSON (proto/a2a.proto); event-sourced (4 new
 events); no self-modifying code; ONE VULNERABILITY node type; CVE-corpus refresh config
 single-source in constants.py (anti-#7). Leak-hunt is NOT deleted (rewrite reflex) — DEMOTED
-from "the detection model" to one lane; version->CVE becomes the primary production lane.
+from "the detection model" to one lane; version->CVE becomes the FIRST production detection lane
+to build — the first *widenable* lane, NOT a permanent exclusive "primary".
+
+Reconciliation with §12.69 (2026-08-25, contradiction RESOLVED not hidden): §12.67 asserts build
+ORDER (version->CVE first), never a permanent lane hierarchy; §12.69's "no permanent primary lane"
+is the end-state north-star (DEFERRED). The earlier "primary production lane" phrasing is retired.
+Field note: the "every exposed service has a version" premise is FALSIFIED in the field — niagamas
+S1 fingerprint-flank observed the origin stack but the version was CONCEALED (FLANK_S2_ELIGIBLE
+SKIP). Concealment is carried as NegativeEvidence (§12.69), never papered over by assuming a
+version exists.
 
 Accepted trade-off: version->CVE stays 1-day/misconfig ONLY (§12.55), never 0-day hallucination.
 A patched service -> honest 0 REPORTED as "fingerprinted + CVE-checked + confirmed patched"
@@ -4598,7 +4607,10 @@ Lyndon #3; (d) firing any exploit — Gamma, out of this lane.
 
 ### 12.68 Universal Credential/Secret Exposure Lane (PROPOSED)
 
-**Decision status:** PROPOSED (built AFTER §12.67 reaches one payable — NOT parallel).
+**Decision status:** DEFERRED (2026-08-25). Trigger to un-defer: §12.67 S2/S3 reaches ONE payable
+field-proven CVE finding. Why not now: the §12.67 CVE lane is the current in-progress lane (S2); a
+second (credential) lane in parallel = parallel build-out (anti #1/#5). NOT rejected — the
+artifact-discovery reframing remains the intended NEXT lane once the trigger fires.
 
 Reframes the DEMOTED leak-hunt lane: downgrade PATH-GUESSING as the primary strategy, NOT credential hunting. The 5 existing lanes (git/backup/actuator/config/js) are RECOVERY executors — good; the gap is evidence-driven artifact DISCOVERY, not more filenames (a wordlist scanner is rejected).
 
@@ -4618,7 +4630,14 @@ ONE canonical VULNERABILITY node (anti-#6); SECRET is an evidence-domain taxonom
 
 ### 12.69 Evidence-Resolution Engine (PROPOSED)
 
-**Decision status:** PROPOSED (supersedes §12.67's "CVE = primary production lane" framing + retires "every exposed service has a version").
+**Decision status:** DEFERRED (2026-08-25) per its OWN discipline (extract the shared engine only
+AFTER ≥2 lanes are proven; today only S1 mechanism is field-sealed). Relationship to §12.67
+(contradiction RESOLVED, not hidden): §12.67 has been amended to claim build-ORDER (version->CVE
+FIRST), NOT a permanent "primary" lane — so §12.69 no longer supersedes a live claim; it is the
+end-state the lanes converge toward. The "retire 'every exposed service has a version'" clause is
+already FIELD-EVIDENCED (niagamas S1: version CONCEALED). Trigger to revisit-for-ACCEPT: the CVE
+lane (S2) AND the credential lane (§12.68) each reach one payable field-proven finding, THEN extract
+the engine from what the two lanes actually repeated (§12.58/59 promotion-on-repeat).
 
 Alpha is an EVIDENCE-RESOLUTION ENGINE, not a CVE-detector-with-credential-hunting. First principle: "Every observable surface produces evidence — GATED by a minimum-signal promotion threshold (§12.30), never 'any header is a hypothesis'. Evidence forms identity / artifact / exposure / vulnerability hypotheses. Alpha resolves the highest-value uncertainty THAT ADVANCES THE CURRENT OBJECTIVE (§12.29) at lowest independent-evidence cost. Only independently established facts promote to payable VULNERABILITY and chain state."
 

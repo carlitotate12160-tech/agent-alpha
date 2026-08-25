@@ -6,7 +6,7 @@ HEAD `11a35af2` on `main`. Phase 4. Gamma/Delta/Epsilon = 0% (STOP-gated).
 Reach arc SEALED through GAP-197 (#494 `8dfb2d0`). Oracle ARM64 = the seal;
 RUNNER-SEAL ≠ AUTONOMOUS-WIRED (grep the live path, not the runner).
 
-**ARCHITECTURE FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** ADR §12.68 and §12.69 PROPOSED and documented.
+**ARCHITECTURE FORK RESOLVED → Bet B (ADR §12.67 ACCEPTED 2026-08-24).** ADR §12.68 and §12.69 DEFERRED (2026-08-25) — north-star, build-deferred with named triggers; §12.67 "primary lane" reframed to build-ORDER, resolving the §12.67↔§12.69 contradiction in-place (not by deletion). New ADR statuses DEFERRED/PARKED added to canonical vocabulary.
 S0 (GAP-028) SEALED. S1 (fingerprint-flank + CDN identity guard) SEALED. Detection code S2 (offline correlation) is IN PROGRESS. Gamma STOP-gated.
 
 ---

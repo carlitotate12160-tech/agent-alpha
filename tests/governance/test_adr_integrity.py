@@ -11,7 +11,9 @@ _SUPPLEMENTAL_IDS = {
     "12.24": _ROOT / "docs" / "adr_bounded_autonomy_stall_semantics.md",
     "ADR-GOV-001": _ROOT / "docs" / "adr_wiring_gate.md",
 }
-_DECISION_STATUSES = frozenset({"PROPOSED", "ACCEPTED", "SUPERSEDED", "REJECTED"})
+_DECISION_STATUSES = frozenset(
+    {"PROPOSED", "ACCEPTED", "SUPERSEDED", "REJECTED", "DEFERRED", "PARKED"}
+)
 
 
 def _duplicates(values: list[str]) -> set[str]:
