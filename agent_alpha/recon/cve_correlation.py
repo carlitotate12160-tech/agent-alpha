@@ -8,7 +8,7 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from agent_alpha.config import constants
 from agent_alpha.events.event_types import EventType
@@ -319,7 +319,8 @@ def dispatch_cve_correlation(
     budget = ResourceBudget(max_requests=0, max_seconds=0.0, max_cost_usd=0.0)
     emitted = 0
     recon_tools = [tool for tool in tools if tool.phase == "recon"]
-    for tool in ToolRegistry(recon_tools).ranked(ctx):
+    for ranked_tool in ToolRegistry(recon_tools).ranked(ctx):
+        tool = cast(CveCorrelationTool, ranked_tool)
         try:
             tool.run(ctx, budget)
         except (KeyError, TypeError, ValueError) as exc:
