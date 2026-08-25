@@ -187,12 +187,10 @@ class CveCorrelationTool:
         self._corpus = tuple(corpus)
         self._event_store = event_store
 
-    def applies_to(self, ctx: TargetContext) -> float:
-        del ctx
+    def applies_to(self, _ctx: TargetContext) -> float:
         return self.service.confidence if is_cve_correlation_eligible(self.service) else 0.0
 
-    def run(self, ctx: TargetContext, budget: ResourceBudget) -> ToolResult:
-        del budget
+    def run(self, ctx: TargetContext, _budget: ResourceBudget) -> ToolResult:
         if not self.service.version:
             self._emit_concealed(ctx)
             return ToolResult(
