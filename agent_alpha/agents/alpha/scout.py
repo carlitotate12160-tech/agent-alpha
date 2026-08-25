@@ -70,6 +70,7 @@ from agent_alpha.recon.response_classifier import (  # noqa: F401
     is_json_response,
     is_reload_shell,
 )
+from agent_alpha.recon.service_evidence import detect_and_persist_service_evidence
 from agent_alpha.recon.surface_discovery import extract_api_surface
 from agent_alpha.recon.transport_resilience import classify_mitigation
 from agent_alpha.security.credential_assembly import assemble_leaked_credentials
@@ -1358,35 +1359,8 @@ class Alpha:
         return 1
 
     def _detect_service_evidence(self, resp: Any, url: str) -> int:
-        """Universal service-evidence persistence (S1). Extracts product/version
-        from non-body sources (Header, Cookie, CSP). Idempotent via dedup and
-        deterministic node ids."""
-        from agent_alpha.recon.service_fingerprint import get_merged_service_nodes
-
-        nodes = get_merged_service_nodes(resp, url)
-
-        # §12.67-S1 fingerprint-flank: edge gave no version-bearing nodes on an
-        # edge-fronted host → flank to origin for the real stack (anti-#8: logic
-        # in origin_reach.py, scout stays under GAP-161 ratchet).
-        from agent_alpha.recon.origin_reach import maybe_fingerprint_flank
-
-        nodes = maybe_fingerprint_flank(self, resp, url, nodes)
-
-        nodes_added = 0
-        for sn in nodes:
-            ex = self.graph_store.get_node(sn.id)
-            # Version-priority: never clobber version-bearing with versionless.
-            if (
-                ex
-                and getattr(ex.properties, "version", "")
-                and not getattr(sn.properties, "version", "")
-            ):
-                continue
-            if not ex:
-                nodes_added += 1
-            persist_node(self.event_store, self.graph_store, self._engagement_id, sn, agent="alpha")
-
-        return nodes_added
+        """Delegate S1 service-evidence persistence to its domain collaborator."""
+        return detect_and_persist_service_evidence(self, resp, url)
 
     def _handle_generic_probe(self, resp: Any, url: str) -> int:
         """Record a single ASSET node from headers — never with 'laravel'."""
