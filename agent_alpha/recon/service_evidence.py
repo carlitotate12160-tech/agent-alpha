@@ -17,6 +17,7 @@ def detect_and_persist_service_evidence(alpha: Any, resp: Any, url: str) -> int:
     # edge-fronted host → flank to origin for the real stack.
     nodes = maybe_fingerprint_flank(alpha, resp, url, nodes)
 
+    engagement_id = alpha._engagement_id  # skipcq: PYL-W0212
     nodes_added = 0
     for sn in nodes:
         ex = alpha.graph_store.get_node(sn.id)
@@ -29,6 +30,6 @@ def detect_and_persist_service_evidence(alpha: Any, resp: Any, url: str) -> int:
             continue
         if not ex:
             nodes_added += 1
-        persist_node(alpha.event_store, alpha.graph_store, alpha._engagement_id, sn, agent="alpha")
+        persist_node(alpha.event_store, alpha.graph_store, engagement_id, sn, agent="alpha")
 
     return nodes_added
