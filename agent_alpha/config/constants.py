@@ -54,6 +54,7 @@ __all__ = [
     "SCOPE_ALWAYS_EXCLUDED",
     "REPORT_FORMATS",
     "MITRE_ATTACK_VERSION",
+    "CVE_CORPUS_VERSION",
     "CDN_INFRA_EXCLUDE_PREFIXES",
     "LARAVEL_CREDENTIAL_ENV_KEYS",
     "LARAVEL_CREDENTIAL_SERVICE_MAP",
@@ -266,6 +267,7 @@ SCOPE_ALWAYS_EXCLUDED = [
 # ── Reporting ────────────────────────────────────────────────
 REPORT_FORMATS = ["pdf", "json", "sarif", "md"]
 MITRE_ATTACK_VERSION = "v14"
+CVE_CORPUS_VERSION = "2026-08-25.1"
 
 # ── Laravel Credential Env Keys (SSOT — anti-Lyndon #7) ─────
 # Bounded set of .env keys that constitute leaked credentials when
