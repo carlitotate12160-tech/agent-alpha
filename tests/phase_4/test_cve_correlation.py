@@ -80,23 +80,24 @@ def test_concealed_version_no_hypothesis_and_negative_evidence() -> None:
     assert correlate("nginx", "", corpus=[_record("CVE-TEST-1", kev=True, epss=0.9)]) == []
 
     event_store = InMemoryEventStore()
+    observations: list[str] = []
     dispatch_cve_correlation(
         [_service_node("")],
         host="example.com",
         engagement_id="eng_test",
         event_store=event_store,
         corpus=[_record("CVE-TEST-1", kev=True, epss=0.9)],
+        observe=observations.append,
     )
 
-    events = event_store.get_events("eng_test")
-    negatives = [
-        event
-        for event in events
-        if event.event_type == EventType.RECON_TECHNIQUE_ATTEMPTED
-        and event.payload.get("outcome") == "concealed"
+    assert observations == [
+        "S2 CVE correlation: example.com:443 nginx version CONCEALED, CVE correlation not run"
     ]
-    assert len(negatives) == 1
-    assert negatives[0].payload["negative_evidence"] == "version CONCEALED, CVE correlation not run"
+    assert not [
+        event
+        for event in event_store.get_events("eng_test")
+        if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
+    ]
 
 
 def test_no_network_in_detection() -> None:
@@ -137,6 +138,26 @@ def test_corpus_jsonl_loads_and_is_version_pinned() -> None:
     assert list(Path("data/cve_corpus").glob("*.jsonl"))
 
 
+def test_malformed_corpus_cannot_abort_recon() -> None:
+    from agent_alpha.recon.cve_correlation import dispatch_cve_correlation
+
+    observations: list[str] = []
+    with patch(
+        "agent_alpha.recon.cve_correlation.load_corpus",
+        side_effect=ValueError("corpus version mismatch"),
+    ):
+        emitted = dispatch_cve_correlation(
+            [_service_node("1.18.0")],
+            host="example.com",
+            engagement_id="eng_test",
+            event_store=InMemoryEventStore(),
+            observe=observations.append,
+        )
+
+    assert emitted == 0
+    assert observations == ["S2 CVE correlation unavailable: corpus version mismatch"]
+
+
 def test_plugin_lookup_api_reads_jsonl_corpus() -> None:
     from agent_alpha.recon.plugin_cve_catalog import lookup
 
@@ -144,7 +165,46 @@ def test_plugin_lookup_api_reads_jsonl_corpus() -> None:
 
     assert hit is not None
     assert hit.cve_id == "CVE-2020-25213"
+    assert lookup("wp-file-manager", "5.0") is not None
     assert lookup("wp-file-manager", "7.2") is None
+
+
+def test_correlation_uses_canonical_version_after_versionless_reobservation() -> None:
+    from agent_alpha.agents.alpha.scout import Alpha
+    from agent_alpha.graph.networkx_store import NetworkXGraphStore
+
+    class VersionedResponse:
+        headers = {"server": "nginx/1.18.0"}
+
+    class VersionlessResponse:
+        headers = {"server": "nginx"}
+
+    event_store = InMemoryEventStore()
+    monologue = MagicMock()
+    scout = Alpha(
+        authorization=MagicMock(),
+        graph_store=NetworkXGraphStore(),
+        event_store=event_store,
+        orchestrator=MagicMock(),
+        http_client=MagicMock(),
+        monologue=monologue,
+    )
+    scout._engagement_id = "eng_test"
+
+    scout._detect_service_evidence(VersionedResponse(), "https://example.com/")
+    scout._detect_service_evidence(VersionlessResponse(), "https://example.com/page")
+
+    hypothesis_events = [
+        event
+        for event in event_store.get_events("eng_test")
+        if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
+    ]
+    assert len(hypothesis_events) == 1
+    assert not [
+        call.args[0].message
+        for call in monologue.emit.call_args_list
+        if "version CONCEALED" in call.args[0].message
+    ]
 
 
 def test_run_recon_emits_cve_hypothesis() -> None:

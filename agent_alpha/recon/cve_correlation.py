@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -171,6 +171,9 @@ def correlate(
     )
 
 
+HypothesisKey = tuple[object, object, object, object, object]
+
+
 class CveCorrelationTool:
     name = "cve_correlation"
     phase = "recon"
@@ -182,17 +185,36 @@ class CveCorrelationTool:
         service: ServiceProperties,
         corpus: Iterable[CveCorpusRecord | Mapping[str, object]],
         event_store: Any,
+        existing_hypotheses: set[HypothesisKey],
+        observe: Callable[[str], None] | None,
     ) -> None:
         self.service = service
         self._corpus = tuple(corpus)
         self._event_store = event_store
+        self._existing_hypotheses = existing_hypotheses
+        self._observe = observe
+        self.emitted = 0
 
-    def applies_to(self, _ctx: TargetContext) -> float:
+    def applies_to(self, ctx: TargetContext) -> float:
+        if not ctx.target or self.service.port not in ctx.open_ports:
+            return 0.0
         return self.service.confidence if is_cve_correlation_eligible(self.service) else 0.0
 
-    def run(self, ctx: TargetContext, _budget: ResourceBudget) -> ToolResult:
+    def run(self, ctx: TargetContext, budget: ResourceBudget) -> ToolResult:
+        if budget.max_requests != 0:
+            return ToolResult(
+                tool=self.name,
+                success=False,
+                confidence=0.0,
+                error="offline correlation requires max_requests=0",
+            )
         if not self.service.version:
-            self._emit_concealed(ctx)
+            message = (
+                f"S2 CVE correlation: {ctx.target}:{self.service.port} "
+                f"{self.service.name} version CONCEALED, CVE correlation not run"
+            )
+            if self._observe is not None:
+                self._observe(message)
             return ToolResult(
                 tool=self.name,
                 success=False,
@@ -207,91 +229,45 @@ class CveCorrelationTool:
                 error="service is not CVE-correlation eligible",
             )
 
-        emitted = self._emit_hypotheses(
-            ctx,
-            correlate(self.service.name, self.service.version, corpus=self._corpus),
-        )
+        hypotheses = correlate(self.service.name, self.service.version, corpus=self._corpus)
+        for hypothesis in hypotheses:
+            self._emit_hypothesis(ctx, hypothesis)
         return ToolResult(
             tool=self.name,
             success=False,
             confidence=self.service.confidence,
-            error=f"advisory_only:{emitted}",
+            error=f"advisory_only:{self.emitted}",
         )
 
-    def _emit_concealed(self, ctx: TargetContext) -> None:
-        key = (ctx.target, self.service.port, self.service.name)
-        if key in {
-            (
-                event.payload.get("host"),
-                event.payload.get("port"),
-                event.payload.get("product"),
-            )
-            for event in self._event_store.get_events(ctx.engagement_id)
-            if event.event_type == EventType.RECON_TECHNIQUE_ATTEMPTED
-            and event.payload.get("outcome") == "concealed"
-        }:
+    def _emit_hypothesis(self, ctx: TargetContext, hypothesis: CveHypothesis) -> None:
+        key = (
+            ctx.target,
+            self.service.port,
+            hypothesis.product,
+            hypothesis.version,
+            hypothesis.cve_id,
+        )
+        if key in self._existing_hypotheses:
             return
         self._event_store.append(
-            EventType.RECON_TECHNIQUE_ATTEMPTED,
+            EventType.CVE_HYPOTHESIS_RAISED,
             ctx.engagement_id,
             "alpha",
             {
                 "host": ctx.target,
-                "technique_id": self.name,
-                "product": self.service.name,
                 "port": self.service.port,
-                "outcome": "concealed",
-                "negative_evidence": "version CONCEALED, CVE correlation not run",
+                "product": hypothesis.product,
+                "version": hypothesis.version,
+                "cve_id": hypothesis.cve_id,
+                "cvss": hypothesis.cvss,
+                "kev": hypothesis.kev,
+                "epss": hypothesis.epss,
+                "corpus_version": hypothesis.corpus_version,
+                "tier": "self_verified",
             },
         )
-
-    def _emit_hypotheses(
-        self,
-        ctx: TargetContext,
-        hypotheses: Sequence[CveHypothesis],
-    ) -> int:
-        existing = {
-            (
-                event.payload.get("host"),
-                event.payload.get("port"),
-                event.payload.get("product"),
-                event.payload.get("version"),
-                event.payload.get("cve_id"),
-            )
-            for event in self._event_store.get_events(ctx.engagement_id)
-            if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
-        }
-        emitted = 0
-        for hypothesis in hypotheses:
-            key = (
-                ctx.target,
-                self.service.port,
-                hypothesis.product,
-                hypothesis.version,
-                hypothesis.cve_id,
-            )
-            if key in existing:
-                continue
-            self._event_store.append(
-                EventType.CVE_HYPOTHESIS_RAISED,
-                ctx.engagement_id,
-                "alpha",
-                {
-                    "host": ctx.target,
-                    "port": self.service.port,
-                    "product": hypothesis.product,
-                    "version": hypothesis.version,
-                    "cve_id": hypothesis.cve_id,
-                    "cvss": hypothesis.cvss,
-                    "kev": hypothesis.kev,
-                    "epss": hypothesis.epss,
-                    "corpus_version": hypothesis.corpus_version,
-                    "tier": "self_verified",
-                },
-            )
-            existing.add(key)
-            emitted += 1
-        return emitted
+        self._existing_hypotheses.add(key)
+        self.emitted += 1
 
 
 def dispatch_cve_correlation(
@@ -301,11 +277,35 @@ def dispatch_cve_correlation(
     engagement_id: str,
     event_store: Any,
     corpus: Iterable[CveCorpusRecord | Mapping[str, object]] | None = None,
+    observe: Callable[[str], None] | None = None,
 ) -> int:
     """Rank and run offline recon tools over canonical SERVICE nodes, emitting advisories only."""
-    records = tuple(corpus) if corpus is not None else load_corpus()
+    try:
+        records = tuple(corpus) if corpus is not None else load_corpus()
+    except (OSError, KeyError, TypeError, ValueError) as exc:
+        if observe is not None:
+            observe(f"S2 CVE correlation unavailable: {exc}")
+        return 0
+
+    existing_hypotheses: set[HypothesisKey] = {
+        (
+            event.payload.get("host"),
+            event.payload.get("port"),
+            event.payload.get("product"),
+            event.payload.get("version"),
+            event.payload.get("cve_id"),
+        )
+        for event in event_store.get_events(engagement_id)
+        if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
+    }
     tools = [
-        CveCorrelationTool(node.properties, records, event_store)
+        CveCorrelationTool(
+            node.properties,
+            records,
+            event_store,
+            existing_hypotheses,
+            observe,
+        )
         for node in service_nodes
         if node.type is NodeType.SERVICE and isinstance(node.properties, ServiceProperties)
     ]
@@ -317,17 +317,14 @@ def dispatch_cve_correlation(
         open_ports=tuple(sorted({tool.service.port for tool in tools})),
     )
     budget = ResourceBudget(max_requests=0, max_seconds=0.0, max_cost_usd=0.0)
-    before = sum(
-        1
-        for event in event_store.get_events(engagement_id)
-        if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
-    )
+    emitted = 0
     recon_tools = [tool for tool in tools if tool.phase == "recon"]
     for tool in ToolRegistry(recon_tools).ranked(ctx):
-        tool.run(ctx, budget)
-    after = sum(
-        1
-        for event in event_store.get_events(engagement_id)
-        if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
-    )
-    return after - before
+        try:
+            tool.run(ctx, budget)
+        except (KeyError, TypeError, ValueError) as exc:
+            if observe is not None:
+                observe(f"S2 CVE correlation unavailable for {tool.service.name}: {exc}")
+            continue
+        emitted += tool.emitted
+    return emitted
