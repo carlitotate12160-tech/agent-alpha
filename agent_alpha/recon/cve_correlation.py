@@ -47,10 +47,10 @@ class CveCorpusRecord:
             product=str(value["product"]),
             version_range=version_range,
             cve_id=str(value["cve_id"]),
-            cvss=float(value["cvss"]),
+            cvss=float(str(value["cvss"])),
             cwe=str(value["cwe"]),
             kev=bool(value["kev"]),
-            epss=float(value["epss"]),
+            epss=float(str(value["epss"])),
             summary=str(value["summary"]),
             confirm_probe=confirm_probe,
         )
@@ -320,14 +320,16 @@ def dispatch_cve_correlation(
     )
     budget = ResourceBudget(max_requests=0, max_seconds=0.0, max_cost_usd=0.0)
     before = sum(
-        event.event_type == EventType.CVE_HYPOTHESIS_RAISED
+        1
         for event in event_store.get_events(engagement_id)
+        if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
     )
     recon_tools = [tool for tool in tools if tool.phase == "recon"]
     for tool in ToolRegistry(recon_tools).ranked(ctx):
         tool.run(ctx, budget)
     after = sum(
-        event.event_type == EventType.CVE_HYPOTHESIS_RAISED
+        1
         for event in event_store.get_events(engagement_id)
+        if event.event_type == EventType.CVE_HYPOTHESIS_RAISED
     )
     return after - before
